@@ -78,6 +78,39 @@ export type Database = {
           },
         ]
       }
+      checklists: {
+        Row: {
+          ativo: boolean | null
+          created_at: string
+          id: string
+          itens: Json
+          nome: string
+          obrigatorio: boolean | null
+          tipo_servico: string
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean | null
+          created_at?: string
+          id?: string
+          itens?: Json
+          nome: string
+          obrigatorio?: boolean | null
+          tipo_servico: string
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean | null
+          created_at?: string
+          id?: string
+          itens?: Json
+          nome?: string
+          obrigatorio?: boolean | null
+          tipo_servico?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       ordens_servico: {
         Row: {
           cliente_cpf: string | null
@@ -151,6 +184,69 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      poligonos: {
+        Row: {
+          ativo: boolean | null
+          coordenadas: Json
+          cor: string | null
+          created_at: string
+          id: string
+          nome: string
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean | null
+          coordenadas?: Json
+          cor?: string | null
+          created_at?: string
+          id?: string
+          nome: string
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean | null
+          coordenadas?: Json
+          cor?: string | null
+          created_at?: string
+          id?: string
+          nome?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      pontos_saida: {
+        Row: {
+          ativo: boolean | null
+          created_at: string
+          endereco: string
+          id: string
+          latitude: number | null
+          longitude: number | null
+          nome: string
+          updated_at: string
+        }
+        Insert: {
+          ativo?: boolean | null
+          created_at?: string
+          endereco: string
+          id?: string
+          latitude?: number | null
+          longitude?: number | null
+          nome: string
+          updated_at?: string
+        }
+        Update: {
+          ativo?: boolean | null
+          created_at?: string
+          endereco?: string
+          id?: string
+          latitude?: number | null
+          longitude?: number | null
+          nome?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       profiles: {
         Row: {

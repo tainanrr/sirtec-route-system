@@ -13,6 +13,10 @@ import OrdensServico from "./pages/OrdensServico";
 import Equipes from "./pages/Equipes";
 import Relatorios from "./pages/Relatorios";
 import NotFound from "./pages/NotFound";
+import CadastroTecnicos from "./pages/cadastros/CadastroTecnicos";
+import CadastroPontosSaida from "./pages/cadastros/CadastroPontosSaida";
+import CadastroPoligonos from "./pages/cadastros/CadastroPoligonos";
+import CadastroChecklists from "./pages/cadastros/CadastroChecklists";
 
 const queryClient = new QueryClient();
 
@@ -31,6 +35,10 @@ const App = () => (
             <Route path="/ordens-servico" element={<ProtectedRoute><OrdensServico /></ProtectedRoute>} />
             <Route path="/equipes" element={<ProtectedRoute><Equipes /></ProtectedRoute>} />
             <Route path="/relatorios" element={<ProtectedRoute><Relatorios /></ProtectedRoute>} />
+            <Route path="/cadastros/tecnicos" element={<ProtectedRoute><CadastroTecnicos /></ProtectedRoute>} />
+            <Route path="/cadastros/pontos-saida" element={<ProtectedRoute><CadastroPontosSaida /></ProtectedRoute>} />
+            <Route path="/cadastros/poligonos" element={<ProtectedRoute><CadastroPoligonos /></ProtectedRoute>} />
+            <Route path="/cadastros/checklists" element={<ProtectedRoute><CadastroChecklists /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
