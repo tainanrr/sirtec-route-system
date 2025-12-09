@@ -14,7 +14,251 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      alertas: {
+        Row: {
+          created_at: string
+          descricao: string | null
+          id: string
+          ordem_servico_id: string | null
+          resolvido: boolean | null
+          resolvido_at: string | null
+          resolvido_por: string | null
+          severidade: string
+          tecnico_id: string | null
+          tipo: string
+          titulo: string
+        }
+        Insert: {
+          created_at?: string
+          descricao?: string | null
+          id?: string
+          ordem_servico_id?: string | null
+          resolvido?: boolean | null
+          resolvido_at?: string | null
+          resolvido_por?: string | null
+          severidade?: string
+          tecnico_id?: string | null
+          tipo: string
+          titulo: string
+        }
+        Update: {
+          created_at?: string
+          descricao?: string | null
+          id?: string
+          ordem_servico_id?: string | null
+          resolvido?: boolean | null
+          resolvido_at?: string | null
+          resolvido_por?: string | null
+          severidade?: string
+          tecnico_id?: string | null
+          tipo?: string
+          titulo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "alertas_ordem_servico_id_fkey"
+            columns: ["ordem_servico_id"]
+            isOneToOne: false
+            referencedRelation: "ordens_servico"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "alertas_resolvido_por_fkey"
+            columns: ["resolvido_por"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "alertas_tecnico_id_fkey"
+            columns: ["tecnico_id"]
+            isOneToOne: false
+            referencedRelation: "tecnicos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ordens_servico: {
+        Row: {
+          cliente_cpf: string | null
+          cliente_nome: string | null
+          created_at: string
+          duracao_estimada: number | null
+          endereco: string
+          id: string
+          instalacao: string | null
+          latitude: number | null
+          longitude: number | null
+          medidor: string | null
+          numero: string
+          observacoes: string | null
+          prazo: string | null
+          regulada: boolean | null
+          status: string
+          tecnico_id: string | null
+          tipo: string
+          updated_at: string
+          valor: number | null
+        }
+        Insert: {
+          cliente_cpf?: string | null
+          cliente_nome?: string | null
+          created_at?: string
+          duracao_estimada?: number | null
+          endereco: string
+          id?: string
+          instalacao?: string | null
+          latitude?: number | null
+          longitude?: number | null
+          medidor?: string | null
+          numero: string
+          observacoes?: string | null
+          prazo?: string | null
+          regulada?: boolean | null
+          status?: string
+          tecnico_id?: string | null
+          tipo: string
+          updated_at?: string
+          valor?: number | null
+        }
+        Update: {
+          cliente_cpf?: string | null
+          cliente_nome?: string | null
+          created_at?: string
+          duracao_estimada?: number | null
+          endereco?: string
+          id?: string
+          instalacao?: string | null
+          latitude?: number | null
+          longitude?: number | null
+          medidor?: string | null
+          numero?: string
+          observacoes?: string | null
+          prazo?: string | null
+          regulada?: boolean | null
+          status?: string
+          tecnico_id?: string | null
+          tipo?: string
+          updated_at?: string
+          valor?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ordens_servico_tecnico_id_fkey"
+            columns: ["tecnico_id"]
+            isOneToOne: false
+            referencedRelation: "tecnicos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          cargo: string | null
+          created_at: string
+          id: string
+          nome_completo: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          cargo?: string | null
+          created_at?: string
+          id?: string
+          nome_completo?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          avatar_url?: string | null
+          cargo?: string | null
+          created_at?: string
+          id?: string
+          nome_completo?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      rotas: {
+        Row: {
+          created_at: string
+          data: string
+          distancia_km: number | null
+          duracao_estimada: string | null
+          faturamento_estimado: number | null
+          id: string
+          status: string
+          tecnico_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          data: string
+          distancia_km?: number | null
+          duracao_estimada?: string | null
+          faturamento_estimado?: number | null
+          id?: string
+          status?: string
+          tecnico_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          data?: string
+          distancia_km?: number | null
+          duracao_estimada?: string | null
+          faturamento_estimado?: number | null
+          id?: string
+          status?: string
+          tecnico_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rotas_tecnico_id_fkey"
+            columns: ["tecnico_id"]
+            isOneToOne: false
+            referencedRelation: "tecnicos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tecnicos: {
+        Row: {
+          codigo: string
+          created_at: string
+          habilidades: string[] | null
+          id: string
+          nome: string
+          status: string
+          telefone: string | null
+          updated_at: string
+        }
+        Insert: {
+          codigo: string
+          created_at?: string
+          habilidades?: string[] | null
+          id?: string
+          nome: string
+          status?: string
+          telefone?: string | null
+          updated_at?: string
+        }
+        Update: {
+          codigo?: string
+          created_at?: string
+          habilidades?: string[] | null
+          id?: string
+          nome?: string
+          status?: string
+          telefone?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

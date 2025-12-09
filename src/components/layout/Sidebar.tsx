@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   MapPin,
@@ -20,6 +20,7 @@ import {
   CheckSquare,
   Menu,
   X,
+  LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface NavItem {
   icon: React.ElementType;
@@ -63,6 +65,8 @@ interface SidebarProps {
 
 export function Sidebar({ isDark, setIsDark }: SidebarProps) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, signOut } = useAuth();
   const [openCadastros, setOpenCadastros] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
@@ -71,6 +75,21 @@ export function Sidebar({ isDark, setIsDark }: SidebarProps) {
     if (href === "/") return location.pathname === "/";
     return location.pathname.startsWith(href);
   };
+
+  const handleLogout = async () => {
+    await signOut();
+    navigate("/login");
+  };
+
+  // Get user initials and display name
+  const userEmail = user?.email || "";
+  const userName = user?.user_metadata?.nome_completo || userEmail.split("@")[0];
+  const userInitials = userName
+    .split(" ")
+    .map((n: string) => n[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
 
   const SidebarContent = () => (
     <div className="flex h-full flex-col bg-sidebar">
@@ -162,12 +181,19 @@ export function Sidebar({ isDark, setIsDark }: SidebarProps) {
         
         <div className="flex items-center gap-3 rounded-lg bg-sidebar-accent p-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-semibold">
-            JS
+            {userInitials}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-sidebar-foreground truncate">João Silva</p>
-            <p className="text-xs text-muted-foreground truncate">Gestor Operacional</p>
+            <p className="text-sm font-medium text-sidebar-foreground truncate">{userName}</p>
+            <p className="text-xs text-muted-foreground truncate">{userEmail}</p>
           </div>
+          <button
+            onClick={handleLogout}
+            className="p-1.5 rounded-md hover:bg-sidebar-border transition-colors text-muted-foreground hover:text-danger"
+            title="Sair"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
         </div>
       </div>
     </div>
