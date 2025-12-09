@@ -78,6 +78,51 @@ export type Database = {
           },
         ]
       }
+      checklist_respostas: {
+        Row: {
+          checklist_id: string
+          concluido: boolean | null
+          created_at: string
+          id: string
+          ordem_servico_id: string
+          respostas: Json
+          updated_at: string
+        }
+        Insert: {
+          checklist_id: string
+          concluido?: boolean | null
+          created_at?: string
+          id?: string
+          ordem_servico_id: string
+          respostas?: Json
+          updated_at?: string
+        }
+        Update: {
+          checklist_id?: string
+          concluido?: boolean | null
+          created_at?: string
+          id?: string
+          ordem_servico_id?: string
+          respostas?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "checklist_respostas_checklist_id_fkey"
+            columns: ["checklist_id"]
+            isOneToOne: false
+            referencedRelation: "checklists"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "checklist_respostas_ordem_servico_id_fkey"
+            columns: ["ordem_servico_id"]
+            isOneToOne: false
+            referencedRelation: "ordens_servico"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       checklists: {
         Row: {
           ativo: boolean | null
@@ -111,24 +156,104 @@ export type Database = {
         }
         Relationships: []
       }
+      ordem_anexos: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          descricao: string | null
+          id: string
+          ordem_servico_id: string
+          tipo: string
+          url: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          descricao?: string | null
+          id?: string
+          ordem_servico_id: string
+          tipo: string
+          url: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          descricao?: string | null
+          id?: string
+          ordem_servico_id?: string
+          tipo?: string
+          url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ordem_anexos_ordem_servico_id_fkey"
+            columns: ["ordem_servico_id"]
+            isOneToOne: false
+            referencedRelation: "ordens_servico"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ordem_materiais: {
+        Row: {
+          codigo: string | null
+          created_at: string
+          id: string
+          observacao: string | null
+          ordem_servico_id: string
+          quantidade: number | null
+          tipo: string
+        }
+        Insert: {
+          codigo?: string | null
+          created_at?: string
+          id?: string
+          observacao?: string | null
+          ordem_servico_id: string
+          quantidade?: number | null
+          tipo: string
+        }
+        Update: {
+          codigo?: string | null
+          created_at?: string
+          id?: string
+          observacao?: string | null
+          ordem_servico_id?: string
+          quantidade?: number | null
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ordem_materiais_ordem_servico_id_fkey"
+            columns: ["ordem_servico_id"]
+            isOneToOne: false
+            referencedRelation: "ordens_servico"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ordens_servico: {
         Row: {
           cliente_cpf: string | null
           cliente_nome: string | null
+          concluido_at: string | null
           created_at: string
           duracao_estimada: number | null
           endereco: string
           id: string
+          iniciado_at: string | null
           instalacao: string | null
           latitude: number | null
           longitude: number | null
           medidor: string | null
           numero: string
           observacoes: string | null
+          pausado_at: string | null
           prazo: string | null
           regulada: boolean | null
           status: string
           tecnico_id: string | null
+          tempo_total_minutos: number | null
           tipo: string
           updated_at: string
           valor: number | null
@@ -136,20 +261,24 @@ export type Database = {
         Insert: {
           cliente_cpf?: string | null
           cliente_nome?: string | null
+          concluido_at?: string | null
           created_at?: string
           duracao_estimada?: number | null
           endereco: string
           id?: string
+          iniciado_at?: string | null
           instalacao?: string | null
           latitude?: number | null
           longitude?: number | null
           medidor?: string | null
           numero: string
           observacoes?: string | null
+          pausado_at?: string | null
           prazo?: string | null
           regulada?: boolean | null
           status?: string
           tecnico_id?: string | null
+          tempo_total_minutos?: number | null
           tipo: string
           updated_at?: string
           valor?: number | null
@@ -157,20 +286,24 @@ export type Database = {
         Update: {
           cliente_cpf?: string | null
           cliente_nome?: string | null
+          concluido_at?: string | null
           created_at?: string
           duracao_estimada?: number | null
           endereco?: string
           id?: string
+          iniciado_at?: string | null
           instalacao?: string | null
           latitude?: number | null
           longitude?: number | null
           medidor?: string | null
           numero?: string
           observacoes?: string | null
+          pausado_at?: string | null
           prazo?: string | null
           regulada?: boolean | null
           status?: string
           tecnico_id?: string | null
+          tempo_total_minutos?: number | null
           tipo?: string
           updated_at?: string
           valor?: number | null
