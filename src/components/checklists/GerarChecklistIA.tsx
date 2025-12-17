@@ -366,16 +366,22 @@ Ações de condição: mostrar, ocultar, obrigar, desobrigar, exigir_foto, exigi
 
       if (aiProvider === "gemini") {
         // Chamada para Google Gemini API
-        // Tentar primeiro com gemini-1.5-flash (mais disponível), depois gemini-pro
-        const modelos = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
+        // Tentar múltiplos modelos e versões de API
+        const tentativas = [
+          { versao: "v1beta", modelo: "gemini-2.0-flash-exp" },
+          { versao: "v1beta", modelo: "gemini-1.5-flash-latest" },
+          { versao: "v1beta", modelo: "gemini-1.5-flash" },
+          { versao: "v1", modelo: "gemini-pro" },
+          { versao: "v1beta", modelo: "gemini-pro" },
+        ];
         let response: Response | null = null;
         let ultimoErro = "";
 
-        for (const modelo of modelos) {
+        for (const { versao, modelo } of tentativas) {
           try {
-            setProgressMessage(`Tentando com ${modelo}...`);
+            setProgressMessage(`Tentando ${modelo} (${versao})...`);
             response = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${apiKey}`,
+              `https://generativelanguage.googleapis.com/${versao}/models/${modelo}:generateContent?key=${apiKey}`,
               {
                 method: "POST",
                 headers: {
@@ -400,27 +406,30 @@ Ações de condição: mostrar, ocultar, obrigar, desobrigar, exigir_foto, exigi
             );
 
             if (response.ok) {
+              console.log(`Modelo ${modelo} (${versao}) funcionou!`);
               break; // Modelo funcionou!
             } else {
               const errorData = await response.json();
               ultimoErro = errorData.error?.message || `Erro com modelo ${modelo}`;
+              console.log(`Modelo ${modelo} (${versao}) falhou:`, ultimoErro);
               response = null;
             }
           } catch (e: any) {
             ultimoErro = e.message;
+            console.log(`Exceção com modelo ${modelo}:`, ultimoErro);
             response = null;
           }
         }
 
         if (!response || !response.ok) {
-          throw new Error(ultimoErro || "Nenhum modelo Gemini disponível");
+          throw new Error(`Nenhum modelo Gemini disponível. Último erro: ${ultimoErro}`);
         }
 
         const data = await response.json();
         conteudo = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
         if (!conteudo) {
-          throw new Error("Resposta vazia do Gemini");
+          throw new Error("Resposta vazia do Gemini. Verifique se sua chave API está correta.");
         }
       } else {
         // Chamada para OpenAI API
