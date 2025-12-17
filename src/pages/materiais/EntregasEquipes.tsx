@@ -1352,6 +1352,8 @@ export default function EntregasEquipes() {
                         })}
                       </div>
                     )}
+                  </div>
+                )}
               </div>
             )}
           </DialogContent>
