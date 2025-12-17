@@ -40,6 +40,7 @@ import {
   Hash,
   FileDown,
   Loader2,
+  Printer,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -72,6 +73,7 @@ export default function ConsultaChecklists() {
   const [currentPage, setCurrentPage] = useState(0);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [generatingPdfId, setGeneratingPdfId] = useState<string | null>(null);
 
   // Buscar contagem total de registros
   const { data: totalCount } = useQuery({
@@ -93,9 +95,31 @@ export default function ConsultaChecklists() {
 
   // Buscar respostas de checklists com paginação - QUERY LEVE
   const { data: respostas, isLoading } = useQuery({
-    queryKey: ["checklist-respostas", filtroTipo, filtroStatus, currentPage],
+    queryKey: ["checklist-respostas", filtroTipo, filtroStatus, currentPage, searchTerm],
     queryFn: async () => {
-      // Query simplificada - só campos necessários para a listagem
+      // Se a busca começa com #, buscar por código único
+      if (searchTerm.startsWith('#')) {
+        const codigoNumero = parseInt(searchTerm.slice(1), 10);
+        if (!isNaN(codigoNumero)) {
+          const { data, error } = await supabase
+            .from("checklist_respostas")
+            .select(`
+              id,
+              status,
+              created_at,
+              codigo_unico,
+              checklists (nome, tipo),
+              ordens_servico (numero, tipo),
+              tecnicos:equipe_id (codigo, nome)
+            `)
+            .eq("codigo_unico", codigoNumero);
+
+          if (error) throw error;
+          return data as ChecklistRespostaSimples[];
+        }
+      }
+
+      // Query normal
       let query = supabase
         .from("checklist_respostas")
         .select(`
@@ -144,9 +168,9 @@ export default function ConsultaChecklists() {
     },
   });
 
-  // Filtrar por termo de busca (client-side)
+  // Filtrar por termo de busca (client-side) - exceto se começa com #
   const respostasFiltradas = respostas?.filter(r => {
-    if (!searchTerm) return true;
+    if (!searchTerm || searchTerm.startsWith('#')) return true;
     const termo = searchTerm.toLowerCase();
     return (
       r.checklists?.nome?.toLowerCase().includes(termo) ||
@@ -165,6 +189,14 @@ export default function ConsultaChecklists() {
   // Abrir detalhes na guia atual
   const abrirGuiaAtual = (id: string) => {
     navigate(`/consulta-checklists/${id}`);
+  };
+
+  // Gerar PDF individual
+  const gerarPdfIndividual = async (id: string) => {
+    setGeneratingPdfId(id);
+    // Abrir em nova guia com parâmetro para auto-print
+    window.open(`/consulta-checklists/${id}?print=true`, '_blank');
+    setTimeout(() => setGeneratingPdfId(null), 1000);
   };
 
   // Calcular total de páginas
@@ -215,28 +247,47 @@ export default function ConsultaChecklists() {
     }
   };
 
-  // Download em massa
-  const handleDownloadMassa = async () => {
+  // Abrir selecionados em massa
+  const handleAbrirMassa = async () => {
+    if (selectedIds.size === 0) {
+      toast.error("Selecione pelo menos um checklist");
+      return;
+    }
+
+    toast.loading(`Abrindo ${selectedIds.size} checklist(s)...`, { id: "abrir-massa" });
+
+    try {
+      for (const id of selectedIds) {
+        window.open(`/consulta-checklists/${id}`, '_blank');
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+      
+      toast.success(`${selectedIds.size} checklist(s) aberto(s)`, { id: "abrir-massa" });
+    } catch (error) {
+      toast.error("Erro ao abrir checklists", { id: "abrir-massa" });
+    }
+  };
+
+  // Gerar PDF em massa
+  const handleGerarPdfMassa = async () => {
     if (selectedIds.size === 0) {
       toast.error("Selecione pelo menos um checklist");
       return;
     }
 
     setDownloadingPdf(true);
-    toast.loading(`Gerando PDFs de ${selectedIds.size} checklist(s)...`, { id: "download-massa" });
+    toast.loading(`Gerando PDFs de ${selectedIds.size} checklist(s)...`, { id: "pdf-massa" });
 
     try {
-      // Abrir cada checklist em nova guia para impressão
       for (const id of selectedIds) {
-        window.open(`/consulta-checklists/${id}`, '_blank');
-        // Pequeno delay para não sobrecarregar
-        await new Promise(resolve => setTimeout(resolve, 300));
+        window.open(`/consulta-checklists/${id}?print=true`, '_blank');
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
       
-      toast.success(`${selectedIds.size} checklist(s) aberto(s). Use Ctrl+P em cada um para gerar PDF.`, { id: "download-massa" });
+      toast.success(`${selectedIds.size} PDF(s) gerado(s). Use Ctrl+P em cada janela para salvar.`, { id: "pdf-massa" });
       setSelectedIds(new Set());
     } catch (error) {
-      toast.error("Erro ao abrir checklists", { id: "download-massa" });
+      toast.error("Erro ao gerar PDFs", { id: "pdf-massa" });
     }
 
     setDownloadingPdf(false);
@@ -261,18 +312,27 @@ export default function ConsultaChecklists() {
           </p>
         </div>
         {selectedIds.size > 0 && (
-          <Button
-            onClick={handleDownloadMassa}
-            disabled={downloadingPdf}
-            className="bg-violet-600 hover:bg-violet-700"
-          >
-            {downloadingPdf ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <FileDown className="h-4 w-4 mr-2" />
-            )}
-            Abrir {selectedIds.size} selecionado(s)
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={handleAbrirMassa}
+            >
+              <ExternalLink className="h-4 w-4 mr-2" />
+              Abrir {selectedIds.size}
+            </Button>
+            <Button
+              onClick={handleGerarPdfMassa}
+              disabled={downloadingPdf}
+              className="bg-violet-600 hover:bg-violet-700"
+            >
+              {downloadingPdf ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <FileDown className="h-4 w-4 mr-2" />
+              )}
+              Gerar PDF ({selectedIds.size})
+            </Button>
+          </div>
         )}
       </div>
 
@@ -284,12 +344,17 @@ export default function ConsultaChecklists() {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Buscar por código, OS, equipe, cliente..."
+                  placeholder="Buscar... (use #número para buscar por código)"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10"
                 />
               </div>
+              {searchTerm.startsWith('#') && (
+                <p className="text-xs text-violet-600 mt-1 ml-1">
+                  🔍 Buscando exclusivamente pelo código único #{searchTerm.slice(1)}
+                </p>
+              )}
             </div>
             <Select value={filtroTipo} onValueChange={(v) => handleFiltroChange("tipo", v)}>
               <SelectTrigger className="w-[180px]">
@@ -325,13 +390,13 @@ export default function ConsultaChecklists() {
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg">
               Checklists Preenchidos
-              {totalCount !== undefined && (
+              {totalCount !== undefined && !searchTerm.startsWith('#') && (
                 <Badge variant="secondary" className="ml-2">
                   {totalCount}
                 </Badge>
               )}
             </CardTitle>
-            {totalPages > 1 && (
+            {totalPages > 1 && !searchTerm.startsWith('#') && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 Página {currentPage + 1} de {totalPages}
               </div>
@@ -459,6 +524,19 @@ export default function ConsultaChecklists() {
                             >
                               <ExternalLink className="h-4 w-4" />
                             </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => gerarPdfIndividual(resposta.id)}
+                              title="Gerar PDF"
+                              disabled={generatingPdfId === resposta.id}
+                            >
+                              {generatingPdfId === resposta.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Printer className="h-4 w-4" />
+                              )}
+                            </Button>
                           </div>
                         </TableCell>
                     </TableRow>
@@ -467,7 +545,7 @@ export default function ConsultaChecklists() {
               </Table>
 
               {/* Paginação */}
-              {totalPages > 1 && (
+              {totalPages > 1 && !searchTerm.startsWith('#') && (
                 <div className="flex items-center justify-between mt-4 pt-4 border-t">
                   <div className="text-sm text-muted-foreground">
                     Mostrando {currentPage * ITEMS_PER_PAGE + 1} - {Math.min((currentPage + 1) * ITEMS_PER_PAGE, totalCount || 0)} de {totalCount} registros
@@ -523,7 +601,12 @@ export default function ConsultaChecklists() {
           ) : (
             <div className="text-center py-12">
               <ClipboardCheck className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <p className="text-muted-foreground">Nenhum checklist encontrado</p>
+              <p className="text-muted-foreground">
+                {searchTerm.startsWith('#') 
+                  ? `Nenhum checklist encontrado com o código ${searchTerm}`
+                  : "Nenhum checklist encontrado"
+                }
+              </p>
             </div>
           )}
         </CardContent>

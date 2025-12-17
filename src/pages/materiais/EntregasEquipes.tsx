@@ -523,7 +523,8 @@ export default function EntregasEquipes() {
 
   // Handler para abrir visualização
   const handleViewEntrega = async (entrega: Entrega) => {
-                                handleViewEntrega(entrega);
+    setSelectedEntrega(entrega);
+    setViewDialog(true);
     
     // Se a entrega foi confirmada, buscar respostas do checklist
     if (entrega.status === "confirmado" || entrega.status === "recebida") {

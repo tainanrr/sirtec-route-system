@@ -1,5 +1,5 @@
-import { useState, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useState, useRef, useEffect } from "react";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
@@ -87,6 +87,7 @@ interface MaterialEntrega {
 export default function ChecklistDetalhes() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const printRef = useRef<HTMLDivElement>(null);
   const [fotoViewer, setFotoViewer] = useState<FotoViewer>({
     open: false,
@@ -94,6 +95,7 @@ export default function ChecklistDetalhes() {
     currentIndex: 0,
   });
   const [geratingPdf, setGeratingPdf] = useState(false);
+  const [autoPrintExecuted, setAutoPrintExecuted] = useState(false);
 
   // Query 1: Dados básicos (RÁPIDA) - carrega primeiro para mostrar o header
   const { data: dadosBasicos, isLoading: loadingBasicos } = useQuery({
@@ -138,29 +140,40 @@ export default function ChecklistDetalhes() {
 
   // Query 3: Buscar materiais da entrega (se for checklist de recebimento)
   const { data: materiaisEntrega } = useQuery({
-    queryKey: ["checklist-materiais-entrega", id, respostasData],
+    queryKey: ["checklist-materiais-entrega", id, dadosBasicos?.tecnicos, dadosBasicos?.created_at],
     queryFn: async () => {
-      // Verificar se tem entrega_id nas respostas
-      let entregaId: string | null = null;
+      // Buscar a entrega mais recente confirmada para esta equipe próxima à data do checklist
+      const equipeId = (dadosBasicos?.tecnicos as any)?.id;
+      const dataChecklist = dadosBasicos?.created_at;
       
-      if (respostasData) {
-        // Procurar entrega_id nas respostas
-        if (typeof respostasData === 'object') {
-          for (const key of Object.keys(respostasData)) {
-            const resp = respostasData[key];
-            if (resp?.resposta && typeof resp.resposta === 'string' && resp.resposta.includes('Entrega ID:')) {
-              entregaId = resp.resposta.replace('Entrega ID:', '').trim();
-              break;
-            }
-          }
-          // Também verificar se tem entrega_id diretamente
-          if (!entregaId && (respostasData as any).entrega_id) {
-            entregaId = (respostasData as any).entrega_id;
-          }
-        }
+      if (!equipeId || !dataChecklist) return null;
+
+      // Buscar entregas confirmadas para esta equipe
+      const { data: entregas, error: entregasError } = await supabase
+        .from("materiais_entregas")
+        .select("id, data_entrega, data_confirmacao, observacao")
+        .eq("equipe_id", equipeId)
+        .eq("status", "confirmado")
+        .order("data_confirmacao", { ascending: false })
+        .limit(5);
+
+      if (entregasError || !entregas || entregas.length === 0) {
+        return null;
       }
 
-      if (!entregaId) return null;
+      // Encontrar a entrega mais próxima da data do checklist
+      const dataCheck = new Date(dataChecklist).getTime();
+      let entregaMaisProxima = entregas[0];
+      let menorDiferenca = Math.abs(new Date(entregas[0].data_confirmacao || entregas[0].data_entrega).getTime() - dataCheck);
+      
+      for (const entrega of entregas) {
+        const dataEntrega = new Date(entrega.data_confirmacao || entrega.data_entrega).getTime();
+        const diferenca = Math.abs(dataEntrega - dataCheck);
+        if (diferenca < menorDiferenca) {
+          menorDiferenca = diferenca;
+          entregaMaisProxima = entrega;
+        }
+      }
 
       // Buscar itens da entrega
       const { data: itens, error } = await supabase
@@ -171,24 +184,48 @@ export default function ChecklistDetalhes() {
           numero_serie,
           materiais (codigo, nome, unidade)
         `)
-        .eq("entrega_id", entregaId);
+        .eq("entrega_id", entregaMaisProxima.id);
 
       if (error) {
         console.error("Erro ao buscar materiais:", error);
         return null;
       }
 
-      // Buscar dados da entrega
-      const { data: entrega } = await supabase
-        .from("materiais_entregas")
-        .select("data_entrega, observacao")
-        .eq("id", entregaId)
-        .single();
-
-      return { itens: itens as MaterialEntrega[], entrega };
+      return { 
+        itens: itens as MaterialEntrega[], 
+        entrega: entregaMaisProxima 
+      };
     },
-    enabled: !!id && !!respostasData && dadosBasicos?.checklists?.tipo === "recebimento_materiais",
+    enabled: !!id && !!dadosBasicos && dadosBasicos?.checklists?.tipo === "recebimento_materiais",
   });
+
+  // Função para gerar HTML das fotos
+  const gerarHtmlFotos = (fotos: any[]) => {
+    if (!fotos || fotos.length === 0) return '';
+    return `
+      <div class="fotos-grid">
+        ${fotos.map((foto, idx) => `
+          <div class="foto-item">
+            <img src="${foto.url}" alt="Foto ${idx + 1}" />
+            ${foto.data_hora || foto.dataHora ? `<p class="foto-info">📅 ${foto.data_hora || foto.dataHora}</p>` : ''}
+            ${foto.latitude && foto.longitude ? `<p class="foto-info">📍 ${foto.latitude.toFixed(4)}, ${foto.longitude.toFixed(4)}</p>` : ''}
+          </div>
+        `).join('')}
+      </div>
+    `;
+  };
+
+  // Função para gerar HTML da assinatura
+  const gerarHtmlAssinatura = (assinaturaUrl: string, dataHora?: string, lat?: number, lng?: number) => {
+    if (!assinaturaUrl) return '';
+    return `
+      <div class="assinatura-container">
+        <img src="${assinaturaUrl}" alt="Assinatura" class="assinatura-img" />
+        ${dataHora ? `<p class="foto-info">📅 ${dataHora}</p>` : ''}
+        ${lat && lng ? `<p class="foto-info">📍 ${lat.toFixed(4)}, ${lng.toFixed(4)}</p>` : ''}
+      </div>
+    `;
+  };
 
   // Função para gerar PDF
   const handleGerarPDF = async () => {
@@ -196,28 +233,72 @@ export default function ChecklistDetalhes() {
     toast.loading("Gerando PDF...", { id: "pdf" });
 
     try {
-      // Criar conteúdo HTML para impressão
-      const content = printRef.current;
-      if (!content) {
-        throw new Error("Conteúdo não encontrado");
-      }
-
-      // Abrir janela de impressão
-      const printWindow = window.open('', '_blank');
-      if (!printWindow) {
-        throw new Error("Não foi possível abrir a janela de impressão. Verifique se popups estão habilitados.");
-      }
-
       const codigoUnico = (dadosBasicos as any)?.codigo_unico || '-';
       const nomeChecklist = dadosBasicos?.checklists?.nome || 'Checklist';
       const dataChecklist = dadosBasicos?.created_at 
         ? format(new Date(dadosBasicos.created_at), "dd/MM/yyyy HH:mm")
         : '';
 
-      printWindow.document.write(`
+      // Gerar conteúdo das perguntas com fotos
+      let perguntasHtml = '';
+      if (grupos && grupos.length > 0) {
+        perguntasHtml = grupos.map(grupo => {
+          const perguntasContent = grupo.perguntas.map((pergunta, idx) => {
+            const resposta = respostasMap[pergunta.id];
+            let respostaHtml = '<span style="color: #999;">Não respondida</span>';
+            
+            if (resposta) {
+              if (pergunta.tipo === 'foto') {
+                const fotos = resposta.fotos || [];
+                if (fotos.length > 0) {
+                  respostaHtml = gerarHtmlFotos(fotos);
+                } else if (resposta.foto_url) {
+                  respostaHtml = gerarHtmlFotos([{ url: resposta.foto_url, data_hora: resposta.foto_data_hora, latitude: resposta.foto_latitude, longitude: resposta.foto_longitude }]);
+                } else {
+                  respostaHtml = '<span style="color: #999;">Sem foto</span>';
+                }
+              } else if (pergunta.tipo === 'assinatura') {
+                if (resposta.assinatura_url) {
+                  respostaHtml = gerarHtmlAssinatura(resposta.assinatura_url, resposta.assinatura_data_hora, resposta.assinatura_latitude, resposta.assinatura_longitude);
+                } else {
+                  respostaHtml = '<span style="color: #999;">Sem assinatura</span>';
+                }
+              } else if (pergunta.tipo === 'sim_nao') {
+                respostaHtml = resposta.resposta === 'sim'
+                  ? '<span class="badge badge-green">Sim</span>'
+                  : resposta.resposta === 'nao'
+                    ? '<span class="badge badge-red">Não</span>'
+                    : String(resposta.resposta || '-');
+              } else {
+                respostaHtml = String(resposta.resposta || '-');
+              }
+            }
+
+            return `
+              <div class="pergunta">
+                <div class="pergunta-texto">
+                  <span class="pergunta-numero">${grupo.ordem || 1}.${idx + 1}</span>
+                  ${pergunta.texto}
+                </div>
+                <div class="pergunta-resposta">${respostaHtml}</div>
+              </div>
+            `;
+          }).join('');
+
+          return `
+            <div class="section">
+              <div class="section-header">${grupo.nome}</div>
+              <div class="section-content">${perguntasContent}</div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      const htmlContent = `
         <!DOCTYPE html>
         <html>
           <head>
+            <meta charset="UTF-8">
             <title>Checklist #${codigoUnico} - ${nomeChecklist}</title>
             <style>
               * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -276,6 +357,7 @@ export default function ChecklistDetalhes() {
                 border: 1px solid #e5e7eb; 
                 border-radius: 6px;
                 overflow: hidden;
+                page-break-inside: avoid;
               }
               .section-header { 
                 background: #f9fafb; 
@@ -287,6 +369,7 @@ export default function ChecklistDetalhes() {
               .pergunta { 
                 border-bottom: 1px solid #f3f4f6; 
                 padding: 10px 0;
+                page-break-inside: avoid;
               }
               .pergunta:last-child { border-bottom: none; }
               .pergunta-numero { 
@@ -312,12 +395,35 @@ export default function ChecklistDetalhes() {
               }
               .badge-green { background: #dcfce7; color: #166534; }
               .badge-red { background: #fee2e2; color: #991b1b; }
-              .foto-placeholder {
-                background: #f3f4f6;
-                padding: 10px;
+              .fotos-grid {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+              }
+              .foto-item {
+                max-width: 200px;
+              }
+              .foto-item img {
+                max-width: 100%;
+                height: auto;
                 border-radius: 4px;
+                border: 1px solid #e5e7eb;
+              }
+              .foto-info {
+                font-size: 9px;
                 color: #666;
-                font-style: italic;
+                margin-top: 2px;
+              }
+              .assinatura-container {
+                max-width: 300px;
+              }
+              .assinatura-img {
+                max-width: 100%;
+                height: auto;
+                border: 1px solid #e5e7eb;
+                border-radius: 4px;
+                background: white;
+                padding: 5px;
               }
               table { 
                 width: 100%; 
@@ -342,6 +448,7 @@ export default function ChecklistDetalhes() {
               @media print {
                 body { padding: 10px; }
                 .section { page-break-inside: avoid; }
+                .foto-item img { max-height: 150px; }
               }
             </style>
           </head>
@@ -415,50 +522,7 @@ export default function ChecklistDetalhes() {
               </div>
             ` : ''}
 
-            ${grupos && grupos.length > 0 ? grupos.map(grupo => `
-              <div class="section">
-                <div class="section-header">${grupo.nome}</div>
-                <div class="section-content">
-                  ${grupo.perguntas.map((pergunta, idx) => {
-                    const resposta = respostasMap[pergunta.id];
-                    let respostaHtml = '<span style="color: #999;">Não respondida</span>';
-                    
-                    if (resposta) {
-                      if (pergunta.tipo === 'foto') {
-                        const fotos = resposta.fotos || [];
-                        respostaHtml = fotos.length > 0 
-                          ? `<span class="foto-placeholder">📷 ${fotos.length} foto(s) anexada(s)</span>`
-                          : resposta.foto_url 
-                            ? '<span class="foto-placeholder">📷 1 foto anexada</span>'
-                            : '<span style="color: #999;">Sem foto</span>';
-                      } else if (pergunta.tipo === 'assinatura') {
-                        respostaHtml = resposta.assinatura_url
-                          ? '<span class="foto-placeholder">✍️ Assinatura registrada</span>'
-                          : '<span style="color: #999;">Sem assinatura</span>';
-                      } else if (pergunta.tipo === 'sim_nao') {
-                        respostaHtml = resposta.resposta === 'sim'
-                          ? '<span class="badge badge-green">Sim</span>'
-                          : resposta.resposta === 'nao'
-                            ? '<span class="badge badge-red">Não</span>'
-                            : String(resposta.resposta || '-');
-                      } else {
-                        respostaHtml = String(resposta.resposta || '-');
-                      }
-                    }
-
-                    return `
-                      <div class="pergunta">
-                        <div class="pergunta-texto">
-                          <span class="pergunta-numero">${grupo.ordem || 1}.${idx + 1}</span>
-                          ${pergunta.texto}
-                        </div>
-                        <div class="pergunta-resposta">${respostaHtml}</div>
-                      </div>
-                    `;
-                  }).join('')}
-                </div>
-              </div>
-            `).join('') : ''}
+            ${perguntasHtml}
 
             <div class="footer">
               <p>Documento gerado em ${format(new Date(), "dd/MM/yyyy 'às' HH:mm")}</p>
@@ -466,16 +530,27 @@ export default function ChecklistDetalhes() {
             </div>
           </body>
         </html>
-      `);
+      `;
 
-      printWindow.document.close();
+      // Criar blob e fazer download automático
+      const blob = new Blob([htmlContent], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
       
-      // Aguardar carregamento e imprimir
-      setTimeout(() => {
-        printWindow.print();
-        toast.success("PDF gerado! Use Ctrl+P para salvar como PDF.", { id: "pdf" });
-        setGeratingPdf(false);
-      }, 500);
+      // Abrir janela de impressão
+      const printWindow = window.open(url, '_blank');
+      if (!printWindow) {
+        throw new Error("Não foi possível abrir a janela. Verifique se popups estão habilitados.");
+      }
+
+      // Aguardar carregamento e imprimir automaticamente
+      printWindow.onload = () => {
+        setTimeout(() => {
+          printWindow.print();
+        }, 500);
+      };
+      
+      toast.success("PDF gerado! Use Ctrl+P para salvar como PDF.", { id: "pdf" });
+      setGeratingPdf(false);
 
     } catch (error: any) {
       console.error("Erro ao gerar PDF:", error);
@@ -797,6 +872,18 @@ export default function ChecklistDetalhes() {
       : undefined;
 
   const codigoUnico = (dadosBasicos as any)?.codigo_unico;
+
+  // Auto-print se parâmetro print=true estiver presente
+  useEffect(() => {
+    const shouldPrint = searchParams.get('print') === 'true';
+    if (shouldPrint && !loadingBasicos && !loadingRespostas && dadosBasicos && !autoPrintExecuted) {
+      setAutoPrintExecuted(true);
+      // Aguardar um pouco para garantir que tudo foi renderizado
+      setTimeout(() => {
+        handleGerarPDF();
+      }, 1000);
+    }
+  }, [searchParams, loadingBasicos, loadingRespostas, dadosBasicos, autoPrintExecuted]);
 
   return (
     <MainLayout>
