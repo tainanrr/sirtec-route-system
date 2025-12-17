@@ -38,6 +38,7 @@ import {
   Trash2,
   AlertTriangle,
   Search,
+  Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -78,6 +79,9 @@ export default function AppMateriaisOS() {
   const { equipe } = useTecnico();
 
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [itemEditando, setItemEditando] = useState<MaterialAplicado | null>(null);
+  const [novaQuantidade, setNovaQuantidade] = useState(1);
   const [tipoOperacao, setTipoOperacao] = useState<"aplicar" | "retirar">("aplicar");
   const [searchTerm, setSearchTerm] = useState("");
   const [formData, setFormData] = useState({
@@ -159,15 +163,33 @@ export default function AppMateriaisOS() {
     enabled: !!equipeId,
   });
 
+  // Query para todos os materiais (para retirar)
+  const { data: todosMateriais } = useQuery({
+    queryKey: ["todos-materiais-ativos"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("materiais")
+        .select("id, codigo, nome, unidade, requer_serial")
+        .eq("ativo", true)
+        .order("codigo");
+
+      if (error) throw error;
+      return data;
+    },
+  });
+
   // Mutation para aplicar/retirar material
   const aplicarMutation = useMutation({
     mutationFn: async (data: typeof formData & { tipo: "aplicado" | "retirado" }) => {
-      const material = estoqueEquipe?.find((e) => e.material_id === data.material_id);
-      
       if (data.tipo === "aplicado") {
+        const material = estoqueEquipe?.find((e) => e.material_id === data.material_id);
+        
         // Verificar estoque
-        if (!material || material.quantidade < data.quantidade) {
-          throw new Error("Quantidade insuficiente em estoque");
+        if (!material) {
+          throw new Error("Material não encontrado no seu estoque");
+        }
+        if (material.quantidade < data.quantidade) {
+          throw new Error(`Quantidade insuficiente! Você tem apenas ${material.quantidade} ${material.materiais.unidade} em estoque.`);
         }
 
         // Dar baixa no estoque da equipe
@@ -238,6 +260,61 @@ export default function AppMateriaisOS() {
     },
   });
 
+  // Mutation para editar quantidade
+  const editarQuantidadeMutation = useMutation({
+    mutationFn: async ({ item, novaQuantidade }: { item: MaterialAplicado; novaQuantidade: number }) => {
+      if (novaQuantidade <= 0) {
+        throw new Error("Quantidade deve ser maior que zero");
+      }
+
+      if (item.tipo === "aplicado") {
+        // Verificar estoque disponível (considerando a quantidade atual)
+        const material = estoqueEquipe?.find((e) => e.material_id === item.material_id);
+        const diferenca = novaQuantidade - item.quantidade;
+        
+        if (material && diferenca > 0 && material.quantidade < diferenca) {
+          throw new Error(`Quantidade insuficiente! Você tem apenas ${material.quantidade} ${material.materiais.unidade} em estoque.`);
+        }
+
+        // Ajustar estoque
+        if (diferenca !== 0) {
+          const { data: estoqueAtual } = await supabase
+            .from("materiais_estoque")
+            .select("id, quantidade")
+            .eq("material_id", item.material_id)
+            .eq("local_tipo", "equipe")
+            .eq("local_id", equipeId)
+            .maybeSingle();
+
+          if (estoqueAtual) {
+            await supabase
+              .from("materiais_estoque")
+              .update({ quantidade: estoqueAtual.quantidade - diferenca })
+              .eq("id", estoqueAtual.id);
+          }
+        }
+      }
+
+      // Atualizar registro
+      const { error } = await supabase
+        .from("materiais_aplicados_os")
+        .update({ quantidade: novaQuantidade })
+        .eq("id", item.id);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["materiais-os", ordemId] });
+      queryClient.invalidateQueries({ queryKey: ["estoque-equipe-os", equipeId] });
+      toast.success("Quantidade atualizada!");
+      setEditDialogOpen(false);
+      setItemEditando(null);
+    },
+    onError: (error: any) => {
+      toast.error(error.message || "Erro ao atualizar quantidade");
+    },
+  });
+
   // Mutation para remover registro
   const removerMutation = useMutation({
     mutationFn: async (item: MaterialAplicado) => {
@@ -302,25 +379,43 @@ export default function AppMateriaisOS() {
       return;
     }
 
-    const material = estoqueEquipe?.find((e) => e.material_id === formData.material_id);
-    if (material?.materiais.requer_serial && !formData.numero_serie) {
-      toast.error("Este material requer número de série");
+    // Buscar material (do estoque ou de todos os materiais)
+    const material = tipoOperacao === "aplicar" 
+      ? estoqueEquipe?.find((e) => e.material_id === formData.material_id)?.materiais
+      : todosMateriais?.find((m: any) => m.id === formData.material_id);
+
+    // Verificar se requer número de série (requer_serial OU unidade SR)
+    const requerSerial = material?.requer_serial || material?.unidade === "SR";
+    
+    if (requerSerial && !formData.numero_serie) {
+      toast.error("Este material requer número de série/rastro único");
       return;
     }
 
+    // Validação de estoque já é feita na mutation
     aplicarMutation.mutate({
       ...formData,
       tipo: tipoOperacao === "aplicar" ? "aplicado" : "retirado",
     });
   };
 
-  // Filtrar estoque para seleção
+  // Filtrar estoque para seleção (aplicar)
   const estoqueFiltrado = estoqueEquipe?.filter((item) => {
     if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
     return (
       item.materiais.codigo.toLowerCase().includes(term) ||
       item.materiais.nome.toLowerCase().includes(term)
+    );
+  });
+
+  // Filtrar todos os materiais para seleção (retirar)
+  const materiaisFiltrados = todosMateriais?.filter((item: any) => {
+    if (!searchTerm) return true;
+    const term = searchTerm.toLowerCase();
+    return (
+      item.codigo.toLowerCase().includes(term) ||
+      item.nome.toLowerCase().includes(term)
     );
   });
 
@@ -425,6 +520,18 @@ export default function AppMateriaisOS() {
                           <Badge className="bg-green-100 text-green-700 border-0">
                             {item.quantidade} {item.materiais.unidade}
                           </Badge>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-blue-600"
+                            onClick={() => {
+                              setItemEditando(item);
+                              setNovaQuantidade(item.quantidade);
+                              setEditDialogOpen(true);
+                            }}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -551,7 +658,7 @@ export default function AppMateriaisOS() {
             </div>
 
             {/* Lista de Materiais */}
-            {tipoOperacao === "aplicar" && (
+            {tipoOperacao === "aplicar" ? (
               <div className="max-h-48 overflow-y-auto border rounded-lg">
                 {estoqueFiltrado && estoqueFiltrado.length > 0 ? (
                   <div className="divide-y">
@@ -559,8 +666,10 @@ export default function AppMateriaisOS() {
                       <button
                         key={item.material_id}
                         type="button"
-                        className={`w-full p-3 text-left hover:bg-muted/50 transition-colors ${
-                          formData.material_id === item.material_id ? "bg-violet-50" : ""
+                        className={`w-full p-3 text-left hover:bg-muted/50 transition-all ${
+                          formData.material_id === item.material_id 
+                            ? "bg-violet-100 border-2 border-violet-500 rounded-lg font-semibold" 
+                            : "border border-transparent"
                         }`}
                         onClick={() =>
                           setFormData({ ...formData, material_id: item.material_id })
@@ -568,7 +677,9 @@ export default function AppMateriaisOS() {
                       >
                         <div className="flex items-center justify-between">
                           <div>
-                            <p className="font-medium text-sm">{item.materiais.codigo}</p>
+                            <p className={`text-sm ${formData.material_id === item.material_id ? "text-violet-700 font-bold" : "font-medium"}`}>
+                              {item.materiais.codigo}
+                            </p>
                             <p className="text-xs text-muted-foreground">
                               {item.materiais.nome}
                             </p>
@@ -583,6 +694,45 @@ export default function AppMateriaisOS() {
                 ) : (
                   <div className="p-4 text-center text-muted-foreground text-sm">
                     {searchTerm ? "Nenhum material encontrado" : "Seu estoque está vazio"}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="max-h-48 overflow-y-auto border rounded-lg">
+                {materiaisFiltrados && materiaisFiltrados.length > 0 ? (
+                  <div className="divide-y">
+                    {materiaisFiltrados.map((item: any) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className={`w-full p-3 text-left hover:bg-muted/50 transition-all ${
+                          formData.material_id === item.id 
+                            ? "bg-orange-100 border-2 border-orange-500 rounded-lg font-semibold" 
+                            : "border border-transparent"
+                        }`}
+                        onClick={() =>
+                          setFormData({ ...formData, material_id: item.id })
+                        }
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className={`text-sm ${formData.material_id === item.id ? "text-orange-700 font-bold" : "font-medium"}`}>
+                              {item.codigo}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {item.nome}
+                            </p>
+                          </div>
+                          <Badge variant="outline">
+                            {item.unidade}
+                          </Badge>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-4 text-center text-muted-foreground text-sm">
+                    {searchTerm ? "Nenhum material encontrado" : "Nenhum material disponível"}
                   </div>
                 )}
               </div>
@@ -604,13 +754,16 @@ export default function AppMateriaisOS() {
             {/* Número de Série (se necessário) */}
             {formData.material_id && (
               (() => {
-                const material = estoqueEquipe?.find(
-                  (e) => e.material_id === formData.material_id
-                );
-                if (material?.materiais.requer_serial) {
+                const material = tipoOperacao === "aplicar"
+                  ? estoqueEquipe?.find((e) => e.material_id === formData.material_id)?.materiais
+                  : todosMateriais?.find((m: any) => m.id === formData.material_id);
+                
+                const requerSerial = material?.requer_serial || material?.unidade === "SR";
+                
+                if (requerSerial) {
                   return (
                     <div className="space-y-2">
-                      <Label>Número de Série *</Label>
+                      <Label>Número de Série/Rastro Único *</Label>
                       <div className="flex gap-2">
                         <Input
                           value={formData.numero_serie}
@@ -627,6 +780,9 @@ export default function AppMateriaisOS() {
                           <Camera className="h-4 w-4" />
                         </Button>
                       </div>
+                      <p className="text-xs text-muted-foreground">
+                        Material do tipo {material?.unidade} requer número de rastro único
+                      </p>
                     </div>
                   );
                 }
@@ -666,6 +822,51 @@ export default function AppMateriaisOS() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog de Editar Quantidade */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar Quantidade</DialogTitle>
+          </DialogHeader>
+
+          {itemEditando && (
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm text-muted-foreground">Material</p>
+                <p className="font-medium">{itemEditando.materiais.codigo}</p>
+                <p className="text-xs text-muted-foreground">{itemEditando.materiais.nome}</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Nova Quantidade *</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  value={novaQuantidade}
+                  onChange={(e) => setNovaQuantidade(parseInt(e.target.value) || 1)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Quantidade atual: {itemEditando.quantidade} {itemEditando.materiais.unidade}
+                </p>
+              </div>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={() => editarQuantidadeMutation.mutate({ item: itemEditando, novaQuantidade })}
+                  disabled={editarQuantidadeMutation.isPending}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  {editarQuantidadeMutation.isPending ? "Salvando..." : "Salvar"}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

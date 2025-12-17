@@ -59,6 +59,7 @@ import {
   Trash2,
   Printer,
   Download,
+  QrCode,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -68,6 +69,7 @@ import { ptBR } from "date-fns/locale";
 interface EntregaItem {
   material_id: string;
   quantidade: number;
+  numero_serie?: string;
   material?: {
     codigo: string;
     nome: string;
@@ -115,7 +117,8 @@ export default function EntregasEquipes() {
     observacao: "",
     itens: [],
   });
-  const [itemTemp, setItemTemp] = useState({ material_id: "", quantidade: 1 });
+  const [itemTemp, setItemTemp] = useState({ material_id: "", quantidade: 1, numero_serie: "" });
+  const [buscaMaterial, setBuscaMaterial] = useState("");
 
   // Query para entregas
   const { data: entregas, isLoading } = useQuery({
@@ -188,7 +191,7 @@ export default function EntregasEquipes() {
       const { data, error } = await supabase
         .from("tecnicos")
         .select("id, codigo, nome")
-        .eq("ativo", true)
+        .in("status", ["disponivel", "em_campo"])
         .order("codigo");
 
       if (error) throw error;
@@ -261,6 +264,7 @@ export default function EntregasEquipes() {
         entrega_id: entrega.id,
         material_id: item.material_id,
         quantidade: item.quantidade,
+        numero_serie: item.numero_serie || null,
       }));
 
       const { error: itensError } = await supabase
@@ -406,20 +410,31 @@ export default function EntregasEquipes() {
       return;
     }
 
+    const material = materiais?.find((m: any) => m.id === itemTemp.material_id);
+    const requerSerial = material?.requer_serial || material?.unidade === "SR";
+    
+    if (requerSerial && !itemTemp.numero_serie) {
+      toast.error("Este material requer número de série/rastro único");
+      return;
+    }
+
     const disponivel = estoqueDisponivel?.[itemTemp.material_id] || 0;
     if (itemTemp.quantidade > disponivel) {
       toast.error("Quantidade maior que o disponível em estoque");
       return;
     }
 
-    // Verificar se já existe
-    const existe = novaEntrega.itens.find((i) => i.material_id === itemTemp.material_id);
+    // Verificar se já existe (considerando número de série para materiais SR)
+    const existe = novaEntrega.itens.find((i) => {
+      if (i.material_id !== itemTemp.material_id) return false;
+      if (requerSerial && i.numero_serie !== itemTemp.numero_serie) return false;
+      return true;
+    });
+    
     if (existe) {
-      toast.error("Material já adicionado");
+      toast.error("Material já adicionado" + (requerSerial ? " com este número de série" : ""));
       return;
     }
-
-    const material = materiais?.find((m: any) => m.id === itemTemp.material_id);
 
     setNovaEntrega({
       ...novaEntrega,
@@ -428,17 +443,23 @@ export default function EntregasEquipes() {
         {
           material_id: itemTemp.material_id,
           quantidade: itemTemp.quantidade,
+          numero_serie: requerSerial ? itemTemp.numero_serie : undefined,
           material: material,
         },
       ],
     });
-    setItemTemp({ material_id: "", quantidade: 1 });
+    setItemTemp({ material_id: "", quantidade: 1, numero_serie: "" });
+    setBuscaMaterial("");
   };
 
-  const handleRemoveItem = (materialId: string) => {
+  const handleRemoveItem = (item: EntregaItem) => {
     setNovaEntrega({
       ...novaEntrega,
-      itens: novaEntrega.itens.filter((i) => i.material_id !== materialId),
+      itens: novaEntrega.itens.filter((i) => {
+        if (i.material_id !== item.material_id) return true;
+        if (item.numero_serie && i.numero_serie !== item.numero_serie) return true;
+        return false;
+      }),
     });
   };
 
@@ -687,7 +708,7 @@ export default function EntregasEquipes() {
                   <SelectTrigger>
                     <SelectValue placeholder="Selecione a equipe..." />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="z-[100]">
                     {equipes?.map((eq: any) => (
                       <SelectItem key={eq.id} value={eq.id}>
                         {eq.codigo} - {eq.nome}
@@ -700,31 +721,63 @@ export default function EntregasEquipes() {
               {/* Adicionar itens */}
               <div className="space-y-4">
                 <Label>Materiais</Label>
+                <div className="space-y-2">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Buscar material por código ou nome..."
+                      value={buscaMaterial}
+                      onChange={(e) => setBuscaMaterial(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                  <div className="max-h-48 overflow-y-auto border rounded-lg">
+                    {materiais?.filter((mat: any) => {
+                      if (!buscaMaterial) return true;
+                      const term = buscaMaterial.toLowerCase();
+                      return (
+                        mat.codigo.toLowerCase().includes(term) ||
+                        mat.nome.toLowerCase().includes(term)
+                      );
+                    }).map((mat: any) => {
+                      const disponivel = estoqueDisponivel?.[mat.id] || 0;
+                      const requerSerial = mat.requer_serial || mat.unidade === "SR";
+                      return (
+                        <button
+                          key={mat.id}
+                          type="button"
+                          className={`w-full p-3 text-left hover:bg-muted/50 transition-all border-b last:border-b-0 ${
+                            itemTemp.material_id === mat.id
+                              ? "bg-violet-100 border-2 border-violet-500 rounded-lg font-semibold"
+                              : disponivel <= 0
+                              ? "opacity-50 cursor-not-allowed"
+                              : ""
+                          }`}
+                          onClick={() => {
+                            if (disponivel > 0) {
+                              setItemTemp({ ...itemTemp, material_id: mat.id, numero_serie: "" });
+                            }
+                          }}
+                          disabled={disponivel <= 0}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className={`text-sm ${itemTemp.material_id === mat.id ? "text-violet-700 font-bold" : "font-medium"}`}>
+                                {mat.codigo}
+                                {requerSerial && <Badge variant="outline" className="ml-2 text-xs">SR</Badge>}
+                              </p>
+                              <p className="text-xs text-muted-foreground">{mat.nome}</p>
+                            </div>
+                            <Badge variant={disponivel > 0 ? "secondary" : "destructive"}>
+                              Disp: {disponivel}
+                            </Badge>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
                 <div className="flex gap-2">
-                  <Select
-                    value={itemTemp.material_id}
-                    onValueChange={(value) =>
-                      setItemTemp({ ...itemTemp, material_id: value })
-                    }
-                  >
-                    <SelectTrigger className="flex-1">
-                      <SelectValue placeholder="Selecione o material..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {materiais?.map((mat: any) => {
-                        const disponivel = estoqueDisponivel?.[mat.id] || 0;
-                        return (
-                          <SelectItem
-                            key={mat.id}
-                            value={mat.id}
-                            disabled={disponivel <= 0}
-                          >
-                            {mat.codigo} - {mat.nome} (Disp: {disponivel})
-                          </SelectItem>
-                        );
-                      })}
-                    </SelectContent>
-                  </Select>
                   <Input
                     type="number"
                     min="1"
@@ -735,6 +788,23 @@ export default function EntregasEquipes() {
                     className="w-24"
                     placeholder="Qtd"
                   />
+                  {itemTemp.material_id && (() => {
+                    const material = materiais?.find((m: any) => m.id === itemTemp.material_id);
+                    const requerSerial = material?.requer_serial || material?.unidade === "SR";
+                    if (requerSerial) {
+                      return (
+                        <Input
+                          placeholder="Nº Série/Rastro *"
+                          value={itemTemp.numero_serie}
+                          onChange={(e) =>
+                            setItemTemp({ ...itemTemp, numero_serie: e.target.value.toUpperCase() })
+                          }
+                          className="flex-1"
+                        />
+                      );
+                    }
+                    return null;
+                  })()}
                   <Button type="button" onClick={handleAddItem}>
                     <Plus className="h-4 w-4" />
                   </Button>
@@ -748,12 +818,13 @@ export default function EntregasEquipes() {
                         <TableRow>
                           <TableHead>Material</TableHead>
                           <TableHead className="text-center">Quantidade</TableHead>
+                          <TableHead>Nº Série</TableHead>
                           <TableHead className="w-[50px]"></TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {novaEntrega.itens.map((item) => (
-                          <TableRow key={item.material_id}>
+                        {novaEntrega.itens.map((item, index) => (
+                          <TableRow key={`${item.material_id}-${item.numero_serie || index}`}>
                             <TableCell>
                               <p className="font-medium">{item.material?.codigo}</p>
                               <p className="text-xs text-muted-foreground">
@@ -764,11 +835,21 @@ export default function EntregasEquipes() {
                               {item.quantidade} {item.material?.unidade}
                             </TableCell>
                             <TableCell>
+                              {item.numero_serie ? (
+                                <Badge variant="outline" className="font-mono text-xs">
+                                  <QrCode className="h-3 w-3 mr-1" />
+                                  {item.numero_serie}
+                                </Badge>
+                              ) : (
+                                <span className="text-muted-foreground text-xs">-</span>
+                              )}
+                            </TableCell>
+                            <TableCell>
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="icon"
-                                onClick={() => handleRemoveItem(item.material_id)}
+                                onClick={() => handleRemoveItem(item)}
                               >
                                 <Trash2 className="h-4 w-4 text-destructive" />
                               </Button>
