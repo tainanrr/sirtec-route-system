@@ -165,6 +165,8 @@ interface GerarChecklistIAProps {
   onChecklistGerado: (checklist: ChecklistGerado) => void;
 }
 
+type AIProvider = "gemini" | "openai";
+
 export function GerarChecklistIA({ open, onOpenChange, onChecklistGerado }: GerarChecklistIAProps) {
   const [step, setStep] = useState<"input" | "processing" | "preview" | "editing">("input");
   const [inputType, setInputType] = useState<"text" | "file">("text");
@@ -172,10 +174,22 @@ export function GerarChecklistIA({ open, onOpenChange, onChecklistGerado }: Gera
   const [arquivos, setArquivos] = useState<File[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [checklistGerado, setChecklistGerado] = useState<ChecklistGerado | null>(null);
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem("openai_api_key") || "");
+  const [aiProvider, setAiProvider] = useState<AIProvider>(() => 
+    (localStorage.getItem("ai_provider") as AIProvider) || "gemini"
+  );
+  const [apiKey, setApiKey] = useState(() => 
+    localStorage.getItem(aiProvider === "gemini" ? "gemini_api_key" : "openai_api_key") || ""
+  );
   const [showApiKeyInput, setShowApiKeyInput] = useState(false);
   const [progressMessage, setProgressMessage] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Atualizar API key quando mudar provider
+  const handleProviderChange = (provider: AIProvider) => {
+    setAiProvider(provider);
+    localStorage.setItem("ai_provider", provider);
+    setApiKey(localStorage.getItem(provider === "gemini" ? "gemini_api_key" : "openai_api_key") || "");
+  };
 
   // Resetar estado ao fechar
   const handleClose = () => {
@@ -189,7 +203,8 @@ export function GerarChecklistIA({ open, onOpenChange, onChecklistGerado }: Gera
 
   // Salvar API key
   const handleSaveApiKey = () => {
-    localStorage.setItem("openai_api_key", apiKey);
+    const keyName = aiProvider === "gemini" ? "gemini_api_key" : "openai_api_key";
+    localStorage.setItem(keyName, apiKey);
     setShowApiKeyInput(false);
     toast.success("Chave da API salva com sucesso!");
   };
@@ -241,7 +256,7 @@ export function GerarChecklistIA({ open, onOpenChange, onChecklistGerado }: Gera
   const gerarComIA = async () => {
     if (!apiKey) {
       setShowApiKeyInput(true);
-      toast.error("Configure sua chave da API OpenAI primeiro");
+      toast.error(`Configure sua chave da API ${aiProvider === "gemini" ? "Gemini" : "OpenAI"} primeiro`);
       return;
     }
 
@@ -256,7 +271,7 @@ export function GerarChecklistIA({ open, onOpenChange, onChecklistGerado }: Gera
 
     setIsProcessing(true);
     setStep("processing");
-    setProgressMessage("Analisando conteúdo...");
+    setProgressMessage(`Analisando conteúdo com ${aiProvider === "gemini" ? "Gemini" : "GPT-4"}...`);
 
     try {
       const prompt = `Você é um especialista em criar formulários de checklist para o setor elétrico e de serviços de campo.
@@ -343,41 +358,85 @@ Operadores de condição: igual, diferente, contem, maior, menor, vazio, preench
 
 Ações de condição: mostrar, ocultar, obrigar, desobrigar, exigir_foto, exigir_observacao, alerta`;
 
-      setProgressMessage("Gerando checklist com IA...");
+      setProgressMessage(`Gerando checklist com ${aiProvider === "gemini" ? "Gemini" : "GPT-4"}...`);
 
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-4o",
-          messages: [
-            {
-              role: "system",
-              content: "Você é um assistente especializado em criar checklists estruturados. Responda APENAS com JSON válido, sem markdown ou explicações."
+      let conteudo: string;
+
+      if (aiProvider === "gemini") {
+        // Chamada para Google Gemini API
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${apiKey}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
             },
-            {
-              role: "user",
-              content: prompt
-            }
-          ],
-          temperature: 0.7,
-          max_tokens: 4000,
-        }),
-      });
+            body: JSON.stringify({
+              contents: [
+                {
+                  parts: [
+                    {
+                      text: prompt
+                    }
+                  ]
+                }
+              ],
+              generationConfig: {
+                temperature: 0.7,
+                maxOutputTokens: 8192,
+                responseMimeType: "application/json"
+              }
+            }),
+          }
+        );
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error?.message || "Erro na API OpenAI");
-      }
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error?.message || "Erro na API Gemini");
+        }
 
-      const data = await response.json();
-      const conteudo = data.choices[0]?.message?.content;
+        const data = await response.json();
+        conteudo = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
-      if (!conteudo) {
-        throw new Error("Resposta vazia da IA");
+        if (!conteudo) {
+          throw new Error("Resposta vazia do Gemini");
+        }
+      } else {
+        // Chamada para OpenAI API
+        const response = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: "gpt-4o",
+            messages: [
+              {
+                role: "system",
+                content: "Você é um assistente especializado em criar checklists estruturados. Responda APENAS com JSON válido, sem markdown ou explicações."
+              },
+              {
+                role: "user",
+                content: prompt
+              }
+            ],
+            temperature: 0.7,
+            max_tokens: 4000,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error?.message || "Erro na API OpenAI");
+        }
+
+        const data = await response.json();
+        conteudo = data.choices[0]?.message?.content;
+
+        if (!conteudo) {
+          throw new Error("Resposta vazia da IA");
+        }
       }
 
       setProgressMessage("Processando resultado...");
@@ -546,12 +605,32 @@ Ações de condição: mostrar, ocultar, obrigar, desobrigar, exigir_foto, exigi
               <div className="space-y-3">
                 <div className="flex items-center gap-2 text-amber-700">
                   <AlertCircle className="h-4 w-4" />
-                  <span className="font-medium">Configure sua chave da API OpenAI</span>
+                  <span className="font-medium">Configure sua chave da API</span>
+                </div>
+                
+                {/* Seletor de Provider */}
+                <div className="flex gap-2">
+                  <Button
+                    variant={aiProvider === "gemini" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => handleProviderChange("gemini")}
+                    className={aiProvider === "gemini" ? "bg-blue-600 hover:bg-blue-700" : ""}
+                  >
+                    🔷 Google Gemini
+                  </Button>
+                  <Button
+                    variant={aiProvider === "openai" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => handleProviderChange("openai")}
+                    className={aiProvider === "openai" ? "bg-green-600 hover:bg-green-700" : ""}
+                  >
+                    🟢 OpenAI GPT-4
+                  </Button>
                 </div>
                 <div className="flex gap-2">
                   <Input
                     type="password"
-                    placeholder="sk-..."
+                    placeholder={aiProvider === "gemini" ? "AIza..." : "sk-..."}
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
                     className="flex-1"
@@ -564,6 +643,12 @@ Ações de condição: mostrar, ocultar, obrigar, desobrigar, exigir_foto, exigi
                   </Button>
                 </div>
                 <p className="text-xs text-amber-600">
+                  {aiProvider === "gemini" 
+                    ? "Obtenha sua chave em: https://aistudio.google.com/app/apikey"
+                    : "Obtenha sua chave em: https://platform.openai.com/api-keys"
+                  }
+                </p>
+                <p className="text-xs text-muted-foreground">
                   Sua chave é armazenada localmente no navegador e usada apenas para gerar checklists.
                 </p>
               </div>
@@ -661,10 +746,16 @@ Ações de condição: mostrar, ocultar, obrigar, desobrigar, exigir_foto, exigi
             </Tabs>
 
             <div className="flex items-center justify-between pt-4 border-t">
-              <Button variant="ghost" onClick={() => setShowApiKeyInput(true)}>
-                <Settings2 className="h-4 w-4 mr-2" />
-                Configurar API
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" onClick={() => setShowApiKeyInput(true)}>
+                  <Settings2 className="h-4 w-4 mr-2" />
+                  Configurar API
+                </Button>
+                <Badge variant="outline" className={aiProvider === "gemini" ? "border-blue-300 text-blue-700" : "border-green-300 text-green-700"}>
+                  {aiProvider === "gemini" ? "🔷 Gemini" : "🟢 GPT-4"}
+                  {apiKey ? " ✓" : ""}
+                </Badge>
+              </div>
               <Button 
                 onClick={gerarComIA}
                 disabled={
