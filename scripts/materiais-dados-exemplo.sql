@@ -116,8 +116,8 @@ DECLARE
   equipe_exemplo_id UUID;
   mat_id UUID;
 BEGIN
-  -- Buscar primeira equipe ativa (ajuste conforme necessário)
-  SELECT id INTO equipe_exemplo_id FROM tecnicos WHERE ativo = true LIMIT 1;
+  -- Buscar primeira equipe disponível (ajuste conforme necessário)
+  SELECT id INTO equipe_exemplo_id FROM tecnicos WHERE status = 'disponivel' LIMIT 1;
   
   IF equipe_exemplo_id IS NOT NULL THEN
     -- Criar entrega
@@ -176,8 +176,8 @@ BEGIN
   -- Buscar primeira OS em andamento (ajuste conforme necessário)
   SELECT id INTO os_id FROM ordens_servico WHERE status IN ('em_andamento', 'em_execucao', 'no_local') LIMIT 1;
   
-  -- Buscar primeira equipe
-  SELECT id INTO equipe_id FROM tecnicos WHERE ativo = true LIMIT 1;
+  -- Buscar primeira equipe disponível
+  SELECT id INTO equipe_id FROM tecnicos WHERE status = 'disponivel' LIMIT 1;
   
   IF os_id IS NOT NULL AND equipe_id IS NOT NULL THEN
     -- Buscar material de cabo
