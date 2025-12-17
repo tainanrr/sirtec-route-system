@@ -1,20 +1,78 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
+import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
+import { useTecnico } from "@/contexts/TecnicoContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { MapPin, Clock, ChevronRight, AlertCircle, CheckCircle2, PlayCircle } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { 
+  MapPin, 
+  Clock, 
+  ChevronRight, 
+  AlertCircle, 
+  CheckCircle2, 
+  PlayCircle,
+  Navigation,
+  RefreshCw,
+  Calendar,
+  Route,
+  Timer,
+  AlertTriangle,
+  Loader2
+} from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { toast } from "sonner";
+
+// Função para formatar tempo em minutos para formato legível
+const formatarTempo = (minutos: number | null | undefined): string => {
+  if (!minutos || minutos <= 0) return "";
+  
+  const horas = Math.floor(minutos / 60);
+  const mins = Math.round(minutos % 60);
+  
+  if (horas > 0) {
+    return mins > 0 ? `${horas}h ${mins}min` : `${horas}h`;
+  }
+  return `${mins}min`;
+};
+
+interface OrdemPlanejada {
+  id: string;
+  ordem_na_rota: number;
+  hora_inicio_estimada: string | null;
+  hora_fim_estimada: string | null;
+  distancia_km: number | null;
+  tempo_estimado_minutos: number | null;
+  ordens_servico: {
+    id: string;
+    numero: string;
+    tipo: string;
+    endereco: string;
+    cliente_nome: string | null;
+    status: string;
+    prazo: string | null;
+    regulada: boolean | null;
+    latitude: number | null;
+    longitude: number | null;
+    observacoes: string | null;
+    instalacao: string | null;
+    medidor: string | null;
+  } | null;
+}
 
 export default function AppHome() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const { equipe: equipeAuth } = useEquipeAuth();
+  const { equipe, isLoading: isLoadingEquipe, error: equipeError } = useTecnico();
   const [greeting, setGreeting] = useState("Olá");
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
+  // Definir saudação baseada na hora
   useEffect(() => {
     const hour = new Date().getHours();
     if (hour < 12) setGreeting("Bom dia");
@@ -22,130 +80,389 @@ export default function AppHome() {
     else setGreeting("Boa noite");
   }, []);
 
-  const { data: ordensHoje, isLoading } = useQuery({
-    queryKey: ["ordens-hoje-app"],
+  // Buscar ordens planejadas para hoje para a equipe do técnico
+  const { data: ordensPlanejadas, isLoading: isLoadingOrdens, refetch } = useQuery({
+    queryKey: ["ordens-planejadas-hoje", equipe?.id, equipeAuth?.id],
     queryFn: async () => {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
+      const equipeId = equipe?.id || equipeAuth?.id;
+      if (!equipeId) {
+        console.log("[DEBUG AppHome] Nenhuma equipe encontrada");
+        return [];
+      }
 
-      const { data, error } = await supabase
-        .from("ordens_servico")
+      const hoje = new Date();
+      const dataHoje = format(hoje, "yyyy-MM-dd");
+
+      console.log("[DEBUG AppHome] Buscando ordens para equipe:", equipeId, "data:", dataHoje);
+
+      // Primeiro, buscar todos os planejamentos de hoje para debug
+      const { data: planejamentosHoje, error: errPlan } = await supabase
+        .from("planejamentos")
         .select("*")
-        .gte("created_at", today.toISOString())
-        .lt("created_at", tomorrow.toISOString())
-        .order("created_at", { ascending: true });
+        .eq("data_planejamento", dataHoje);
+      
+      console.log("[DEBUG AppHome] Planejamentos de hoje:", planejamentosHoje);
+      
+      // Buscar todas as ordens da equipe para debug
+      const { data: todasOrdens, error: errOrdens } = await supabase
+        .from("planejamento_ordens")
+        .select("*, planejamentos(*)")
+        .eq("equipe_id", equipeId);
+      
+      console.log("[DEBUG AppHome] Todas ordens da equipe:", todasOrdens);
 
-      if (error) throw error;
-      return data;
+      // Buscar do planejamento_ordens
+      const { data, error } = await supabase
+        .from("planejamento_ordens")
+        .select(`
+          id,
+          ordem_na_rota,
+          hora_inicio_estimada,
+          hora_fim_estimada,
+          distancia_km,
+          tempo_estimado_minutos,
+          equipe_id,
+          ordens_servico:ordem_servico_id (
+            id,
+            numero,
+            tipo,
+            endereco,
+            cliente_nome,
+            status,
+            prazo,
+            regulada,
+            latitude,
+            longitude,
+            observacoes,
+            instalacao,
+            medidor
+          ),
+          planejamentos!inner (
+            id,
+            data_planejamento,
+            status
+          )
+        `)
+        .eq("equipe_id", equipeId)
+        .eq("planejamentos.data_planejamento", dataHoje)
+        .eq("planejamentos.status", "aberto")
+        .order("ordem_na_rota", { ascending: true });
+
+      if (error) {
+        console.error("[DEBUG AppHome] Erro ao buscar ordens planejadas:", error);
+        throw error;
+      }
+
+      console.log("[DEBUG AppHome] Ordens encontradas (filtradas):", data?.length || 0, data);
+      return (data || []) as OrdemPlanejada[];
     },
+    enabled: !!(equipe?.id || equipeAuth?.id),
+    refetchInterval: 30000, // Atualizar a cada 30 segundos
   });
 
+  // Configurar realtime subscription
+  useEffect(() => {
+    if (!equipe?.id) return;
+
+    const channel = supabase
+      .channel("ordens-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "ordens_servico",
+        },
+        () => {
+          // Recarregar dados quando houver mudança
+          queryClient.invalidateQueries({ queryKey: ["ordens-planejadas-hoje"] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [equipe?.id, queryClient]);
+
+  // Calcular estatísticas
   const stats = {
-    total: ordensHoje?.length || 0,
-    pendentes: ordensHoje?.filter((o) => o.status === "pendente").length || 0,
-    emAndamento: ordensHoje?.filter((o) => o.status === "em_andamento").length || 0,
-    concluidas: ordensHoje?.filter((o) => o.status === "concluida").length || 0,
+    total: ordensPlanejadas?.length || 0,
+    pendentes: ordensPlanejadas?.filter((o) => 
+      o.ordens_servico?.status === "planejada" || o.ordens_servico?.status === "pendente"
+    ).length || 0,
+    emAndamento: ordensPlanejadas?.filter((o) => 
+      o.ordens_servico?.status === "em_deslocamento" || 
+      o.ordens_servico?.status === "em_andamento" ||
+      o.ordens_servico?.status === "em_execucao"
+    ).length || 0,
+    concluidas: ordensPlanejadas?.filter((o) => 
+      o.ordens_servico?.status === "concluida"
+    ).length || 0,
+    urgentes: ordensPlanejadas?.filter((o) => o.ordens_servico?.regulada).length || 0,
   };
 
-  const proximaOrdem = ordensHoje?.find((o) => o.status === "pendente" || o.status === "em_andamento");
+  // Encontrar próxima ordem (primeira não concluída)
+  const proximaOrdem = ordensPlanejadas?.find((o) => 
+    o.ordens_servico?.status !== "concluida" && 
+    o.ordens_servico?.status !== "cancelada"
+  );
 
-  const userName = user?.user_metadata?.nome_completo || user?.email?.split("@")[0] || "Técnico";
+  // Calcular progresso
+  const progresso = stats.total > 0 ? Math.round((stats.concluidas / stats.total) * 100) : 0;
+
+  // Função para atualizar dados
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refetch();
+      toast.success("Dados atualizados!");
+    } catch {
+      toast.error("Erro ao atualizar dados");
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const userName = equipe?.nome?.split("/")[0]?.trim() || equipeAuth?.nome?.split("/")[0]?.trim() || "Equipe";
+
+  // Loading state
+  if (isLoadingEquipe) {
+    return (
+      <div className="p-4 space-y-6">
+        <Skeleton className="h-12 w-3/4" />
+        <Skeleton className="h-6 w-1/2" />
+        <div className="grid grid-cols-2 gap-3">
+          <Skeleton className="h-24" />
+          <Skeleton className="h-24" />
+          <Skeleton className="h-24" />
+          <Skeleton className="h-24" />
+        </div>
+        <Skeleton className="h-32" />
+      </div>
+    );
+  }
+
+  // Erro de equipe não encontrada
+  if (equipeError) {
+    return (
+      <div className="p-4 space-y-6">
+        <div className="text-center py-12">
+          <AlertTriangle className="h-16 w-16 text-warning mx-auto mb-4" />
+          <h2 className="text-xl font-bold mb-2">Equipe não vinculada</h2>
+          <p className="text-muted-foreground mb-4">{equipeError}</p>
+          <p className="text-sm text-muted-foreground">
+            Entre em contato com o administrador para vincular seu usuário a uma equipe.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 space-y-6">
-      {/* Greeting */}
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">{greeting}, {userName}!</h1>
-        <p className="text-muted-foreground">
-          {format(new Date(), "EEEE, d 'de' MMMM", { locale: ptBR })}
-        </p>
+      {/* Header com Greeting e Refresh */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">{greeting}, {userName}!</h1>
+          <p className="text-muted-foreground">
+            {format(new Date(), "EEEE, d 'de' MMMM", { locale: ptBR })}
+          </p>
+          {equipe && (
+            <Badge variant="outline" className="mt-2">
+              <Route className="h-3 w-3 mr-1" />
+              Equipe {equipe.codigo}
+            </Badge>
+          )}
+        </div>
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          onClick={handleRefresh}
+          disabled={isRefreshing}
+        >
+          {isRefreshing ? (
+            <Loader2 className="h-5 w-5 animate-spin" />
+          ) : (
+            <RefreshCw className="h-5 w-5" />
+          )}
+        </Button>
       </div>
+
+      {/* Barra de Progresso */}
+      {stats.total > 0 && (
+        <div className="space-y-2">
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">Progresso do dia</span>
+            <span className="font-medium">{progresso}%</span>
+          </div>
+          <div className="h-3 bg-muted rounded-full overflow-hidden">
+            <div 
+              className="h-full bg-gradient-to-r from-primary to-green-500 transition-all duration-500"
+              style={{ width: `${progresso}%` }}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground text-center">
+            {stats.concluidas} de {stats.total} ordens concluídas
+          </p>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 gap-3">
-        <Card className="bg-primary/10 border-primary/20">
+        <Card className="bg-gradient-to-br from-primary/10 to-primary/5 border-primary/20">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground">Total Hoje</p>
-                <p className="text-2xl font-bold text-primary">{stats.total}</p>
+                <p className="text-3xl font-bold text-primary">{stats.total}</p>
               </div>
-              <ClipboardIcon className="h-8 w-8 text-primary/50" />
+              <Calendar className="h-8 w-8 text-primary/40" />
             </div>
           </CardContent>
         </Card>
-        <Card className="bg-warning/10 border-warning/20">
+        
+        <Card className="bg-gradient-to-br from-amber-500/10 to-amber-500/5 border-amber-500/20">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground">Pendentes</p>
-                <p className="text-2xl font-bold text-warning">{stats.pendentes}</p>
+                <p className="text-3xl font-bold text-amber-600">{stats.pendentes}</p>
               </div>
-              <AlertCircle className="h-8 w-8 text-warning/50" />
+              <AlertCircle className="h-8 w-8 text-amber-500/40" />
             </div>
           </CardContent>
         </Card>
-        <Card className="bg-info/10 border-info/20">
+        
+        <Card className="bg-gradient-to-br from-blue-500/10 to-blue-500/5 border-blue-500/20">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground">Em Andamento</p>
-                <p className="text-2xl font-bold text-info">{stats.emAndamento}</p>
+                <p className="text-3xl font-bold text-blue-600">{stats.emAndamento}</p>
               </div>
-              <PlayCircle className="h-8 w-8 text-info/50" />
+              <PlayCircle className="h-8 w-8 text-blue-500/40" />
             </div>
           </CardContent>
         </Card>
-        <Card className="bg-success/10 border-success/20">
+        
+        <Card className="bg-gradient-to-br from-green-500/10 to-green-500/5 border-green-500/20">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground">Concluídas</p>
-                <p className="text-2xl font-bold text-success">{stats.concluidas}</p>
+                <p className="text-3xl font-bold text-green-600">{stats.concluidas}</p>
               </div>
-              <CheckCircle2 className="h-8 w-8 text-success/50" />
+              <CheckCircle2 className="h-8 w-8 text-green-500/40" />
             </div>
           </CardContent>
         </Card>
       </div>
 
+      {/* Alerta de Urgentes */}
+      {stats.urgentes > 0 && (
+        <Card className="bg-gradient-to-r from-red-500/10 to-orange-500/10 border-red-500/30">
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="h-10 w-10 rounded-full bg-red-500/20 flex items-center justify-center">
+              <AlertTriangle className="h-5 w-5 text-red-500" />
+            </div>
+            <div>
+              <p className="font-medium text-red-700 dark:text-red-400">
+                {stats.urgentes} {stats.urgentes === 1 ? "ordem urgente" : "ordens urgentes"}
+              </p>
+              <p className="text-xs text-muted-foreground">Priorize o atendimento</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Próxima Ordem */}
-      {proximaOrdem && (
+      {isLoadingOrdens ? (
+        <Skeleton className="h-32" />
+      ) : proximaOrdem?.ordens_servico ? (
         <div>
-          <h2 className="text-lg font-semibold mb-3">Próxima Ordem</h2>
+          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+            <Navigation className="h-5 w-5 text-primary" />
+            Próxima Ordem
+          </h2>
           <Card
-            className="cursor-pointer hover:bg-accent/50 transition-colors"
-            onClick={() => navigate(`/app/ordens/${proximaOrdem.id}`)}
+            className="cursor-pointer hover:shadow-md transition-all border-l-4 border-l-primary"
+            onClick={() => navigate(`/app/ordens/${proximaOrdem.ordens_servico!.id}`)}
           >
             <CardContent className="p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Badge variant={proximaOrdem.status === "em_andamento" ? "default" : "secondary"}>
-                      {proximaOrdem.status === "em_andamento" ? "Em Andamento" : "Pendente"}
+                  <div className="flex items-center gap-2 mb-2 flex-wrap">
+                    <Badge className="bg-primary/10 text-primary border-primary/20">
+                      #{proximaOrdem.ordem_na_rota}
                     </Badge>
+                    {proximaOrdem.ordens_servico.regulada && (
+                      <Badge variant="destructive" className="text-xs">
+                        URGENTE
+                      </Badge>
+                    )}
                     <span className="text-xs text-muted-foreground font-mono">
-                      {proximaOrdem.numero}
+                      {proximaOrdem.ordens_servico.numero}
                     </span>
                   </div>
-                  <p className="font-medium text-foreground">{proximaOrdem.tipo}</p>
+                  
+                  <p className="font-semibold text-foreground text-lg">
+                    {proximaOrdem.ordens_servico.tipo}
+                  </p>
+                  
                   <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">
-                    <MapPin className="h-3 w-3" />
-                    <span className="truncate">{proximaOrdem.endereco}</span>
+                    <MapPin className="h-4 w-4 flex-shrink-0" />
+                    <span className="truncate">{proximaOrdem.ordens_servico.endereco}</span>
                   </div>
-                  {proximaOrdem.cliente_nome && (
+                  
+                  {proximaOrdem.ordens_servico.cliente_nome && (
                     <p className="text-sm text-muted-foreground mt-1">
-                      Cliente: {proximaOrdem.cliente_nome}
+                      Cliente: {proximaOrdem.ordens_servico.cliente_nome}
                     </p>
                   )}
+                  
+                  <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+                    {proximaOrdem.hora_inicio_estimada && (
+                      <span className="flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        ETA: {proximaOrdem.hora_inicio_estimada}
+                      </span>
+                    )}
+                    {proximaOrdem.tempo_estimado_minutos && proximaOrdem.tempo_estimado_minutos > 0 && (
+                      <span className="flex items-center gap-1">
+                        <Timer className="h-3 w-3" />
+                        ~{formatarTempo(proximaOrdem.tempo_estimado_minutos)}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                <ChevronRight className="h-6 w-6 text-muted-foreground flex-shrink-0" />
               </div>
             </CardContent>
           </Card>
         </div>
+      ) : stats.total === 0 ? (
+        <Card className="bg-muted/50">
+          <CardContent className="p-6 text-center">
+            <Calendar className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+            <p className="font-medium text-muted-foreground">Nenhuma ordem para hoje</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              Aguarde o planejamento ou entre em contato com a central.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="bg-green-500/10 border-green-500/30">
+          <CardContent className="p-6 text-center">
+            <CheckCircle2 className="h-12 w-12 text-green-500 mx-auto mb-3" />
+            <p className="font-medium text-green-700 dark:text-green-400">
+              Todas as ordens concluídas! 🎉
+            </p>
+            <p className="text-sm text-muted-foreground mt-1">
+              Excelente trabalho hoje!
+            </p>
+          </CardContent>
+        </Card>
       )}
 
       {/* Ver Todas */}
@@ -158,13 +475,5 @@ export default function AppHome() {
         <ChevronRight className="h-4 w-4 ml-2" />
       </Button>
     </div>
-  );
-}
-
-function ClipboardIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-    </svg>
   );
 }

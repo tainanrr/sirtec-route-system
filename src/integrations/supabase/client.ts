@@ -5,6 +5,15 @@ import type { Database } from './types';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
+// Log para debug - verificar se as variáveis estão definidas
+console.log("[Supabase] URL definida:", !!SUPABASE_URL, SUPABASE_URL ? SUPABASE_URL.substring(0, 30) + "..." : "UNDEFINED");
+console.log("[Supabase] KEY definida:", !!SUPABASE_PUBLISHABLE_KEY, SUPABASE_PUBLISHABLE_KEY ? "***" + SUPABASE_PUBLISHABLE_KEY.slice(-10) : "UNDEFINED");
+
+if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+  console.error("[Supabase] ERRO: Variáveis de ambiente não configuradas!");
+  console.error("[Supabase] Verifique se o arquivo .env existe e contém VITE_SUPABASE_URL e VITE_SUPABASE_PUBLISHABLE_KEY");
+}
+
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
@@ -15,3 +24,39 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     autoRefreshToken: true,
   }
 });
+
+// Teste de conexão com fetch nativo
+(async () => {
+  try {
+    console.log("[Supabase] Testando conexão com fetch nativo...");
+    const start = Date.now();
+    
+    // Teste simples de health check
+    const healthUrl = `${SUPABASE_URL}/rest/v1/`;
+    console.log("[Supabase] URL de teste:", healthUrl);
+    
+    const response = await fetch(healthUrl, {
+      method: 'GET',
+      headers: {
+        'apikey': SUPABASE_PUBLISHABLE_KEY,
+        'Authorization': `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
+      },
+    });
+    
+    const elapsed = Date.now() - start;
+    console.log("[Supabase] Resposta:", response.status, response.statusText, `(${elapsed}ms)`);
+    
+    if (response.ok) {
+      console.log("[Supabase] Conexão OK!");
+    } else {
+      const text = await response.text();
+      console.error("[Supabase] Erro na resposta:", text);
+    }
+  } catch (err: any) {
+    console.error("[Supabase] Exceção no fetch:", err?.message || err);
+    console.error("[Supabase] Possíveis causas:");
+    console.error("  - Projeto Supabase pode estar pausado (reative em https://app.supabase.com)");
+    console.error("  - Firewall/Antivírus bloqueando conexão");
+    console.error("  - Problema de rede/DNS");
+  }
+})();

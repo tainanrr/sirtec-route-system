@@ -1,63 +1,351 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useTecnico } from "@/contexts/TecnicoContext";
+import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { MapPin, ChevronRight, Search, Clock } from "lucide-react";
-import { format } from "date-fns";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Skeleton } from "@/components/ui/skeleton";
+import { 
+  MapPin, 
+  ChevronRight, 
+  Search, 
+  Clock, 
+  AlertTriangle,
+  Calendar,
+  Navigation,
+  Timer,
+  CheckCircle2,
+  PlayCircle,
+  PauseCircle,
+  Truck,
+  RefreshCw,
+  Loader2,
+  Map as MapIcon,
+  X
+} from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { format, addDays, subDays, isToday, isTomorrow, isYesterday } from "date-fns";
+import { ptBR } from "date-fns/locale";
+import { toast } from "sonner";
+import { getDadosSkills } from "@/lib/skillsUtils";
 
-const statusConfig = {
-  pendente: { label: "Pendente", variant: "secondary" as const },
-  em_andamento: { label: "Em Andamento", variant: "default" as const },
-  concluida: { label: "Concluída", variant: "outline" as const },
-  cancelada: { label: "Cancelada", variant: "destructive" as const },
+// Função para formatar tempo em minutos para formato legível
+const formatarTempo = (minutos: number | null | undefined): string => {
+  if (!minutos || minutos <= 0) return "";
+  
+  const horas = Math.floor(minutos / 60);
+  const mins = Math.round(minutos % 60);
+  
+  if (horas > 0) {
+    return mins > 0 ? `${horas}h ${mins}min` : `${horas}h`;
+  }
+  return `${mins}min`;
+};
+
+interface OrdemPlanejada {
+  id: string;
+  ordem_na_rota: number;
+  hora_inicio_estimada: string | null;
+  hora_fim_estimada: string | null;
+  distancia_km: number | null;
+  tempo_estimado_minutos: number | null;
+  planejamento_id: string;
+  ordens_servico: {
+    id: string;
+    numero: string;
+    tipo: string;
+    endereco: string;
+    cliente_nome: string | null;
+    status: string;
+    prazo: string | null;
+    regulada: boolean | null;
+    latitude: number | null;
+    longitude: number | null;
+    created_at: string;
+  } | null;
+  planejamentos: {
+    id: string;
+    data_planejamento: string;
+    status: string;
+  } | null;
+}
+
+const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "outline" | "destructive"; icon: React.ElementType; color: string }> = {
+  pendente: { label: "Pendente", variant: "secondary", icon: Clock, color: "text-gray-500" },
+  planejada: { label: "Planejada", variant: "secondary", icon: Calendar, color: "text-blue-500" },
+  em_deslocamento: { label: "Em Deslocamento", variant: "default", icon: Truck, color: "text-orange-500" },
+  em_andamento: { label: "Em Execução", variant: "default", icon: PlayCircle, color: "text-blue-600" },
+  em_execucao: { label: "Em Execução", variant: "default", icon: PlayCircle, color: "text-blue-600" },
+  pausada: { label: "Pausada", variant: "outline", icon: PauseCircle, color: "text-amber-500" },
+  concluida: { label: "Concluída", variant: "outline", icon: CheckCircle2, color: "text-green-600" },
+  cancelada: { label: "Cancelada", variant: "destructive", icon: AlertTriangle, color: "text-red-500" },
 };
 
 export default function AppOrdens() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { equipe, isLoading: isLoadingEquipe } = useTecnico();
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState("todas");
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showMap, setShowMap] = useState(false);
 
-  const { data: ordens, isLoading } = useQuery({
-    queryKey: ["ordens-app"],
+  // Buscar ordens planejadas para a data selecionada
+  const { equipe: equipeAuth } = useEquipeAuth();
+  const { data: ordensPlanejadas, isLoading: isLoadingOrdens, refetch } = useQuery({
+    queryKey: ["ordens-planejadas", equipe?.id, equipeAuth?.id, format(selectedDate, "yyyy-MM-dd")],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("ordens_servico")
-        .select("*")
-        .order("created_at", { ascending: false });
+      const equipeId = equipe?.id || equipeAuth?.id;
+      if (!equipeId) {
+        console.log("[DEBUG AppOrdens] Nenhuma equipe encontrada");
+        return [];
+      }
 
-      if (error) throw error;
-      return data;
+      const dataFormatada = format(selectedDate, "yyyy-MM-dd");
+      console.log("[DEBUG AppOrdens] Buscando ordens para equipe:", equipeId, "data:", dataFormatada);
+
+      // Debug: buscar todos os planejamentos para a data
+      const { data: planejamentosData } = await supabase
+        .from("planejamentos")
+        .select("*")
+        .eq("data_planejamento", dataFormatada);
+      console.log("[DEBUG AppOrdens] Planejamentos para data:", planejamentosData);
+
+      // Debug: buscar todas as ordens da equipe (sem filtro de data)
+      const { data: todasOrdensEquipe } = await supabase
+        .from("planejamento_ordens")
+        .select("*, planejamentos(*)")
+        .eq("equipe_id", equipeId);
+      console.log("[DEBUG AppOrdens] Todas ordens da equipe (qualquer data):", todasOrdensEquipe);
+
+      const { data, error } = await supabase
+        .from("planejamento_ordens")
+        .select(`
+          id,
+          ordem_na_rota,
+          hora_inicio_estimada,
+          hora_fim_estimada,
+          distancia_km,
+          tempo_estimado_minutos,
+          planejamento_id,
+          equipe_id,
+          ordens_servico:ordem_servico_id (
+            id,
+            numero,
+            tipo,
+            endereco,
+            cliente_nome,
+            status,
+            prazo,
+            regulada,
+            latitude,
+            longitude,
+            created_at
+          ),
+          planejamentos!inner (
+            id,
+            data_planejamento,
+            status
+          )
+        `)
+        .eq("equipe_id", equipeId)
+        .eq("planejamentos.data_planejamento", dataFormatada)
+        .eq("planejamentos.status", "aberto")
+        .order("ordem_na_rota", { ascending: true });
+
+      if (error) {
+        console.error("[DEBUG AppOrdens] Erro ao buscar ordens:", error);
+        throw error;
+      }
+
+      console.log("[DEBUG AppOrdens] Ordens filtradas encontradas:", data?.length || 0, data);
+      
+      // Debug: verificar coordenadas
+      if (data && data.length > 0) {
+        console.log("[DEBUG AppOrdens] Verificando coordenadas das OSs:");
+        data.forEach((ordem: any) => {
+          const os = ordem.ordens_servico;
+          console.log(`  OS ${ordem.ordem_na_rota}:`, {
+            numero: os?.numero,
+            lat: os?.latitude,
+            lng: os?.longitude,
+            endereco: os?.endereco,
+            os_completa: os
+          });
+        });
+        
+        // Verificar quantas OSs têm coordenadas
+        const comCoordenadas = data.filter((o: any) => o.ordens_servico?.latitude && o.ordens_servico?.longitude);
+        const semCoordenadas = data.filter((o: any) => !o.ordens_servico?.latitude || !o.ordens_servico?.longitude);
+        console.log(`[DEBUG AppOrdens] OSs com coordenadas: ${comCoordenadas.length}, sem coordenadas: ${semCoordenadas.length}`);
+        
+        if (semCoordenadas.length > 0) {
+          console.warn("[DEBUG AppOrdens] OSs SEM coordenadas:", semCoordenadas.map((o: any) => ({
+            ordem: o.ordem_na_rota,
+            numero: o.ordens_servico?.numero,
+            id: o.ordens_servico?.id
+          })));
+        }
+      }
+      
+      return (data || []) as OrdemPlanejada[];
     },
+    enabled: !!(equipe?.id || equipeAuth?.id),
+    refetchInterval: 30000,
   });
 
-  const filteredOrdens = ordens?.filter((ordem) => {
+  // Realtime subscription
+  useEffect(() => {
+    if (!equipe?.id) return;
+
+    const channel = supabase
+      .channel("ordens-lista-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "ordens_servico",
+        },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["ordens-planejadas"] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [equipe?.id, queryClient]);
+
+  // Filtrar ordens
+  const filteredOrdens = ordensPlanejadas?.filter((ordem) => {
+    if (!ordem.ordens_servico) return false;
+
     const matchesSearch =
-      ordem.numero.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      ordem.endereco.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      ordem.tipo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (ordem.cliente_nome?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false);
+      ordem.ordens_servico.numero.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      ordem.ordens_servico.endereco.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      ordem.ordens_servico.tipo.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (ordem.ordens_servico.cliente_nome?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false);
+
+    const status = ordem.ordens_servico.status;
 
     if (activeTab === "todas") return matchesSearch;
-    if (activeTab === "pendentes") return matchesSearch && ordem.status === "pendente";
-    if (activeTab === "andamento") return matchesSearch && ordem.status === "em_andamento";
-    if (activeTab === "concluidas") return matchesSearch && ordem.status === "concluida";
+    if (activeTab === "pendentes") return matchesSearch && (status === "pendente" || status === "planejada");
+    if (activeTab === "andamento") return matchesSearch && (status === "em_deslocamento" || status === "em_andamento" || status === "em_execucao" || status === "pausada");
+    if (activeTab === "concluidas") return matchesSearch && status === "concluida";
 
     return matchesSearch;
   });
 
+  // Funções de navegação de data
+  const goToPreviousDay = () => setSelectedDate(prev => subDays(prev, 1));
+  const goToNextDay = () => setSelectedDate(prev => addDays(prev, 1));
+  const goToToday = () => setSelectedDate(new Date());
+
+  // Formatar label da data
+  const getDateLabel = () => {
+    if (isToday(selectedDate)) return "Hoje";
+    if (isTomorrow(selectedDate)) return "Amanhã";
+    if (isYesterday(selectedDate)) return "Ontem";
+    return format(selectedDate, "dd/MM/yyyy");
+  };
+
+  // Refresh
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refetch();
+      toast.success("Lista atualizada!");
+    } catch {
+      toast.error("Erro ao atualizar");
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  if (isLoadingEquipe) {
+    return (
+      <div className="p-4 space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
+        <div className="space-y-3">
+          <Skeleton className="h-24" />
+          <Skeleton className="h-24" />
+          <Skeleton className="h-24" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-4 space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
       <h1 className="text-xl font-bold">Minhas Ordens</h1>
+        <div className="flex items-center gap-1">
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={() => setShowMap(true)}
+            disabled={!ordensPlanejadas || ordensPlanejadas.length === 0}
+            title="Ver roteiro no mapa"
+          >
+            <MapIcon className="h-5 w-5" />
+          </Button>
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+          >
+            {isRefreshing ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-5 w-5" />
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {/* Seletor de Data */}
+      <div className="flex items-center justify-between bg-muted/50 rounded-lg p-2">
+        <Button variant="ghost" size="icon" onClick={goToPreviousDay}>
+          <ChevronRight className="h-5 w-5 rotate-180" />
+        </Button>
+        <Button 
+          variant="ghost" 
+          className="flex items-center gap-2"
+          onClick={goToToday}
+        >
+          <Calendar className="h-4 w-4" />
+          <span className="font-medium">{getDateLabel()}</span>
+          <span className="text-xs text-muted-foreground">
+            {format(selectedDate, "EEE", { locale: ptBR })}
+          </span>
+        </Button>
+        <Button variant="ghost" size="icon" onClick={goToNextDay}>
+          <ChevronRight className="h-5 w-5" />
+        </Button>
+      </div>
 
       {/* Search */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
-          placeholder="Buscar por número, endereço..."
+          placeholder="Buscar por número, endereço, tipo..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="pl-9"
@@ -67,60 +355,741 @@ export default function AppOrdens() {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="todas" className="text-xs">Todas</TabsTrigger>
+          <TabsTrigger value="todas" className="text-xs">
+            Todas
+            {ordensPlanejadas && ordensPlanejadas.length > 0 && (
+              <Badge variant="secondary" className="ml-1 h-5 w-5 p-0 justify-center">
+                {ordensPlanejadas.length}
+              </Badge>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="pendentes" className="text-xs">Pendentes</TabsTrigger>
           <TabsTrigger value="andamento" className="text-xs">Andamento</TabsTrigger>
-          <TabsTrigger value="concluidas" className="text-xs">Concluídas</TabsTrigger>
+          <TabsTrigger value="concluidas" className="text-xs">Feitas</TabsTrigger>
         </TabsList>
       </Tabs>
 
       {/* Lista */}
       <div className="space-y-3">
-        {isLoading ? (
-          <div className="text-center py-8 text-muted-foreground">Carregando...</div>
+        {isLoadingOrdens ? (
+          <>
+            <Skeleton className="h-28" />
+            <Skeleton className="h-28" />
+            <Skeleton className="h-28" />
+          </>
         ) : filteredOrdens?.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">
-            Nenhuma ordem encontrada
+          <div className="text-center py-12">
+            <Calendar className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+            <p className="text-muted-foreground font-medium">
+              {searchTerm ? "Nenhuma ordem encontrada" : "Nenhuma ordem para esta data"}
+            </p>
+            <p className="text-sm text-muted-foreground mt-1">
+              {!searchTerm && "Tente selecionar outra data ou aguarde o planejamento."}
+            </p>
           </div>
         ) : (
-          filteredOrdens?.map((ordem) => (
+          filteredOrdens?.map((ordem) => {
+            if (!ordem.ordens_servico) return null;
+            
+            const status = ordem.ordens_servico.status as keyof typeof statusConfig;
+            const config = statusConfig[status] || statusConfig.pendente;
+            const StatusIcon = config.icon;
+            
+            const isConcluida = status === "concluida";
+            const isCancelada = status === "cancelada";
+            
+            return (
             <Card
               key={ordem.id}
-              className="cursor-pointer hover:bg-accent/50 transition-colors"
-              onClick={() => navigate(`/app/ordens/${ordem.id}`)}
+                className={`cursor-pointer hover:shadow-md transition-all ${
+                  isConcluida 
+                    ? "border-l-4 border-l-green-500 bg-green-50/50" 
+                    : isCancelada
+                      ? "border-l-4 border-l-gray-400 bg-gray-50/50 opacity-60"
+                      : ordem.ordens_servico.regulada 
+                        ? "border-l-4 border-l-red-500" 
+                        : ""
+                }`}
+                onClick={() => navigate(`/app/ordens/${ordem.ordens_servico!.id}`)}
             >
               <CardContent className="p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <Badge variant={statusConfig[ordem.status as keyof typeof statusConfig]?.variant || "secondary"}>
-                        {statusConfig[ordem.status as keyof typeof statusConfig]?.label || ordem.status}
+                      {/* Header da ordem */}
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                        <Badge className="bg-primary/10 text-primary border-primary/20 text-xs">
+                          #{ordem.ordem_na_rota}
+                        </Badge>
+                        <Badge variant={config.variant} className="text-xs flex items-center gap-1">
+                          <StatusIcon className="h-3 w-3" />
+                          {config.label}
+                        </Badge>
+                        {ordem.ordens_servico.regulada && (
+                          <Badge variant="destructive" className="text-xs">
+                            URGENTE
                       </Badge>
+                        )}
+                      </div>
+                      
+                      {/* Número e Tipo */}
+                      <div className="flex items-center gap-2 mb-1">
                       <span className="text-xs text-muted-foreground font-mono">
-                        {ordem.numero}
+                          {ordem.ordens_servico.numero}
                       </span>
                     </div>
-                    <p className="font-medium text-foreground">{ordem.tipo}</p>
+                      <p className="font-semibold text-foreground">{ordem.ordens_servico.tipo}</p>
+                      
+                      {/* Endereço */}
                     <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">
                       <MapPin className="h-3 w-3 flex-shrink-0" />
-                      <span className="truncate">{ordem.endereco}</span>
+                        <span className="truncate">{ordem.ordens_servico.endereco}</span>
                     </div>
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground mt-2">
+                      
+                      {/* Info adicional */}
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground mt-2 flex-wrap">
+                        {ordem.hora_inicio_estimada && (
                       <span className="flex items-center gap-1">
                         <Clock className="h-3 w-3" />
-                        {format(new Date(ordem.created_at), "dd/MM HH:mm")}
+                            {ordem.hora_inicio_estimada}
+                          </span>
+                        )}
+                        {ordem.tempo_estimado_minutos && ordem.tempo_estimado_minutos > 0 && (
+                          <span className="flex items-center gap-1">
+                            <Timer className="h-3 w-3" />
+                            ~{formatarTempo(ordem.tempo_estimado_minutos)}
+                          </span>
+                        )}
+                        {ordem.distancia_km && ordem.distancia_km > 0 && (
+                          <span className="flex items-center gap-1">
+                            <Navigation className="h-3 w-3" />
+                            {ordem.distancia_km.toFixed(1)}km
+                          </span>
+                        )}
+                        {ordem.ordens_servico.cliente_nome && (
+                          <span className="truncate">
+                            {ordem.ordens_servico.cliente_nome}
                       </span>
-                      {ordem.cliente_nome && (
-                        <span className="truncate">{ordem.cliente_nome}</span>
                       )}
                     </div>
                   </div>
-                  <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                    <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0 mt-2" />
                 </div>
               </CardContent>
             </Card>
-          ))
+            );
+          })
         )}
+      </div>
+
+      {/* Modal do Mapa */}
+      <Dialog open={showMap} onOpenChange={setShowMap}>
+        <DialogContent className="max-w-[95vw] w-full h-[90vh] p-0 overflow-hidden flex flex-col">
+          <DialogHeader className="p-3 pb-2 border-b shrink-0">
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <MapIcon className="h-5 w-5" />
+              Roteiro do Dia - {getDateLabel()}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 relative">
+            {ordensPlanejadas && ordensPlanejadas.length > 0 ? (
+              <MapaRoteiro 
+                ordens={ordensPlanejadas} 
+                equipe={equipe}
+              />
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-muted-foreground">Nenhuma ordem para exibir no mapa</p>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// Componente do Mapa - Replicando visual do MapaLeaflet da Roteirização
+interface MapaRoteiroProps {
+  ordens: OrdemPlanejada[];
+  equipe: { latitude?: number; longitude?: number; codigo?: string; color?: string } | null;
+}
+
+// Mapeamento de ícones Lucide para SVG paths
+const lucideIconPaths: Record<string, string> = {
+  MapPin: '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path><circle cx="12" cy="10" r="3"></circle>',
+  Zap: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>',
+  Wrench: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>',
+  Scissors: '<circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><line x1="20" y1="4" x2="8.12" y2="15.88"></line><line x1="14.47" y1="14.48" x2="20" y2="20"></line><line x1="8.12" y1="8.12" x2="12" y2="12"></line>',
+  CheckCircle: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline>',
+  AlertCircle: '<circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line>',
+  Power: '<path d="M12 2v10"></path><path d="M18.364 5.636a9 9 0 1 1-12.728 0"></path>',
+  Plug: '<path d="M12 22v-5"></path><path d="M9 8V2"></path><path d="M15 8V2"></path><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"></path>',
+  Search: '<circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.35-4.35"></path>',
+  Settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle>',
+  Gauge: '<path d="m12 14 4-4"></path><path d="M3.34 19a10 10 0 1 1 17.32 0"></path>',
+  Activity: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"></path>',
+};
+
+// Função para obter SVG do ícone baseado no nome do ícone Lucide
+const getLucideIconSVG = (iconName: string | undefined, color: string = "white", size: number = 16): string => {
+  const path = lucideIconPaths[iconName || 'MapPin'] || lucideIconPaths.MapPin;
+  return `
+    <svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      ${path}
+    </svg>
+  `;
+};
+
+// Função para verificar se OS é urgente (regulada vencida ou vencendo hoje)
+const isOSUrgente = (prazo: string | null | undefined, regulada: boolean | null | undefined): boolean => {
+  if (!regulada) return false;
+  if (!prazo) return false;
+  
+  const agora = new Date();
+  const hoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
+  const prazoDate = new Date(prazo);
+  const prazoDia = new Date(prazoDate.getFullYear(), prazoDate.getMonth(), prazoDate.getDate());
+  
+  // Urgente se vencida (passado) ou vencendo hoje
+  return prazoDia <= hoje;
+};
+
+function MapaRoteiro({ ordens, equipe }: MapaRoteiroProps) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<any>(null);
+  const [mapLoaded, setMapLoaded] = useState(false);
+  const [skillsIcons, setSkillsIcons] = useState<Map<string, string>>(new Map());
+  
+  // Separar ordens com e sem coordenadas
+  const ordensComCoordenadas = ordens.filter(
+    o => o.ordens_servico?.latitude && o.ordens_servico?.longitude
+  );
+  
+  const ordensSemCoordenadas = ordens.filter(
+    o => !o.ordens_servico?.latitude || !o.ordens_servico?.longitude
+  );
+  
+  // Log de debug
+  useEffect(() => {
+    if (ordensSemCoordenadas.length > 0) {
+      console.log("[MAPA APP] OSs sem coordenadas:", ordensSemCoordenadas.map(o => ({
+        ordem: o.ordem_na_rota,
+        numero: o.ordens_servico?.numero,
+        tipo: o.ordens_servico?.tipo,
+        lat: o.ordens_servico?.latitude,
+        lng: o.ordens_servico?.longitude
+      })));
+    }
+  }, [ordensSemCoordenadas]);
+  
+  // Ordenar por ordem_na_rota
+  const ordensOrdenadas = [...ordensComCoordenadas].sort((a, b) => a.ordem_na_rota - b.ordem_na_rota);
+  const ordensSemCoordenadasOrdenadas = [...ordensSemCoordenadas].sort((a, b) => a.ordem_na_rota - b.ordem_na_rota);
+
+  // Função para converter tipo de OS para código de skill
+  const tipoParaSkillCodigo = (tipo: string): string => {
+    const tipoLower = tipo.toLowerCase();
+    const mapeamento: Record<string, string> = {
+      'corte': 'CORTE',
+      'religa': 'RELIGA',
+      'ligacao': 'LIGACAO',
+      'ligação': 'LIGACAO',
+      'inspecao': 'INSPECAO',
+      'inspeção': 'INSPECAO',
+      'manutencao': 'MANUTENCAO',
+      'manutenção': 'MANUTENCAO',
+      'troca_medidor': 'TROCA_MEDIDOR',
+    };
+    return mapeamento[tipoLower] || tipo.toUpperCase();
+  };
+
+  // Buscar ícones das Skills quando ordens mudam
+  useEffect(() => {
+    const fetchSkillsIcons = async () => {
+      try {
+        const tiposUnicos = new Set<string>();
+        ordens.forEach(o => {
+          if (o.ordens_servico?.tipo) {
+            tiposUnicos.add(o.ordens_servico.tipo);
+          }
+        });
+        
+        if (tiposUnicos.size === 0) return;
+        
+        const codigosSkills = Array.from(tiposUnicos).map(tipo => tipoParaSkillCodigo(tipo));
+        const dadosSkills = await getDadosSkills(codigosSkills);
+        
+        const iconsMap = new Map<string, string>();
+        tiposUnicos.forEach(tipo => {
+          const codigoSkill = tipoParaSkillCodigo(tipo);
+          const dados = dadosSkills.get(codigoSkill);
+          if (dados?.icone) {
+            iconsMap.set(tipo, dados.icone);
+          }
+        });
+        
+        setSkillsIcons(iconsMap);
+      } catch (error) {
+        console.error("[MAPA APP] Erro ao buscar ícones das Skills:", error);
+      }
+    };
+    
+    fetchSkillsIcons();
+  }, [ordens]);
+
+  // Inicializar mapa Leaflet
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    // Verificar se já existe um mapa
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.remove();
+      mapInstanceRef.current = null;
+    }
+
+    // Verificar se Leaflet já está carregado
+    if ((window as any).L) {
+      initMap();
+      return;
+    }
+
+    // Carregar CSS do Leaflet
+    if (!document.querySelector('link[href*="leaflet"]')) {
+      const linkEl = document.createElement("link");
+      linkEl.rel = "stylesheet";
+      linkEl.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      document.head.appendChild(linkEl);
+    }
+
+    // Carregar JS do Leaflet
+    if (!document.querySelector('script[src*="leaflet"]')) {
+      const scriptEl = document.createElement("script");
+      scriptEl.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+      scriptEl.onload = () => {
+        initMap();
+      };
+      document.head.appendChild(scriptEl);
+    } else {
+      // Script já existe, esperar carregar
+      const checkLeaflet = setInterval(() => {
+        if ((window as any).L) {
+          clearInterval(checkLeaflet);
+          initMap();
+        }
+      }, 100);
+    }
+
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+    };
+  }, []);
+
+  // Atualizar marcadores quando ordens ou ícones mudam
+  useEffect(() => {
+    if (mapInstanceRef.current && (window as any).L) {
+      updateMarkers();
+    }
+  }, [ordens, equipe, skillsIcons]);
+
+  const initMap = () => {
+    if (!mapRef.current || !(window as any).L || mapInstanceRef.current) return;
+
+    const L = (window as any).L;
+
+    // Calcular centro inicial
+    const lats = ordensOrdenadas.map(o => o.ordens_servico!.latitude!);
+    const lngs = ordensOrdenadas.map(o => o.ordens_servico!.longitude!);
+    if (equipe?.latitude && equipe?.longitude) {
+      lats.push(equipe.latitude);
+      lngs.push(equipe.longitude);
+    }
+    const centerLat = lats.length > 0 ? lats.reduce((a, b) => a + b, 0) / lats.length : -14.8661;
+    const centerLng = lngs.length > 0 ? lngs.reduce((a, b) => a + b, 0) / lngs.length : -40.8394;
+
+    // Criar mapa
+    const map = L.map(mapRef.current, {
+      center: [centerLat, centerLng],
+      zoom: 13,
+    });
+    mapInstanceRef.current = map;
+
+    // Adicionar tiles
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(map);
+
+    updateMarkers();
+    setMapLoaded(true);
+  };
+
+  const updateMarkers = () => {
+    if (!mapInstanceRef.current || !(window as any).L) return;
+
+    const L = (window as any).L;
+    const map = mapInstanceRef.current;
+
+    // Limpar marcadores anteriores
+    map.eachLayer((layer: any) => {
+      if (layer instanceof L.Marker || layer instanceof L.Polyline) {
+        map.removeLayer(layer);
+      }
+    });
+
+    // Re-adicionar tiles se necessário
+    let hasTileLayer = false;
+    map.eachLayer((layer: any) => {
+      if (layer instanceof L.TileLayer) hasTileLayer = true;
+    });
+    if (!hasTileLayer) {
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: '&copy; OpenStreetMap'
+      }).addTo(map);
+    }
+
+    const corEquipe = equipe?.color || "#3b82f6";
+    const routePoints: [number, number][] = [];
+
+    // Adicionar marcador da equipe (ponto de partida) - Estilo similar ao MapaLeaflet
+    if (equipe?.latitude && equipe?.longitude) {
+      const markerHTML = `
+        <div style="
+          background-color: ${corEquipe};
+          width: 24px;
+          height: 24px;
+          border-radius: 50%;
+          border: 3px solid white;
+          box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        "></div>
+      `;
+      const marker = L.marker([equipe.latitude, equipe.longitude], {
+        icon: L.divIcon({
+          className: "custom-marker-base",
+          html: markerHTML,
+          iconSize: [24, 24],
+          iconAnchor: [12, 12],
+        }),
+      }).addTo(map);
+      marker.bindPopup(`<strong>${equipe.codigo || "Equipe"}</strong><br><span style="color: #666;">Base de Saída</span>`);
+      routePoints.push([equipe.latitude, equipe.longitude]);
+    }
+
+    // Adicionar marcadores das ordens - Estilo similar ao MapaLeaflet com ícones das Skills
+    ordensOrdenadas.forEach((ordem) => {
+      const lat = ordem.ordens_servico!.latitude!;
+      const lng = ordem.ordens_servico!.longitude!;
+      const status = ordem.ordens_servico?.status;
+      const tipo = ordem.ordens_servico?.tipo || "";
+      const prazo = ordem.ordens_servico?.prazo;
+      const regulada = ordem.ordens_servico?.regulada;
+      const isConcluida = status === "concluida";
+      const isCancelada = status === "cancelada";
+      const isEmAndamento = status === "em_deslocamento" || status === "em_andamento" || status === "em_execucao";
+      
+      // Verificar se é urgente (regulada vencida ou vencendo hoje)
+      const urgente = isOSUrgente(prazo, regulada);
+      
+      // Determinar cor baseada no status
+      let corFundo = "#000000"; // Preto para pendentes
+      let corBorda = "#374151"; // Cinza escuro padrão
+      let corIcone = "white";
+      
+      if (isConcluida) {
+        corFundo = "#22c55e";
+        corBorda = "#15803d";
+      } else if (isCancelada) {
+        corFundo = "#ef4444";
+        corBorda = "#b91c1c";
+      } else if (isEmAndamento) {
+        corFundo = "#f59e0b";
+        corBorda = "#d97706";
+      } else if (urgente) {
+        // Apenas urgentes (reguladas vencidas ou vencendo hoje) têm borda vermelha
+        corBorda = "#dc2626";
+      }
+      
+      // Obter ícone da Skill cadastrada
+      const iconName = skillsIcons.get(tipo);
+      const iconSVG = getLucideIconSVG(iconName, corIcone, 18);
+      
+      // Tamanho do marcador
+      const tamanhoMarker = 40;
+      
+      const markerHTML = `
+        <div style="
+          background-color: ${corFundo};
+          width: ${tamanhoMarker}px;
+          height: ${tamanhoMarker}px;
+          border-radius: 50%;
+          border: 3px solid ${corBorda};
+          box-shadow: 0 3px 8px rgba(0,0,0,0.4);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          position: relative;
+        ">
+          ${iconSVG}
+          <div style="
+            position: absolute;
+            bottom: -4px;
+            right: -4px;
+            background-color: rgba(0,0,0,0.85);
+            color: white;
+            border-radius: 50%;
+            width: 18px;
+            height: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: bold;
+            border: 1.5px solid white;
+          ">${ordem.ordem_na_rota}</div>
+          ${urgente ? `
+            <div style="
+              position: absolute;
+              top: -4px;
+              right: -4px;
+              background-color: #dc2626;
+              color: white;
+              border-radius: 50%;
+              width: 14px;
+              height: 14px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 8px;
+              font-weight: bold;
+              border: 1px solid white;
+            ">!</div>
+          ` : ''}
+        </div>
+      `;
+      
+      const marker = L.marker([lat, lng], {
+        icon: L.divIcon({
+          className: "custom-marker-os",
+          html: markerHTML,
+          iconSize: [tamanhoMarker, tamanhoMarker],
+          iconAnchor: [tamanhoMarker / 2, tamanhoMarker / 2],
+        }),
+      }).addTo(map);
+      
+      // Popup com informações detalhadas
+      const prazoFormatado = ordem.ordens_servico?.prazo 
+        ? new Date(ordem.ordens_servico.prazo).toLocaleString("pt-BR", {
+            day: "2-digit",
+            month: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit"
+          })
+        : "Sem prazo";
+      
+      const popupContent = `
+        <div style="min-width: 180px; font-family: system-ui, sans-serif;">
+          <div style="margin-bottom: 6px;">
+            <strong style="color: ${corFundo};">#${ordem.ordem_na_rota}</strong> - 
+            <span style="font-weight: 600;">${ordem.ordens_servico?.tipo}</span>
+          </div>
+          <div style="font-size: 12px; color: #666; margin-bottom: 4px;">
+            ${ordem.ordens_servico?.endereco}
+          </div>
+          <div style="font-size: 11px; color: #888;">
+            <strong>Horário:</strong> ${ordem.hora_inicio_estimada || "-"}<br>
+            <strong>Prazo:</strong> ${prazoFormatado}
+          </div>
+          ${regulada ? '<div style="margin-top: 6px; padding: 2px 6px; background-color: #fee2e2; border-radius: 4px; display: inline-block;"><span style="color: #dc2626; font-weight: bold; font-size: 10px;">REGULADA</span></div>' : ""}
+        </div>
+      `;
+      marker.bindPopup(popupContent);
+      
+      routePoints.push([lat, lng]);
+    });
+
+    // Desenhar linha da rota - Estilo similar ao MapaLeaflet
+    if (routePoints.length > 1) {
+      L.polyline(routePoints, {
+        color: corEquipe,
+        weight: 4,
+        opacity: 0.8,
+        dashArray: "8, 8"
+      }).addTo(map);
+    }
+
+    // Ajustar zoom para mostrar todos os pontos
+    if (routePoints.length > 0) {
+      const bounds = L.latLngBounds(routePoints);
+      map.fitBounds(bounds, { padding: [40, 40] });
+    }
+  };
+  
+  // Criar URL do Google Maps com waypoints
+  const openInGoogleMaps = () => {
+    if (ordensOrdenadas.length === 0) return;
+    
+    // Origem: posição da equipe ou primeira OS
+    const origin = equipe?.latitude && equipe?.longitude
+      ? `${equipe.latitude},${equipe.longitude}`
+      : `${ordensOrdenadas[0].ordens_servico!.latitude},${ordensOrdenadas[0].ordens_servico!.longitude}`;
+    
+    // Destino: última OS
+    const lastOrdem = ordensOrdenadas[ordensOrdenadas.length - 1];
+    const destination = `${lastOrdem.ordens_servico!.latitude},${lastOrdem.ordens_servico!.longitude}`;
+    
+    // Waypoints: todas as OSs intermediárias
+    const waypoints = ordensOrdenadas
+      .slice(equipe?.latitude ? 0 : 1, -1)
+      .map(o => `${o.ordens_servico!.latitude},${o.ordens_servico!.longitude}`)
+      .join("|");
+    
+    const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}${waypoints ? `&waypoints=${waypoints}` : ""}&travelmode=driving`;
+    window.open(url, "_blank");
+  };
+  
+  // Criar URL do Waze
+  const openInWaze = () => {
+    if (ordensOrdenadas.length === 0) return;
+    
+    // Waze só aceita um destino por vez, então abrir a próxima OS pendente
+    const proximaOS = ordensOrdenadas.find(o => 
+      o.ordens_servico?.status !== "concluida" && o.ordens_servico?.status !== "cancelada"
+    ) || ordensOrdenadas[0];
+    
+    const url = `https://waze.com/ul?ll=${proximaOS.ordens_servico!.latitude},${proximaOS.ordens_servico!.longitude}&navigate=yes`;
+    window.open(url, "_blank");
+  };
+  
+  return (
+    <div className="absolute inset-0 flex flex-col">
+      {/* Botões de navegação */}
+      <div className="p-2 bg-muted/50 border-b flex gap-2 flex-wrap shrink-0">
+        <Button 
+          onClick={openInGoogleMaps}
+          className="flex-1 min-w-[120px]"
+          variant="default"
+          size="sm"
+        >
+          <Navigation className="h-4 w-4 mr-2" />
+          Google Maps
+        </Button>
+        <Button 
+          onClick={openInWaze}
+          className="flex-1 min-w-[120px]"
+          variant="secondary"
+          size="sm"
+        >
+          <Navigation className="h-4 w-4 mr-2" />
+          Waze
+        </Button>
+      </div>
+      
+      {/* Mapa Leaflet */}
+      <div className="flex-1 min-h-0 relative">
+        <div ref={mapRef} className="absolute inset-0" style={{ zIndex: 1 }} />
+        
+        {/* Overlay com lista de pontos */}
+        <div className="absolute bottom-0 left-0 right-0 bg-background/95 backdrop-blur border-t max-h-[40%] overflow-auto" style={{ zIndex: 1000 }}>
+          <div className="p-3">
+            <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
+              <MapPin className="h-4 w-4" />
+              Sequência do Roteiro ({ordens.length} pontos)
+              {ordensSemCoordenadasOrdenadas.length > 0 && (
+                <span className="text-orange-500 text-xs">
+                  ({ordensSemCoordenadasOrdenadas.length} sem localização)
+                </span>
+              )}
+            </h4>
+            <div className="space-y-2">
+              {equipe?.latitude && equipe?.longitude && (
+                <div className="flex items-center gap-2 text-xs p-2 rounded border" style={{ backgroundColor: `${equipe.color || '#3b82f6'}15`, borderColor: `${equipe.color || '#3b82f6'}40` }}>
+                  <div className="h-6 w-6 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ backgroundColor: equipe.color || '#3b82f6' }}>
+                    P
+                  </div>
+                  <span className="font-medium" style={{ color: equipe.color || '#3b82f6' }}>Ponto de Partida ({equipe.codigo})</span>
+                </div>
+              )}
+              {/* Todas as ordens ordenadas por ordem_na_rota */}
+              {[...ordens].sort((a, b) => a.ordem_na_rota - b.ordem_na_rota).map((ordem) => {
+                const status = ordem.ordens_servico?.status;
+                const tipo = ordem.ordens_servico?.tipo || "";
+                const prazo = ordem.ordens_servico?.prazo;
+                const regulada = ordem.ordens_servico?.regulada;
+                const isConcluida = status === "concluida";
+                const isCancelada = status === "cancelada";
+                const isEmAndamento = status === "em_deslocamento" || status === "em_andamento" || status === "em_execucao";
+                const urgente = isOSUrgente(prazo, regulada);
+                const semCoordenadas = !ordem.ordens_servico?.latitude || !ordem.ordens_servico?.longitude;
+                
+                let bgClass = "bg-gray-100 border-gray-300";
+                let badgeBg = "#000000"; // Preto para pendentes
+                
+                if (isConcluida) {
+                  bgClass = "bg-green-500/10 border-green-500/30";
+                  badgeBg = "#22c55e";
+                } else if (isCancelada) {
+                  bgClass = "bg-red-500/10 border-red-500/30 line-through opacity-50";
+                  badgeBg = "#ef4444";
+                } else if (isEmAndamento) {
+                  bgClass = "bg-amber-500/10 border-amber-500/30";
+                  badgeBg = "#f59e0b";
+                } else if (urgente) {
+                  bgClass = "bg-red-50 border-red-300";
+                }
+                
+                // Se não tem coordenadas, destacar com fundo laranja
+                if (semCoordenadas) {
+                  bgClass = "bg-orange-100 border-orange-400";
+                }
+                
+                // Obter ícone da Skill
+                const iconName = skillsIcons.get(tipo);
+                
+                return (
+                  <div 
+                    key={ordem.id}
+                    className={`flex items-center gap-2 text-xs p-2 rounded border ${bgClass}`}
+                  >
+                    <div 
+                      className="h-7 w-7 rounded-full flex items-center justify-center relative shrink-0"
+                      style={{ 
+                        backgroundColor: semCoordenadas ? '#f97316' : badgeBg,
+                        border: urgente ? '2px solid #dc2626' : 'none'
+                      }}
+                      dangerouslySetInnerHTML={{ 
+                        __html: getLucideIconSVG(iconName, "white", 14) 
+                      }}
+                    />
+                    <div className="h-5 w-5 rounded-full bg-black/80 text-white flex items-center justify-center text-[10px] font-bold -ml-4 mt-3 border border-white z-10">
+                      {ordem.ordem_na_rota}
+                    </div>
+                    <div className="flex-1 min-w-0 ml-1">
+                      <div className="flex items-center gap-1">
+                        <p className="font-medium truncate">{tipo}</p>
+                        {urgente && (
+                          <span className="bg-red-500 text-white text-[8px] px-1 rounded font-bold">URGENTE</span>
+                        )}
+                        {semCoordenadas && (
+                          <span className="bg-orange-500 text-white text-[8px] px-1 rounded font-bold">SEM GPS</span>
+                        )}
+                      </div>
+                      <p className="text-muted-foreground truncate">{ordem.ordens_servico?.endereco}</p>
+                    </div>
+                    {ordem.hora_inicio_estimada && (
+                      <span className="text-muted-foreground whitespace-nowrap">
+                        {ordem.hora_inicio_estimada}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

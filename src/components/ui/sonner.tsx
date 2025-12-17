@@ -10,13 +10,29 @@ const Toaster = ({ ...props }: ToasterProps) => {
     <Sonner
       theme={theme as ToasterProps["theme"]}
       className="toaster group"
+      position="top-right"
+      richColors
+      closeButton
       toastOptions={{
+        duration: (t) => {
+          // Erros ficam abertos por 30 segundos ou até fechar manualmente
+          if (t.type === "error") {
+            return 30000;
+          }
+          // Sucesso e info ficam por 5 segundos
+          if (t.type === "success" || t.type === "info") {
+            return 5000;
+          }
+          // Outros tipos ficam por 4 segundos
+          return 4000;
+        },
         classNames: {
           toast:
             "group toast group-[.toaster]:bg-background group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg",
           description: "group-[.toast]:text-muted-foreground",
           actionButton: "group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
           cancelButton: "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",
+          error: "group-[.toast]:border-destructive group-[.toast]:bg-destructive/10",
         },
       }}
       {...props}

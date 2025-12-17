@@ -23,6 +23,7 @@ import {
   MapPin,
   Edit,
   Trash2,
+  Copy,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
@@ -78,6 +79,32 @@ const Equipes = () => {
 
   const handleEdit = (tecnico: Tables<"tecnicos">) => {
     setSelectedTecnico(tecnico);
+    setFormOpen(true);
+  };
+
+  const handleDuplicate = (tecnico: Tables<"tecnicos">) => {
+    // Gerar código único para a cópia
+    let novoCodigo = `${tecnico.codigo}-Copy`;
+    let contador = 1;
+    
+    // Verificar se o código já existe e incrementar se necessário
+    while (tecnicos.some(t => t.codigo === novoCodigo && t.id !== tecnico.id)) {
+      novoCodigo = `${tecnico.codigo}-Copy${contador > 1 ? contador : ''}`;
+      contador++;
+    }
+    
+    // Criar uma cópia da equipe com código modificado
+    // Criar um novo objeto com ID inválido para forçar criação de nova equipe
+    const tecnicoDuplicado: Tables<"tecnicos"> = {
+      ...tecnico,
+      id: `temp-duplicate-${Date.now()}`, // ID temporário único que não existe no banco
+      codigo: novoCodigo, // Código único
+      nome: `${tecnico.nome} (Cópia)`, // Adicionar sufixo ao nome
+      created_at: new Date().toISOString(), // Atualizar timestamp
+      updated_at: new Date().toISOString(), // Atualizar timestamp
+    };
+    
+    setSelectedTecnico(tecnicoDuplicado);
     setFormOpen(true);
   };
 
@@ -205,7 +232,14 @@ const Equipes = () => {
                     </div>
                     <div>
                       <h3 className="font-semibold text-foreground">{tecnico.codigo}</h3>
-                      <p className="text-sm text-muted-foreground">{tecnico.nome}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {tecnico.nome.split(/[\/,]/).map((nome, idx) => (
+                          <span key={idx}>
+                            {nome.trim()}
+                            {idx === 0 && tecnico.nome.includes("/") && " / "}
+                          </span>
+                        ))}
+                      </p>
                     </div>
                   </div>
                   <Badge variant={tecnico.status === "disponivel" || tecnico.status === "em_servico" ? "success" : "secondary"}>
@@ -242,6 +276,16 @@ const Equipes = () => {
                   <Button variant="outline" size="sm" className="flex-1 gap-1" onClick={() => handleEdit(tecnico)}>
                     <Edit className="h-4 w-4" />
                     Editar
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="gap-1" 
+                    onClick={() => handleDuplicate(tecnico)}
+                    title="Duplicar equipe"
+                  >
+                    <Copy className="h-4 w-4" />
+                    Duplicar
                   </Button>
                   <Button variant="outline" size="icon" className="h-9 w-9">
                     <Phone className="h-4 w-4" />

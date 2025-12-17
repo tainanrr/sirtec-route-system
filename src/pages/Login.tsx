@@ -52,6 +52,7 @@ const Login = () => {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log("[Login] Iniciando login...", { email: loginEmail });
     
     try {
       loginSchema.parse({ email: loginEmail, password: loginPassword });
@@ -68,7 +69,9 @@ const Login = () => {
     
     setIsLoading(true);
     
+    console.log("[Login] Chamando signIn...");
     const { error } = await signIn(loginEmail, loginPassword);
+    console.log("[Login] Resultado signIn:", { error });
     
     if (error) {
       let message = "Erro ao fazer login";
@@ -83,14 +86,14 @@ const Login = () => {
         description: message,
         variant: "destructive",
       });
+      setIsLoading(false);
     } else {
       toast({
         title: "Login realizado!",
         description: "Bem-vindo ao SirtecRoute",
       });
+      // Não definir isLoading=false aqui, pois o redirect vai acontecer
     }
-    
-    setIsLoading(false);
   };
 
   const handleSignup = async (e: React.FormEvent) => {

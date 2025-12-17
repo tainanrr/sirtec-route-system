@@ -21,6 +21,9 @@ import {
   Menu,
   X,
   LogOut,
+  Wrench,
+  Map,
+  ListChecks,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -41,14 +44,17 @@ interface NavItem {
 const navItems: NavItem[] = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/" },
   { icon: MapPin, label: "Roteirização", href: "/roteirizacao" },
+  { icon: ListChecks, label: "Acompanhamento de Roteirizações", href: "/acompanhamento-roteirizacoes" },
   { icon: Radio, label: "Torre de Controle", href: "/torre-controle" },
   { icon: ClipboardList, label: "Ordens de Serviço", href: "/ordens-servico" },
+  { icon: CheckSquare, label: "Consulta Checklists", href: "/consulta-checklists" },
   { icon: Users, label: "Equipes", href: "/equipes" },
+  { icon: Map, label: "Territórios", href: "/territorios" },
   {
     icon: FolderOpen,
     label: "Cadastros",
     children: [
-      { icon: UserCircle, label: "Técnicos", href: "/cadastros/tecnicos" },
+      { icon: Wrench, label: "Skills", href: "/cadastros/skills" },
       { icon: MapPinned, label: "Pontos de Saída", href: "/cadastros/pontos-saida" },
       { icon: Pentagon, label: "Polígonos", href: "/cadastros/poligonos" },
       { icon: CheckSquare, label: "Checklists", href: "/cadastros/checklists" },
@@ -61,9 +67,10 @@ const navItems: NavItem[] = [
 interface SidebarProps {
   isDark: boolean;
   setIsDark: (value: boolean) => void;
+  collapsed?: boolean;
 }
 
-export function Sidebar({ isDark, setIsDark }: SidebarProps) {
+export function Sidebar({ isDark, setIsDark, collapsed = false }: SidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
@@ -91,23 +98,42 @@ export function Sidebar({ isDark, setIsDark }: SidebarProps) {
     .toUpperCase()
     .slice(0, 2);
 
-  const SidebarContent = () => (
+  const SidebarContent = ({ collapsed = false }: { collapsed?: boolean }) => (
     <div className="flex h-full flex-col bg-sidebar">
       {/* Logo */}
-      <div className="flex h-16 items-center gap-2 border-b border-sidebar-border px-6">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg gradient-primary">
+      <div className={cn(
+        "flex h-16 items-center border-b border-sidebar-border transition-all",
+        collapsed ? "justify-center px-2" : "gap-2 px-6"
+      )}>
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg gradient-primary flex-shrink-0">
           <Zap className="h-5 w-5 text-primary-foreground" />
         </div>
+        {!collapsed && (
         <div className="flex flex-col">
           <span className="text-lg font-bold text-sidebar-foreground">SirtecRoute</span>
           <span className="text-[10px] text-muted-foreground -mt-1">Sistema de Roteirização</span>
         </div>
+        )}
       </div>
 
       {/* Navigation */}
       <nav className="flex-1 space-y-1 overflow-y-auto p-3">
         {navItems.map((item) => {
           if (item.children) {
+            if (collapsed) {
+              return (
+                <button
+                  key={item.label}
+                  className={cn(
+                    "nav-item w-full justify-center text-sidebar-foreground",
+                    item.children.some((c) => isActive(c.href)) && "bg-sidebar-accent"
+                  )}
+                  title={item.label}
+                >
+                  <item.icon className="h-5 w-5" />
+                </button>
+              );
+            }
             return (
               <Collapsible
                 key={item.label}
@@ -159,30 +185,44 @@ export function Sidebar({ isDark, setIsDark }: SidebarProps) {
               onClick={() => setIsMobileOpen(false)}
               className={cn(
                 "nav-item text-sidebar-foreground",
+                collapsed && "justify-center",
                 isActive(item.href) && "active"
               )}
+              title={collapsed ? item.label : undefined}
             >
               <item.icon className="h-5 w-5" />
-              {item.label}
+              {!collapsed && item.label}
             </Link>
           );
         })}
       </nav>
 
       {/* Footer */}
-      <div className="border-t border-sidebar-border p-3 space-y-3">
+      <div className={cn(
+        "border-t border-sidebar-border space-y-3",
+        collapsed ? "p-2" : "p-3"
+      )}>
         <button
           onClick={() => setIsDark(!isDark)}
-          className="nav-item w-full text-sidebar-foreground"
+          className={cn(
+            "nav-item w-full text-sidebar-foreground",
+            collapsed && "justify-center"
+          )}
+          title={collapsed ? (isDark ? "Tema Claro" : "Tema Escuro") : undefined}
         >
           {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-          {isDark ? "Tema Claro" : "Tema Escuro"}
+          {!collapsed && (isDark ? "Tema Claro" : "Tema Escuro")}
         </button>
         
-        <div className="flex items-center gap-3 rounded-lg bg-sidebar-accent p-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-semibold">
+        <div className={cn(
+          "flex items-center rounded-lg bg-sidebar-accent",
+          collapsed ? "justify-center p-2" : "gap-3 p-3"
+        )}>
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-semibold flex-shrink-0">
             {userInitials}
           </div>
+          {!collapsed && (
+            <>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-sidebar-foreground truncate">{userName}</p>
             <p className="text-xs text-muted-foreground truncate">{userEmail}</p>
@@ -194,6 +234,8 @@ export function Sidebar({ isDark, setIsDark }: SidebarProps) {
           >
             <LogOut className="h-4 w-4" />
           </button>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -222,11 +264,12 @@ export function Sidebar({ isDark, setIsDark }: SidebarProps) {
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed left-0 top-0 z-40 h-screen w-64 transform border-r border-sidebar-border bg-sidebar transition-transform duration-300 lg:translate-x-0",
+          "fixed left-0 top-0 z-40 h-screen transform border-r border-sidebar-border bg-sidebar transition-all duration-300 lg:translate-x-0",
+          collapsed ? "w-16" : "w-64",
           isMobileOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        <SidebarContent />
+        <SidebarContent collapsed={collapsed} />
       </aside>
     </>
   );

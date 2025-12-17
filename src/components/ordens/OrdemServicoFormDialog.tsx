@@ -30,11 +30,44 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import type { Tables } from "@/integrations/supabase/types";
+import { getDadosSkill, fetchSkills } from "@/lib/skillsUtils";
+
+/**
+ * Converte código da skill (ex: "CORTE") para formato tipo usado no banco (ex: "corte")
+ */
+function skillCodigoParaTipo(codigo: string): string {
+  return codigo.toLowerCase().replace(/[^a-z0-9]/g, "_");
+}
+
+/**
+ * Converte tipo do banco (ex: "corte") para código da skill (ex: "CORTE")
+ */
+function tipoParaSkillCodigo(tipo: string): string {
+  // Mapeamento direto para casos conhecidos
+  const mapeamento: Record<string, string> = {
+    corte: "CORTE",
+    religa: "RELIGA",
+    inspecao: "INSPEÇÃO",
+    inspeção: "INSPEÇÃO",
+    ligacao: "LIGAÇÃO",
+    ligação: "LIGAÇÃO",
+    manutencao: "MANUTENÇÃO",
+    manutenção: "MANUTENÇÃO",
+    troca_medidor: "TROCA_MEDIDOR",
+  };
+  
+  if (mapeamento[tipo.toLowerCase()]) {
+    return mapeamento[tipo.toLowerCase()];
+  }
+  
+  // Tentar converter diretamente
+  return tipo.toUpperCase();
+}
 
 const ordemSchema = z.object({
   numero: z.string().min(1, "Número é obrigatório").max(50),
   tipo: z.string().min(1, "Tipo é obrigatório"),
-  status: z.enum(["pendente", "andamento", "concluida", "atrasada", "cancelada"]),
+  status: z.enum(["pendente", "planejada", "andamento", "concluida", "atrasada", "cancelada"]),
   endereco: z.string().min(5, "Endereço é obrigatório").max(255),
   cliente_nome: z.string().max(100).optional(),
   cliente_cpf: z.string().max(14).optional(),
@@ -45,6 +78,10 @@ const ordemSchema = z.object({
   regulada: z.boolean(),
   observacoes: z.string().max(500).optional(),
   tecnico_id: z.string().optional(),
+  prazo: z.string().optional(),
+  latitude: z.coerce.number().optional(),
+  longitude: z.coerce.number().optional(),
+  prioridade: z.enum(["ALTA", "NORMAL"]).optional(),
 });
 
 type OrdemFormData = z.infer<typeof ordemSchema>;
@@ -64,13 +101,14 @@ export function OrdemServicoFormDialog({
 }: OrdemServicoFormDialogProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [tecnicos, setTecnicos] = useState<Tables<"tecnicos">[]>([]);
+  const [skills, setSkills] = useState<Tables<"skills">[]>([]);
   const isEditing = !!ordem;
 
   const form = useForm<OrdemFormData>({
     resolver: zodResolver(ordemSchema),
     defaultValues: {
       numero: "",
-      tipo: "corte",
+      tipo: "",
       status: "pendente",
       endereco: "",
       cliente_nome: "",
@@ -82,6 +120,10 @@ export function OrdemServicoFormDialog({
       regulada: false,
       observacoes: "",
       tecnico_id: "",
+      prazo: "",
+      latitude: undefined,
+      longitude: undefined,
+      prioridade: "NORMAL",
     },
   });
 
@@ -97,7 +139,54 @@ export function OrdemServicoFormDialog({
   }, []);
 
   useEffect(() => {
+    const carregarSkills = async () => {
+      try {
+        const skillsData = await fetchSkills();
+        setSkills(skillsData);
+      } catch (error) {
+        console.error("Erro ao buscar skills:", error);
+        toast.error("Erro ao carregar tipos disponíveis");
+      }
+    };
+    carregarSkills();
+  }, []);
+
+  // Buscar dados da skill quando o tipo mudar
+  useEffect(() => {
+    const subscription = form.watch((value, { name }) => {
+      // Só atualizar quando o campo "tipo" mudar
+      if (name === "tipo" && value.tipo) {
+        const carregarDadosSkill = async () => {
+          try {
+            // Mapear o tipo do formulário para o código da skill
+            const skillCodigo = tipoParaSkillCodigo(value.tipo);
+            const dadosSkill = await getDadosSkill(skillCodigo);
+            
+            // Sempre atualizar com dados da skill quando o tipo mudar
+            // Isso garante que os valores sempre reflitam a configuração atual da skill
+            form.setValue("duracao_estimada", dadosSkill.tempoExecucao);
+            form.setValue("valor", dadosSkill.valor);
+            form.setValue("regulada", dadosSkill.regulada);
+          } catch (error) {
+            console.error("Erro ao carregar dados da skill:", error);
+            // Não mostrar erro ao usuário, apenas usar valores padrão
+          }
+        };
+
+        carregarDadosSkill();
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [form, isEditing]);
+
+  useEffect(() => {
     if (ordem) {
+      // Formatar prazo para input datetime-local
+      const prazoFormatted = ordem.prazo 
+        ? new Date(ordem.prazo).toISOString().slice(0, 16)
+        : "";
+      
       form.reset({
         numero: ordem.numero,
         tipo: ordem.tipo,
@@ -112,29 +201,77 @@ export function OrdemServicoFormDialog({
         regulada: ordem.regulada || false,
         observacoes: ordem.observacoes || "",
         tecnico_id: ordem.tecnico_id || "",
+        prazo: prazoFormatted,
+        latitude: ordem.latitude ? Number(ordem.latitude) : undefined,
+        longitude: ordem.longitude ? Number(ordem.longitude) : undefined,
+        prioridade: (ordem.prioridade as "ALTA" | "NORMAL") || "NORMAL",
       });
+
+      // Carregar dados da skill após resetar o formulário
+      // Atualizar apenas se os valores estão vazios ou são padrão
+      const carregarDadosSkillAoEditar = async () => {
+        try {
+          const skillCodigo = tipoParaSkillCodigo(ordem.tipo);
+          const dadosSkill = await getDadosSkill(skillCodigo);
+          
+          // Atualizar com dados da skill se os valores estão vazios ou são padrão
+          const duracaoAtual = ordem.duracao_estimada;
+          const valorAtual = Number(ordem.valor);
+          
+          // Se não tem duração ou valor definidos, ou se são valores padrão, atualizar com dados da skill
+          if (!duracaoAtual || duracaoAtual === 30 || !valorAtual || valorAtual === 0) {
+            form.setValue("duracao_estimada", dadosSkill.tempoExecucao);
+            form.setValue("valor", dadosSkill.valor);
+            // Só atualizar regulada se não estiver definida
+            if (ordem.regulada === undefined || ordem.regulada === null) {
+              form.setValue("regulada", dadosSkill.regulada);
+            }
+          }
+        } catch (error) {
+          console.error("Erro ao carregar dados da skill ao editar:", error);
+        }
+      };
+
+      carregarDadosSkillAoEditar();
     } else {
+      const tipoPadrao = skills && skills.length > 0 ? skillCodigoParaTipo(skills[0].codigo) : "";
+      const duracaoPadrao = skills && skills.length > 0 ? skills[0].tempo_execucao_minutos : 30;
+      const valorPadrao = skills && skills.length > 0 ? Number(skills[0].valor || 0) : 0;
+      const reguladaPadrao = skills && skills.length > 0 ? (skills[0].regulada || false) : false;
+
       form.reset({
         numero: "",
-        tipo: "corte",
+        tipo: tipoPadrao,
         status: "pendente",
         endereco: "",
         cliente_nome: "",
         cliente_cpf: "",
         instalacao: "",
         medidor: "",
-        duracao_estimada: 30,
-        valor: 0,
-        regulada: false,
+        duracao_estimada: duracaoPadrao,
+        valor: valorPadrao,
+        regulada: reguladaPadrao,
         observacoes: "",
         tecnico_id: "",
+        prazo: "",
+        latitude: undefined,
+        longitude: undefined,
+        prioridade: "NORMAL",
       });
     }
-  }, [ordem, form]);
+  }, [ordem, form, skills]);
 
   const onSubmit = async (data: OrdemFormData) => {
     setIsLoading(true);
     try {
+      // Converter prazo de string para timestamp se fornecido
+      const prazoTimestamp = data.prazo 
+        ? new Date(data.prazo).toISOString()
+        : null;
+      
+      // Converter tecnico_id vazio ou "none" para null
+      const tecnicoId = !data.tecnico_id || data.tecnico_id === "none" ? null : data.tecnico_id;
+      
       const payload = {
         numero: data.numero,
         tipo: data.tipo,
@@ -145,10 +282,14 @@ export function OrdemServicoFormDialog({
         instalacao: data.instalacao || null,
         medidor: data.medidor || null,
         observacoes: data.observacoes || null,
-        tecnico_id: data.tecnico_id || null,
+        tecnico_id: tecnicoId,
         valor: data.valor || null,
         duracao_estimada: data.duracao_estimada || null,
         regulada: data.regulada,
+        prazo: prazoTimestamp,
+        latitude: data.latitude || null,
+        longitude: data.longitude || null,
+        prioridade: data.prioridade || "NORMAL",
       };
 
       if (isEditing && ordem) {
@@ -210,16 +351,24 @@ export function OrdemServicoFormDialog({
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue />
+                          <SelectValue placeholder="Selecione um tipo" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="corte">Corte</SelectItem>
-                        <SelectItem value="religa">Religa</SelectItem>
-                        <SelectItem value="ligacao">Ligação Nova</SelectItem>
-                        <SelectItem value="inspecao">Inspeção</SelectItem>
-                        <SelectItem value="manutencao">Manutenção</SelectItem>
-                        <SelectItem value="troca_medidor">Troca de Medidor</SelectItem>
+                        {!skills || skills.length === 0 ? (
+                          <SelectItem value="" disabled>
+                            Carregando tipos...
+                          </SelectItem>
+                        ) : (
+                          skills.map((skill) => (
+                            <SelectItem 
+                              key={skill.id} 
+                              value={skillCodigoParaTipo(skill.codigo)}
+                            >
+                              {skill.nome}
+                            </SelectItem>
+                          ))
+                        )}
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -260,14 +409,17 @@ export function OrdemServicoFormDialog({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Equipe</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    <Select 
+                      onValueChange={(value) => field.onChange(value === "none" ? "" : value)} 
+                      value={field.value || "none"}
+                    >
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Selecionar equipe" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="">Não atribuída</SelectItem>
+                        <SelectItem value="none">Não atribuída</SelectItem>
                         {tecnicos.map((t) => (
                           <SelectItem key={t.id} value={t.id}>
                             {t.codigo} - {t.nome}
@@ -395,6 +547,88 @@ export function OrdemServicoFormDialog({
                         checked={field.value}
                         onCheckedChange={field.onChange}
                         className="mt-2"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="prazo"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Prazo</FormLabel>
+                    <FormControl>
+                      <Input type="datetime-local" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="prioridade"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Prioridade</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value || "NORMAL"}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="NORMAL">Normal</SelectItem>
+                        <SelectItem value="ALTA">Alta</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="latitude"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Latitude</FormLabel>
+                    <FormControl>
+                      <Input 
+                        type="number" 
+                        step="any"
+                        placeholder="-14.8661"
+                        {...field}
+                        value={field.value ?? ""}
+                        onChange={(e) => field.onChange(e.target.value ? parseFloat(e.target.value) : undefined)}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="longitude"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Longitude</FormLabel>
+                    <FormControl>
+                      <Input 
+                        type="number" 
+                        step="any"
+                        placeholder="-40.8394"
+                        {...field}
+                        value={field.value ?? ""}
+                        onChange={(e) => field.onChange(e.target.value ? parseFloat(e.target.value) : undefined)}
                       />
                     </FormControl>
                     <FormMessage />
