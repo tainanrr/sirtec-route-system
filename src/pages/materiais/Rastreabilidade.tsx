@@ -129,19 +129,30 @@ export default function Rastreabilidade() {
     observacao: "",
   });
 
-  // Query para itens serializados
+  // Query para itens serializados (otimizada)
   const { data: itens, isLoading } = useQuery({
     queryKey: ["materiais-serializados", filtroStatus, filtroMaterial, searchTerm],
     queryFn: async () => {
+      // Primeiro buscar apenas os dados básicos (mais rápido)
       let query = supabase
         .from("materiais_serializados")
         .select(`
-          *,
-          materiais (codigo, nome, categoria),
-          tecnicos:localizacao_id (codigo, nome),
-          ordens_servico:ordem_servico_id (numero, endereco, cliente_nome)
+          id,
+          material_id,
+          numero_serie,
+          lote,
+          data_fabricacao,
+          data_validade,
+          status,
+          localizacao_tipo,
+          localizacao_id,
+          ordem_servico_id,
+          observacao,
+          created_at,
+          updated_at
         `)
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(500); // Limitar para performance
 
       if (filtroStatus !== "todos") {
         query = query.eq("status", filtroStatus);
@@ -151,23 +162,39 @@ export default function Rastreabilidade() {
         query = query.eq("material_id", filtroMaterial);
       }
 
-      const { data, error } = await query;
-      if (error) throw error;
-
-      // Filtrar por busca
+      // Filtrar por busca no número de série ou lote (mais rápido que join)
       if (searchTerm) {
         const term = searchTerm.toLowerCase();
-        return (data as MaterialSerializado[]).filter(
-          (item) =>
-            item.numero_serie.toLowerCase().includes(term) ||
-            item.lote?.toLowerCase().includes(term) ||
-            item.materiais?.codigo.toLowerCase().includes(term) ||
-            item.materiais?.nome.toLowerCase().includes(term) ||
-            item.ordens_servico?.numero.toLowerCase().includes(term)
-        );
+        query = query.or(`numero_serie.ilike.%${term}%,lote.ilike.%${term}%`);
       }
 
-      return data as MaterialSerializado[];
+      const { data: serializados, error } = await query;
+      if (error) throw error;
+
+      if (!serializados || serializados.length === 0) return [];
+
+      // Buscar dados relacionados em paralelo (mais eficiente)
+      const materialIds = [...new Set(serializados.map((s: any) => s.material_id))];
+      const osIds = serializados.filter((s: any) => s.ordem_servico_id).map((s: any) => s.ordem_servico_id);
+      const equipeIds = serializados.filter((s: any) => s.localizacao_tipo === "equipe" && s.localizacao_id).map((s: any) => s.localizacao_id);
+
+      const [materiaisData, osData, equipesData] = await Promise.all([
+        supabase.from("materiais").select("id, codigo, nome, categoria").in("id", materialIds),
+        osIds.length > 0 ? supabase.from("ordens_servico").select("id, numero, endereco, cliente_nome").in("id", osIds) : Promise.resolve({ data: [] }),
+        equipeIds.length > 0 ? supabase.from("tecnicos").select("id, codigo, nome").in("id", equipeIds) : Promise.resolve({ data: [] }),
+      ]);
+
+      // Montar resultado com joins
+      const materiaisMap = new Map((materiaisData.data || []).map((m: any) => [m.id, m]));
+      const osMap = new Map((osData.data || []).map((os: any) => [os.id, os]));
+      const equipesMap = new Map((equipesData.data || []).map((eq: any) => [eq.id, eq]));
+
+      return serializados.map((item: any) => ({
+        ...item,
+        materiais: materiaisMap.get(item.material_id),
+        ordens_servico: item.ordem_servico_id ? osMap.get(item.ordem_servico_id) : null,
+        tecnicos: item.localizacao_tipo === "equipe" && item.localizacao_id ? equipesMap.get(item.localizacao_id) : null,
+      })) as MaterialSerializado[];
     },
   });
 
@@ -226,27 +253,33 @@ export default function Rastreabilidade() {
         throw new Error("Número de série já cadastrado");
       }
 
-      const { error } = await supabase.from("materiais_serializados").insert({
-        material_id: data.material_id,
-        numero_serie: data.numero_serie.toUpperCase(),
-        lote: data.lote || null,
-        data_fabricacao: data.data_fabricacao || null,
-        data_validade: data.data_validade || null,
-        status: "em_estoque",
-        localizacao_tipo: "central",
-        observacao: data.observacao || null,
-      });
+      const { data: novoItem, error } = await supabase
+        .from("materiais_serializados")
+        .insert({
+          material_id: data.material_id,
+          numero_serie: data.numero_serie.toUpperCase(),
+          lote: data.lote || null,
+          data_fabricacao: data.data_fabricacao || null,
+          data_validade: data.data_validade || null,
+          status: "em_estoque",
+          localizacao_tipo: "central",
+          observacao: data.observacao || null,
+        })
+        .select()
+        .single();
 
       if (error) throw error;
 
-      // Registrar no histórico
-      await supabase.from("materiais_serializados_historico").insert({
-        serializado_id: data.numero_serie, // Será atualizado após insert
-        acao: "cadastro",
-        status_novo: "em_estoque",
-        localizacao_nova: "central",
-        observacao: "Cadastro inicial",
-      });
+      // Registrar no histórico usando o ID do item criado
+      if (novoItem) {
+        await supabase.from("materiais_serializados_historico").insert({
+          serializado_id: novoItem.id,
+          acao: "cadastro",
+          status_novo: "em_estoque",
+          localizacao_nova: "central",
+          observacao: "Cadastro inicial",
+        });
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["materiais-serializados"] });

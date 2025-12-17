@@ -83,6 +83,7 @@ export default function AppMateriaisOS() {
   const [itemEditando, setItemEditando] = useState<MaterialAplicado | null>(null);
   const [novaQuantidade, setNovaQuantidade] = useState(1);
   const [tipoOperacao, setTipoOperacao] = useState<"aplicar" | "retirar">("aplicar");
+  const [abaAtiva, setAbaAtiva] = useState<"aplicados" | "retirados">("aplicados");
   const [searchTerm, setSearchTerm] = useState("");
   const [formData, setFormData] = useState({
     material_id: "",
@@ -248,12 +249,18 @@ export default function AppMateriaisOS() {
           .eq("numero_serie", data.numero_serie);
       }
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["materiais-os", ordemId] });
       queryClient.invalidateQueries({ queryKey: ["estoque-equipe-os", equipeId] });
-      toast.success(tipoOperacao === "aplicar" ? "Material aplicado!" : "Material retirado!");
+      toast.success(variables.tipo === "aplicado" ? "Material aplicado!" : "Material retirado!");
       setDialogOpen(false);
       setFormData({ material_id: "", quantidade: 1, numero_serie: "", observacao: "" });
+      // Mudar para a aba correspondente
+      if (variables.tipo === "aplicado") {
+        setAbaAtiva("aplicados");
+      } else {
+        setAbaAtiva("retirados");
+      }
     },
     onError: (error: any) => {
       toast.error(error.message || "Erro ao registrar material");
@@ -392,7 +399,32 @@ export default function AppMateriaisOS() {
       return;
     }
 
-    // Validação de estoque já é feita na mutation
+    // Se for aplicar, verificar estoque ANTES de chamar a mutation
+    if (tipoOperacao === "aplicar") {
+      const itemEstoque = estoqueEquipe?.find((e) => e.material_id === formData.material_id);
+      if (!itemEstoque) {
+        toast.error("Material não encontrado no seu estoque");
+        return;
+      }
+      if (itemEstoque.quantidade < formData.quantidade) {
+        toast.error(`Quantidade insuficiente! Você tem apenas ${itemEstoque.quantidade} ${itemEstoque.materiais.unidade} em estoque.`);
+        return;
+      }
+
+      // Verificar se material já está aplicado (mesmo material_id, mesmo numero_serie se houver)
+      const jaAplicado = materiaisOS?.find((m) => {
+        if (m.material_id !== formData.material_id) return false;
+        if (requerSerial && m.numero_serie !== formData.numero_serie) return false;
+        if (!requerSerial && m.tipo === "aplicado") return true;
+        return m.tipo === "aplicado";
+      });
+
+      if (jaAplicado) {
+        toast.error("Este material já está aplicado nesta OS. Use o botão de editar para alterar a quantidade.");
+        return;
+      }
+    }
+
     aplicarMutation.mutate({
       ...formData,
       tipo: tipoOperacao === "aplicar" ? "aplicado" : "retirado",
@@ -467,7 +499,7 @@ export default function AppMateriaisOS() {
         </div>
 
         {/* Tabs de Materiais */}
-        <Tabs defaultValue="aplicados" className="w-full">
+        <Tabs value={abaAtiva} onValueChange={(v) => setAbaAtiva(v as "aplicados" | "retirados")} className="w-full">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="aplicados" className="gap-2">
               <Plus className="h-4 w-4" />

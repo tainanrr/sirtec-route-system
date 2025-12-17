@@ -119,6 +119,8 @@ export default function EntregasEquipes() {
   });
   const [itemTemp, setItemTemp] = useState({ material_id: "", quantidade: 1, numero_serie: "" });
   const [buscaMaterial, setBuscaMaterial] = useState("");
+  const [dialogRastros, setDialogRastros] = useState(false);
+  const [buscaRastro, setBuscaRastro] = useState("");
 
   // Query para entregas
   const { data: entregas, isLoading } = useQuery({
@@ -205,7 +207,7 @@ export default function EntregasEquipes() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("materiais")
-        .select("id, codigo, nome, unidade")
+        .select("id, codigo, nome, unidade, requer_serial")
         .eq("ativo", true)
         .order("codigo");
 
@@ -231,6 +233,26 @@ export default function EntregasEquipes() {
       });
       return map;
     },
+  });
+
+  // Query para rastros disponíveis do material selecionado
+  const { data: rastrosDisponiveis } = useQuery({
+    queryKey: ["rastros-disponiveis", itemTemp.material_id],
+    queryFn: async () => {
+      if (!itemTemp.material_id) return [];
+
+      const { data, error } = await supabase
+        .from("materiais_serializados")
+        .select("id, numero_serie, lote, status, localizacao_tipo")
+        .eq("material_id", itemTemp.material_id)
+        .eq("status", "em_estoque")
+        .eq("localizacao_tipo", "central")
+        .order("numero_serie");
+
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!itemTemp.material_id,
   });
 
   // Mutation para criar entrega
@@ -416,6 +438,15 @@ export default function EntregasEquipes() {
     if (requerSerial && !itemTemp.numero_serie) {
       toast.error("Este material requer número de série/rastro único");
       return;
+    }
+
+    // Se for material SR, validar se o rastro existe e está disponível
+    if (requerSerial && itemTemp.numero_serie) {
+      const rastroExiste = rastrosDisponiveis?.find((r: any) => r.numero_serie === itemTemp.numero_serie);
+      if (!rastroExiste) {
+        toast.error("Este rastro não está disponível em estoque. Selecione um rastro válido.");
+        return;
+      }
     }
 
     const disponivel = estoqueDisponivel?.[itemTemp.material_id] || 0;
@@ -708,12 +739,18 @@ export default function EntregasEquipes() {
                   <SelectTrigger>
                     <SelectValue placeholder="Selecione a equipe..." />
                   </SelectTrigger>
-                  <SelectContent className="z-[100]">
-                    {equipes?.map((eq: any) => (
-                      <SelectItem key={eq.id} value={eq.id}>
-                        {eq.codigo} - {eq.nome}
-                      </SelectItem>
-                    ))}
+                  <SelectContent className="z-[9999]">
+                    {equipes && equipes.length > 0 ? (
+                      equipes.map((eq: any) => (
+                        <SelectItem key={eq.id} value={eq.id}>
+                          {eq.codigo} - {eq.nome}
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <div className="p-2 text-sm text-muted-foreground text-center">
+                        Nenhuma equipe disponível
+                      </div>
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -793,14 +830,18 @@ export default function EntregasEquipes() {
                     const requerSerial = material?.requer_serial || material?.unidade === "SR";
                     if (requerSerial) {
                       return (
-                        <Input
-                          placeholder="Nº Série/Rastro *"
-                          value={itemTemp.numero_serie}
-                          onChange={(e) =>
-                            setItemTemp({ ...itemTemp, numero_serie: e.target.value.toUpperCase() })
-                          }
-                          className="flex-1"
-                        />
+                        <Button
+                          type="button"
+                          variant={itemTemp.numero_serie ? "default" : "outline"}
+                          className="flex-1 justify-between"
+                          onClick={() => setDialogRastros(true)}
+                        >
+                          <span className="flex items-center gap-2">
+                            <QrCode className="h-4 w-4" />
+                            {itemTemp.numero_serie || "Selecionar Rastro *"}
+                          </span>
+                          <Search className="h-4 w-4" />
+                        </Button>
                       );
                     }
                     return null;
@@ -968,6 +1009,100 @@ export default function EntregasEquipes() {
                 )}
               </div>
             )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Dialog de Seleção de Rastros */}
+        <Dialog open={dialogRastros} onOpenChange={setDialogRastros}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Selecionar Rastro</DialogTitle>
+              <DialogDescription>
+                Selecione um rastro disponível em estoque para este material
+              </DialogDescription>
+            </DialogHeader>
+
+            {itemTemp.material_id && (() => {
+              const material = materiais?.find((m: any) => m.id === itemTemp.material_id);
+              
+              return (
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-sm font-medium">{material?.codigo}</p>
+                    <p className="text-xs text-muted-foreground">{material?.nome}</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Buscar por número de série ou lote..."
+                        value={buscaRastro}
+                        onChange={(e) => setBuscaRastro(e.target.value)}
+                        className="pl-10"
+                      />
+                    </div>
+
+                    <div className="max-h-64 overflow-y-auto border rounded-lg">
+                      {rastrosDisponiveis && rastrosDisponiveis.length > 0 ? (
+                        <div className="divide-y">
+                          {rastrosDisponiveis
+                            .filter((rastro: any) => {
+                              if (!buscaRastro) return true;
+                              const term = buscaRastro.toLowerCase();
+                              return (
+                                rastro.numero_serie.toLowerCase().includes(term) ||
+                                rastro.lote?.toLowerCase().includes(term)
+                              );
+                            })
+                            .map((rastro: any) => (
+                              <button
+                                key={rastro.id}
+                                type="button"
+                                className={`w-full p-3 text-left hover:bg-muted/50 transition-all ${
+                                  itemTemp.numero_serie === rastro.numero_serie
+                                    ? "bg-violet-100 border-2 border-violet-500 rounded-lg font-semibold"
+                                    : "border border-transparent"
+                                }`}
+                                onClick={() => {
+                                  setItemTemp({ ...itemTemp, numero_serie: rastro.numero_serie });
+                                  setDialogRastros(false);
+                                  setBuscaRastro("");
+                                }}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <p className={`text-sm font-mono ${itemTemp.numero_serie === rastro.numero_serie ? "text-violet-700 font-bold" : "font-medium"}`}>
+                                      {rastro.numero_serie}
+                                    </p>
+                                    {rastro.lote && (
+                                      <p className="text-xs text-muted-foreground">Lote: {rastro.lote}</p>
+                                    )}
+                                  </div>
+                                  <QrCode className={`h-4 w-4 ${itemTemp.numero_serie === rastro.numero_serie ? "text-violet-600" : "text-muted-foreground"}`} />
+                                </div>
+                              </button>
+                            ))}
+                        </div>
+                      ) : (
+                        <div className="p-4 text-center text-muted-foreground text-sm">
+                          {buscaRastro ? "Nenhum rastro encontrado" : "Nenhum rastro disponível em estoque"}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => {
+                      setDialogRastros(false);
+                      setBuscaRastro("");
+                    }}>
+                      Cancelar
+                    </Button>
+                  </DialogFooter>
+                </div>
+              );
+            })()}
           </DialogContent>
         </Dialog>
 
