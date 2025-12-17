@@ -40,7 +40,6 @@ import {
   Hash,
   FileDown,
   Loader2,
-  Printer,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -65,6 +64,286 @@ interface ChecklistRespostaSimples {
   } | null;
 }
 
+// Função para gerar HTML do PDF
+const gerarHtmlPdf = (dados: any, respostas: any, grupos: any[], materiaisEntrega: any) => {
+  const codigoUnico = dados?.codigo_unico || '-';
+  const nomeChecklist = dados?.checklists?.nome || 'Checklist';
+  const dataChecklist = dados?.created_at 
+    ? format(new Date(dados.created_at), "dd/MM/yyyy HH:mm")
+    : '';
+
+  const respostasMap = respostas 
+    ? (Array.isArray(respostas) 
+        ? respostas.reduce((acc: any, r: any) => ({ ...acc, [r.pergunta_id]: r }), {})
+        : respostas)
+    : {};
+
+  // Gerar HTML das fotos
+  const gerarHtmlFotos = (fotos: any[]) => {
+    if (!fotos || fotos.length === 0) return '';
+    return `
+      <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+        ${fotos.map((foto, idx) => `
+          <div style="max-width: 200px;">
+            <img src="${foto.url}" alt="Foto ${idx + 1}" style="max-width: 100%; height: auto; border-radius: 4px; border: 1px solid #e5e7eb;" />
+            ${foto.data_hora || foto.dataHora ? `<p style="font-size: 9px; color: #666; margin-top: 2px;">📅 ${foto.data_hora || foto.dataHora}</p>` : ''}
+            ${foto.latitude && foto.longitude ? `<p style="font-size: 9px; color: #666;">📍 ${foto.latitude.toFixed(4)}, ${foto.longitude.toFixed(4)}</p>` : ''}
+          </div>
+        `).join('')}
+      </div>
+    `;
+  };
+
+  // Gerar HTML da assinatura
+  const gerarHtmlAssinatura = (assinaturaUrl: string, dataHora?: string, lat?: number, lng?: number) => {
+    if (!assinaturaUrl) return '';
+    return `
+      <div style="max-width: 300px;">
+        <img src="${assinaturaUrl}" alt="Assinatura" style="max-width: 100%; height: auto; border: 1px solid #e5e7eb; border-radius: 4px; background: white; padding: 5px;" />
+        ${dataHora ? `<p style="font-size: 9px; color: #666; margin-top: 2px;">📅 ${dataHora}</p>` : ''}
+        ${lat && lng ? `<p style="font-size: 9px; color: #666;">📍 ${lat.toFixed(4)}, ${lng.toFixed(4)}</p>` : ''}
+      </div>
+    `;
+  };
+
+  // Gerar conteúdo das perguntas
+  let perguntasHtml = '';
+  if (grupos && grupos.length > 0) {
+    perguntasHtml = grupos.map(grupo => {
+      const perguntasContent = grupo.perguntas.map((pergunta: any, idx: number) => {
+        const resposta = respostasMap[pergunta.id];
+        let respostaHtml = '<span style="color: #999;">Não respondida</span>';
+        
+        if (resposta) {
+          if (pergunta.tipo === 'foto') {
+            const fotos = resposta.fotos || [];
+            if (fotos.length > 0) {
+              respostaHtml = gerarHtmlFotos(fotos);
+            } else if (resposta.foto_url) {
+              respostaHtml = gerarHtmlFotos([{ url: resposta.foto_url, data_hora: resposta.foto_data_hora, latitude: resposta.foto_latitude, longitude: resposta.foto_longitude }]);
+            } else {
+              respostaHtml = '<span style="color: #999;">Sem foto</span>';
+            }
+          } else if (pergunta.tipo === 'assinatura') {
+            if (resposta.assinatura_url) {
+              respostaHtml = gerarHtmlAssinatura(resposta.assinatura_url, resposta.assinatura_data_hora, resposta.assinatura_latitude, resposta.assinatura_longitude);
+            } else {
+              respostaHtml = '<span style="color: #999;">Sem assinatura</span>';
+            }
+          } else if (pergunta.tipo === 'sim_nao') {
+            respostaHtml = resposta.resposta === 'sim'
+              ? '<span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; background: #dcfce7; color: #166534;">Sim</span>'
+              : resposta.resposta === 'nao'
+                ? '<span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; background: #fee2e2; color: #991b1b;">Não</span>'
+                : String(resposta.resposta || '-');
+          } else {
+            respostaHtml = String(resposta.resposta || '-');
+          }
+        }
+
+        return `
+          <div style="border-bottom: 1px solid #f3f4f6; padding: 10px 0;">
+            <div style="font-weight: 500; margin-bottom: 5px;">
+              <span style="background: #e5e7eb; padding: 2px 6px; border-radius: 4px; font-size: 10px; margin-right: 8px;">${grupo.ordem || 1}.${idx + 1}</span>
+              ${pergunta.texto}
+            </div>
+            <div style="margin-left: 30px; padding: 8px; background: #f9fafb; border-radius: 4px;">${respostaHtml}</div>
+          </div>
+        `;
+      }).join('');
+
+      return `
+        <div style="margin-bottom: 20px; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden;">
+          <div style="background: #f9fafb; padding: 10px 15px; border-bottom: 1px solid #e5e7eb; font-weight: bold;">${grupo.nome}</div>
+          <div style="padding: 15px;">${perguntasContent}</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>Checklist #${codigoUnico} - ${nomeChecklist}</title>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body { font-family: Arial, sans-serif; padding: 20px; color: #333; font-size: 12px; }
+          @media print { body { padding: 10px; } }
+        </style>
+      </head>
+      <body>
+        <div style="border-bottom: 2px solid #7c3aed; padding-bottom: 15px; margin-bottom: 20px;">
+          <h1 style="color: #7c3aed; font-size: 18px; margin-bottom: 5px;">
+            <span style="background: #7c3aed; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin-right: 10px;">#${codigoUnico}</span>
+            ${nomeChecklist}
+          </h1>
+          <p style="color: #666; font-size: 11px;">
+            Tipo: ${dados?.checklists?.tipo?.toUpperCase() || '-'} | 
+            Data: ${dataChecklist} |
+            Status: ${dados?.status === 'completo' ? 'Completo' : 'Rascunho'}
+          </p>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px;">
+          <div style="border: 1px solid #e5e7eb; padding: 10px; border-radius: 6px;">
+            <label style="color: #666; font-size: 10px; display: block; margin-bottom: 3px;">Código Único</label>
+            <p style="font-weight: bold; font-size: 12px;">#${codigoUnico}</p>
+          </div>
+          <div style="border: 1px solid #e5e7eb; padding: 10px; border-radius: 6px;">
+            <label style="color: #666; font-size: 10px; display: block; margin-bottom: 3px;">Ordem de Serviço</label>
+            <p style="font-weight: bold; font-size: 12px;">${dados?.ordens_servico?.numero ? '#' + dados.ordens_servico.numero : '-'}</p>
+          </div>
+          <div style="border: 1px solid #e5e7eb; padding: 10px; border-radius: 6px;">
+            <label style="color: #666; font-size: 10px; display: block; margin-bottom: 3px;">Equipe</label>
+            <p style="font-weight: bold; font-size: 12px;">${dados?.tecnicos?.codigo || '-'}</p>
+          </div>
+          <div style="border: 1px solid #e5e7eb; padding: 10px; border-radius: 6px;">
+            <label style="color: #666; font-size: 10px; display: block; margin-bottom: 3px;">Data/Hora</label>
+            <p style="font-weight: bold; font-size: 12px;">${dataChecklist}</p>
+          </div>
+        </div>
+
+        ${dados?.ordens_servico?.endereco ? `
+          <div style="margin-bottom: 20px; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden;">
+            <div style="background: #f9fafb; padding: 10px 15px; border-bottom: 1px solid #e5e7eb; font-weight: bold;">Endereço</div>
+            <div style="padding: 15px;">
+              <p>${dados.ordens_servico.endereco}</p>
+              ${dados.ordens_servico.cliente_nome ? `<p style="color: #666; margin-top: 5px;">Cliente: ${dados.ordens_servico.cliente_nome}</p>` : ''}
+            </div>
+          </div>
+        ` : ''}
+
+        ${materiaisEntrega?.itens && materiaisEntrega.itens.length > 0 ? `
+          <div style="margin-bottom: 20px; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden;">
+            <div style="background: #f9fafb; padding: 10px 15px; border-bottom: 1px solid #e5e7eb; font-weight: bold;">📦 Materiais Recebidos</div>
+            <div style="padding: 15px;">
+              <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                  <tr>
+                    <th style="border: 1px solid #e5e7eb; padding: 8px; text-align: left; font-size: 11px; background: #f9fafb;">Código</th>
+                    <th style="border: 1px solid #e5e7eb; padding: 8px; text-align: left; font-size: 11px; background: #f9fafb;">Material</th>
+                    <th style="border: 1px solid #e5e7eb; padding: 8px; text-align: left; font-size: 11px; background: #f9fafb;">Quantidade</th>
+                    <th style="border: 1px solid #e5e7eb; padding: 8px; text-align: left; font-size: 11px; background: #f9fafb;">Nº Série</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${materiaisEntrega.itens.map((item: any) => `
+                    <tr>
+                      <td style="border: 1px solid #e5e7eb; padding: 8px; font-size: 11px;">${item.materiais?.codigo || '-'}</td>
+                      <td style="border: 1px solid #e5e7eb; padding: 8px; font-size: 11px;">${item.materiais?.nome || '-'}</td>
+                      <td style="border: 1px solid #e5e7eb; padding: 8px; font-size: 11px;">${item.quantidade} ${item.materiais?.unidade || ''}</td>
+                      <td style="border: 1px solid #e5e7eb; padding: 8px; font-size: 11px;">${item.numero_serie || '-'}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ` : ''}
+
+        ${perguntasHtml}
+
+        <div style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #e5e7eb; text-align: center; color: #666; font-size: 10px;">
+          <p>Documento gerado em ${format(new Date(), "dd/MM/yyyy 'às' HH:mm")}</p>
+          <p>Checklist #${codigoUnico} - Sistema de Gestão</p>
+        </div>
+      </body>
+    </html>
+  `;
+};
+
+// Função para buscar dados completos de um checklist
+const buscarDadosChecklist = async (id: string) => {
+  // Buscar dados básicos
+  const { data: dadosBasicos, error: errorBasicos } = await (supabase as any)
+    .from("checklist_respostas")
+    .select(`
+      id,
+      status,
+      created_at,
+      checklist_id,
+      codigo_unico,
+      respostas,
+      checklists (id, nome, tipo, grupos, perguntas),
+      ordens_servico (id, numero, tipo, endereco, cliente_nome),
+      tecnicos:equipe_id (id, codigo, nome)
+    `)
+    .eq("id", id)
+    .single();
+
+  if (errorBasicos) throw errorBasicos;
+
+  // Processar grupos
+  const gruposOriginais = dadosBasicos?.checklists?.grupos as any[] | undefined;
+  const perguntasOriginais = (dadosBasicos?.checklists as any)?.perguntas as any[] | undefined;
+  
+  const grupos = gruposOriginais && gruposOriginais.length > 0
+    ? gruposOriginais
+    : perguntasOriginais && perguntasOriginais.length > 0
+      ? [{
+          id: "grupo-unico",
+          nome: dadosBasicos?.checklists?.nome || "Perguntas",
+          ordem: 1,
+          perguntas: perguntasOriginais.map((p: any, idx: number) => ({
+            id: p.id || String(idx + 1),
+            texto: p.texto,
+            tipo: p.tipo,
+            obrigatoria: p.obrigatorio || p.obrigatoria || false,
+            ordem: p.ordem || idx + 1,
+          })),
+        }]
+      : [];
+
+  // Buscar materiais se for recebimento
+  let materiaisEntrega = null;
+  if (dadosBasicos?.checklists?.tipo === "recebimento_materiais" && dadosBasicos?.tecnicos) {
+    const equipeId = (dadosBasicos.tecnicos as any).id;
+    
+    const { data: entregas } = await (supabase as any)
+      .from("materiais_entregas")
+      .select("id, data_entrega, data_confirmacao")
+      .eq("equipe_id", equipeId)
+      .eq("status", "confirmado")
+      .order("data_confirmacao", { ascending: false })
+      .limit(1);
+
+    if (entregas && entregas.length > 0) {
+      const { data: itens } = await (supabase as any)
+        .from("materiais_entregas_itens")
+        .select(`
+          material_id,
+          quantidade,
+          numero_serie,
+          materiais (codigo, nome, unidade)
+        `)
+        .eq("entrega_id", entregas[0].id);
+
+      materiaisEntrega = { itens: itens || [], entrega: entregas[0] };
+    }
+  }
+
+  return { dadosBasicos, grupos, materiaisEntrega };
+};
+
+// Função para fazer download do PDF
+const downloadPdf = async (id: string, nomeArquivo: string) => {
+  const { dadosBasicos, grupos, materiaisEntrega } = await buscarDadosChecklist(id);
+  const htmlContent = gerarHtmlPdf(dadosBasicos, dadosBasicos?.respostas, grupos, materiaisEntrega);
+  
+  // Criar blob e fazer download
+  const blob = new Blob([htmlContent], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = nomeArquivo;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
 export default function ConsultaChecklists() {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState("");
@@ -79,7 +358,7 @@ export default function ConsultaChecklists() {
   const { data: totalCount } = useQuery({
     queryKey: ["checklist-respostas-count", filtroStatus],
     queryFn: async () => {
-      let query = supabase
+      let query = (supabase as any)
         .from("checklist_respostas")
         .select("id", { count: "exact", head: true });
 
@@ -101,7 +380,7 @@ export default function ConsultaChecklists() {
       if (searchTerm.startsWith('#')) {
         const codigoNumero = parseInt(searchTerm.slice(1), 10);
         if (!isNaN(codigoNumero)) {
-          const { data, error } = await supabase
+          const { data, error } = await (supabase as any)
             .from("checklist_respostas")
             .select(`
               id,
@@ -120,7 +399,7 @@ export default function ConsultaChecklists() {
       }
 
       // Query normal
-      let query = supabase
+      let query = (supabase as any)
         .from("checklist_respostas")
         .select(`
           id,
@@ -156,14 +435,14 @@ export default function ConsultaChecklists() {
   const { data: tiposChecklists } = useQuery({
     queryKey: ["tipos-checklists"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("checklists")
         .select("tipo")
         .order("tipo");
 
       if (error) throw error;
 
-      const tipos = [...new Set(data.map(c => c.tipo))];
+      const tipos = [...new Set(data.map((c: any) => c.tipo))];
       return tipos;
     },
   });
@@ -191,12 +470,21 @@ export default function ConsultaChecklists() {
     navigate(`/consulta-checklists/${id}`);
   };
 
-  // Gerar PDF individual
-  const gerarPdfIndividual = async (id: string) => {
+  // Gerar PDF individual - download direto
+  const gerarPdfIndividual = async (id: string, codigoUnico?: number) => {
     setGeneratingPdfId(id);
-    // Abrir em nova guia com parâmetro para auto-print
-    window.open(`/consulta-checklists/${id}?print=true`, '_blank');
-    setTimeout(() => setGeneratingPdfId(null), 1000);
+    toast.loading("Gerando PDF...", { id: `pdf-${id}` });
+
+    try {
+      const nomeArquivo = `checklist_${codigoUnico || id}.html`;
+      await downloadPdf(id, nomeArquivo);
+      toast.success("PDF baixado com sucesso!", { id: `pdf-${id}` });
+    } catch (error: any) {
+      console.error("Erro ao gerar PDF:", error);
+      toast.error("Erro ao gerar PDF", { id: `pdf-${id}` });
+    }
+
+    setGeneratingPdfId(null);
   };
 
   // Calcular total de páginas
@@ -268,7 +556,7 @@ export default function ConsultaChecklists() {
     }
   };
 
-  // Gerar PDF em massa
+  // Gerar PDF em massa - download direto
   const handleGerarPdfMassa = async () => {
     if (selectedIds.size === 0) {
       toast.error("Selecione pelo menos um checklist");
@@ -276,15 +564,20 @@ export default function ConsultaChecklists() {
     }
 
     setDownloadingPdf(true);
-    toast.loading(`Gerando PDFs de ${selectedIds.size} checklist(s)...`, { id: "pdf-massa" });
+    toast.loading(`Gerando ${selectedIds.size} PDF(s)...`, { id: "pdf-massa" });
 
     try {
+      let count = 0;
       for (const id of selectedIds) {
-        window.open(`/consulta-checklists/${id}?print=true`, '_blank');
-        await new Promise(resolve => setTimeout(resolve, 500));
+        const resposta = respostasFiltradas?.find(r => r.id === id);
+        const nomeArquivo = `checklist_${resposta?.codigo_unico || id}.html`;
+        await downloadPdf(id, nomeArquivo);
+        count++;
+        // Pequeno delay entre downloads
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
       
-      toast.success(`${selectedIds.size} PDF(s) gerado(s). Use Ctrl+P em cada janela para salvar.`, { id: "pdf-massa" });
+      toast.success(`${count} PDF(s) baixado(s) com sucesso!`, { id: "pdf-massa" });
       setSelectedIds(new Set());
     } catch (error) {
       toast.error("Erro ao gerar PDFs", { id: "pdf-massa" });
@@ -298,7 +591,7 @@ export default function ConsultaChecklists() {
     : false;
 
   return (
-    <MainLayout>
+    <MainLayout title="Consulta de Checklists">
     <div className="container mx-auto py-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
@@ -311,29 +604,28 @@ export default function ConsultaChecklists() {
             Visualize e analise os checklists preenchidos pelas equipes
           </p>
         </div>
-        {selectedIds.size > 0 && (
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              onClick={handleAbrirMassa}
-            >
-              <ExternalLink className="h-4 w-4 mr-2" />
-              Abrir {selectedIds.size}
-            </Button>
-            <Button
-              onClick={handleGerarPdfMassa}
-              disabled={downloadingPdf}
-              className="bg-violet-600 hover:bg-violet-700"
-            >
-              {downloadingPdf ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <FileDown className="h-4 w-4 mr-2" />
-              )}
-              Gerar PDF ({selectedIds.size})
-            </Button>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={handleAbrirMassa}
+            disabled={selectedIds.size === 0}
+          >
+            <ExternalLink className="h-4 w-4 mr-2" />
+            Abrir {selectedIds.size > 0 ? `(${selectedIds.size})` : ''}
+          </Button>
+          <Button
+            onClick={handleGerarPdfMassa}
+            disabled={downloadingPdf || selectedIds.size === 0}
+            className="bg-violet-600 hover:bg-violet-700"
+          >
+            {downloadingPdf ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <FileDown className="h-4 w-4 mr-2" />
+            )}
+            Baixar PDF {selectedIds.size > 0 ? `(${selectedIds.size})` : ''}
+          </Button>
+        </div>
       </div>
 
       {/* Filtros */}
@@ -363,7 +655,7 @@ export default function ConsultaChecklists() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="todos">Todos os tipos</SelectItem>
-                {tiposChecklists?.map(tipo => (
+                {tiposChecklists?.map((tipo: string) => (
                   <SelectItem key={tipo} value={tipo}>
                     {tipo.toUpperCase()}
                   </SelectItem>
@@ -527,14 +819,14 @@ export default function ConsultaChecklists() {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => gerarPdfIndividual(resposta.id)}
-                              title="Gerar PDF"
+                              onClick={() => gerarPdfIndividual(resposta.id, resposta.codigo_unico)}
+                              title="Baixar PDF"
                               disabled={generatingPdfId === resposta.id}
                             >
                               {generatingPdfId === resposta.id ? (
                                 <Loader2 className="h-4 w-4 animate-spin" />
                               ) : (
-                                <Printer className="h-4 w-4" />
+                                <FileDown className="h-4 w-4" />
                               )}
                             </Button>
                           </div>

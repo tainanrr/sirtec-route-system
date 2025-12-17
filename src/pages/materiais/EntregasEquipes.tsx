@@ -457,7 +457,7 @@ export default function EntregasEquipes() {
   });
 
   // Função para buscar respostas do checklist vinculadas à entrega
-  const buscarRespostasChecklist = async (entregaId: string) => {
+  const buscarRespostasChecklist = async (entrega: Entrega) => {
     setLoadingRespostas(true);
     setChecklistRespostas(null);
     
@@ -475,43 +475,68 @@ export default function EntregasEquipes() {
         return;
       }
 
-      // Buscar respostas vinculadas a esta entrega
+      // Buscar respostas vinculadas a esta equipe e próximas da data de confirmação
       const { data: respostas } = await supabase
         .from("checklist_respostas")
-        .select("id, codigo_unico, respostas, created_at, status")
+        .select("id, codigo_unico, respostas, created_at, status, equipe_id")
         .eq("checklist_id", checklist.id)
+        .eq("equipe_id", entrega.equipe_id)
         .order("created_at", { ascending: false });
 
-      // Encontrar a resposta que contém a entrega_id
+      // Encontrar a resposta mais próxima da data de confirmação da entrega
       let respostaEncontrada = null;
-      for (const resp of respostas || []) {
-        const respostasObj = resp.respostas as any;
-        if (respostasObj) {
-          // Verificar se alguma resposta contém o entrega_id
-          for (const key of Object.keys(respostasObj)) {
-            const r = respostasObj[key];
-            if (r?.resposta && typeof r.resposta === 'string' && r.resposta.includes(entregaId)) {
+      if (respostas && respostas.length > 0) {
+        if (entrega.data_confirmacao) {
+          const dataConfirmacao = new Date(entrega.data_confirmacao).getTime();
+          let menorDiferenca = Infinity;
+          
+          for (const resp of respostas) {
+            const dataResposta = new Date(resp.created_at).getTime();
+            const diferenca = Math.abs(dataResposta - dataConfirmacao);
+            
+            // Aceitar respostas com até 5 minutos de diferença
+            if (diferenca < menorDiferenca && diferenca < 5 * 60 * 1000) {
+              menorDiferenca = diferenca;
               respostaEncontrada = resp;
-              break;
             }
           }
-          if (respostaEncontrada) break;
+        }
+        
+        // Se não encontrou por data, pegar a mais recente da equipe
+        if (!respostaEncontrada) {
+          respostaEncontrada = respostas[0];
         }
       }
 
       if (respostaEncontrada) {
-        // Normalizar perguntas
+        // Normalizar perguntas - manter grupos se existirem
         let perguntas: any[] = [];
+        let grupos: any[] = [];
+        
         if (checklist.grupos && Array.isArray(checklist.grupos) && checklist.grupos.length > 0) {
-          perguntas = (checklist.grupos as any[]).flatMap(g => g.perguntas || []);
+          grupos = checklist.grupos as any[];
+          perguntas = grupos.flatMap(g => g.perguntas || []);
         } else if (checklist.perguntas && Array.isArray(checklist.perguntas)) {
           perguntas = checklist.perguntas as any[];
+          grupos = [{
+            id: "grupo-unico",
+            nome: checklist.nome || "Perguntas",
+            ordem: 1,
+            perguntas: perguntas.map((p: any, idx: number) => ({
+              id: p.id || String(idx + 1),
+              texto: p.texto,
+              tipo: p.tipo,
+              obrigatoria: p.obrigatorio || p.obrigatoria || false,
+              ordem: p.ordem || idx + 1,
+            })),
+          }];
         }
 
         setChecklistRespostas({
           checklist,
           respostas: respostaEncontrada,
           perguntas,
+          grupos,
         });
       }
     } catch (error) {
@@ -528,7 +553,7 @@ export default function EntregasEquipes() {
     
     // Se a entrega foi confirmada, buscar respostas do checklist
     if (entrega.status === "confirmado" || entrega.status === "recebida") {
-      await buscarRespostasChecklist(entrega.id);
+      await buscarRespostasChecklist(entrega);
     }
   };
 
@@ -1207,106 +1232,126 @@ export default function EntregasEquipes() {
                       <div className="py-4 text-center">
                         <p className="text-sm text-muted-foreground">Carregando respostas do checklist...</p>
                       </div>
-                    ) : checklistRespostas && checklistRespostas.perguntas?.length > 0 && (
+                    ) : checklistRespostas && (checklistRespostas.grupos?.length > 0 || checklistRespostas.perguntas?.length > 0) && (
                       <div className="border-t pt-4 mt-4">
                         <h4 className="font-medium text-sm mb-3 flex items-center gap-2">
                           <FileSignature className="h-4 w-4" />
                           Respostas do Formulário
                           {checklistRespostas.respostas?.codigo_unico && (
-                            <Badge variant="outline" className="ml-2 font-mono">
+                            <Badge variant="outline" className="ml-2 font-mono bg-violet-50 text-violet-700 border-violet-200">
                               #{checklistRespostas.respostas.codigo_unico}
                             </Badge>
                           )}
                         </h4>
-                        <div className="space-y-3">
-                          {checklistRespostas.perguntas.map((pergunta: any, idx: number) => {
-                            const respostasObj = checklistRespostas.respostas?.respostas as any;
-                            const resposta = respostasObj?.[pergunta.id];
-                            
-                            return (
-                              <div key={pergunta.id} className="border rounded-lg p-3 bg-gray-50">
-                                <div className="flex items-start gap-2 mb-2">
-                                  <Badge variant="outline" className="shrink-0 text-xs">
-                                    {idx + 1}
-                                  </Badge>
-                                  <p className="text-sm font-medium">{pergunta.texto}</p>
-                                </div>
-                                <div className="ml-6">
-                                  {!resposta ? (
-                                    <span className="text-sm text-muted-foreground">Não respondida</span>
-                                  ) : pergunta.tipo === "foto" ? (
-                                    resposta.fotos && resposta.fotos.length > 0 ? (
-                                      <div className="flex flex-wrap gap-2">
-                                        {resposta.fotos.map((foto: any, fotoIdx: number) => (
-                                          <div 
-                                            key={fotoIdx}
-                                            className="relative cursor-pointer group"
-                                            onClick={() => setImagemViewer({
-                                              open: true,
-                                              src: foto.url,
-                                              titulo: `Foto ${fotoIdx + 1} - ${pergunta.texto}`
-                                            })}
-                                          >
-                                            <img
-                                              src={foto.url}
-                                              alt={`Foto ${fotoIdx + 1}`}
-                                              className="w-24 h-20 object-cover rounded border"
-                                            />
-                                            {foto.data_hora && (
-                                              <p className="text-[9px] text-muted-foreground mt-1 truncate max-w-24">
-                                                📅 {foto.data_hora}
-                                              </p>
-                                            )}
-                                          </div>
-                                        ))}
+                        
+                        {/* Renderizar por grupos */}
+                        {checklistRespostas.grupos?.map((grupo: any, grupoIdx: number) => {
+                          const respostasObj = checklistRespostas.respostas?.respostas as any;
+                          
+                          return (
+                            <div key={grupo.id} className="mb-4 border rounded-lg overflow-hidden">
+                              <div className="bg-gray-100 px-3 py-2 font-medium text-sm border-b">
+                                {grupo.nome}
+                              </div>
+                              <div className="p-3 space-y-3">
+                                {(grupo.perguntas || []).map((pergunta: any, idx: number) => {
+                                  const resposta = respostasObj?.[pergunta.id];
+                                  
+                                  return (
+                                    <div key={pergunta.id} className="border rounded-lg p-3 bg-gray-50">
+                                      <div className="flex items-start gap-2 mb-2">
+                                        <Badge variant="outline" className="shrink-0 text-xs">
+                                          {grupoIdx + 1}.{idx + 1}
+                                        </Badge>
+                                        <p className="text-sm font-medium">{pergunta.texto}</p>
                                       </div>
-                                    ) : (
-                                      <span className="text-sm text-muted-foreground">Sem foto</span>
-                                    )
-                                  ) : pergunta.tipo === "assinatura" ? (
-                                    resposta.assinatura_url ? (
-                                      <div 
-                                        className="cursor-pointer"
-                                        onClick={() => setImagemViewer({
-                                          open: true,
-                                          src: resposta.assinatura_url,
-                                          titulo: "Assinatura"
-                                        })}
-                                      >
-                                        <img
-                                          src={resposta.assinatura_url}
-                                          alt="Assinatura"
-                                          className="w-40 h-20 object-contain bg-white border rounded"
-                                        />
-                                        {resposta.assinatura_data_hora && (
-                                          <p className="text-[9px] text-muted-foreground mt-1">
-                                            📅 {resposta.assinatura_data_hora}
-                                          </p>
+                                      <div className="ml-8">
+                                        {!resposta ? (
+                                          <span className="text-sm text-muted-foreground italic">Não respondida</span>
+                                        ) : pergunta.tipo === "foto" ? (
+                                          resposta.fotos && resposta.fotos.length > 0 ? (
+                                            <div className="flex flex-wrap gap-2">
+                                              {resposta.fotos.map((foto: any, fotoIdx: number) => (
+                                                <div 
+                                                  key={fotoIdx}
+                                                  className="relative cursor-pointer group"
+                                                  onClick={() => setImagemViewer({
+                                                    open: true,
+                                                    src: foto.url,
+                                                    titulo: `Foto ${fotoIdx + 1} - ${pergunta.texto}`
+                                                  })}
+                                                >
+                                                  <img
+                                                    src={foto.url}
+                                                    alt={`Foto ${fotoIdx + 1}`}
+                                                    className="w-24 h-20 object-cover rounded border"
+                                                  />
+                                                  {(foto.data_hora || foto.dataHora) && (
+                                                    <p className="text-[9px] text-muted-foreground mt-1 truncate max-w-24">
+                                                      📅 {foto.data_hora || foto.dataHora}
+                                                    </p>
+                                                  )}
+                                                  {foto.latitude && foto.longitude && (
+                                                    <p className="text-[9px] text-muted-foreground truncate max-w-24">
+                                                      📍 {foto.latitude.toFixed(4)}, {foto.longitude.toFixed(4)}
+                                                    </p>
+                                                  )}
+                                                </div>
+                                              ))}
+                                            </div>
+                                          ) : (
+                                            <span className="text-sm text-muted-foreground italic">Sem foto</span>
+                                          )
+                                        ) : pergunta.tipo === "assinatura" ? (
+                                          resposta.assinatura_url ? (
+                                            <div 
+                                              className="cursor-pointer"
+                                              onClick={() => setImagemViewer({
+                                                open: true,
+                                                src: resposta.assinatura_url,
+                                                titulo: "Assinatura"
+                                              })}
+                                            >
+                                              <img
+                                                src={resposta.assinatura_url}
+                                                alt="Assinatura"
+                                                className="w-40 h-20 object-contain bg-white border rounded"
+                                              />
+                                              {resposta.assinatura_data_hora && (
+                                                <p className="text-[9px] text-muted-foreground mt-1">
+                                                  📅 {resposta.assinatura_data_hora}
+                                                </p>
+                                              )}
+                                              {resposta.assinatura_latitude && resposta.assinatura_longitude && (
+                                                <p className="text-[9px] text-muted-foreground">
+                                                  📍 {resposta.assinatura_latitude.toFixed(4)}, {resposta.assinatura_longitude.toFixed(4)}
+                                                </p>
+                                              )}
+                                            </div>
+                                          ) : (
+                                            <span className="text-sm text-muted-foreground italic">Sem assinatura</span>
+                                          )
+                                        ) : pergunta.tipo === "sim_nao" ? (
+                                          resposta.resposta === "sim" ? (
+                                            <Badge className="bg-green-600">Sim</Badge>
+                                          ) : resposta.resposta === "nao" ? (
+                                            <Badge variant="secondary">Não</Badge>
+                                          ) : (
+                                            <span className="text-sm">{String(resposta.resposta || '-')}</span>
+                                          )
+                                        ) : (
+                                          <span className="text-sm">{String(resposta.resposta || '-')}</span>
                                         )}
                                       </div>
-                                    ) : (
-                                      <span className="text-sm text-muted-foreground">Sem assinatura</span>
-                                    )
-                                  ) : pergunta.tipo === "sim_nao" ? (
-                                    resposta.resposta === "sim" ? (
-                                      <Badge className="bg-green-600">Sim</Badge>
-                                    ) : resposta.resposta === "nao" ? (
-                                      <Badge variant="secondary">Não</Badge>
-                                    ) : (
-                                      <span className="text-sm">{String(resposta.resposta || '-')}</span>
-                                    )
-                                  ) : (
-                                    <span className="text-sm">{String(resposta.resposta || '-')}</span>
-                                  )}
-                                </div>
+                                    </div>
+                                  );
+                                })}
                               </div>
-                            );
-                          })}
-                        </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
-                  </div>
-                )}
               </div>
             )}
           </DialogContent>
