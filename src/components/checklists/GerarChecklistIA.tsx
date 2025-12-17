@@ -366,35 +366,54 @@ Ações de condição: mostrar, ocultar, obrigar, desobrigar, exigir_foto, exigi
 
       if (aiProvider === "gemini") {
         // Chamada para Google Gemini API
-        const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${apiKey}`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              contents: [
-                {
-                  parts: [
-                    {
-                      text: prompt
-                    }
-                  ]
-                }
-              ],
-              generationConfig: {
-                temperature: 0.7,
-                maxOutputTokens: 8192,
-                responseMimeType: "application/json"
-              }
-            }),
-          }
-        );
+        // Tentar primeiro com gemini-1.5-flash (mais disponível), depois gemini-pro
+        const modelos = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
+        let response: Response | null = null;
+        let ultimoErro = "";
 
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error?.message || "Erro na API Gemini");
+        for (const modelo of modelos) {
+          try {
+            setProgressMessage(`Tentando com ${modelo}...`);
+            response = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${apiKey}`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  contents: [
+                    {
+                      parts: [
+                        {
+                          text: prompt
+                        }
+                      ]
+                    }
+                  ],
+                  generationConfig: {
+                    temperature: 0.7,
+                    maxOutputTokens: 8192,
+                  }
+                }),
+              }
+            );
+
+            if (response.ok) {
+              break; // Modelo funcionou!
+            } else {
+              const errorData = await response.json();
+              ultimoErro = errorData.error?.message || `Erro com modelo ${modelo}`;
+              response = null;
+            }
+          } catch (e: any) {
+            ultimoErro = e.message;
+            response = null;
+          }
+        }
+
+        if (!response || !response.ok) {
+          throw new Error(ultimoErro || "Nenhum modelo Gemini disponível");
         }
 
         const data = await response.json();
