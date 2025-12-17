@@ -87,7 +87,7 @@ export default function AppMateriaisOS() {
   const [searchTerm, setSearchTerm] = useState("");
   const [formData, setFormData] = useState({
     material_id: "",
-    quantidade: 1,
+    quantidade: "" as unknown as number, // Começa vazio
     numero_serie: "",
     observacao: "",
   });
@@ -254,7 +254,7 @@ export default function AppMateriaisOS() {
       queryClient.invalidateQueries({ queryKey: ["estoque-equipe-os", equipeId] });
       toast.success(variables.tipo === "aplicado" ? "Material aplicado!" : "Material retirado!");
       setDialogOpen(false);
-      setFormData({ material_id: "", quantidade: 1, numero_serie: "", observacao: "" });
+      setFormData({ material_id: "", quantidade: "" as unknown as number, numero_serie: "", observacao: "" });
       // Mudar para a aba correspondente
       if (variables.tipo === "aplicado") {
         setAbaAtiva("aplicados");
@@ -370,7 +370,7 @@ export default function AppMateriaisOS() {
 
   const handleOpenDialog = (tipo: "aplicar" | "retirar") => {
     setTipoOperacao(tipo);
-    setFormData({ material_id: "", quantidade: 1, numero_serie: "", observacao: "" });
+    setFormData({ material_id: "", quantidade: "" as unknown as number, numero_serie: "", observacao: "" });
     setSearchTerm("");
     setDialogOpen(true);
   };
@@ -384,9 +384,9 @@ export default function AppMateriaisOS() {
       toast.error("Selecione um material");
       return;
     }
-    if (formData.quantidade <= 0) {
+    if (!formData.quantidade || formData.quantidade <= 0) {
       console.log("[AppMateriaisOS] Erro: Quantidade inválida");
-      toast.error("Quantidade inválida");
+      toast.error("Digite uma quantidade válida");
       return;
     }
 
@@ -789,10 +789,11 @@ export default function AppMateriaisOS() {
               <Input
                 type="number"
                 min="1"
-                value={formData.quantidade}
+                value={formData.quantidade || ""}
                 onChange={(e) =>
-                  setFormData({ ...formData, quantidade: parseInt(e.target.value) || 1 })
+                  setFormData({ ...formData, quantidade: e.target.value ? parseInt(e.target.value) : ("" as unknown as number) })
                 }
+                placeholder="Digite a quantidade"
               />
             </div>
 

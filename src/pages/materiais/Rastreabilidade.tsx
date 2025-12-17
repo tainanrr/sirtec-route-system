@@ -296,6 +296,7 @@ export default function Rastreabilidade() {
       });
     },
     onError: (error: any) => {
+      console.log("[Rastreabilidade] Erro na mutation:", error);
       toast.error(error.message || "Erro ao cadastrar item");
     },
   });
@@ -321,10 +322,15 @@ export default function Rastreabilidade() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    console.log("[Rastreabilidade] handleSubmit", formData);
+    
     if (!formData.material_id || !formData.numero_serie) {
+      console.log("[Rastreabilidade] Erro: Campos obrigatórios não preenchidos");
       toast.error("Preencha os campos obrigatórios");
       return;
     }
+    
+    console.log("[Rastreabilidade] Chamando mutation");
     cadastrarMutation.mutate(formData);
   };
 
