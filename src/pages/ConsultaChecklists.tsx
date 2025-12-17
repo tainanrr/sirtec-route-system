@@ -404,8 +404,23 @@ const addImageToPdf = async (
   }
 };
 
+// Função auxiliar para gerar nome de arquivo limpo (sem caracteres especiais)
+const gerarNomeArquivo = (dadosBasicos: any): string => {
+  const codigoUnico = dadosBasicos?.codigo_unico || 'sem-codigo';
+  const tipoChecklist = dadosBasicos?.checklists?.tipo?.toUpperCase() || 'CHECKLIST';
+  const equipe = (dadosBasicos?.tecnicos as any)?.codigo || 'sem-equipe';
+  const dataFormatada = dadosBasicos?.created_at 
+    ? format(new Date(dadosBasicos.created_at), "yyyy-MM-dd_HH-mm")
+    : format(new Date(), "yyyy-MM-dd");
+  
+  // Limpar caracteres especiais para nome de arquivo válido
+  const limparTexto = (texto: string) => texto.replace(/[^a-zA-Z0-9_-]/g, '_').replace(/_+/g, '_');
+  
+  return `${limparTexto(tipoChecklist)}_${codigoUnico}_${limparTexto(equipe)}_${dataFormatada}.pdf`;
+};
+
 // Função para fazer download do PDF com texto selecionável
-const downloadPdf = async (id: string, nomeArquivo: string) => {
+const downloadPdf = async (id: string) => {
   const { dadosBasicos, grupos, materiaisEntrega } = await buscarDadosChecklist(id);
   const respostasMap = dadosBasicos?.respostas 
     ? (Array.isArray(dadosBasicos.respostas) 
@@ -418,6 +433,9 @@ const downloadPdf = async (id: string, nomeArquivo: string) => {
   const dataChecklist = dadosBasicos?.created_at 
     ? format(new Date(dadosBasicos.created_at), "dd/MM/yyyy HH:mm")
     : '';
+  
+  // Gerar nome do arquivo automaticamente
+  const nomeArquivo = gerarNomeArquivo(dadosBasicos);
 
   // Criar PDF com jsPDF
   const pdf = new jsPDF('p', 'mm', 'a4');
@@ -866,13 +884,12 @@ export default function ConsultaChecklists() {
   };
 
   // Gerar PDF individual - download direto
-  const gerarPdfIndividual = async (id: string, codigoUnico?: number) => {
+  const gerarPdfIndividual = async (id: string) => {
     setGeneratingPdfId(id);
     toast.loading("Gerando PDF...", { id: `pdf-${id}` });
 
     try {
-      const nomeArquivo = `checklist_${codigoUnico || id}.pdf`;
-      await downloadPdf(id, nomeArquivo);
+      await downloadPdf(id);
       toast.success("PDF baixado com sucesso!", { id: `pdf-${id}` });
     } catch (error: any) {
       console.error("Erro ao gerar PDF:", error);
@@ -964,9 +981,7 @@ export default function ConsultaChecklists() {
     try {
       let count = 0;
       for (const id of selectedIds) {
-        const resposta = respostasFiltradas?.find(r => r.id === id);
-        const nomeArquivo = `checklist_${resposta?.codigo_unico || id}.pdf`;
-        await downloadPdf(id, nomeArquivo);
+        await downloadPdf(id);
         count++;
         // Pequeno delay entre downloads
         await new Promise(resolve => setTimeout(resolve, 200));
@@ -1214,7 +1229,7 @@ export default function ConsultaChecklists() {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => gerarPdfIndividual(resposta.id, resposta.codigo_unico)}
+                              onClick={() => gerarPdfIndividual(resposta.id)}
                               title="Baixar PDF"
                               disabled={generatingPdfId === resposta.id}
                             >

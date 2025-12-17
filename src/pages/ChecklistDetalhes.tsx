@@ -294,6 +294,20 @@ export default function ChecklistDetalhes() {
     `;
   };
 
+  // Função auxiliar para gerar nome de arquivo limpo
+  const gerarNomeArquivoPdf = (dados: any): string => {
+    const codigoUnico = dados?.codigo_unico || 'sem-codigo';
+    const tipoChecklist = dados?.checklists?.tipo?.toUpperCase() || 'CHECKLIST';
+    const equipe = dados?.tecnicos?.codigo || 'sem-equipe';
+    const dataFormatada = dados?.created_at 
+      ? format(new Date(dados.created_at), "yyyy-MM-dd_HH-mm")
+      : format(new Date(), "yyyy-MM-dd");
+    
+    const limparTexto = (texto: string) => texto.replace(/[^a-zA-Z0-9_-]/g, '_').replace(/_+/g, '_');
+    
+    return `${limparTexto(tipoChecklist)}_${codigoUnico}_${limparTexto(equipe)}_${dataFormatada}.pdf`;
+  };
+
   // Função para gerar PDF
   const handleGerarPDF = async () => {
     setGeratingPdf(true);
@@ -617,8 +631,9 @@ export default function ChecklistDetalhes() {
       yPos += 4;
       pdf.text(`Checklist #${codigoUnico} - Sistema de Gestão`, pageWidth / 2, yPos, { align: 'center' });
 
-      // Salvar PDF
-      pdf.save(`checklist_${codigoUnico}.pdf`);
+      // Salvar PDF com nome descritivo
+      const nomeArquivo = gerarNomeArquivoPdf(dados);
+      pdf.save(nomeArquivo);
       
       toast.success("PDF baixado com sucesso!", { id: "pdf" });
       setGeratingPdf(false);
