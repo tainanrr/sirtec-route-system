@@ -328,6 +328,82 @@ const buscarDadosChecklist = async (id: string) => {
   return { dadosBasicos, grupos, materiaisEntrega };
 };
 
+// Função auxiliar para carregar imagem como base64
+const loadImageAsBase64 = async (url: string): Promise<string | null> => {
+  try {
+    // Se já é base64, retornar diretamente
+    if (url.startsWith('data:')) {
+      return url;
+    }
+    
+    // Carregar imagem via fetch
+    const response = await fetch(url);
+    const blob = await response.blob();
+    
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch (error) {
+    console.error('Erro ao carregar imagem:', error);
+    return null;
+  }
+};
+
+// Função para adicionar imagem ao PDF com tratamento de erro
+const addImageToPdf = async (
+  pdf: jsPDF, 
+  imageUrl: string, 
+  x: number, 
+  y: number, 
+  maxWidth: number, 
+  maxHeight: number
+): Promise<{ width: number; height: number } | null> => {
+  try {
+    const base64 = await loadImageAsBase64(imageUrl);
+    if (!base64) return null;
+    
+    // Criar imagem para obter dimensões
+    const img = new Image();
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = reject;
+      img.src = base64;
+    });
+    
+    // Calcular dimensões mantendo proporção
+    let width = img.width;
+    let height = img.height;
+    
+    // Converter pixels para mm (assumindo 96 DPI)
+    const pxToMm = 0.264583;
+    width = width * pxToMm;
+    height = height * pxToMm;
+    
+    // Ajustar para caber nos limites
+    if (width > maxWidth) {
+      const ratio = maxWidth / width;
+      width = maxWidth;
+      height = height * ratio;
+    }
+    if (height > maxHeight) {
+      const ratio = maxHeight / height;
+      height = maxHeight;
+      width = width * ratio;
+    }
+    
+    // Adicionar imagem ao PDF
+    pdf.addImage(base64, 'JPEG', x, y, width, height);
+    
+    return { width, height };
+  } catch (error) {
+    console.error('Erro ao adicionar imagem ao PDF:', error);
+    return null;
+  }
+};
+
 // Função para fazer download do PDF com texto selecionável
 const downloadPdf = async (id: string, nomeArquivo: string) => {
   const { dadosBasicos, grupos, materiaisEntrega } = await buscarDadosChecklist(id);
@@ -491,7 +567,7 @@ const downloadPdf = async (id: string, nomeArquivo: string) => {
 
   // Perguntas e Respostas
   if (grupos && grupos.length > 0) {
-    grupos.forEach((grupo: any) => {
+    for (const grupo of grupos) {
       checkNewPage(20);
       
       // Header do grupo
@@ -503,7 +579,9 @@ const downloadPdf = async (id: string, nomeArquivo: string) => {
       pdf.text(grupo.nome, margin + 3, yPos + 5);
       yPos += 12;
 
-      (grupo.perguntas || []).forEach((pergunta: any, idx: number) => {
+      const perguntas = grupo.perguntas || [];
+      for (let idx = 0; idx < perguntas.length; idx++) {
+        const pergunta = perguntas[idx];
         const resposta = respostasMap[pergunta.id];
         checkNewPage(15);
 
@@ -525,7 +603,6 @@ const downloadPdf = async (id: string, nomeArquivo: string) => {
         // Resposta
         pdf.setFont('helvetica', 'normal');
         pdf.setFillColor(249, 250, 251);
-        const respostaY = yPos + 2;
         
         let respostaTexto = 'Não respondida';
         let respostaCor: [number, number, number] = [150, 150, 150];
@@ -534,39 +611,78 @@ const downloadPdf = async (id: string, nomeArquivo: string) => {
           if (pergunta.tipo === 'foto') {
             const fotos = resposta.fotos || [];
             if (fotos.length > 0) {
-              respostaTexto = `${fotos.length} foto(s) anexada(s)`;
-              respostaCor = [0, 100, 0];
-              fotos.forEach((foto: any, fotoIdx: number) => {
-                checkNewPage(8);
-                pdf.setTextColor(...respostaCor);
-                pdf.text(`  Foto ${fotoIdx + 1}`, margin + 15, respostaY + 4 + (fotoIdx * 5));
-                if (foto.data_hora || foto.dataHora) {
+              // Adicionar fotos ao PDF
+              yPos += 3;
+              for (let fotoIdx = 0; fotoIdx < fotos.length; fotoIdx++) {
+                const foto = fotos[fotoIdx];
+                checkNewPage(45);
+                
+                // Adicionar imagem
+                const imgResult = await addImageToPdf(pdf, foto.url, margin + 12, yPos, 50, 40);
+                if (imgResult) {
+                  // Info da foto ao lado
+                  pdf.setTextColor(0, 100, 0);
+                  pdf.setFontSize(8);
+                  pdf.text(`Foto ${fotoIdx + 1}`, margin + 65, yPos + 5);
+                  
+                  if (foto.data_hora || foto.dataHora) {
+                    pdf.setTextColor(100, 100, 100);
+                    pdf.setFontSize(7);
+                    pdf.text(`📅 ${foto.data_hora || foto.dataHora}`, margin + 65, yPos + 10);
+                  }
+                  if (foto.latitude && foto.longitude) {
+                    pdf.setFontSize(7);
+                    pdf.text(`📍 ${foto.latitude.toFixed(4)}, ${foto.longitude.toFixed(4)}`, margin + 65, yPos + 15);
+                  }
+                  
+                  yPos += imgResult.height + 5;
+                } else {
+                  // Fallback se não conseguir carregar imagem
+                  pdf.setTextColor(0, 100, 0);
+                  pdf.setFontSize(8);
+                  pdf.text(`Foto ${fotoIdx + 1} (não carregada)`, margin + 12, yPos + 5);
+                  yPos += 8;
+                }
+              }
+              respostaTexto = '';
+            } else if (resposta.foto_url) {
+              // Foto única
+              checkNewPage(45);
+              yPos += 3;
+              const imgResult = await addImageToPdf(pdf, resposta.foto_url, margin + 12, yPos, 50, 40);
+              if (imgResult) {
+                if (resposta.foto_data_hora) {
                   pdf.setTextColor(100, 100, 100);
                   pdf.setFontSize(7);
-                  pdf.text(`     ${foto.data_hora || foto.dataHora}`, margin + 15, respostaY + 7 + (fotoIdx * 5));
+                  pdf.text(`📅 ${resposta.foto_data_hora}`, margin + 65, yPos + 5);
                 }
-                if (foto.latitude && foto.longitude) {
-                  pdf.text(`     ${foto.latitude.toFixed(4)}, ${foto.longitude.toFixed(4)}`, margin + 15, respostaY + 10 + (fotoIdx * 5));
+                if (resposta.foto_latitude && resposta.foto_longitude) {
+                  pdf.text(`📍 ${resposta.foto_latitude.toFixed(4)}, ${resposta.foto_longitude.toFixed(4)}`, margin + 65, yPos + 10);
                 }
-              });
-              yPos += fotos.length * 12;
-            } else if (resposta.foto_url) {
-              respostaTexto = '1 foto anexada';
-              respostaCor = [0, 100, 0];
+                yPos += imgResult.height + 5;
+              }
+              respostaTexto = '';
             } else {
               respostaTexto = 'Sem foto';
             }
           } else if (pergunta.tipo === 'assinatura') {
             if (resposta.assinatura_url) {
-              respostaTexto = 'Assinatura registrada';
-              respostaCor = [0, 100, 0];
-              if (resposta.assinatura_data_hora) {
-                checkNewPage(8);
-                pdf.setTextColor(100, 100, 100);
-                pdf.setFontSize(7);
-                pdf.text(`     ${resposta.assinatura_data_hora}`, margin + 15, respostaY + 7);
-                yPos += 4;
+              // Adicionar assinatura ao PDF
+              checkNewPage(35);
+              yPos += 3;
+              const imgResult = await addImageToPdf(pdf, resposta.assinatura_url, margin + 12, yPos, 60, 30);
+              if (imgResult) {
+                if (resposta.assinatura_data_hora) {
+                  pdf.setTextColor(100, 100, 100);
+                  pdf.setFontSize(7);
+                  pdf.text(`📅 ${resposta.assinatura_data_hora}`, margin + 75, yPos + 5);
+                }
+                if (resposta.assinatura_latitude && resposta.assinatura_longitude) {
+                  pdf.text(`📍 ${resposta.assinatura_latitude.toFixed(4)}, ${resposta.assinatura_longitude.toFixed(4)}`, margin + 75, yPos + 10);
+                }
+                yPos += imgResult.height + 5;
               }
+              respostaTexto = '';
             } else {
               respostaTexto = 'Sem assinatura';
             }
@@ -587,19 +703,25 @@ const downloadPdf = async (id: string, nomeArquivo: string) => {
           }
         }
 
-        pdf.rect(margin + 10, respostaY, pageWidth - 2 * margin - 10, 6, 'F');
-        pdf.setTextColor(...respostaCor);
-        pdf.setFontSize(9);
-        const respostaLines = splitText(respostaTexto, pageWidth - 2 * margin - 15);
-        respostaLines.forEach((line: string, lineIdx: number) => {
-          pdf.text(line, margin + 12, respostaY + 4 + (lineIdx * 4));
-        });
-        
-        yPos += 10 + (respostaLines.length - 1) * 4;
-      });
+        // Só mostrar texto de resposta se não for foto/assinatura com conteúdo
+        if (respostaTexto) {
+          const respostaY = yPos + 2;
+          pdf.rect(margin + 10, respostaY, pageWidth - 2 * margin - 10, 6, 'F');
+          pdf.setTextColor(...respostaCor);
+          pdf.setFontSize(9);
+          const respostaLines = splitText(respostaTexto, pageWidth - 2 * margin - 15);
+          respostaLines.forEach((line: string, lineIdx: number) => {
+            pdf.text(line, margin + 12, respostaY + 4 + (lineIdx * 4));
+          });
+          
+          yPos += 10 + (respostaLines.length - 1) * 4;
+        } else {
+          yPos += 3;
+        }
+      }
       
       yPos += 5;
-    });
+    }
   }
 
   // Footer
