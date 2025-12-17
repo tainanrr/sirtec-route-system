@@ -42,6 +42,7 @@ import {
   Printer,
 } from "lucide-react";
 import { toast } from "sonner";
+import jsPDF from "jspdf";
 
 interface Pergunta {
   id: string;
@@ -101,7 +102,7 @@ export default function ChecklistDetalhes() {
   const { data: dadosBasicos, isLoading: loadingBasicos } = useQuery({
     queryKey: ["checklist-basico", id],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("checklist_respostas")
         .select(`
           id,
@@ -126,7 +127,7 @@ export default function ChecklistDetalhes() {
   const { data: respostasData, isLoading: loadingRespostas } = useQuery({
     queryKey: ["checklist-respostas", id],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("checklist_respostas")
         .select("respostas")
         .eq("id", id)
@@ -140,16 +141,16 @@ export default function ChecklistDetalhes() {
 
   // Query 3: Buscar materiais da entrega (se for checklist de recebimento)
   const { data: materiaisEntrega } = useQuery({
-    queryKey: ["checklist-materiais-entrega", id, dadosBasicos?.tecnicos, dadosBasicos?.created_at],
+    queryKey: ["checklist-materiais-entrega", id, (dadosBasicos as any)?.tecnicos, (dadosBasicos as any)?.created_at],
     queryFn: async () => {
       // Buscar a entrega mais recente confirmada para esta equipe próxima à data do checklist
-      const equipeId = (dadosBasicos?.tecnicos as any)?.id;
-      const dataChecklist = dadosBasicos?.created_at;
+      const equipeId = ((dadosBasicos as any)?.tecnicos as any)?.id;
+      const dataChecklist = (dadosBasicos as any)?.created_at;
       
       if (!equipeId || !dataChecklist) return null;
 
       // Buscar entregas confirmadas para esta equipe
-      const { data: entregas, error: entregasError } = await supabase
+      const { data: entregas, error: entregasError } = await (supabase as any)
         .from("materiais_entregas")
         .select("id, data_entrega, data_confirmacao, observacao")
         .eq("equipe_id", equipeId)
@@ -176,7 +177,7 @@ export default function ChecklistDetalhes() {
       }
 
       // Buscar itens da entrega
-      const { data: itens, error } = await supabase
+      const { data: itens, error } = await (supabase as any)
         .from("materiais_entregas_itens")
         .select(`
           material_id,
@@ -196,7 +197,7 @@ export default function ChecklistDetalhes() {
         entrega: entregaMaisProxima 
       };
     },
-    enabled: !!id && !!dadosBasicos && dadosBasicos?.checklists?.tipo === "recebimento_materiais",
+    enabled: !!id && !!dadosBasicos && (dadosBasicos as any)?.checklists?.tipo === "recebimento_materiais",
   });
 
   // Função para gerar HTML das fotos
@@ -233,323 +234,288 @@ export default function ChecklistDetalhes() {
     toast.loading("Gerando PDF...", { id: "pdf" });
 
     try {
-      const codigoUnico = (dadosBasicos as any)?.codigo_unico || '-';
-      const nomeChecklist = dadosBasicos?.checklists?.nome || 'Checklist';
-      const dataChecklist = dadosBasicos?.created_at 
-        ? format(new Date(dadosBasicos.created_at), "dd/MM/yyyy HH:mm")
+      const dados = dadosBasicos as any;
+      const codigoUnico = dados?.codigo_unico || '-';
+      const nomeChecklist = dados?.checklists?.nome || 'Checklist';
+      const dataChecklist = dados?.created_at 
+        ? format(new Date(dados.created_at), "dd/MM/yyyy HH:mm")
         : '';
 
-      // Gerar conteúdo das perguntas com fotos
-      let perguntasHtml = '';
+      // Criar PDF com jsPDF
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 15;
+      let yPos = margin;
+
+      // Função auxiliar para adicionar nova página se necessário
+      const checkNewPage = (height: number) => {
+        if (yPos + height > pageHeight - margin) {
+          pdf.addPage();
+          yPos = margin;
+          return true;
+        }
+        return false;
+      };
+
+      // Função auxiliar para quebrar texto em linhas
+      const splitText = (text: string, maxWidth: number) => {
+        return pdf.splitTextToSize(text, maxWidth);
+      };
+
+      // Header
+      pdf.setFillColor(124, 58, 237); // Violet
+      pdf.rect(margin, yPos, pageWidth - 2 * margin, 12, 'F');
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(14);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text(`#${codigoUnico} - ${nomeChecklist}`, margin + 3, yPos + 8);
+      yPos += 15;
+
+      // Info line
+      pdf.setTextColor(100, 100, 100);
+      pdf.setFontSize(9);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(`Tipo: ${dados?.checklists?.tipo?.toUpperCase() || '-'} | Data: ${dataChecklist} | Status: ${dados?.status === 'completo' ? 'Completo' : 'Rascunho'}`, margin, yPos);
+      yPos += 8;
+
+      // Linha divisória
+      pdf.setDrawColor(124, 58, 237);
+      pdf.setLineWidth(0.5);
+      pdf.line(margin, yPos, pageWidth - margin, yPos);
+      yPos += 8;
+
+      // Info Cards
+      const cardWidth = (pageWidth - 2 * margin - 9) / 4;
+      const cards = [
+        { label: 'Código Único', value: `#${codigoUnico}` },
+        { label: 'Ordem de Serviço', value: dados?.ordens_servico?.numero ? `#${dados.ordens_servico.numero}` : '-' },
+        { label: 'Equipe', value: dados?.tecnicos?.codigo || '-' },
+        { label: 'Data/Hora', value: dataChecklist },
+      ];
+
+      cards.forEach((card, idx) => {
+        const x = margin + idx * (cardWidth + 3);
+        pdf.setDrawColor(200, 200, 200);
+        pdf.setLineWidth(0.3);
+        pdf.rect(x, yPos, cardWidth, 14);
+        
+        pdf.setTextColor(100, 100, 100);
+        pdf.setFontSize(7);
+        pdf.text(card.label, x + 2, yPos + 4);
+        
+        pdf.setTextColor(0, 0, 0);
+        pdf.setFontSize(9);
+        pdf.setFont('helvetica', 'bold');
+        pdf.text(card.value, x + 2, yPos + 10);
+        pdf.setFont('helvetica', 'normal');
+      });
+      yPos += 20;
+
+      // Endereço (se houver)
+      if (dados?.ordens_servico?.endereco) {
+        checkNewPage(20);
+        pdf.setFillColor(249, 250, 251);
+        pdf.rect(margin, yPos, pageWidth - 2 * margin, 8, 'F');
+        pdf.setTextColor(0, 0, 0);
+        pdf.setFontSize(10);
+        pdf.setFont('helvetica', 'bold');
+        pdf.text('Endereço', margin + 3, yPos + 5);
+        yPos += 10;
+        
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(9);
+        const enderecoLines = splitText(dados.ordens_servico.endereco, pageWidth - 2 * margin - 6);
+        enderecoLines.forEach((line: string) => {
+          pdf.text(line, margin + 3, yPos);
+          yPos += 4;
+        });
+        if (dados.ordens_servico.cliente_nome) {
+          pdf.setTextColor(100, 100, 100);
+          pdf.text(`Cliente: ${dados.ordens_servico.cliente_nome}`, margin + 3, yPos);
+          yPos += 4;
+        }
+        yPos += 5;
+      }
+
+      // Materiais Recebidos (se houver)
+      if (materiaisEntrega?.itens && materiaisEntrega.itens.length > 0) {
+        checkNewPage(30);
+        pdf.setFillColor(249, 250, 251);
+        pdf.rect(margin, yPos, pageWidth - 2 * margin, 8, 'F');
+        pdf.setTextColor(0, 0, 0);
+        pdf.setFontSize(10);
+        pdf.setFont('helvetica', 'bold');
+        pdf.text('📦 Materiais Recebidos', margin + 3, yPos + 5);
+        yPos += 12;
+
+        // Tabela de materiais
+        const colWidths = [30, 70, 30, 40];
+        const headers = ['Código', 'Material', 'Qtd', 'Nº Série'];
+        
+        // Header da tabela
+        pdf.setFillColor(249, 250, 251);
+        pdf.rect(margin, yPos, pageWidth - 2 * margin, 7, 'F');
+        pdf.setFontSize(8);
+        let xPos = margin;
+        headers.forEach((h, i) => {
+          pdf.text(h, xPos + 2, yPos + 5);
+          xPos += colWidths[i];
+        });
+        yPos += 8;
+
+        // Linhas da tabela
+        pdf.setFont('helvetica', 'normal');
+        materiaisEntrega.itens.forEach((item) => {
+          checkNewPage(7);
+          pdf.setDrawColor(230, 230, 230);
+          pdf.line(margin, yPos + 6, pageWidth - margin, yPos + 6);
+          
+          xPos = margin;
+          const values = [
+            item.materiais?.codigo || '-',
+            (item.materiais?.nome || '-').substring(0, 35),
+            `${item.quantidade} ${item.materiais?.unidade || ''}`,
+            item.numero_serie || '-'
+          ];
+          values.forEach((v, i) => {
+            pdf.text(v, xPos + 2, yPos + 4);
+            xPos += colWidths[i];
+          });
+          yPos += 7;
+        });
+        yPos += 8;
+      }
+
+      // Perguntas e Respostas
       if (grupos && grupos.length > 0) {
-        perguntasHtml = grupos.map(grupo => {
-          const perguntasContent = grupo.perguntas.map((pergunta, idx) => {
+        grupos.forEach((grupo) => {
+          checkNewPage(20);
+          
+          // Header do grupo
+          pdf.setFillColor(249, 250, 251);
+          pdf.rect(margin, yPos, pageWidth - 2 * margin, 8, 'F');
+          pdf.setTextColor(0, 0, 0);
+          pdf.setFontSize(10);
+          pdf.setFont('helvetica', 'bold');
+          pdf.text(grupo.nome, margin + 3, yPos + 5);
+          yPos += 12;
+
+          grupo.perguntas.forEach((pergunta, idx) => {
             const resposta = respostasMap[pergunta.id];
-            let respostaHtml = '<span style="color: #999;">Não respondida</span>';
+            checkNewPage(15);
+
+            // Número e texto da pergunta
+            pdf.setFillColor(229, 231, 235);
+            pdf.rect(margin, yPos, 10, 5, 'F');
+            pdf.setFontSize(8);
+            pdf.setTextColor(0, 0, 0);
+            pdf.text(`${grupo.ordem || 1}.${idx + 1}`, margin + 1, yPos + 3.5);
+            
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(9);
+            const perguntaLines = splitText(pergunta.texto, pageWidth - 2 * margin - 15);
+            perguntaLines.forEach((line: string, lineIdx: number) => {
+              pdf.text(line, margin + 12, yPos + 3.5 + (lineIdx * 4));
+            });
+            yPos += 5 + (perguntaLines.length - 1) * 4;
+
+            // Resposta
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFillColor(249, 250, 251);
+            const respostaY = yPos + 2;
+            
+            let respostaTexto = 'Não respondida';
+            let respostaCor: [number, number, number] = [150, 150, 150];
             
             if (resposta) {
               if (pergunta.tipo === 'foto') {
                 const fotos = resposta.fotos || [];
                 if (fotos.length > 0) {
-                  respostaHtml = gerarHtmlFotos(fotos);
+                  respostaTexto = `${fotos.length} foto(s) anexada(s)`;
+                  respostaCor = [0, 100, 0];
+                  // Adicionar info das fotos
+                  fotos.forEach((foto: any, fotoIdx: number) => {
+                    checkNewPage(8);
+                    pdf.setTextColor(...respostaCor);
+                    pdf.text(`  📷 Foto ${fotoIdx + 1}`, margin + 15, respostaY + 4 + (fotoIdx * 5));
+                    if (foto.data_hora || foto.dataHora) {
+                      pdf.setTextColor(100, 100, 100);
+                      pdf.setFontSize(7);
+                      pdf.text(`     📅 ${foto.data_hora || foto.dataHora}`, margin + 15, respostaY + 7 + (fotoIdx * 5));
+                    }
+                    if (foto.latitude && foto.longitude) {
+                      pdf.text(`     📍 ${foto.latitude.toFixed(4)}, ${foto.longitude.toFixed(4)}`, margin + 15, respostaY + 10 + (fotoIdx * 5));
+                    }
+                  });
+                  yPos += fotos.length * 12;
                 } else if (resposta.foto_url) {
-                  respostaHtml = gerarHtmlFotos([{ url: resposta.foto_url, data_hora: resposta.foto_data_hora, latitude: resposta.foto_latitude, longitude: resposta.foto_longitude }]);
+                  respostaTexto = '1 foto anexada';
+                  respostaCor = [0, 100, 0];
                 } else {
-                  respostaHtml = '<span style="color: #999;">Sem foto</span>';
+                  respostaTexto = 'Sem foto';
                 }
               } else if (pergunta.tipo === 'assinatura') {
                 if (resposta.assinatura_url) {
-                  respostaHtml = gerarHtmlAssinatura(resposta.assinatura_url, resposta.assinatura_data_hora, resposta.assinatura_latitude, resposta.assinatura_longitude);
+                  respostaTexto = '✓ Assinatura registrada';
+                  respostaCor = [0, 100, 0];
+                  if (resposta.assinatura_data_hora) {
+                    checkNewPage(8);
+                    pdf.setTextColor(100, 100, 100);
+                    pdf.setFontSize(7);
+                    pdf.text(`     📅 ${resposta.assinatura_data_hora}`, margin + 15, respostaY + 7);
+                    yPos += 4;
+                  }
                 } else {
-                  respostaHtml = '<span style="color: #999;">Sem assinatura</span>';
+                  respostaTexto = 'Sem assinatura';
                 }
               } else if (pergunta.tipo === 'sim_nao') {
-                respostaHtml = resposta.resposta === 'sim'
-                  ? '<span class="badge badge-green">Sim</span>'
-                  : resposta.resposta === 'nao'
-                    ? '<span class="badge badge-red">Não</span>'
-                    : String(resposta.resposta || '-');
+                if (resposta.resposta === 'sim') {
+                  respostaTexto = '✓ Sim';
+                  respostaCor = [22, 101, 52];
+                } else if (resposta.resposta === 'nao') {
+                  respostaTexto = '✗ Não';
+                  respostaCor = [153, 27, 27];
+                } else {
+                  respostaTexto = String(resposta.resposta || '-');
+                  respostaCor = [0, 0, 0];
+                }
               } else {
-                respostaHtml = String(resposta.resposta || '-');
+                respostaTexto = String(resposta.resposta || '-');
+                respostaCor = [0, 0, 0];
               }
             }
 
-            return `
-              <div class="pergunta">
-                <div class="pergunta-texto">
-                  <span class="pergunta-numero">${grupo.ordem || 1}.${idx + 1}</span>
-                  ${pergunta.texto}
-                </div>
-                <div class="pergunta-resposta">${respostaHtml}</div>
-              </div>
-            `;
-          }).join('');
-
-          return `
-            <div class="section">
-              <div class="section-header">${grupo.nome}</div>
-              <div class="section-content">${perguntasContent}</div>
-            </div>
-          `;
-        }).join('');
+            pdf.rect(margin + 10, respostaY, pageWidth - 2 * margin - 10, 6, 'F');
+            pdf.setTextColor(...respostaCor);
+            pdf.setFontSize(9);
+            const respostaLines = splitText(respostaTexto, pageWidth - 2 * margin - 15);
+            respostaLines.forEach((line: string, lineIdx: number) => {
+              pdf.text(line, margin + 12, respostaY + 4 + (lineIdx * 4));
+            });
+            
+            yPos += 10 + (respostaLines.length - 1) * 4;
+          });
+          
+          yPos += 5;
+        });
       }
 
-      const htmlContent = `
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <meta charset="UTF-8">
-            <title>Checklist #${codigoUnico} - ${nomeChecklist}</title>
-            <style>
-              * { margin: 0; padding: 0; box-sizing: border-box; }
-              body { 
-                font-family: Arial, sans-serif; 
-                padding: 20px; 
-                color: #333;
-                font-size: 12px;
-              }
-              .header { 
-                border-bottom: 2px solid #7c3aed; 
-                padding-bottom: 15px; 
-                margin-bottom: 20px; 
-              }
-              .header h1 { 
-                color: #7c3aed; 
-                font-size: 18px;
-                margin-bottom: 5px;
-              }
-              .header .codigo {
-                background: #7c3aed;
-                color: white;
-                padding: 2px 8px;
-                border-radius: 4px;
-                font-size: 11px;
-                display: inline-block;
-                margin-right: 10px;
-              }
-              .header .info { 
-                color: #666; 
-                font-size: 11px;
-              }
-              .info-grid { 
-                display: grid; 
-                grid-template-columns: repeat(4, 1fr); 
-                gap: 15px; 
-                margin-bottom: 20px;
-              }
-              .info-card { 
-                border: 1px solid #e5e7eb; 
-                padding: 10px; 
-                border-radius: 6px;
-              }
-              .info-card label { 
-                color: #666; 
-                font-size: 10px; 
-                display: block;
-                margin-bottom: 3px;
-              }
-              .info-card p { 
-                font-weight: bold; 
-                font-size: 12px;
-              }
-              .section { 
-                margin-bottom: 20px; 
-                border: 1px solid #e5e7eb; 
-                border-radius: 6px;
-                overflow: hidden;
-                page-break-inside: avoid;
-              }
-              .section-header { 
-                background: #f9fafb; 
-                padding: 10px 15px; 
-                border-bottom: 1px solid #e5e7eb;
-                font-weight: bold;
-              }
-              .section-content { padding: 15px; }
-              .pergunta { 
-                border-bottom: 1px solid #f3f4f6; 
-                padding: 10px 0;
-                page-break-inside: avoid;
-              }
-              .pergunta:last-child { border-bottom: none; }
-              .pergunta-numero { 
-                background: #e5e7eb; 
-                padding: 2px 6px; 
-                border-radius: 4px; 
-                font-size: 10px;
-                margin-right: 8px;
-              }
-              .pergunta-texto { font-weight: 500; margin-bottom: 5px; }
-              .pergunta-resposta { 
-                margin-left: 30px; 
-                padding: 8px;
-                background: #f9fafb;
-                border-radius: 4px;
-              }
-              .badge { 
-                display: inline-block; 
-                padding: 2px 8px; 
-                border-radius: 4px; 
-                font-size: 10px;
-                font-weight: bold;
-              }
-              .badge-green { background: #dcfce7; color: #166534; }
-              .badge-red { background: #fee2e2; color: #991b1b; }
-              .fotos-grid {
-                display: flex;
-                flex-wrap: wrap;
-                gap: 10px;
-              }
-              .foto-item {
-                max-width: 200px;
-              }
-              .foto-item img {
-                max-width: 100%;
-                height: auto;
-                border-radius: 4px;
-                border: 1px solid #e5e7eb;
-              }
-              .foto-info {
-                font-size: 9px;
-                color: #666;
-                margin-top: 2px;
-              }
-              .assinatura-container {
-                max-width: 300px;
-              }
-              .assinatura-img {
-                max-width: 100%;
-                height: auto;
-                border: 1px solid #e5e7eb;
-                border-radius: 4px;
-                background: white;
-                padding: 5px;
-              }
-              table { 
-                width: 100%; 
-                border-collapse: collapse; 
-                margin: 10px 0;
-              }
-              th, td { 
-                border: 1px solid #e5e7eb; 
-                padding: 8px; 
-                text-align: left;
-                font-size: 11px;
-              }
-              th { background: #f9fafb; font-weight: bold; }
-              .footer {
-                margin-top: 30px;
-                padding-top: 15px;
-                border-top: 1px solid #e5e7eb;
-                text-align: center;
-                color: #666;
-                font-size: 10px;
-              }
-              @media print {
-                body { padding: 10px; }
-                .section { page-break-inside: avoid; }
-                .foto-item img { max-height: 150px; }
-              }
-            </style>
-          </head>
-          <body>
-            <div class="header">
-              <h1>
-                <span class="codigo">#${codigoUnico}</span>
-                ${nomeChecklist}
-              </h1>
-              <p class="info">
-                Tipo: ${dadosBasicos?.checklists?.tipo?.toUpperCase() || '-'} | 
-                Data: ${dataChecklist} |
-                Status: ${dadosBasicos?.status === 'completo' ? 'Completo' : 'Rascunho'}
-              </p>
-            </div>
+      // Footer
+      checkNewPage(15);
+      pdf.setDrawColor(200, 200, 200);
+      pdf.line(margin, yPos, pageWidth - margin, yPos);
+      yPos += 5;
+      pdf.setTextColor(100, 100, 100);
+      pdf.setFontSize(8);
+      pdf.text(`Documento gerado em ${format(new Date(), "dd/MM/yyyy 'às' HH:mm")}`, pageWidth / 2, yPos, { align: 'center' });
+      yPos += 4;
+      pdf.text(`Checklist #${codigoUnico} - Sistema de Gestão`, pageWidth / 2, yPos, { align: 'center' });
 
-            <div class="info-grid">
-              <div class="info-card">
-                <label>Código Único</label>
-                <p>#${codigoUnico}</p>
-              </div>
-              <div class="info-card">
-                <label>Ordem de Serviço</label>
-                <p>${dadosBasicos?.ordens_servico?.numero ? '#' + dadosBasicos.ordens_servico.numero : '-'}</p>
-              </div>
-              <div class="info-card">
-                <label>Equipe</label>
-                <p>${(dadosBasicos?.tecnicos as any)?.codigo || '-'}</p>
-              </div>
-              <div class="info-card">
-                <label>Data/Hora</label>
-                <p>${dataChecklist}</p>
-              </div>
-            </div>
-
-            ${dadosBasicos?.ordens_servico?.endereco ? `
-              <div class="section">
-                <div class="section-header">Endereço</div>
-                <div class="section-content">
-                  <p>${dadosBasicos.ordens_servico.endereco}</p>
-                  ${dadosBasicos.ordens_servico.cliente_nome ? `<p style="color: #666; margin-top: 5px;">Cliente: ${dadosBasicos.ordens_servico.cliente_nome}</p>` : ''}
-                </div>
-              </div>
-            ` : ''}
-
-            ${materiaisEntrega?.itens && materiaisEntrega.itens.length > 0 ? `
-              <div class="section">
-                <div class="section-header">📦 Materiais Recebidos</div>
-                <div class="section-content">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Código</th>
-                        <th>Material</th>
-                        <th>Quantidade</th>
-                        <th>Nº Série</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      ${materiaisEntrega.itens.map(item => `
-                        <tr>
-                          <td>${item.materiais?.codigo || '-'}</td>
-                          <td>${item.materiais?.nome || '-'}</td>
-                          <td>${item.quantidade} ${item.materiais?.unidade || ''}</td>
-                          <td>${item.numero_serie || '-'}</td>
-                        </tr>
-                      `).join('')}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ` : ''}
-
-            ${perguntasHtml}
-
-            <div class="footer">
-              <p>Documento gerado em ${format(new Date(), "dd/MM/yyyy 'às' HH:mm")}</p>
-              <p>Checklist #${codigoUnico} - Sistema de Gestão</p>
-            </div>
-          </body>
-        </html>
-      `;
-
-      // Criar blob e fazer download automático
-      const blob = new Blob([htmlContent], { type: 'text/html' });
-      const url = URL.createObjectURL(blob);
+      // Salvar PDF
+      pdf.save(`checklist_${codigoUnico}.pdf`);
       
-      // Abrir janela de impressão
-      const printWindow = window.open(url, '_blank');
-      if (!printWindow) {
-        throw new Error("Não foi possível abrir a janela. Verifique se popups estão habilitados.");
-      }
-
-      // Aguardar carregamento e imprimir automaticamente
-      printWindow.onload = () => {
-        setTimeout(() => {
-          printWindow.print();
-        }, 500);
-      };
-      
-      toast.success("PDF gerado! Use Ctrl+P para salvar como PDF.", { id: "pdf" });
+      toast.success("PDF baixado com sucesso!", { id: "pdf" });
       setGeratingPdf(false);
 
     } catch (error: any) {
@@ -817,15 +783,16 @@ export default function ChecklistDetalhes() {
         : respostasData)
     : {};
 
-  const gruposOriginais = dadosBasicos?.checklists?.grupos as GrupoPerguntas[] | undefined;
-  const perguntasOriginais = (dadosBasicos?.checklists as any)?.perguntas as Pergunta[] | undefined;
+  const dadosAny = dadosBasicos as any;
+  const gruposOriginais = dadosAny?.checklists?.grupos as GrupoPerguntas[] | undefined;
+  const perguntasOriginais = dadosAny?.checklists?.perguntas as Pergunta[] | undefined;
   
   const grupos: GrupoPerguntas[] | undefined = gruposOriginais && gruposOriginais.length > 0
     ? gruposOriginais
     : perguntasOriginais && perguntasOriginais.length > 0
       ? [{
           id: "grupo-unico",
-          nome: dadosBasicos?.checklists?.nome || "Perguntas",
+          nome: dadosAny?.checklists?.nome || "Perguntas",
           ordem: 1,
           perguntas: perguntasOriginais.map((p: any, idx: number) => ({
             id: p.id || String(idx + 1),
@@ -837,7 +804,7 @@ export default function ChecklistDetalhes() {
         }]
       : undefined;
 
-  const codigoUnico = (dadosBasicos as any)?.codigo_unico;
+  const codigoUnico = dadosAny?.codigo_unico;
 
   // Auto-print se parâmetro print=true estiver presente
   useEffect(() => {
@@ -854,7 +821,7 @@ export default function ChecklistDetalhes() {
   // Loading inicial
   if (loadingBasicos) {
     return (
-      <MainLayout>
+      <MainLayout title="Carregando...">
         <div className="container mx-auto py-6 space-y-6">
           <div className="flex items-center gap-4">
             <Skeleton className="h-10 w-10" />
@@ -873,7 +840,7 @@ export default function ChecklistDetalhes() {
   // Checklist não encontrado
   if (!dadosBasicos) {
     return (
-      <MainLayout>
+      <MainLayout title="Não encontrado">
         <div className="container mx-auto py-6">
           <div className="text-center py-12">
             <ClipboardCheck className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
@@ -889,7 +856,7 @@ export default function ChecklistDetalhes() {
   }
 
   return (
-    <MainLayout>
+    <MainLayout title={`Checklist #${codigoUnico || ''}`}>
       <div className="container mx-auto py-6 space-y-6" ref={printRef}>
         {/* Header */}
         <div className="flex items-center justify-between flex-wrap gap-4">
@@ -918,11 +885,11 @@ export default function ChecklistDetalhes() {
                 )}
                 <h1 className="text-2xl font-bold flex items-center gap-2">
                   <ClipboardCheck className="h-7 w-7 text-violet-600" />
-                  {dadosBasicos.checklists?.nome || "Checklist"}
+                  {dadosAny.checklists?.nome || "Checklist"}
                 </h1>
               </div>
               <p className="text-muted-foreground">
-                {dadosBasicos.checklists?.tipo?.toUpperCase()} - Preenchido em {format(new Date(dadosBasicos.created_at), "dd/MM/yyyy 'às' HH:mm")}
+                {dadosAny.checklists?.tipo?.toUpperCase()} - Preenchido em {format(new Date(dadosAny.created_at), "dd/MM/yyyy 'às' HH:mm")}
               </p>
             </div>
           </div>
@@ -939,8 +906,8 @@ export default function ChecklistDetalhes() {
               )}
               Gerar PDF
             </Button>
-            <Badge className={dadosBasicos.status === "completo" ? "bg-green-600" : ""}>
-              {dadosBasicos.status === "completo" ? (
+            <Badge className={dadosAny.status === "completo" ? "bg-green-600" : ""}>
+              {dadosAny.status === "completo" ? (
                 <>
                   <CheckCircle className="h-3 w-3 mr-1" />
                   Completo
@@ -974,8 +941,8 @@ export default function ChecklistDetalhes() {
                 Ordem de Serviço
               </div>
               <p className="font-semibold">
-                {dadosBasicos.ordens_servico ? (
-                  <>#{dadosBasicos.ordens_servico.numero}</>
+                {dadosAny.ordens_servico ? (
+                  <>#{dadosAny.ordens_servico.numero}</>
                 ) : (
                   "-"
                 )}
@@ -989,7 +956,7 @@ export default function ChecklistDetalhes() {
                 Equipe
               </div>
               <p className="font-semibold">
-                {(dadosBasicos.tecnicos as any)?.codigo || "-"}
+                {dadosAny.tecnicos?.codigo || "-"}
               </p>
             </CardContent>
           </Card>
@@ -1000,7 +967,7 @@ export default function ChecklistDetalhes() {
                 Data
               </div>
               <p className="font-semibold">
-                {format(new Date(dadosBasicos.created_at), "dd/MM/yyyy HH:mm")}
+                {format(new Date(dadosAny.created_at), "dd/MM/yyyy HH:mm")}
               </p>
             </CardContent>
           </Card>
@@ -1010,25 +977,25 @@ export default function ChecklistDetalhes() {
                 <CheckCircle className="h-4 w-4" />
                 Status
               </div>
-              <Badge className={dadosBasicos.status === "completo" ? "bg-green-600" : ""}>
-                {dadosBasicos.status === "completo" ? "Completo" : "Rascunho"}
+              <Badge className={dadosAny.status === "completo" ? "bg-green-600" : ""}>
+                {dadosAny.status === "completo" ? "Completo" : "Rascunho"}
               </Badge>
             </CardContent>
           </Card>
         </div>
 
         {/* Endereço da OS */}
-        {dadosBasicos.ordens_servico?.endereco && (
+        {dadosAny.ordens_servico?.endereco && (
           <Card>
             <CardContent className="pt-4">
               <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
                 <MapPin className="h-4 w-4" />
                 Endereço
               </div>
-              <p>{dadosBasicos.ordens_servico.endereco}</p>
-              {dadosBasicos.ordens_servico.cliente_nome && (
+              <p>{dadosAny.ordens_servico.endereco}</p>
+              {dadosAny.ordens_servico.cliente_nome && (
                 <p className="text-sm text-muted-foreground mt-1">
-                  Cliente: {dadosBasicos.ordens_servico.cliente_nome}
+                  Cliente: {dadosAny.ordens_servico.cliente_nome}
                 </p>
               )}
             </CardContent>

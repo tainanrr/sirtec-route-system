@@ -43,7 +43,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
 
 const ITEMS_PER_PAGE = 20;
 
@@ -329,73 +328,293 @@ const buscarDadosChecklist = async (id: string) => {
   return { dadosBasicos, grupos, materiaisEntrega };
 };
 
-// Função para fazer download do PDF
+// Função para fazer download do PDF com texto selecionável
 const downloadPdf = async (id: string, nomeArquivo: string) => {
   const { dadosBasicos, grupos, materiaisEntrega } = await buscarDadosChecklist(id);
-  const htmlContent = gerarHtmlPdf(dadosBasicos, dadosBasicos?.respostas, grupos, materiaisEntrega);
-  
-  // Criar container temporário invisível
-  const container = document.createElement('div');
-  container.style.position = 'absolute';
-  container.style.left = '-9999px';
-  container.style.top = '0';
-  container.style.width = '800px';
-  container.style.background = 'white';
-  container.innerHTML = htmlContent;
-  document.body.appendChild(container);
+  const respostasMap = dadosBasicos?.respostas 
+    ? (Array.isArray(dadosBasicos.respostas) 
+        ? dadosBasicos.respostas.reduce((acc: any, r: any) => ({ ...acc, [r.pergunta_id]: r }), {})
+        : dadosBasicos.respostas)
+    : {};
 
-  // Aguardar carregamento de imagens
-  const images = container.querySelectorAll('img');
-  await Promise.all(
-    Array.from(images).map(img => {
-      if (img.complete) return Promise.resolve();
-      return new Promise((resolve) => {
-        img.onload = resolve;
-        img.onerror = resolve;
-      });
-    })
-  );
+  const codigoUnico = dadosBasicos?.codigo_unico || '-';
+  const nomeChecklist = dadosBasicos?.checklists?.nome || 'Checklist';
+  const dataChecklist = dadosBasicos?.created_at 
+    ? format(new Date(dadosBasicos.created_at), "dd/MM/yyyy HH:mm")
+    : '';
 
-  // Pequeno delay para garantir renderização
-  await new Promise(resolve => setTimeout(resolve, 100));
+  // Criar PDF com jsPDF
+  const pdf = new jsPDF('p', 'mm', 'a4');
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const margin = 15;
+  let yPos = margin;
 
-  try {
-    // Capturar como canvas
-    const canvas = await html2canvas(container, {
-      scale: 2,
-      useCORS: true,
-      allowTaint: true,
-      logging: false,
-      backgroundColor: '#ffffff',
-    });
-
-    // Criar PDF
-    const imgWidth = 210; // A4 width in mm
-    const pageHeight = 297; // A4 height in mm
-    const imgHeight = (canvas.height * imgWidth) / canvas.width;
-    
-    const pdf = new jsPDF('p', 'mm', 'a4');
-    let heightLeft = imgHeight;
-    let position = 0;
-
-    // Adicionar primeira página
-    pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, position, imgWidth, imgHeight);
-    heightLeft -= pageHeight;
-
-    // Adicionar páginas adicionais se necessário
-    while (heightLeft > 0) {
-      position = heightLeft - imgHeight;
+  // Função auxiliar para adicionar nova página se necessário
+  const checkNewPage = (height: number) => {
+    if (yPos + height > pageHeight - margin) {
       pdf.addPage();
-      pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
+      yPos = margin;
+      return true;
     }
+    return false;
+  };
 
-    // Salvar PDF
-    pdf.save(nomeArquivo);
-  } finally {
-    // Remover container temporário
-    document.body.removeChild(container);
+  // Função auxiliar para quebrar texto em linhas
+  const splitText = (text: string, maxWidth: number) => {
+    return pdf.splitTextToSize(text, maxWidth);
+  };
+
+  // Header
+  pdf.setFillColor(124, 58, 237); // Violet
+  pdf.rect(margin, yPos, pageWidth - 2 * margin, 12, 'F');
+  pdf.setTextColor(255, 255, 255);
+  pdf.setFontSize(14);
+  pdf.setFont('helvetica', 'bold');
+  pdf.text(`#${codigoUnico} - ${nomeChecklist}`, margin + 3, yPos + 8);
+  yPos += 15;
+
+  // Info line
+  pdf.setTextColor(100, 100, 100);
+  pdf.setFontSize(9);
+  pdf.setFont('helvetica', 'normal');
+  pdf.text(`Tipo: ${dadosBasicos?.checklists?.tipo?.toUpperCase() || '-'} | Data: ${dataChecklist} | Status: ${dadosBasicos?.status === 'completo' ? 'Completo' : 'Rascunho'}`, margin, yPos);
+  yPos += 8;
+
+  // Linha divisória
+  pdf.setDrawColor(124, 58, 237);
+  pdf.setLineWidth(0.5);
+  pdf.line(margin, yPos, pageWidth - margin, yPos);
+  yPos += 8;
+
+  // Info Cards
+  const cardWidth = (pageWidth - 2 * margin - 9) / 4;
+  const cards = [
+    { label: 'Código Único', value: `#${codigoUnico}` },
+    { label: 'Ordem de Serviço', value: dadosBasicos?.ordens_servico?.numero ? `#${dadosBasicos.ordens_servico.numero}` : '-' },
+    { label: 'Equipe', value: (dadosBasicos?.tecnicos as any)?.codigo || '-' },
+    { label: 'Data/Hora', value: dataChecklist },
+  ];
+
+  cards.forEach((card, idx) => {
+    const x = margin + idx * (cardWidth + 3);
+    pdf.setDrawColor(200, 200, 200);
+    pdf.setLineWidth(0.3);
+    pdf.rect(x, yPos, cardWidth, 14);
+    
+    pdf.setTextColor(100, 100, 100);
+    pdf.setFontSize(7);
+    pdf.text(card.label, x + 2, yPos + 4);
+    
+    pdf.setTextColor(0, 0, 0);
+    pdf.setFontSize(9);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text(card.value, x + 2, yPos + 10);
+    pdf.setFont('helvetica', 'normal');
+  });
+  yPos += 20;
+
+  // Endereço (se houver)
+  if (dadosBasicos?.ordens_servico?.endereco) {
+    checkNewPage(20);
+    pdf.setFillColor(249, 250, 251);
+    pdf.rect(margin, yPos, pageWidth - 2 * margin, 8, 'F');
+    pdf.setTextColor(0, 0, 0);
+    pdf.setFontSize(10);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Endereço', margin + 3, yPos + 5);
+    yPos += 10;
+    
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(9);
+    const enderecoLines = splitText(dadosBasicos.ordens_servico.endereco, pageWidth - 2 * margin - 6);
+    enderecoLines.forEach((line: string) => {
+      pdf.text(line, margin + 3, yPos);
+      yPos += 4;
+    });
+    if (dadosBasicos.ordens_servico.cliente_nome) {
+      pdf.setTextColor(100, 100, 100);
+      pdf.text(`Cliente: ${dadosBasicos.ordens_servico.cliente_nome}`, margin + 3, yPos);
+      yPos += 4;
+    }
+    yPos += 5;
   }
+
+  // Materiais Recebidos (se houver)
+  if (materiaisEntrega?.itens && materiaisEntrega.itens.length > 0) {
+    checkNewPage(30);
+    pdf.setFillColor(249, 250, 251);
+    pdf.rect(margin, yPos, pageWidth - 2 * margin, 8, 'F');
+    pdf.setTextColor(0, 0, 0);
+    pdf.setFontSize(10);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Materiais Recebidos', margin + 3, yPos + 5);
+    yPos += 12;
+
+    // Tabela de materiais
+    const colWidths = [30, 70, 30, 40];
+    const headers = ['Código', 'Material', 'Qtd', 'Nº Série'];
+    
+    // Header da tabela
+    pdf.setFillColor(249, 250, 251);
+    pdf.rect(margin, yPos, pageWidth - 2 * margin, 7, 'F');
+    pdf.setFontSize(8);
+    let xPos = margin;
+    headers.forEach((h, i) => {
+      pdf.text(h, xPos + 2, yPos + 5);
+      xPos += colWidths[i];
+    });
+    yPos += 8;
+
+    // Linhas da tabela
+    pdf.setFont('helvetica', 'normal');
+    materiaisEntrega.itens.forEach((item: any) => {
+      checkNewPage(7);
+      pdf.setDrawColor(230, 230, 230);
+      pdf.line(margin, yPos + 6, pageWidth - margin, yPos + 6);
+      
+      xPos = margin;
+      const values = [
+        item.materiais?.codigo || '-',
+        (item.materiais?.nome || '-').substring(0, 35),
+        `${item.quantidade} ${item.materiais?.unidade || ''}`,
+        item.numero_serie || '-'
+      ];
+      values.forEach((v, i) => {
+        pdf.text(v, xPos + 2, yPos + 4);
+        xPos += colWidths[i];
+      });
+      yPos += 7;
+    });
+    yPos += 8;
+  }
+
+  // Perguntas e Respostas
+  if (grupos && grupos.length > 0) {
+    grupos.forEach((grupo: any) => {
+      checkNewPage(20);
+      
+      // Header do grupo
+      pdf.setFillColor(249, 250, 251);
+      pdf.rect(margin, yPos, pageWidth - 2 * margin, 8, 'F');
+      pdf.setTextColor(0, 0, 0);
+      pdf.setFontSize(10);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text(grupo.nome, margin + 3, yPos + 5);
+      yPos += 12;
+
+      (grupo.perguntas || []).forEach((pergunta: any, idx: number) => {
+        const resposta = respostasMap[pergunta.id];
+        checkNewPage(15);
+
+        // Número e texto da pergunta
+        pdf.setFillColor(229, 231, 235);
+        pdf.rect(margin, yPos, 10, 5, 'F');
+        pdf.setFontSize(8);
+        pdf.setTextColor(0, 0, 0);
+        pdf.text(`${grupo.ordem || 1}.${idx + 1}`, margin + 1, yPos + 3.5);
+        
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(9);
+        const perguntaLines = splitText(pergunta.texto, pageWidth - 2 * margin - 15);
+        perguntaLines.forEach((line: string, lineIdx: number) => {
+          pdf.text(line, margin + 12, yPos + 3.5 + (lineIdx * 4));
+        });
+        yPos += 5 + (perguntaLines.length - 1) * 4;
+
+        // Resposta
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFillColor(249, 250, 251);
+        const respostaY = yPos + 2;
+        
+        let respostaTexto = 'Não respondida';
+        let respostaCor: [number, number, number] = [150, 150, 150];
+        
+        if (resposta) {
+          if (pergunta.tipo === 'foto') {
+            const fotos = resposta.fotos || [];
+            if (fotos.length > 0) {
+              respostaTexto = `${fotos.length} foto(s) anexada(s)`;
+              respostaCor = [0, 100, 0];
+              fotos.forEach((foto: any, fotoIdx: number) => {
+                checkNewPage(8);
+                pdf.setTextColor(...respostaCor);
+                pdf.text(`  Foto ${fotoIdx + 1}`, margin + 15, respostaY + 4 + (fotoIdx * 5));
+                if (foto.data_hora || foto.dataHora) {
+                  pdf.setTextColor(100, 100, 100);
+                  pdf.setFontSize(7);
+                  pdf.text(`     ${foto.data_hora || foto.dataHora}`, margin + 15, respostaY + 7 + (fotoIdx * 5));
+                }
+                if (foto.latitude && foto.longitude) {
+                  pdf.text(`     ${foto.latitude.toFixed(4)}, ${foto.longitude.toFixed(4)}`, margin + 15, respostaY + 10 + (fotoIdx * 5));
+                }
+              });
+              yPos += fotos.length * 12;
+            } else if (resposta.foto_url) {
+              respostaTexto = '1 foto anexada';
+              respostaCor = [0, 100, 0];
+            } else {
+              respostaTexto = 'Sem foto';
+            }
+          } else if (pergunta.tipo === 'assinatura') {
+            if (resposta.assinatura_url) {
+              respostaTexto = 'Assinatura registrada';
+              respostaCor = [0, 100, 0];
+              if (resposta.assinatura_data_hora) {
+                checkNewPage(8);
+                pdf.setTextColor(100, 100, 100);
+                pdf.setFontSize(7);
+                pdf.text(`     ${resposta.assinatura_data_hora}`, margin + 15, respostaY + 7);
+                yPos += 4;
+              }
+            } else {
+              respostaTexto = 'Sem assinatura';
+            }
+          } else if (pergunta.tipo === 'sim_nao') {
+            if (resposta.resposta === 'sim') {
+              respostaTexto = 'Sim';
+              respostaCor = [22, 101, 52];
+            } else if (resposta.resposta === 'nao') {
+              respostaTexto = 'Não';
+              respostaCor = [153, 27, 27];
+            } else {
+              respostaTexto = String(resposta.resposta || '-');
+              respostaCor = [0, 0, 0];
+            }
+          } else {
+            respostaTexto = String(resposta.resposta || '-');
+            respostaCor = [0, 0, 0];
+          }
+        }
+
+        pdf.rect(margin + 10, respostaY, pageWidth - 2 * margin - 10, 6, 'F');
+        pdf.setTextColor(...respostaCor);
+        pdf.setFontSize(9);
+        const respostaLines = splitText(respostaTexto, pageWidth - 2 * margin - 15);
+        respostaLines.forEach((line: string, lineIdx: number) => {
+          pdf.text(line, margin + 12, respostaY + 4 + (lineIdx * 4));
+        });
+        
+        yPos += 10 + (respostaLines.length - 1) * 4;
+      });
+      
+      yPos += 5;
+    });
+  }
+
+  // Footer
+  checkNewPage(15);
+  pdf.setDrawColor(200, 200, 200);
+  pdf.line(margin, yPos, pageWidth - margin, yPos);
+  yPos += 5;
+  pdf.setTextColor(100, 100, 100);
+  pdf.setFontSize(8);
+  pdf.text(`Documento gerado em ${format(new Date(), "dd/MM/yyyy 'às' HH:mm")}`, pageWidth / 2, yPos, { align: 'center' });
+  yPos += 4;
+  pdf.text(`Checklist #${codigoUnico} - Sistema de Gestão`, pageWidth / 2, yPos, { align: 'center' });
+
+  // Salvar PDF
+  pdf.save(nomeArquivo);
 };
 
 export default function ConsultaChecklists() {
