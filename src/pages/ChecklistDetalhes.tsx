@@ -810,41 +810,7 @@ export default function ChecklistDetalhes() {
     );
   };
 
-  if (loadingBasicos) {
-    return (
-      <MainLayout>
-        <div className="container mx-auto py-6 space-y-6">
-          <div className="flex items-center gap-4">
-            <Skeleton className="h-10 w-10" />
-            <Skeleton className="h-8 w-64" />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            {[1, 2, 3, 4].map(i => (
-              <Skeleton key={i} className="h-24" />
-            ))}
-          </div>
-        </div>
-      </MainLayout>
-    );
-  }
-
-  if (!dadosBasicos) {
-    return (
-      <MainLayout>
-        <div className="container mx-auto py-6">
-          <div className="text-center py-12">
-            <ClipboardCheck className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
-            <p className="text-muted-foreground">Checklist não encontrado</p>
-            <Button variant="outline" className="mt-4" onClick={() => navigate("/consulta-checklists")}>
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Voltar
-            </Button>
-          </div>
-        </div>
-      </MainLayout>
-    );
-  }
-
+  // Preparar dados derivados (antes de qualquer return condicional)
   const respostasMap = respostasData 
     ? (Array.isArray(respostasData) 
         ? respostasData.reduce((acc: any, r: any) => ({ ...acc, [r.pergunta_id]: r }), {})
@@ -884,6 +850,43 @@ export default function ChecklistDetalhes() {
       }, 1000);
     }
   }, [searchParams, loadingBasicos, loadingRespostas, dadosBasicos, autoPrintExecuted]);
+
+  // Loading inicial
+  if (loadingBasicos) {
+    return (
+      <MainLayout>
+        <div className="container mx-auto py-6 space-y-6">
+          <div className="flex items-center gap-4">
+            <Skeleton className="h-10 w-10" />
+            <Skeleton className="h-8 w-64" />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {[1, 2, 3, 4].map(i => (
+              <Skeleton key={i} className="h-24" />
+            ))}
+          </div>
+        </div>
+      </MainLayout>
+    );
+  }
+
+  // Checklist não encontrado
+  if (!dadosBasicos) {
+    return (
+      <MainLayout>
+        <div className="container mx-auto py-6">
+          <div className="text-center py-12">
+            <ClipboardCheck className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
+            <p className="text-muted-foreground">Checklist não encontrado</p>
+            <Button variant="outline" className="mt-4" onClick={() => navigate("/consulta-checklists")}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Voltar
+            </Button>
+          </div>
+        </div>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout>
