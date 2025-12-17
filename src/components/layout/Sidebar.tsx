@@ -24,6 +24,7 @@ import {
   Wrench,
   Map,
   ListChecks,
+  Package,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -49,6 +50,7 @@ const navItems: NavItem[] = [
   { icon: ClipboardList, label: "Ordens de Serviço", href: "/ordens-servico" },
   { icon: CheckSquare, label: "Consulta Checklists", href: "/consulta-checklists" },
   { icon: Users, label: "Equipes", href: "/equipes" },
+  { icon: Package, label: "Materiais", href: "/materiais" },
   { icon: Map, label: "Territórios", href: "/territorios" },
   {
     icon: FolderOpen,

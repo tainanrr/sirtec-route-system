@@ -26,6 +26,17 @@ import CadastroTerritorios from "./pages/CadastroTerritorios";
 import ConsultaChecklists from "./pages/ConsultaChecklists";
 import ChecklistDetalhes from "./pages/ChecklistDetalhes";
 
+// Módulo de Materiais
+import MateriaisDashboard from "./pages/materiais/MateriaisDashboard";
+import CatalogoMateriais from "./pages/materiais/CatalogoMateriais";
+import EstoqueCentral from "./pages/materiais/EstoqueCentral";
+import EntregasEquipes from "./pages/materiais/EntregasEquipes";
+import Rastreabilidade from "./pages/materiais/Rastreabilidade";
+import Movimentacoes from "./pages/materiais/Movimentacoes";
+import RelatoriosMateriais from "./pages/materiais/RelatoriosMateriais";
+import Recebimentos from "./pages/materiais/Recebimentos";
+import AplicacoesOS from "./pages/materiais/AplicacoesOS";
+
 // App Mobile
 import AppLayout from "./pages/app/AppLayout";
 import AppHome from "./pages/app/AppHome";
@@ -34,6 +45,8 @@ import AppOrdemDetalhe from "./pages/app/AppOrdemDetalhe";
 import AppAPR from "./pages/app/AppAPR";
 import AppPerfil from "./pages/app/AppPerfil";
 import AppLogin from "./pages/app/AppLogin";
+import AppEstoque from "./pages/app/AppEstoque";
+import AppMateriaisOS from "./pages/app/AppMateriaisOS";
 
 const queryClient = new QueryClient();
 
@@ -83,6 +96,17 @@ const App = () => (
             <Route path="/consulta-checklists" element={<ProtectedRoute><ConsultaChecklists /></ProtectedRoute>} />
             <Route path="/consulta-checklists/:id" element={<ProtectedRoute><ChecklistDetalhes /></ProtectedRoute>} />
 
+            {/* Rotas do Módulo de Materiais */}
+            <Route path="/materiais" element={<ProtectedRoute><MateriaisDashboard /></ProtectedRoute>} />
+            <Route path="/materiais/catalogo" element={<ProtectedRoute><CatalogoMateriais /></ProtectedRoute>} />
+            <Route path="/materiais/estoque" element={<ProtectedRoute><EstoqueCentral /></ProtectedRoute>} />
+            <Route path="/materiais/entregas" element={<ProtectedRoute><EntregasEquipes /></ProtectedRoute>} />
+            <Route path="/materiais/rastreabilidade" element={<ProtectedRoute><Rastreabilidade /></ProtectedRoute>} />
+            <Route path="/materiais/movimentacoes" element={<ProtectedRoute><Movimentacoes /></ProtectedRoute>} />
+            <Route path="/materiais/recebimentos" element={<ProtectedRoute><Recebimentos /></ProtectedRoute>} />
+            <Route path="/materiais/aplicacoes" element={<ProtectedRoute><AplicacoesOS /></ProtectedRoute>} />
+            <Route path="/materiais/relatorios" element={<ProtectedRoute><RelatoriosMateriais /></ProtectedRoute>} />
+
             {/* Rotas do App Móvel */}
             <Route path="/app/login" element={
               <EquipeAuthProvider>
@@ -102,6 +126,8 @@ const App = () => (
               <Route path="ordens" element={<AppOrdens />} />
               <Route path="ordens/:id" element={<AppOrdemDetalhe />} />
               <Route path="ordens/:id/apr" element={<AppAPR />} />
+              <Route path="ordens/:id/materiais" element={<AppMateriaisOS />} />
+              <Route path="estoque" element={<AppEstoque />} />
               <Route path="perfil" element={<AppPerfil />} />
             </Route>
 

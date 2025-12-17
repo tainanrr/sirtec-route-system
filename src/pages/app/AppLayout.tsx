@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
-import { Home, ClipboardList, User, LogOut, Wifi, WifiOff } from "lucide-react";
+import { Home, ClipboardList, User, LogOut, Wifi, WifiOff, Package } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
@@ -35,6 +35,7 @@ export default function AppLayout() {
   const navItems = [
     { icon: Home, label: "Início", href: "/app" },
     { icon: ClipboardList, label: "Minhas OS", href: "/app/ordens" },
+    { icon: Package, label: "Estoque", href: "/app/estoque" },
     { icon: User, label: "Perfil", href: "/app/perfil" },
   ];
 

@@ -800,6 +800,19 @@ export default function AppOrdemDetalhe() {
           </Button>
         )}
 
+        {/* Botão Materiais - Sempre visível quando em execução */}
+        {(status === "em_andamento" || status === "em_execucao" || status === "no_local") && (
+          <Button
+            variant="outline"
+            className="w-full border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+            size="lg"
+            onClick={() => navigate(`/app/ordens/${id}/materiais`)}
+          >
+            <Package className="h-5 w-5 mr-2" />
+            Materiais Aplicados/Retirados
+          </Button>
+        )}
+
         {/* Ações de Status */}
         {nextStatuses.length > 0 && (
           <div className="space-y-2">
