@@ -168,7 +168,7 @@ interface GerarChecklistIAProps {
 type AIProvider = "gemini" | "openai";
 
 export function GerarChecklistIA({ open, onOpenChange, onChecklistGerado }: GerarChecklistIAProps) {
-  const [step, setStep] = useState<"input" | "processing" | "preview" | "editing">("input");
+  const [step, setStep] = useState<"input" | "processing" | "preview" | "editing" | "error">("input");
   const [inputType, setInputType] = useState<"text" | "file">("text");
   const [textoEntrada, setTextoEntrada] = useState("");
   const [arquivos, setArquivos] = useState<File[]>([]);
@@ -182,6 +182,7 @@ export function GerarChecklistIA({ open, onOpenChange, onChecklistGerado }: Gera
   );
   const [showApiKeyInput, setShowApiKeyInput] = useState(false);
   const [progressMessage, setProgressMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Atualizar API key quando mudar provider
@@ -198,6 +199,7 @@ export function GerarChecklistIA({ open, onOpenChange, onChecklistGerado }: Gera
     setArquivos([]);
     setChecklistGerado(null);
     setProgressMessage("");
+    setErrorMessage("");
     onOpenChange(false);
   };
 
@@ -469,8 +471,9 @@ Ações de condição: mostrar, ocultar, obrigar, desobrigar, exigir_foto, exigi
 
     } catch (error: any) {
       console.error("Erro ao gerar checklist:", error);
-      toast.error(error.message || "Erro ao gerar checklist");
-      setStep("input");
+      const mensagemErro = error.message || "Erro desconhecido ao gerar checklist";
+      setErrorMessage(mensagemErro);
+      setStep("error");
     } finally {
       setIsProcessing(false);
       setProgressMessage("");
@@ -787,6 +790,71 @@ Ações de condição: mostrar, ocultar, obrigar, desobrigar, exigir_foto, exigi
             <div className="flex items-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin text-violet-500" />
               <span className="text-sm text-muted-foreground">Isso pode levar alguns segundos</span>
+            </div>
+          </div>
+        )}
+
+        {/* Step: Error */}
+        {step === "error" && (
+          <div className="flex-1 flex flex-col items-center justify-center py-8 space-y-6">
+            <div className="text-center space-y-4">
+              <div className="mx-auto w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
+                <AlertCircle className="h-8 w-8 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-medium text-red-800">Erro ao Gerar Checklist</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Ocorreu um erro durante a geração. Veja os detalhes abaixo:
+                </p>
+              </div>
+            </div>
+
+            <Card className="w-full max-w-2xl border-red-200 bg-red-50">
+              <CardContent className="pt-4">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-red-700 font-medium">Mensagem de Erro:</Label>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        navigator.clipboard.writeText(errorMessage);
+                        toast.success("Erro copiado para a área de transferência!");
+                      }}
+                      className="text-xs"
+                    >
+                      <Copy className="h-3 w-3 mr-1" />
+                      Copiar
+                    </Button>
+                  </div>
+                  <div className="bg-white border border-red-200 rounded-md p-3 max-h-48 overflow-auto">
+                    <pre className="text-sm text-red-800 whitespace-pre-wrap break-words font-mono">
+                      {errorMessage}
+                    </pre>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="text-center space-y-2 text-sm text-muted-foreground">
+              <p>Possíveis soluções:</p>
+              <ul className="list-disc list-inside text-left">
+                <li>Verifique se a chave da API está correta</li>
+                <li>Verifique se você tem créditos/quota disponível</li>
+                <li>Tente novamente em alguns segundos</li>
+                <li>Tente com um texto menor ou mais simples</li>
+              </ul>
+            </div>
+
+            <div className="flex gap-3">
+              <Button variant="outline" onClick={() => setShowApiKeyInput(true)}>
+                <Settings2 className="h-4 w-4 mr-2" />
+                Verificar API
+              </Button>
+              <Button onClick={() => setStep("input")}>
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Tentar Novamente
+              </Button>
             </div>
           </div>
         )}
