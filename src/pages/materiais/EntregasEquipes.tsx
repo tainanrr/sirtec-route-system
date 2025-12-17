@@ -61,6 +61,10 @@ import {
   Download,
   QrCode,
   Check,
+  MapPin,
+  Image,
+  X,
+  ExternalLink,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -85,7 +89,10 @@ interface Entrega {
   status: string;
   observacao: string | null;
   assinatura_recebimento: string | null;
+  foto_recebimento: string | null;
+  coordenadas_recebimento: string | null;
   data_recebimento: string | null;
+  data_confirmacao: string | null;
   recebido_por: string | null;
   created_at: string;
   created_by: string | null;
@@ -111,6 +118,7 @@ export default function EntregasEquipes() {
   const [viewDialog, setViewDialog] = useState(false);
   const [selectedEntrega, setSelectedEntrega] = useState<Entrega | null>(null);
   const [cancelDialog, setCancelDialog] = useState(false);
+  const [imagemViewer, setImagemViewer] = useState<{ open: boolean; src: string; titulo: string }>({ open: false, src: "", titulo: "" });
 
   // Form para nova entrega
   const [novaEntrega, setNovaEntrega] = useState<NovaEntregaForm>({
@@ -135,7 +143,19 @@ export default function EntregasEquipes() {
       let query = supabase
         .from("materiais_entregas")
         .select(`
-          *,
+          id,
+          equipe_id,
+          data_entrega,
+          status,
+          observacao,
+          assinatura_recebimento,
+          foto_recebimento,
+          coordenadas_recebimento,
+          data_recebimento,
+          data_confirmacao,
+          recebido_por,
+          created_at,
+          created_by,
           tecnicos:equipe_id (codigo, nome)
         `)
         .order("created_at", { ascending: false });
@@ -159,6 +179,7 @@ export default function EntregasEquipes() {
             .select(`
               material_id,
               quantidade,
+              numero_serie,
               materiais (codigo, nome, unidade)
             `)
             .eq("entrega_id", entrega.id);
@@ -168,6 +189,7 @@ export default function EntregasEquipes() {
             itens: itens?.map((item: any) => ({
               material_id: item.material_id,
               quantidade: item.quantidade,
+              numero_serie: item.numero_serie,
               material: item.materiais,
             })) || [],
           };
@@ -518,7 +540,8 @@ export default function EntregasEquipes() {
       case "pendente":
         return <Badge className="bg-amber-100 text-amber-700 border-0"><Clock className="h-3 w-3 mr-1" />Aguardando Assinatura</Badge>;
       case "recebida":
-        return <Badge className="bg-green-100 text-green-700 border-0"><CheckCircle className="h-3 w-3 mr-1" />Recebida</Badge>;
+      case "confirmado":
+        return <Badge className="bg-green-100 text-green-700 border-0"><CheckCircle className="h-3 w-3 mr-1" />Confirmada</Badge>;
       case "cancelada":
         return <Badge className="bg-red-100 text-red-700 border-0"><XCircle className="h-3 w-3 mr-1" />Cancelada</Badge>;
       default:
@@ -661,19 +684,33 @@ export default function EntregasEquipes() {
                         {getStatusBadge(entrega.status)}
                       </TableCell>
                       <TableCell>
-                        {entrega.status === "recebida" ? (
+                        {(entrega.status === "recebida" || entrega.status === "confirmado") ? (
                           <div>
-                            <p className="text-sm">{entrega.recebido_por}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {entrega.data_recebimento &&
-                                format(new Date(entrega.data_recebimento), "dd/MM HH:mm")}
-                            </p>
-                            {entrega.assinatura_recebimento && (
-                              <Badge variant="outline" className="mt-1">
-                                <FileSignature className="h-3 w-3 mr-1" />
-                                Assinado
-                              </Badge>
+                            {entrega.data_confirmacao && (
+                              <p className="text-xs text-muted-foreground">
+                                {format(new Date(entrega.data_confirmacao), "dd/MM HH:mm")}
+                              </p>
                             )}
+                            <div className="flex gap-1 mt-1">
+                              {entrega.assinatura_recebimento && (
+                                <Badge variant="outline" className="text-xs">
+                                  <FileSignature className="h-3 w-3 mr-1" />
+                                  Assinado
+                                </Badge>
+                              )}
+                              {entrega.foto_recebimento && (
+                                <Badge variant="outline" className="text-xs">
+                                  <Image className="h-3 w-3 mr-1" />
+                                  Foto
+                                </Badge>
+                              )}
+                              {entrega.coordenadas_recebimento && (
+                                <Badge variant="outline" className="text-xs">
+                                  <MapPin className="h-3 w-3 mr-1" />
+                                  GPS
+                                </Badge>
+                              )}
+                            </div>
                           </div>
                         ) : (
                           <span className="text-muted-foreground text-sm">-</span>
@@ -935,16 +972,16 @@ export default function EntregasEquipes() {
 
         {/* Dialog de Visualização */}
         <Dialog open={viewDialog} onOpenChange={setViewDialog}>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Detalhes da Entrega</DialogTitle>
             </DialogHeader>
 
             {selectedEntrega && (
-              <div className="space-y-4">
+              <div className="space-y-6">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <p className="text-sm text-muted-foreground">Data</p>
+                    <p className="text-sm text-muted-foreground">Data da Entrega</p>
                     <p className="font-medium">
                       {format(new Date(selectedEntrega.created_at), "dd/MM/yyyy HH:mm")}
                     </p>
@@ -959,10 +996,12 @@ export default function EntregasEquipes() {
                       {selectedEntrega.tecnicos?.codigo} - {selectedEntrega.tecnicos?.nome}
                     </p>
                   </div>
-                  {selectedEntrega.status === "recebida" && (
+                  {(selectedEntrega.status === "recebida" || selectedEntrega.status === "confirmado") && selectedEntrega.data_confirmacao && (
                     <div>
-                      <p className="text-sm text-muted-foreground">Recebido por</p>
-                      <p className="font-medium">{selectedEntrega.recebido_por}</p>
+                      <p className="text-sm text-muted-foreground">Data Confirmação</p>
+                      <p className="font-medium">
+                        {format(new Date(selectedEntrega.data_confirmacao), "dd/MM/yyyy HH:mm")}
+                      </p>
                     </div>
                   )}
                 </div>
@@ -985,6 +1024,12 @@ export default function EntregasEquipes() {
                               <p className="text-xs text-muted-foreground">
                                 {item.material?.nome}
                               </p>
+                              {item.numero_serie && (
+                                <Badge variant="outline" className="mt-1 text-xs font-mono">
+                                  <QrCode className="h-3 w-3 mr-1" />
+                                  {item.numero_serie}
+                                </Badge>
+                              )}
                             </TableCell>
                             <TableCell className="text-right">
                               {item.quantidade} {item.material?.unidade}
@@ -1003,18 +1048,170 @@ export default function EntregasEquipes() {
                   </div>
                 )}
 
-                {selectedEntrega.assinatura_recebimento && (
-                  <div>
-                    <p className="text-sm text-muted-foreground mb-2">Assinatura</p>
-                    <img
-                      src={selectedEntrega.assinatura_recebimento}
-                      alt="Assinatura"
-                      className="max-h-32 border rounded"
-                    />
+                {/* Seção de Confirmação de Recebimento */}
+                {(selectedEntrega.status === "recebida" || selectedEntrega.status === "confirmado") && (
+                  <div className="space-y-4 border-t pt-4">
+                    <h3 className="font-semibold text-green-700 flex items-center gap-2">
+                      <CheckCircle className="h-5 w-5" />
+                      Confirmação de Recebimento
+                    </h3>
+
+                    {/* Coordenadas */}
+                    {selectedEntrega.coordenadas_recebimento && (
+                      <div>
+                        <p className="text-sm text-muted-foreground mb-1">Localização do Recebimento</p>
+                        <a
+                          href={`https://www.google.com/maps?q=${selectedEntrega.coordenadas_recebimento}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 text-sm text-blue-600 hover:underline"
+                        >
+                          <MapPin className="h-4 w-4" />
+                          {selectedEntrega.coordenadas_recebimento}
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
+                    )}
+
+                    {/* Foto do Recebimento */}
+                    {selectedEntrega.foto_recebimento && (
+                      <div>
+                        <p className="text-sm text-muted-foreground mb-2">Foto do Recebimento</p>
+                        <div 
+                          className="relative cursor-pointer group"
+                          onClick={() => setImagemViewer({
+                            open: true,
+                            src: selectedEntrega.foto_recebimento!,
+                            titulo: "Foto do Recebimento"
+                          })}
+                        >
+                          <img
+                            src={selectedEntrega.foto_recebimento}
+                            alt="Foto do Recebimento"
+                            className="w-full max-h-64 object-contain border rounded-lg bg-gray-50"
+                          />
+                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all flex items-center justify-center rounded-lg">
+                            <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 px-3 py-1 rounded-full text-sm font-medium">
+                              Clique para ampliar
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Assinatura */}
+                    {selectedEntrega.assinatura_recebimento && (
+                      <div>
+                        <p className="text-sm text-muted-foreground mb-2">Assinatura de Confirmação</p>
+                        <div 
+                          className="relative cursor-pointer group"
+                          onClick={() => setImagemViewer({
+                            open: true,
+                            src: selectedEntrega.assinatura_recebimento!,
+                            titulo: "Assinatura de Confirmação"
+                          })}
+                        >
+                          <img
+                            src={selectedEntrega.assinatura_recebimento}
+                            alt="Assinatura"
+                            className="w-full max-h-48 object-contain border rounded-lg bg-white p-2"
+                          />
+                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all flex items-center justify-center rounded-lg">
+                            <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 px-3 py-1 rounded-full text-sm font-medium">
+                              Clique para ampliar
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Dialog Visualizador de Imagem */}
+        <Dialog open={imagemViewer.open} onOpenChange={(open) => setImagemViewer(prev => ({ ...prev, open }))}>
+          <DialogContent className="max-w-[95vw] max-h-[95vh] p-0 bg-black/95">
+            <div className="relative flex flex-col h-full min-h-[70vh]">
+              {/* Header */}
+              <div className="absolute top-0 left-0 right-0 z-10 bg-gradient-to-b from-black/80 to-transparent p-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-white">
+                    <p className="font-medium">{imagemViewer.titulo}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-white hover:bg-white/20"
+                      onClick={() => {
+                        if (imagemViewer.src) {
+                          // Abrir em nova guia
+                          if (imagemViewer.src.startsWith('data:')) {
+                            const newWindow = window.open('', '_blank');
+                            if (newWindow) {
+                              newWindow.document.write(`
+                                <html>
+                                  <head><title>${imagemViewer.titulo}</title></head>
+                                  <body style="margin:0;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#1a1a1a;">
+                                    <img src="${imagemViewer.src}" style="max-width:100%;max-height:100vh;object-fit:contain;" />
+                                  </body>
+                                </html>
+                              `);
+                              newWindow.document.close();
+                            }
+                          } else {
+                            window.open(imagemViewer.src, '_blank');
+                          }
+                        }
+                      }}
+                    >
+                      <ExternalLink className="h-4 w-4 mr-1" />
+                      Nova guia
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-white hover:bg-white/20"
+                      onClick={() => {
+                        if (imagemViewer.src) {
+                          const link = document.createElement('a');
+                          link.href = imagemViewer.src;
+                          link.download = `${imagemViewer.titulo.replace(/\s+/g, '_')}_${Date.now()}.png`;
+                          document.body.appendChild(link);
+                          link.click();
+                          document.body.removeChild(link);
+                        }
+                      }}
+                    >
+                      <Download className="h-4 w-4 mr-1" />
+                      Baixar
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-white hover:bg-white/20"
+                      onClick={() => setImagemViewer(prev => ({ ...prev, open: false }))}
+                    >
+                      <X className="h-5 w-5" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Imagem */}
+              <div className="flex-1 flex items-center justify-center p-4 pt-20 pb-8">
+                {imagemViewer.src && (
+                  <img
+                    src={imagemViewer.src}
+                    alt={imagemViewer.titulo}
+                    className="max-w-full max-h-[75vh] object-contain rounded-lg"
+                  />
+                )}
+              </div>
+            </div>
           </DialogContent>
         </Dialog>
 

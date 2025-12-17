@@ -6,10 +6,13 @@ import { useTecnico } from "@/contexts/TecnicoContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -35,6 +38,8 @@ import {
   Calendar,
   Plus,
   Eye,
+  AlertCircle,
+  Loader2,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
@@ -93,6 +98,47 @@ interface FotoData {
   data_hora: string;
 }
 
+interface Pergunta {
+  id: string;
+  texto: string;
+  tipo: string;
+  obrigatorio?: boolean;
+  obrigatoria?: boolean;
+  opcoes?: any[];
+  ordem?: number;
+}
+
+interface GrupoPerguntas {
+  id: string;
+  nome: string;
+  ordem: number;
+  perguntas: Pergunta[];
+}
+
+interface ChecklistRecebimento {
+  id: string;
+  nome: string;
+  descricao?: string;
+  tipo: string;
+  perguntas?: Pergunta[];
+  grupos?: GrupoPerguntas[];
+}
+
+interface Resposta {
+  pergunta_id: string;
+  resposta: any;
+  foto_url?: string;
+  fotos?: FotoData[];
+  assinatura_url?: string;
+  observacao?: string;
+  foto_latitude?: number;
+  foto_longitude?: number;
+  foto_data_hora?: string;
+  assinatura_latitude?: number;
+  assinatura_longitude?: number;
+  assinatura_data_hora?: string;
+}
+
 export default function AppEstoque() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -104,15 +150,45 @@ export default function AppEstoque() {
   // Estado para confirmação de entrega
   const [dialogConfirmacao, setDialogConfirmacao] = useState(false);
   const [entregaSelecionada, setEntregaSelecionada] = useState<EntregaPendente | null>(null);
-  const [fotosRecebimento, setFotosRecebimento] = useState<FotoData[]>([]);
-  const [assinaturaRecebimento, setAssinaturaRecebimento] = useState<string | null>(null);
-  const [assinaturaData, setAssinaturaData] = useState<{ data_hora: string; latitude?: number; longitude?: number } | null>(null);
+  const [respostas, setRespostas] = useState<Record<string, Resposta>>({});
   const [showSignatureScreen, setShowSignatureScreen] = useState(false);
+  const [signaturePerguntaId, setSignaturePerguntaId] = useState<string>("");
   const [fotoPreview, setFotoPreview] = useState<string | null>(null);
+  const [fotoPerguntaAtual, setFotoPerguntaAtual] = useState<string>("");
   
   const inputFotoRef = useRef<HTMLInputElement>(null);
 
   const equipeId = equipe?.id || equipeAuth?.id;
+
+  // Query para checklist de recebimento
+  const { data: checklistRecebimento } = useQuery({
+    queryKey: ["checklist-recebimento"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("checklists")
+        .select("*")
+        .eq("tipo", "recebimento_materiais")
+        .eq("ativo", true)
+        .maybeSingle();
+
+      if (error) throw error;
+      
+      if (data) {
+        // Normalizar estrutura de perguntas
+        let perguntas: Pergunta[] = [];
+        
+        if (data.grupos && Array.isArray(data.grupos) && data.grupos.length > 0) {
+          // Se tem grupos, extrair perguntas dos grupos
+          perguntas = (data.grupos as GrupoPerguntas[]).flatMap(g => g.perguntas);
+        } else if (data.perguntas && Array.isArray(data.perguntas)) {
+          perguntas = data.perguntas as Pergunta[];
+        }
+        
+        return { ...data, perguntasNormalizadas: perguntas } as ChecklistRecebimento & { perguntasNormalizadas: Pergunta[] };
+      }
+      return null;
+    },
+  });
 
   // Query para estoque da equipe
   const { data: estoqueEquipe, isLoading } = useQuery({
@@ -222,14 +298,17 @@ export default function AppEstoque() {
   const confirmarRecebimentoMutation = useMutation({
     mutationFn: async (data: {
       entrega_id: string;
-      fotos: FotoData[];
-      assinatura: string;
-      assinatura_data: { data_hora: string; latitude?: number; longitude?: number } | null;
+      respostas: Record<string, Resposta>;
+      checklist_id: string;
     }) => {
-      // Preparar dados da foto (primeira foto como principal)
-      const fotoPrincipal = data.fotos[0]?.url || null;
-      const coordenadas = data.fotos[0] 
-        ? `${data.fotos[0].latitude || 0},${data.fotos[0].longitude || 0}` 
+      // Extrair foto e assinatura das respostas
+      const respostasArray = Object.values(data.respostas);
+      const fotoResposta = respostasArray.find(r => r.fotos && r.fotos.length > 0);
+      const assinaturaResposta = respostasArray.find(r => r.assinatura_url);
+      
+      const fotoPrincipal = fotoResposta?.fotos?.[0]?.url || null;
+      const coordenadas = fotoResposta?.fotos?.[0] 
+        ? `${fotoResposta.fotos[0].latitude || 0},${fotoResposta.fotos[0].longitude || 0}` 
         : null;
 
       // Atualizar status da entrega
@@ -238,7 +317,7 @@ export default function AppEstoque() {
         .update({
           status: "confirmado",
           foto_recebimento: fotoPrincipal,
-          assinatura_recebimento: data.assinatura,
+          assinatura_recebimento: assinaturaResposta?.assinatura_url || null,
           coordenadas_recebimento: coordenadas,
           data_confirmacao: new Date().toISOString(),
         })
@@ -246,28 +325,13 @@ export default function AppEstoque() {
 
       if (error) throw error;
 
-      // Criar registro no checklist (se existir checklist de recebimento)
-      const { data: checklistRecebimento } = await supabase
-        .from("checklists")
-        .select("id")
-        .eq("tipo", "recebimento_materiais")
-        .eq("ativo", true)
-        .maybeSingle();
-
-      if (checklistRecebimento) {
-        await supabase.from("checklist_respostas").insert({
-          checklist_id: checklistRecebimento.id,
-          equipe_id: equipeId,
-          status: "concluido",
-          respostas: {
-            entrega_id: data.entrega_id,
-            fotos: data.fotos,
-            assinatura: data.assinatura,
-            assinatura_data: data.assinatura_data,
-            data_recebimento: new Date().toISOString(),
-          },
-        });
-      }
+      // Criar registro no checklist
+      await supabase.from("checklist_respostas").insert({
+        checklist_id: data.checklist_id,
+        equipe_id: equipeId,
+        status: "completo",
+        respostas: data.respostas,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["entregas-pendentes-equipe"] });
@@ -282,11 +346,10 @@ export default function AppEstoque() {
     },
   });
 
-  // Obter localização atual (mesmo padrão da APR)
+  // Obter localização atual
   const getCurrentLocation = useCallback((): Promise<{ latitude: number; longitude: number } | null> => {
     return new Promise((resolve) => {
       if (!navigator.geolocation) {
-        console.warn("[Estoque] Geolocalização não suportada");
         resolve(null);
         return;
       }
@@ -298,16 +361,13 @@ export default function AppEstoque() {
             longitude: position.coords.longitude,
           });
         },
-        (error) => {
-          console.warn("[Estoque] Erro ao obter localização:", error);
-          resolve(null);
-        },
+        () => resolve(null),
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
       );
     });
   }, []);
 
-  // Adicionar carimbo na imagem (mesmo padrão da APR)
+  // Adicionar carimbo na imagem
   const addImageStamp = useCallback((
     imageDataUrl: string,
     timestamp: string,
@@ -326,18 +386,14 @@ export default function AppEstoque() {
           return;
         }
 
-        // Desenhar imagem original
         ctx.drawImage(img, 0, 0);
 
-        // Configurar estilo do texto
         const fontSize = Math.max(14, Math.floor(img.width / 35));
         ctx.font = `bold ${fontSize}px Arial`;
         
-        // Preparar textos
         const line1 = `📅 ${timestamp}`;
         const line2 = coords ? `📍 ${coords.latitude.toFixed(6)}, ${coords.longitude.toFixed(6)}` : "📍 Sem GPS";
         
-        // Medir textos
         const metrics1 = ctx.measureText(line1);
         const metrics2 = ctx.measureText(line2);
         const maxWidth = Math.max(metrics1.width, metrics2.width);
@@ -346,24 +402,17 @@ export default function AppEstoque() {
         const boxHeight = lineHeight * 2 + padding * 2;
         const boxWidth = maxWidth + padding * 2;
 
-        // Desenhar fundo semi-transparente no canto superior esquerdo
         ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
         ctx.fillRect(0, 0, boxWidth, boxHeight);
 
-        // Desenhar textos
         ctx.fillStyle = "#ffffff";
         ctx.fillText(line1, padding, padding + fontSize);
         ctx.fillText(line2, padding, padding + fontSize + lineHeight);
 
-        // Converter para base64
         resolve(canvas.toDataURL("image/jpeg", 0.85));
       };
       
-      img.onerror = () => {
-        console.error("[Estoque] Erro ao carregar imagem para carimbo");
-        resolve(imageDataUrl);
-      };
-      
+      img.onerror = () => resolve(imageDataUrl);
       img.src = imageDataUrl;
     });
   }, []);
@@ -381,35 +430,63 @@ export default function AppEstoque() {
   // Funções auxiliares
   const resetFormConfirmacao = () => {
     setEntregaSelecionada(null);
-    setFotosRecebimento([]);
-    setAssinaturaRecebimento(null);
-    setAssinaturaData(null);
+    setRespostas({});
+    setFotoPerguntaAtual("");
+    setSignaturePerguntaId("");
   };
 
   const handleAbrirConfirmacao = async (entrega: EntregaPendente) => {
     setEntregaSelecionada(entrega);
+    setRespostas({});
     setDialogConfirmacao(true);
   };
 
-  const handleTirarFoto = () => {
+  // Atualizar resposta
+  const updateResposta = (perguntaId: string, valor: any, campo: keyof Resposta = 'resposta') => {
+    setRespostas(prev => {
+      const respostaAtual = prev[perguntaId] || { pergunta_id: perguntaId };
+      return {
+        ...prev,
+        [perguntaId]: {
+          ...respostaAtual,
+          pergunta_id: perguntaId,
+          [campo]: valor,
+        },
+      };
+    });
+  };
+
+  // Atualizar múltiplos campos de uma resposta
+  const updateRespostaMultiplo = (perguntaId: string, campos: Partial<Resposta>) => {
+    setRespostas(prev => {
+      const respostaAtual = prev[perguntaId] || { pergunta_id: perguntaId };
+      return {
+        ...prev,
+        [perguntaId]: {
+          ...respostaAtual,
+          pergunta_id: perguntaId,
+          ...campos,
+        },
+      };
+    });
+  };
+
+  // Handler para foto
+  const handleTirarFoto = (perguntaId: string) => {
+    setFotoPerguntaAtual(perguntaId);
     inputFotoRef.current?.click();
   };
 
   const handleFotoCapturada = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !fotoPerguntaAtual) return;
 
-    toast.loading("Obtendo localização e processando foto...", { id: "foto-upload" });
+    toast.loading("Processando foto...", { id: "foto-upload" });
 
     try {
-      // Obter localização
       const coords = await getCurrentLocation();
       const timestamp = format(new Date(), "dd/MM/yyyy HH:mm:ss");
-      
-      // Converter para base64
       const base64 = await fileToBase64(file);
-      
-      // Adicionar carimbo
       const stampedImage = await addImageStamp(base64, timestamp, coords);
 
       const novaFoto: FotoData = {
@@ -419,69 +496,275 @@ export default function AppEstoque() {
         data_hora: timestamp,
       };
 
-      setFotosRecebimento(prev => [...prev, novaFoto]);
+      const respostaAtual = respostas[fotoPerguntaAtual];
+      const fotosAtuais = respostaAtual?.fotos || [];
+      
+      updateResposta(fotoPerguntaAtual, [...fotosAtuais, novaFoto], 'fotos');
       toast.success("Foto adicionada!", { id: "foto-upload" });
     } catch (error) {
-      console.error("[Estoque] Erro ao processar foto:", error);
+      console.error("Erro ao processar foto:", error);
       toast.error("Erro ao processar foto", { id: "foto-upload" });
     }
     
-    // Limpar input
     e.target.value = "";
+    setFotoPerguntaAtual("");
   };
 
-  const handleRemoverFoto = (index: number) => {
-    setFotosRecebimento(prev => prev.filter((_, i) => i !== index));
+  const handleRemoverFoto = (perguntaId: string, index: number) => {
+    const respostaAtual = respostas[perguntaId];
+    const fotosAtuais = respostaAtual?.fotos || [];
+    updateResposta(perguntaId, fotosAtuais.filter((_, i) => i !== index), 'fotos');
   };
 
-  // Handler para assinatura (usando SignatureFullScreen)
+  // Handler para assinatura
+  const handleAbrirAssinatura = (perguntaId: string) => {
+    setSignaturePerguntaId(perguntaId);
+    setDialogConfirmacao(false);
+    setTimeout(() => setShowSignatureScreen(true), 100);
+  };
+
   const handleAssinaturaSalva = async (dataUrl: string) => {
+    if (!signaturePerguntaId) return;
+    
     toast.loading("Processando assinatura...", { id: "assinatura" });
     
     try {
       const coords = await getCurrentLocation();
       const timestamp = format(new Date(), "dd/MM/yyyy HH:mm:ss");
-      
-      // Adicionar carimbo na assinatura também
       const stampedSignature = await addImageStamp(dataUrl, timestamp, coords);
       
-      setAssinaturaRecebimento(stampedSignature);
-      setAssinaturaData({
-        data_hora: timestamp,
-        latitude: coords?.latitude,
-        longitude: coords?.longitude,
+      updateRespostaMultiplo(signaturePerguntaId, {
+        assinatura_url: stampedSignature,
+        resposta: true,
+        assinatura_latitude: coords?.latitude,
+        assinatura_longitude: coords?.longitude,
+        assinatura_data_hora: timestamp,
       });
       
       toast.success("Assinatura salva!", { id: "assinatura" });
     } catch (error) {
-      console.error("[Estoque] Erro ao processar assinatura:", error);
-      setAssinaturaRecebimento(dataUrl);
-      setAssinaturaData({
-        data_hora: format(new Date(), "dd/MM/yyyy HH:mm:ss"),
+      updateRespostaMultiplo(signaturePerguntaId, {
+        assinatura_url: dataUrl,
+        resposta: true,
+        assinatura_data_hora: format(new Date(), "dd/MM/yyyy HH:mm:ss"),
       });
       toast.success("Assinatura salva!", { id: "assinatura" });
     }
   };
 
-  const handleConfirmarRecebimento = () => {
-    if (!entregaSelecionada) return;
+  const handleLimparAssinatura = (perguntaId: string) => {
+    updateRespostaMultiplo(perguntaId, {
+      assinatura_url: undefined,
+      resposta: null,
+      assinatura_latitude: undefined,
+      assinatura_longitude: undefined,
+      assinatura_data_hora: undefined,
+    });
+  };
+
+  // Verificar pendências
+  const verificarPendencias = (): string[] => {
+    const pendencias: string[] = [];
+    const perguntas = (checklistRecebimento as any)?.perguntasNormalizadas || [];
     
-    if (fotosRecebimento.length === 0) {
-      toast.error("Tire pelo menos uma foto do recebimento");
-      return;
+    for (const pergunta of perguntas) {
+      const resposta = respostas[pergunta.id];
+      const obrigatoria = pergunta.obrigatorio || pergunta.obrigatoria;
+      
+      if (obrigatoria) {
+        if (pergunta.tipo === 'foto') {
+          const fotos = resposta?.fotos || [];
+          if (fotos.length === 0) {
+            pendencias.push(pergunta.id);
+          }
+        } else if (pergunta.tipo === 'assinatura') {
+          if (!resposta?.assinatura_url) {
+            pendencias.push(pergunta.id);
+          }
+        } else {
+          if (resposta?.resposta === null || resposta?.resposta === undefined || resposta?.resposta === '') {
+            pendencias.push(pergunta.id);
+          }
+        }
+      }
     }
     
-    if (!assinaturaRecebimento) {
-      toast.error("Assine para confirmar o recebimento");
+    return pendencias;
+  };
+
+  const handleConfirmarRecebimento = () => {
+    if (!entregaSelecionada || !checklistRecebimento) return;
+    
+    const pendencias = verificarPendencias();
+    if (pendencias.length > 0) {
+      toast.error("Preencha todos os campos obrigatórios");
       return;
     }
     
     confirmarRecebimentoMutation.mutate({
       entrega_id: entregaSelecionada.id,
-      fotos: fotosRecebimento,
-      assinatura: assinaturaRecebimento,
-      assinatura_data: assinaturaData,
+      respostas: respostas,
+      checklist_id: checklistRecebimento.id,
     });
+  };
+
+  // Renderizar campo de pergunta (igual APR)
+  const renderCampoPergunta = (pergunta: Pergunta) => {
+    const resposta = respostas[pergunta.id];
+    const obrigatoria = pergunta.obrigatorio || pergunta.obrigatoria;
+
+    switch (pergunta.tipo) {
+      case 'texto':
+        return (
+          <Input
+            value={(resposta?.resposta as string) || ''}
+            onChange={(e) => updateResposta(pergunta.id, e.target.value)}
+            placeholder="Digite sua resposta..."
+          />
+        );
+
+      case 'texto_longo':
+        return (
+          <Textarea
+            value={(resposta?.resposta as string) || ''}
+            onChange={(e) => updateResposta(pergunta.id, e.target.value)}
+            placeholder="Digite sua resposta..."
+            rows={3}
+          />
+        );
+
+      case 'sim_nao':
+        return (
+          <RadioGroup
+            value={resposta?.resposta as string || ''}
+            onValueChange={(value) => updateResposta(pergunta.id, value)}
+            className="flex gap-4"
+          >
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="sim" id={`${pergunta.id}-sim`} />
+              <Label htmlFor={`${pergunta.id}-sim`} className="text-green-600 font-medium cursor-pointer">Sim</Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="nao" id={`${pergunta.id}-nao`} />
+              <Label htmlFor={`${pergunta.id}-nao`} className="text-red-600 font-medium cursor-pointer">Não</Label>
+            </div>
+          </RadioGroup>
+        );
+
+      case 'foto':
+        const fotos = resposta?.fotos || [];
+        return (
+          <div className="space-y-3">
+            {fotos.length > 0 && (
+              <div className="grid grid-cols-2 gap-2">
+                {fotos.map((foto, index) => (
+                  <div key={index} className="relative group">
+                    <img
+                      src={foto.url}
+                      alt={`Foto ${index + 1}`}
+                      className="w-full h-28 object-cover rounded-lg border cursor-pointer"
+                      onClick={() => setFotoPreview(foto.url)}
+                    />
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={() => handleRemoverFoto(pergunta.id, index)}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                    <div className="absolute bottom-1 left-1 right-1 bg-black/60 text-white text-[10px] px-1 py-0.5 rounded truncate">
+                      📅 {foto.data_hora}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            <Button
+              type="button"
+              variant="outline"
+              className={`w-full ${fotos.length === 0 ? 'h-28 border-dashed' : 'h-10'}`}
+              onClick={() => handleTirarFoto(pergunta.id)}
+            >
+              <div className="flex items-center gap-2">
+                {fotos.length === 0 ? (
+                  <>
+                    <Camera className="h-8 w-8 text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">Tirar Foto</span>
+                  </>
+                ) : (
+                  <>
+                    <Plus className="h-4 w-4" />
+                    <span>Adicionar outra foto</span>
+                  </>
+                )}
+              </div>
+            </Button>
+            
+            {fotos.length > 0 && (
+              <p className="text-xs text-muted-foreground text-center">
+                {fotos.length} foto(s) • com data/hora e coordenadas
+              </p>
+            )}
+          </div>
+        );
+
+      case 'assinatura':
+        return (
+          <div className="space-y-2">
+            {resposta?.assinatura_url ? (
+              <div className="relative">
+                <div className="bg-white rounded-lg border-2 border-gray-200 p-2">
+                  <img
+                    src={resposta.assinatura_url}
+                    alt="Assinatura"
+                    className="w-full h-32 object-contain cursor-pointer"
+                    onClick={() => setFotoPreview(resposta.assinatura_url!)}
+                  />
+                  {resposta.assinatura_data_hora && (
+                    <p className="text-xs text-muted-foreground text-center mt-2">
+                      📅 {resposta.assinatura_data_hora}
+                      {resposta.assinatura_latitude && resposta.assinatura_longitude && (
+                        <> • 📍 {resposta.assinatura_latitude.toFixed(4)}, {resposta.assinatura_longitude.toFixed(4)}</>
+                      )}
+                    </p>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  className="absolute top-2 right-2"
+                  onClick={() => handleLimparAssinatura(pergunta.id)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : (
+              <Button
+                variant="outline"
+                className="w-full h-28 border-dashed border-2"
+                onClick={() => handleAbrirAssinatura(pergunta.id)}
+              >
+                <div className="flex flex-col items-center gap-2">
+                  <FileSignature className="h-10 w-10 text-violet-500" />
+                  <span className="text-sm text-muted-foreground">Toque para assinar</span>
+                  <span className="text-xs text-muted-foreground">Abre em tela cheia</span>
+                </div>
+              </Button>
+            )}
+          </div>
+        );
+
+      default:
+        return (
+          <Input
+            value={(resposta?.resposta as string) || ''}
+            onChange={(e) => updateResposta(pergunta.id, e.target.value)}
+            placeholder="Digite sua resposta..."
+          />
+        );
+    }
   };
 
   // Filtrar estoque por busca
@@ -499,6 +782,8 @@ export default function AppEstoque() {
   const itensBaixos = estoqueEquipe?.filter(
     (item) => item.quantidade <= item.materiais.estoque_minimo
   ).length || 0;
+
+  const perguntas = (checklistRecebimento as any)?.perguntasNormalizadas || [];
 
   return (
     <div className="pb-20">
@@ -739,14 +1024,14 @@ export default function AppEstoque() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Package className="h-5 w-5 text-amber-600" />
-              Confirmar Recebimento
+              {checklistRecebimento?.nome || "Confirmar Recebimento"}
             </DialogTitle>
           </DialogHeader>
 
           {entregaSelecionada && (
             <div className="space-y-4">
               {/* Info da entrega */}
-              <Card>
+              <Card className="bg-muted/50">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-2 mb-3">
                     <Calendar className="h-4 w-4 text-muted-foreground" />
@@ -758,7 +1043,7 @@ export default function AppEstoque() {
                   <p className="text-sm font-medium mb-2">Materiais:</p>
                   <div className="space-y-2">
                     {entregaSelecionada.itens?.map((item, idx) => (
-                      <div key={idx} className="flex items-center justify-between p-2 bg-muted/50 rounded">
+                      <div key={idx} className="flex items-center justify-between p-2 bg-background rounded">
                         <div>
                           <p className="text-sm font-medium">{item.materiais?.codigo}</p>
                           <p className="text-xs text-muted-foreground">{item.materiais?.nome}</p>
@@ -783,121 +1068,40 @@ export default function AppEstoque() {
                 </CardContent>
               </Card>
 
-              {/* Fotos do recebimento (múltiplas) */}
-              <div className="space-y-3">
-                <Label className="flex items-center gap-2">
-                  <Camera className="h-4 w-4" />
-                  Fotos do Recebimento * (pode tirar várias)
-                </Label>
-                
-                {/* Grid de fotos */}
-                {fotosRecebimento.length > 0 && (
-                  <div className="grid grid-cols-2 gap-2">
-                    {fotosRecebimento.map((foto, index) => (
-                      <div key={index} className="relative group">
-                        <img 
-                          src={foto.url} 
-                          alt={`Foto ${index + 1}`} 
-                          className="w-full h-32 object-cover rounded-lg border cursor-pointer"
-                          onClick={() => setFotoPreview(foto.url)}
-                        />
-                        <Button
-                          variant="destructive"
-                          size="icon"
-                          className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                          onClick={() => handleRemoverFoto(index)}
-                        >
-                          <X className="h-3 w-3" />
-                        </Button>
-                        <div className="absolute bottom-1 left-1 right-1 bg-black/60 text-white text-[10px] px-1 py-0.5 rounded truncate">
-                          📅 {foto.data_hora}
-                        </div>
+              {/* Perguntas do Checklist */}
+              {perguntas.length > 0 ? (
+                <div className="space-y-4">
+                  {perguntas.map((pergunta: Pergunta, index: number) => {
+                    const obrigatoria = pergunta.obrigatorio || pergunta.obrigatoria;
+                    return (
+                      <div key={pergunta.id} className="space-y-2">
+                        <Label className="flex items-start gap-2 text-sm">
+                          <Badge variant="outline" className="shrink-0 mt-0.5">
+                            {index + 1}
+                          </Badge>
+                          <span>
+                            {pergunta.texto}
+                            {obrigatoria && <span className="text-red-500 ml-1">*</span>}
+                          </span>
+                        </Label>
+                        {renderCampoPergunta(pergunta)}
                       </div>
-                    ))}
-                  </div>
-                )}
-                
-                {/* Botão para tirar mais fotos */}
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={`w-full ${fotosRecebimento.length === 0 ? 'h-32 border-dashed' : 'h-12'}`}
-                  onClick={handleTirarFoto}
-                >
-                  <div className="flex items-center gap-2">
-                    {fotosRecebimento.length === 0 ? (
-                      <>
-                        <Camera className="h-8 w-8 text-muted-foreground" />
-                        <span className="text-sm text-muted-foreground">Tirar foto do recebimento</span>
-                      </>
-                    ) : (
-                      <>
-                        <Plus className="h-4 w-4" />
-                        <span>Adicionar mais fotos</span>
-                      </>
-                    )}
-                  </div>
-                </Button>
-                
-                {fotosRecebimento.length > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    {fotosRecebimento.length} foto(s) adicionada(s) - com data/hora e coordenadas
-                  </p>
-                )}
-              </div>
-
-              {/* Assinatura (usando SignatureFullScreen) */}
-              <div className="space-y-3">
-                <Label className="flex items-center gap-2">
-                  <FileSignature className="h-4 w-4" />
-                  Assinatura *
-                </Label>
-                
-                {assinaturaRecebimento ? (
-                  <div className="space-y-2">
-                    <div className="relative">
-                      <img 
-                        src={assinaturaRecebimento} 
-                        alt="Assinatura" 
-                        className="w-full h-32 object-contain rounded-lg border bg-white cursor-pointer"
-                        onClick={() => setFotoPreview(assinaturaRecebimento)}
-                      />
-                      <Button
-                        variant="destructive"
-                        size="icon"
-                        className="absolute top-2 right-2 h-8 w-8"
-                        onClick={() => {
-                          setAssinaturaRecebimento(null);
-                          setAssinaturaData(null);
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    <p className="text-xs text-green-600 flex items-center gap-1">
-                      <CheckCircle className="h-3 w-3" />
-                      Assinatura salva
-                      {assinaturaData && (
-                        <span className="text-muted-foreground ml-1">
-                          - {assinaturaData.data_hora}
-                        </span>
-                      )}
+                    );
+                  })}
+                </div>
+              ) : (
+                <Card>
+                  <CardContent className="p-8 text-center">
+                    <AlertCircle className="h-12 w-12 mx-auto text-amber-500 mb-3" />
+                    <p className="text-muted-foreground">
+                      Nenhum formulário de recebimento cadastrado.
                     </p>
-                  </div>
-                ) : (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full h-24 border-dashed"
-                    onClick={() => setShowSignatureScreen(true)}
-                  >
-                    <div className="flex flex-col items-center gap-2">
-                      <FileSignature className="h-8 w-8 text-muted-foreground" />
-                      <span className="text-sm text-muted-foreground">Toque para assinar (tela cheia)</span>
-                    </div>
-                  </Button>
-                )}
-              </div>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Configure um checklist do tipo "recebimento_materiais" em Cadastros &gt; Checklists
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
 
               <DialogFooter className="gap-2">
                 <Button 
@@ -911,10 +1115,17 @@ export default function AppEstoque() {
                 </Button>
                 <Button
                   onClick={handleConfirmarRecebimento}
-                  disabled={confirmarRecebimentoMutation.isPending || fotosRecebimento.length === 0 || !assinaturaRecebimento}
+                  disabled={confirmarRecebimentoMutation.isPending || perguntas.length === 0}
                   className="bg-green-600 hover:bg-green-700"
                 >
-                  {confirmarRecebimentoMutation.isPending ? "Confirmando..." : "Confirmar Recebimento"}
+                  {confirmarRecebimentoMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Confirmando...
+                    </>
+                  ) : (
+                    "Confirmar Recebimento"
+                  )}
                 </Button>
               </DialogFooter>
             </div>
@@ -925,8 +1136,19 @@ export default function AppEstoque() {
       {/* Tela de Assinatura Full Screen */}
       <SignatureFullScreen
         open={showSignatureScreen}
-        onClose={() => setShowSignatureScreen(false)}
-        onSave={handleAssinaturaSalva}
+        onClose={() => {
+          setShowSignatureScreen(false);
+          if (entregaSelecionada) {
+            setTimeout(() => setDialogConfirmacao(true), 100);
+          }
+        }}
+        onSave={(dataUrl) => {
+          handleAssinaturaSalva(dataUrl);
+          setShowSignatureScreen(false);
+          if (entregaSelecionada) {
+            setTimeout(() => setDialogConfirmacao(true), 100);
+          }
+        }}
         titulo="Assinatura de Recebimento"
       />
 
@@ -958,4 +1180,3 @@ export default function AppEstoque() {
     </div>
   );
 }
-

@@ -80,7 +80,7 @@ export default function ChecklistDetalhes() {
           status,
           created_at,
           checklist_id,
-          checklists (id, nome, tipo, grupos),
+          checklists (id, nome, tipo, grupos, perguntas),
           ordens_servico (id, numero, tipo, endereco, cliente_nome),
           tecnicos:equipe_id (id, codigo, nome)
         `)
@@ -410,7 +410,27 @@ export default function ChecklistDetalhes() {
         : respostasData)
     : {};
 
-  const grupos = dadosBasicos?.checklists?.grupos as GrupoPerguntas[] | undefined;
+  // Suportar tanto estrutura de grupos quanto perguntas diretamente
+  const gruposOriginais = dadosBasicos?.checklists?.grupos as GrupoPerguntas[] | undefined;
+  const perguntasOriginais = (dadosBasicos?.checklists as any)?.perguntas as Pergunta[] | undefined;
+  
+  // Se não tem grupos mas tem perguntas, criar um grupo único
+  const grupos: GrupoPerguntas[] | undefined = gruposOriginais && gruposOriginais.length > 0
+    ? gruposOriginais
+    : perguntasOriginais && perguntasOriginais.length > 0
+      ? [{
+          id: "grupo-unico",
+          nome: dadosBasicos?.checklists?.nome || "Perguntas",
+          ordem: 1,
+          perguntas: perguntasOriginais.map((p: any, idx: number) => ({
+            id: p.id || String(idx + 1),
+            texto: p.texto,
+            tipo: p.tipo,
+            obrigatoria: p.obrigatorio || p.obrigatoria || false,
+            ordem: p.ordem || idx + 1,
+          })),
+        }]
+      : undefined;
 
   return (
     <MainLayout>
