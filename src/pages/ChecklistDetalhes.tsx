@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -9,6 +9,14 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import {
   Dialog,
   DialogContent,
@@ -28,6 +36,10 @@ import {
   ZoomIn,
   Loader2,
   Download,
+  Package,
+  Hash,
+  FileDown,
+  Printer,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -51,6 +63,7 @@ interface FotoData {
   latitude?: number;
   longitude?: number;
   dataHora?: string;
+  data_hora?: string;
 }
 
 interface FotoViewer {
@@ -60,14 +73,27 @@ interface FotoViewer {
   titulo?: string;
 }
 
+interface MaterialEntrega {
+  material_id: string;
+  quantidade: number;
+  numero_serie?: string;
+  materiais?: {
+    codigo: string;
+    nome: string;
+    unidade: string;
+  };
+}
+
 export default function ChecklistDetalhes() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const printRef = useRef<HTMLDivElement>(null);
   const [fotoViewer, setFotoViewer] = useState<FotoViewer>({
     open: false,
     fotos: [],
     currentIndex: 0,
   });
+  const [geratingPdf, setGeratingPdf] = useState(false);
 
   // Query 1: Dados básicos (RÁPIDA) - carrega primeiro para mostrar o header
   const { data: dadosBasicos, isLoading: loadingBasicos } = useQuery({
@@ -80,6 +106,7 @@ export default function ChecklistDetalhes() {
           status,
           created_at,
           checklist_id,
+          codigo_unico,
           checklists (id, nome, tipo, grupos, perguntas),
           ordens_servico (id, numero, tipo, endereco, cliente_nome),
           tecnicos:equipe_id (id, codigo, nome)
@@ -109,6 +136,354 @@ export default function ChecklistDetalhes() {
     enabled: !!id,
   });
 
+  // Query 3: Buscar materiais da entrega (se for checklist de recebimento)
+  const { data: materiaisEntrega } = useQuery({
+    queryKey: ["checklist-materiais-entrega", id, respostasData],
+    queryFn: async () => {
+      // Verificar se tem entrega_id nas respostas
+      let entregaId: string | null = null;
+      
+      if (respostasData) {
+        // Procurar entrega_id nas respostas
+        if (typeof respostasData === 'object') {
+          for (const key of Object.keys(respostasData)) {
+            const resp = respostasData[key];
+            if (resp?.resposta && typeof resp.resposta === 'string' && resp.resposta.includes('Entrega ID:')) {
+              entregaId = resp.resposta.replace('Entrega ID:', '').trim();
+              break;
+            }
+          }
+          // Também verificar se tem entrega_id diretamente
+          if (!entregaId && (respostasData as any).entrega_id) {
+            entregaId = (respostasData as any).entrega_id;
+          }
+        }
+      }
+
+      if (!entregaId) return null;
+
+      // Buscar itens da entrega
+      const { data: itens, error } = await supabase
+        .from("materiais_entregas_itens")
+        .select(`
+          material_id,
+          quantidade,
+          numero_serie,
+          materiais (codigo, nome, unidade)
+        `)
+        .eq("entrega_id", entregaId);
+
+      if (error) {
+        console.error("Erro ao buscar materiais:", error);
+        return null;
+      }
+
+      // Buscar dados da entrega
+      const { data: entrega } = await supabase
+        .from("materiais_entregas")
+        .select("data_entrega, observacao")
+        .eq("id", entregaId)
+        .single();
+
+      return { itens: itens as MaterialEntrega[], entrega };
+    },
+    enabled: !!id && !!respostasData && dadosBasicos?.checklists?.tipo === "recebimento_materiais",
+  });
+
+  // Função para gerar PDF
+  const handleGerarPDF = async () => {
+    setGeratingPdf(true);
+    toast.loading("Gerando PDF...", { id: "pdf" });
+
+    try {
+      // Criar conteúdo HTML para impressão
+      const content = printRef.current;
+      if (!content) {
+        throw new Error("Conteúdo não encontrado");
+      }
+
+      // Abrir janela de impressão
+      const printWindow = window.open('', '_blank');
+      if (!printWindow) {
+        throw new Error("Não foi possível abrir a janela de impressão. Verifique se popups estão habilitados.");
+      }
+
+      const codigoUnico = (dadosBasicos as any)?.codigo_unico || '-';
+      const nomeChecklist = dadosBasicos?.checklists?.nome || 'Checklist';
+      const dataChecklist = dadosBasicos?.created_at 
+        ? format(new Date(dadosBasicos.created_at), "dd/MM/yyyy HH:mm")
+        : '';
+
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Checklist #${codigoUnico} - ${nomeChecklist}</title>
+            <style>
+              * { margin: 0; padding: 0; box-sizing: border-box; }
+              body { 
+                font-family: Arial, sans-serif; 
+                padding: 20px; 
+                color: #333;
+                font-size: 12px;
+              }
+              .header { 
+                border-bottom: 2px solid #7c3aed; 
+                padding-bottom: 15px; 
+                margin-bottom: 20px; 
+              }
+              .header h1 { 
+                color: #7c3aed; 
+                font-size: 18px;
+                margin-bottom: 5px;
+              }
+              .header .codigo {
+                background: #7c3aed;
+                color: white;
+                padding: 2px 8px;
+                border-radius: 4px;
+                font-size: 11px;
+                display: inline-block;
+                margin-right: 10px;
+              }
+              .header .info { 
+                color: #666; 
+                font-size: 11px;
+              }
+              .info-grid { 
+                display: grid; 
+                grid-template-columns: repeat(4, 1fr); 
+                gap: 15px; 
+                margin-bottom: 20px;
+              }
+              .info-card { 
+                border: 1px solid #e5e7eb; 
+                padding: 10px; 
+                border-radius: 6px;
+              }
+              .info-card label { 
+                color: #666; 
+                font-size: 10px; 
+                display: block;
+                margin-bottom: 3px;
+              }
+              .info-card p { 
+                font-weight: bold; 
+                font-size: 12px;
+              }
+              .section { 
+                margin-bottom: 20px; 
+                border: 1px solid #e5e7eb; 
+                border-radius: 6px;
+                overflow: hidden;
+              }
+              .section-header { 
+                background: #f9fafb; 
+                padding: 10px 15px; 
+                border-bottom: 1px solid #e5e7eb;
+                font-weight: bold;
+              }
+              .section-content { padding: 15px; }
+              .pergunta { 
+                border-bottom: 1px solid #f3f4f6; 
+                padding: 10px 0;
+              }
+              .pergunta:last-child { border-bottom: none; }
+              .pergunta-numero { 
+                background: #e5e7eb; 
+                padding: 2px 6px; 
+                border-radius: 4px; 
+                font-size: 10px;
+                margin-right: 8px;
+              }
+              .pergunta-texto { font-weight: 500; margin-bottom: 5px; }
+              .pergunta-resposta { 
+                margin-left: 30px; 
+                padding: 8px;
+                background: #f9fafb;
+                border-radius: 4px;
+              }
+              .badge { 
+                display: inline-block; 
+                padding: 2px 8px; 
+                border-radius: 4px; 
+                font-size: 10px;
+                font-weight: bold;
+              }
+              .badge-green { background: #dcfce7; color: #166534; }
+              .badge-red { background: #fee2e2; color: #991b1b; }
+              .foto-placeholder {
+                background: #f3f4f6;
+                padding: 10px;
+                border-radius: 4px;
+                color: #666;
+                font-style: italic;
+              }
+              table { 
+                width: 100%; 
+                border-collapse: collapse; 
+                margin: 10px 0;
+              }
+              th, td { 
+                border: 1px solid #e5e7eb; 
+                padding: 8px; 
+                text-align: left;
+                font-size: 11px;
+              }
+              th { background: #f9fafb; font-weight: bold; }
+              .footer {
+                margin-top: 30px;
+                padding-top: 15px;
+                border-top: 1px solid #e5e7eb;
+                text-align: center;
+                color: #666;
+                font-size: 10px;
+              }
+              @media print {
+                body { padding: 10px; }
+                .section { page-break-inside: avoid; }
+              }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <h1>
+                <span class="codigo">#${codigoUnico}</span>
+                ${nomeChecklist}
+              </h1>
+              <p class="info">
+                Tipo: ${dadosBasicos?.checklists?.tipo?.toUpperCase() || '-'} | 
+                Data: ${dataChecklist} |
+                Status: ${dadosBasicos?.status === 'completo' ? 'Completo' : 'Rascunho'}
+              </p>
+            </div>
+
+            <div class="info-grid">
+              <div class="info-card">
+                <label>Código Único</label>
+                <p>#${codigoUnico}</p>
+              </div>
+              <div class="info-card">
+                <label>Ordem de Serviço</label>
+                <p>${dadosBasicos?.ordens_servico?.numero ? '#' + dadosBasicos.ordens_servico.numero : '-'}</p>
+              </div>
+              <div class="info-card">
+                <label>Equipe</label>
+                <p>${(dadosBasicos?.tecnicos as any)?.codigo || '-'}</p>
+              </div>
+              <div class="info-card">
+                <label>Data/Hora</label>
+                <p>${dataChecklist}</p>
+              </div>
+            </div>
+
+            ${dadosBasicos?.ordens_servico?.endereco ? `
+              <div class="section">
+                <div class="section-header">Endereço</div>
+                <div class="section-content">
+                  <p>${dadosBasicos.ordens_servico.endereco}</p>
+                  ${dadosBasicos.ordens_servico.cliente_nome ? `<p style="color: #666; margin-top: 5px;">Cliente: ${dadosBasicos.ordens_servico.cliente_nome}</p>` : ''}
+                </div>
+              </div>
+            ` : ''}
+
+            ${materiaisEntrega?.itens && materiaisEntrega.itens.length > 0 ? `
+              <div class="section">
+                <div class="section-header">📦 Materiais Recebidos</div>
+                <div class="section-content">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Código</th>
+                        <th>Material</th>
+                        <th>Quantidade</th>
+                        <th>Nº Série</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${materiaisEntrega.itens.map(item => `
+                        <tr>
+                          <td>${item.materiais?.codigo || '-'}</td>
+                          <td>${item.materiais?.nome || '-'}</td>
+                          <td>${item.quantidade} ${item.materiais?.unidade || ''}</td>
+                          <td>${item.numero_serie || '-'}</td>
+                        </tr>
+                      `).join('')}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ` : ''}
+
+            ${grupos && grupos.length > 0 ? grupos.map(grupo => `
+              <div class="section">
+                <div class="section-header">${grupo.nome}</div>
+                <div class="section-content">
+                  ${grupo.perguntas.map((pergunta, idx) => {
+                    const resposta = respostasMap[pergunta.id];
+                    let respostaHtml = '<span style="color: #999;">Não respondida</span>';
+                    
+                    if (resposta) {
+                      if (pergunta.tipo === 'foto') {
+                        const fotos = resposta.fotos || [];
+                        respostaHtml = fotos.length > 0 
+                          ? `<span class="foto-placeholder">📷 ${fotos.length} foto(s) anexada(s)</span>`
+                          : resposta.foto_url 
+                            ? '<span class="foto-placeholder">📷 1 foto anexada</span>'
+                            : '<span style="color: #999;">Sem foto</span>';
+                      } else if (pergunta.tipo === 'assinatura') {
+                        respostaHtml = resposta.assinatura_url
+                          ? '<span class="foto-placeholder">✍️ Assinatura registrada</span>'
+                          : '<span style="color: #999;">Sem assinatura</span>';
+                      } else if (pergunta.tipo === 'sim_nao') {
+                        respostaHtml = resposta.resposta === 'sim'
+                          ? '<span class="badge badge-green">Sim</span>'
+                          : resposta.resposta === 'nao'
+                            ? '<span class="badge badge-red">Não</span>'
+                            : String(resposta.resposta || '-');
+                      } else {
+                        respostaHtml = String(resposta.resposta || '-');
+                      }
+                    }
+
+                    return `
+                      <div class="pergunta">
+                        <div class="pergunta-texto">
+                          <span class="pergunta-numero">${grupo.ordem || 1}.${idx + 1}</span>
+                          ${pergunta.texto}
+                        </div>
+                        <div class="pergunta-resposta">${respostaHtml}</div>
+                      </div>
+                    `;
+                  }).join('')}
+                </div>
+              </div>
+            `).join('') : ''}
+
+            <div class="footer">
+              <p>Documento gerado em ${format(new Date(), "dd/MM/yyyy 'às' HH:mm")}</p>
+              <p>Checklist #${codigoUnico} - Sistema de Gestão</p>
+            </div>
+          </body>
+        </html>
+      `);
+
+      printWindow.document.close();
+      
+      // Aguardar carregamento e imprimir
+      setTimeout(() => {
+        printWindow.print();
+        toast.success("PDF gerado! Use Ctrl+P para salvar como PDF.", { id: "pdf" });
+        setGeratingPdf(false);
+      }, 500);
+
+    } catch (error: any) {
+      console.error("Erro ao gerar PDF:", error);
+      toast.error(error.message || "Erro ao gerar PDF", { id: "pdf" });
+      setGeratingPdf(false);
+    }
+  };
+
   // Abrir visualizador de fotos
   const abrirFotoViewer = (fotos: any[], index: number = 0, titulo?: string) => {
     if (!fotos || fotos.length === 0) {
@@ -122,7 +497,7 @@ export default function ChecklistDetalhes() {
         url: f.url || f,
         latitude: f.latitude,
         longitude: f.longitude,
-        dataHora: f.dataHora,
+        dataHora: f.dataHora || f.data_hora,
       })),
       currentIndex: index,
       titulo,
@@ -146,7 +521,6 @@ export default function ChecklistDetalhes() {
       e.preventDefault();
       e.stopPropagation();
       if (lat && lng) {
-        // Abre o Google Maps com o ponto marcado
         const url = `https://www.google.com/maps?q=${lat},${lng}&z=18`;
         window.open(url, '_blank');
       }
@@ -203,7 +577,6 @@ export default function ChecklistDetalhes() {
     const assLng = respostaItem.assinatura_longitude;
     const assDataHora = respostaItem.assinatura_data_hora;
 
-    // Handler para abrir foto
     const handleFotoClick = (e: React.MouseEvent, fotosArray: any[], index: number, titulo: string) => {
       e.preventDefault();
       e.stopPropagation();
@@ -212,7 +585,6 @@ export default function ChecklistDetalhes() {
 
     return (
       <div className="space-y-2">
-        {/* Valor principal */}
         {pergunta.tipo === "foto" ? (
           fotos && fotos.length > 0 ? (
             <div className="flex flex-wrap gap-4">
@@ -236,7 +608,6 @@ export default function ChecklistDetalhes() {
                       <ZoomIn className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 transition-all drop-shadow-lg" />
                     </div>
                   </button>
-                  {/* Data/hora e coordenadas abaixo de cada foto */}
                   {renderCoordenadasCopiavel(foto.latitude, foto.longitude, foto.data_hora || foto.dataHora)}
                 </div>
               ))}
@@ -284,9 +655,9 @@ export default function ChecklistDetalhes() {
           )
         ) : pergunta.tipo === "sim_nao" ? (
           valor === "sim" ? (
-            <Badge variant="destructive">Sim (Risco identificado)</Badge>
+            <Badge className="bg-green-600">Sim</Badge>
           ) : valor === "nao" ? (
-            <Badge className="bg-green-600">Não</Badge>
+            <Badge variant="secondary">Não</Badge>
           ) : (
             <span className="text-muted-foreground">{String(valor)}</span>
           )
@@ -303,10 +674,9 @@ export default function ChecklistDetalhes() {
             <Badge variant="destructive">Não Conforme</Badge>
           )
         ) : (
-          <span>{String(valor)}</span>
+          <span>{String(valor || '-')}</span>
         )}
 
-        {/* Foto adicional (para perguntas que exigem foto) */}
         {pergunta.tipo !== "foto" && (fotos && fotos.length > 0 ? (
           <div className="mt-3">
             <p className="text-xs text-muted-foreground mb-2 font-medium">📷 Fotos anexadas:</p>
@@ -328,7 +698,6 @@ export default function ChecklistDetalhes() {
                       <ZoomIn className="h-5 w-5 text-white opacity-0 group-hover:opacity-100 transition-all drop-shadow-lg" />
                     </div>
                   </button>
-                  {/* Data/hora e coordenadas abaixo de cada foto */}
                   {renderCoordenadasCopiavel(foto.latitude, foto.longitude, foto.data_hora || foto.dataHora)}
                 </div>
               ))}
@@ -356,7 +725,6 @@ export default function ChecklistDetalhes() {
           </div>
         ))}
 
-        {/* Observação */}
         {observacao && (
           <div className="mt-2 p-2 bg-muted rounded text-sm">
             <p className="text-xs text-muted-foreground mb-1">Observação:</p>
@@ -367,7 +735,6 @@ export default function ChecklistDetalhes() {
     );
   };
 
-  // Loading inicial - só mostra skeleton se os dados básicos estão carregando
   if (loadingBasicos) {
     return (
       <MainLayout>
@@ -403,18 +770,15 @@ export default function ChecklistDetalhes() {
     );
   }
 
-  // Preparar mapa de respostas
   const respostasMap = respostasData 
     ? (Array.isArray(respostasData) 
         ? respostasData.reduce((acc: any, r: any) => ({ ...acc, [r.pergunta_id]: r }), {})
         : respostasData)
     : {};
 
-  // Suportar tanto estrutura de grupos quanto perguntas diretamente
   const gruposOriginais = dadosBasicos?.checklists?.grupos as GrupoPerguntas[] | undefined;
   const perguntasOriginais = (dadosBasicos?.checklists as any)?.perguntas as Pergunta[] | undefined;
   
-  // Se não tem grupos mas tem perguntas, criar um grupo único
   const grupos: GrupoPerguntas[] | undefined = gruposOriginais && gruposOriginais.length > 0
     ? gruposOriginais
     : perguntasOriginais && perguntasOriginais.length > 0
@@ -432,11 +796,13 @@ export default function ChecklistDetalhes() {
         }]
       : undefined;
 
+  const codigoUnico = (dadosBasicos as any)?.codigo_unico;
+
   return (
     <MainLayout>
-      <div className="container mx-auto py-6 space-y-6">
-        {/* Header - Carrega imediatamente */}
-        <div className="flex items-center justify-between">
+      <div className="container mx-auto py-6 space-y-6" ref={printRef}>
+        {/* Header */}
+        <div className="flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-4">
             <Button 
               variant="outline" 
@@ -453,29 +819,64 @@ export default function ChecklistDetalhes() {
               <X className="h-4 w-4" />
             </Button>
             <div>
-              <h1 className="text-2xl font-bold flex items-center gap-2">
-                <ClipboardCheck className="h-7 w-7 text-violet-600" />
-                {dadosBasicos.checklists?.nome || "Checklist"}
-              </h1>
+              <div className="flex items-center gap-3 mb-1">
+                {codigoUnico && (
+                  <Badge variant="outline" className="bg-violet-100 text-violet-700 border-violet-300 font-mono">
+                    <Hash className="h-3 w-3 mr-1" />
+                    {codigoUnico}
+                  </Badge>
+                )}
+                <h1 className="text-2xl font-bold flex items-center gap-2">
+                  <ClipboardCheck className="h-7 w-7 text-violet-600" />
+                  {dadosBasicos.checklists?.nome || "Checklist"}
+                </h1>
+              </div>
               <p className="text-muted-foreground">
                 {dadosBasicos.checklists?.tipo?.toUpperCase()} - Preenchido em {format(new Date(dadosBasicos.created_at), "dd/MM/yyyy 'às' HH:mm")}
               </p>
             </div>
           </div>
-          <Badge className={dadosBasicos.status === "completo" ? "bg-green-600" : ""}>
-            {dadosBasicos.status === "completo" ? (
-              <>
-                <CheckCircle className="h-3 w-3 mr-1" />
-                Completo
-              </>
-            ) : (
-              "Rascunho"
-            )}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={handleGerarPDF}
+              disabled={geratingPdf}
+            >
+              {geratingPdf ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <FileDown className="h-4 w-4 mr-2" />
+              )}
+              Gerar PDF
+            </Button>
+            <Badge className={dadosBasicos.status === "completo" ? "bg-green-600" : ""}>
+              {dadosBasicos.status === "completo" ? (
+                <>
+                  <CheckCircle className="h-3 w-3 mr-1" />
+                  Completo
+                </>
+              ) : (
+                "Rascunho"
+              )}
+            </Badge>
+          </div>
         </div>
 
-        {/* Informações Gerais - Carrega imediatamente */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {/* Informações Gerais */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          {codigoUnico && (
+            <Card className="bg-violet-50 border-violet-200">
+              <CardContent className="pt-4">
+                <div className="flex items-center gap-2 text-sm text-violet-600 mb-1">
+                  <Hash className="h-4 w-4" />
+                  Código Único
+                </div>
+                <p className="font-bold text-xl text-violet-700 font-mono">
+                  #{codigoUnico}
+                </p>
+              </CardContent>
+            </Card>
+          )}
           <Card>
             <CardContent className="pt-4">
               <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
@@ -498,7 +899,7 @@ export default function ChecklistDetalhes() {
                 Equipe
               </div>
               <p className="font-semibold">
-                {dadosBasicos.tecnicos?.codigo || "-"}
+                {(dadosBasicos.tecnicos as any)?.codigo || "-"}
               </p>
             </CardContent>
           </Card>
@@ -544,9 +945,57 @@ export default function ChecklistDetalhes() {
           </Card>
         )}
 
+        {/* Materiais Recebidos (para checklist de recebimento) */}
+        {materiaisEntrega?.itens && materiaisEntrega.itens.length > 0 && (
+          <Card className="border-emerald-200 bg-emerald-50/50">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2 text-emerald-700">
+                <Package className="h-5 w-5" />
+                Materiais Recebidos
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Código</TableHead>
+                    <TableHead>Material</TableHead>
+                    <TableHead className="text-right">Quantidade</TableHead>
+                    <TableHead>Nº Série</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {materiaisEntrega.itens.map((item, idx) => (
+                    <TableRow key={idx}>
+                      <TableCell className="font-mono font-medium">
+                        {item.materiais?.codigo || '-'}
+                      </TableCell>
+                      <TableCell>{item.materiais?.nome || '-'}</TableCell>
+                      <TableCell className="text-right">
+                        <Badge variant="secondary">
+                          {item.quantidade} {item.materiais?.unidade || ''}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {item.numero_serie ? (
+                          <Badge variant="outline" className="font-mono">
+                            {item.numero_serie}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
+
         <Separator />
 
-        {/* Respostas por Grupo - Carrega depois */}
+        {/* Respostas por Grupo */}
         {loadingRespostas ? (
           <Card>
             <CardContent className="py-12">
@@ -565,14 +1014,14 @@ export default function ChecklistDetalhes() {
               <CardContent>
                 <div className="space-y-4">
                   {grupo.perguntas
-                    ?.sort((a, b) => a.ordem - b.ordem)
+                    ?.sort((a, b) => (a.ordem || 0) - (b.ordem || 0))
                     .map((pergunta, index) => {
                       const respostaItem = respostasMap[pergunta.id];
                       return (
                         <div key={pergunta.id} className="border-b pb-4 last:border-0 last:pb-0">
                           <div className="flex items-start gap-2 mb-2">
                             <Badge variant="outline" className="shrink-0">
-                              {grupo.ordem}.{index + 1}
+                              {grupo.ordem || 1}.{index + 1}
                             </Badge>
                             <p className="text-sm font-medium">
                               {pergunta.texto}
@@ -606,7 +1055,6 @@ export default function ChecklistDetalhes() {
       <Dialog open={fotoViewer.open} onOpenChange={(open) => setFotoViewer(prev => ({ ...prev, open }))}>
         <DialogContent className="max-w-4xl p-0 bg-black/95 max-h-[95vh] overflow-hidden">
           <div className="flex flex-col h-full">
-            {/* Header - fixo no topo */}
             <div className="flex items-center justify-between p-3 border-b border-white/10">
               <div className="text-white">
                 {fotoViewer.titulo && (
@@ -626,7 +1074,6 @@ export default function ChecklistDetalhes() {
               </Button>
             </div>
 
-            {/* Área da imagem com navegação */}
             <div className="relative flex-1 flex items-center justify-center p-4 min-h-[300px]">
               {fotoViewer.fotos[fotoViewer.currentIndex]?.url && (
                 <img
@@ -636,7 +1083,6 @@ export default function ChecklistDetalhes() {
                 />
               )}
 
-              {/* Navegação */}
               {fotoViewer.fotos.length > 1 && (
                 <>
                   <Button
@@ -665,17 +1111,14 @@ export default function ChecklistDetalhes() {
               )}
             </div>
 
-            {/* Footer com informações - fixo na parte inferior */}
             <div className="border-t border-white/10 p-4 bg-black/50">
               <div className="text-white text-center space-y-3">
-                {/* Data e hora */}
                 {fotoViewer.fotos[fotoViewer.currentIndex]?.dataHora && (
                   <p className="text-sm">
                     📅 {fotoViewer.fotos[fotoViewer.currentIndex].dataHora}
                   </p>
                 )}
 
-                {/* Coordenadas */}
                 {fotoViewer.fotos[fotoViewer.currentIndex]?.latitude && fotoViewer.fotos[fotoViewer.currentIndex]?.longitude && (
                   <div className="flex items-center justify-center gap-3">
                     <button
@@ -705,7 +1148,6 @@ export default function ChecklistDetalhes() {
                   </div>
                 )}
 
-                {/* Botões de ação */}
                 {fotoViewer.fotos[fotoViewer.currentIndex]?.url && (
                   <div className="flex items-center justify-center gap-3">
                     <Button
@@ -763,7 +1205,6 @@ export default function ChecklistDetalhes() {
                   </div>
                 )}
 
-                {/* Miniaturas */}
                 {fotoViewer.fotos.length > 1 && (
                   <div className="flex justify-center gap-2 mt-3 overflow-x-auto pb-1">
                     {fotoViewer.fotos.map((foto, index) => (

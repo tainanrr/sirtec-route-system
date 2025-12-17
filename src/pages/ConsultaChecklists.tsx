@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -36,7 +37,11 @@ import {
   ChevronRight,
   ExternalLink,
   Eye,
+  Hash,
+  FileDown,
+  Loader2,
 } from "lucide-react";
+import { toast } from "sonner";
 
 const ITEMS_PER_PAGE = 20;
 
@@ -44,6 +49,7 @@ interface ChecklistRespostaSimples {
   id: string;
   status: string;
   created_at: string;
+  codigo_unico?: number;
   checklists?: {
     nome: string;
     tipo: string;
@@ -64,6 +70,8 @@ export default function ConsultaChecklists() {
   const [filtroTipo, setFiltroTipo] = useState<string>("todos");
   const [filtroStatus, setFiltroStatus] = useState<string>("todos");
   const [currentPage, setCurrentPage] = useState(0);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   // Buscar contagem total de registros
   const { data: totalCount } = useQuery({
@@ -94,6 +102,7 @@ export default function ConsultaChecklists() {
           id,
           status,
           created_at,
+          codigo_unico,
           checklists (nome, tipo),
           ordens_servico (numero, tipo),
           tecnicos:equipe_id (codigo, nome)
@@ -143,7 +152,8 @@ export default function ConsultaChecklists() {
       r.checklists?.nome?.toLowerCase().includes(termo) ||
       r.ordens_servico?.numero?.toLowerCase().includes(termo) ||
       r.tecnicos?.codigo?.toLowerCase().includes(termo) ||
-      r.tecnicos?.nome?.toLowerCase().includes(termo)
+      r.tecnicos?.nome?.toLowerCase().includes(termo) ||
+      r.codigo_unico?.toString().includes(termo)
     );
   });
 
@@ -170,11 +180,77 @@ export default function ConsultaChecklists() {
     }
   };
 
+  // Selecionar/deselecionar item
+  const toggleSelection = (id: string) => {
+    setSelectedIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  };
+
+  // Selecionar todos da página
+  const toggleSelectAll = () => {
+    if (!respostasFiltradas) return;
+    
+    const todosIds = respostasFiltradas.map(r => r.id);
+    const todosSelecionados = todosIds.every(id => selectedIds.has(id));
+    
+    if (todosSelecionados) {
+      setSelectedIds(prev => {
+        const newSet = new Set(prev);
+        todosIds.forEach(id => newSet.delete(id));
+        return newSet;
+      });
+    } else {
+      setSelectedIds(prev => {
+        const newSet = new Set(prev);
+        todosIds.forEach(id => newSet.add(id));
+        return newSet;
+      });
+    }
+  };
+
+  // Download em massa
+  const handleDownloadMassa = async () => {
+    if (selectedIds.size === 0) {
+      toast.error("Selecione pelo menos um checklist");
+      return;
+    }
+
+    setDownloadingPdf(true);
+    toast.loading(`Gerando PDFs de ${selectedIds.size} checklist(s)...`, { id: "download-massa" });
+
+    try {
+      // Abrir cada checklist em nova guia para impressão
+      for (const id of selectedIds) {
+        window.open(`/consulta-checklists/${id}`, '_blank');
+        // Pequeno delay para não sobrecarregar
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+      
+      toast.success(`${selectedIds.size} checklist(s) aberto(s). Use Ctrl+P em cada um para gerar PDF.`, { id: "download-massa" });
+      setSelectedIds(new Set());
+    } catch (error) {
+      toast.error("Erro ao abrir checklists", { id: "download-massa" });
+    }
+
+    setDownloadingPdf(false);
+  };
+
+  const todosNaPaginaSelecionados = respostasFiltradas?.length 
+    ? respostasFiltradas.every(r => selectedIds.has(r.id))
+    : false;
+
   return (
     <MainLayout>
     <div className="container mx-auto py-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <ClipboardCheck className="h-7 w-7 text-violet-600" />
@@ -184,6 +260,20 @@ export default function ConsultaChecklists() {
             Visualize e analise os checklists preenchidos pelas equipes
           </p>
         </div>
+        {selectedIds.size > 0 && (
+          <Button
+            onClick={handleDownloadMassa}
+            disabled={downloadingPdf}
+            className="bg-violet-600 hover:bg-violet-700"
+          >
+            {downloadingPdf ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <FileDown className="h-4 w-4 mr-2" />
+            )}
+            Abrir {selectedIds.size} selecionado(s)
+          </Button>
+        )}
       </div>
 
       {/* Filtros */}
@@ -194,7 +284,7 @@ export default function ConsultaChecklists() {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Buscar por OS, equipe, cliente..."
+                  placeholder="Buscar por código, OS, equipe, cliente..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10"
@@ -260,6 +350,13 @@ export default function ConsultaChecklists() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-12">
+                      <Checkbox
+                        checked={todosNaPaginaSelecionados}
+                        onCheckedChange={toggleSelectAll}
+                      />
+                    </TableHead>
+                    <TableHead className="w-20">Código</TableHead>
                     <TableHead>Checklist</TableHead>
                     <TableHead>OS</TableHead>
                     <TableHead>Equipe</TableHead>
@@ -270,7 +367,26 @@ export default function ConsultaChecklists() {
                 </TableHeader>
                 <TableBody>
                   {respostasFiltradas.map((resposta) => (
-                    <TableRow key={resposta.id}>
+                    <TableRow 
+                      key={resposta.id}
+                      className={selectedIds.has(resposta.id) ? "bg-violet-50" : ""}
+                    >
+                      <TableCell>
+                        <Checkbox
+                          checked={selectedIds.has(resposta.id)}
+                          onCheckedChange={() => toggleSelection(resposta.id)}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        {resposta.codigo_unico ? (
+                          <Badge variant="outline" className="font-mono bg-violet-50 text-violet-700 border-violet-200">
+                            <Hash className="h-3 w-3 mr-0.5" />
+                            {resposta.codigo_unico}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">-</span>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <ClipboardCheck className="h-4 w-4 text-violet-600" />

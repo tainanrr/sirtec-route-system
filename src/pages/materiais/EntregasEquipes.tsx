@@ -119,6 +119,8 @@ export default function EntregasEquipes() {
   const [selectedEntrega, setSelectedEntrega] = useState<Entrega | null>(null);
   const [cancelDialog, setCancelDialog] = useState(false);
   const [imagemViewer, setImagemViewer] = useState<{ open: boolean; src: string; titulo: string }>({ open: false, src: "", titulo: "" });
+  const [checklistRespostas, setChecklistRespostas] = useState<any>(null);
+  const [loadingRespostas, setLoadingRespostas] = useState(false);
 
   // Form para nova entrega
   const [novaEntrega, setNovaEntrega] = useState<NovaEntregaForm>({
@@ -454,6 +456,81 @@ export default function EntregasEquipes() {
     },
   });
 
+  // Função para buscar respostas do checklist vinculadas à entrega
+  const buscarRespostasChecklist = async (entregaId: string) => {
+    setLoadingRespostas(true);
+    setChecklistRespostas(null);
+    
+    try {
+      // Buscar checklist de recebimento
+      const { data: checklist } = await supabase
+        .from("checklists")
+        .select("id, nome, perguntas, grupos")
+        .eq("tipo", "recebimento_materiais")
+        .eq("ativo", true)
+        .maybeSingle();
+
+      if (!checklist) {
+        setLoadingRespostas(false);
+        return;
+      }
+
+      // Buscar respostas vinculadas a esta entrega
+      const { data: respostas } = await supabase
+        .from("checklist_respostas")
+        .select("id, codigo_unico, respostas, created_at, status")
+        .eq("checklist_id", checklist.id)
+        .order("created_at", { ascending: false });
+
+      // Encontrar a resposta que contém a entrega_id
+      let respostaEncontrada = null;
+      for (const resp of respostas || []) {
+        const respostasObj = resp.respostas as any;
+        if (respostasObj) {
+          // Verificar se alguma resposta contém o entrega_id
+          for (const key of Object.keys(respostasObj)) {
+            const r = respostasObj[key];
+            if (r?.resposta && typeof r.resposta === 'string' && r.resposta.includes(entregaId)) {
+              respostaEncontrada = resp;
+              break;
+            }
+          }
+          if (respostaEncontrada) break;
+        }
+      }
+
+      if (respostaEncontrada) {
+        // Normalizar perguntas
+        let perguntas: any[] = [];
+        if (checklist.grupos && Array.isArray(checklist.grupos) && checklist.grupos.length > 0) {
+          perguntas = (checklist.grupos as any[]).flatMap(g => g.perguntas || []);
+        } else if (checklist.perguntas && Array.isArray(checklist.perguntas)) {
+          perguntas = checklist.perguntas as any[];
+        }
+
+        setChecklistRespostas({
+          checklist,
+          respostas: respostaEncontrada,
+          perguntas,
+        });
+      }
+    } catch (error) {
+      console.error("Erro ao buscar respostas:", error);
+    }
+    
+    setLoadingRespostas(false);
+  };
+
+  // Handler para abrir visualização
+  const handleViewEntrega = async (entrega: Entrega) => {
+                                handleViewEntrega(entrega);
+    
+    // Se a entrega foi confirmada, buscar respostas do checklist
+    if (entrega.status === "confirmado" || entrega.status === "recebida") {
+      await buscarRespostasChecklist(entrega.id);
+    }
+  };
+
   const handleAddItem = () => {
     if (!itemTemp.material_id || itemTemp.quantidade <= 0) {
       toast.error("Selecione um material e quantidade válida");
@@ -722,8 +799,7 @@ export default function EntregasEquipes() {
                             variant="ghost"
                             size="icon"
                             onClick={() => {
-                              setSelectedEntrega(entrega);
-                              setViewDialog(true);
+                              handleViewEntrega(entrega);
                             }}
                           >
                             <Eye className="h-4 w-4" />
@@ -1121,6 +1197,110 @@ export default function EntregasEquipes() {
                               Clique para ampliar
                             </div>
                           </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Respostas do Checklist */}
+                    {loadingRespostas ? (
+                      <div className="py-4 text-center">
+                        <p className="text-sm text-muted-foreground">Carregando respostas do checklist...</p>
+                      </div>
+                    ) : checklistRespostas && checklistRespostas.perguntas?.length > 0 && (
+                      <div className="border-t pt-4 mt-4">
+                        <h4 className="font-medium text-sm mb-3 flex items-center gap-2">
+                          <FileSignature className="h-4 w-4" />
+                          Respostas do Formulário
+                          {checklistRespostas.respostas?.codigo_unico && (
+                            <Badge variant="outline" className="ml-2 font-mono">
+                              #{checklistRespostas.respostas.codigo_unico}
+                            </Badge>
+                          )}
+                        </h4>
+                        <div className="space-y-3">
+                          {checklistRespostas.perguntas.map((pergunta: any, idx: number) => {
+                            const respostasObj = checklistRespostas.respostas?.respostas as any;
+                            const resposta = respostasObj?.[pergunta.id];
+                            
+                            return (
+                              <div key={pergunta.id} className="border rounded-lg p-3 bg-gray-50">
+                                <div className="flex items-start gap-2 mb-2">
+                                  <Badge variant="outline" className="shrink-0 text-xs">
+                                    {idx + 1}
+                                  </Badge>
+                                  <p className="text-sm font-medium">{pergunta.texto}</p>
+                                </div>
+                                <div className="ml-6">
+                                  {!resposta ? (
+                                    <span className="text-sm text-muted-foreground">Não respondida</span>
+                                  ) : pergunta.tipo === "foto" ? (
+                                    resposta.fotos && resposta.fotos.length > 0 ? (
+                                      <div className="flex flex-wrap gap-2">
+                                        {resposta.fotos.map((foto: any, fotoIdx: number) => (
+                                          <div 
+                                            key={fotoIdx}
+                                            className="relative cursor-pointer group"
+                                            onClick={() => setImagemViewer({
+                                              open: true,
+                                              src: foto.url,
+                                              titulo: `Foto ${fotoIdx + 1} - ${pergunta.texto}`
+                                            })}
+                                          >
+                                            <img
+                                              src={foto.url}
+                                              alt={`Foto ${fotoIdx + 1}`}
+                                              className="w-24 h-20 object-cover rounded border"
+                                            />
+                                            {foto.data_hora && (
+                                              <p className="text-[9px] text-muted-foreground mt-1 truncate max-w-24">
+                                                📅 {foto.data_hora}
+                                              </p>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span className="text-sm text-muted-foreground">Sem foto</span>
+                                    )
+                                  ) : pergunta.tipo === "assinatura" ? (
+                                    resposta.assinatura_url ? (
+                                      <div 
+                                        className="cursor-pointer"
+                                        onClick={() => setImagemViewer({
+                                          open: true,
+                                          src: resposta.assinatura_url,
+                                          titulo: "Assinatura"
+                                        })}
+                                      >
+                                        <img
+                                          src={resposta.assinatura_url}
+                                          alt="Assinatura"
+                                          className="w-40 h-20 object-contain bg-white border rounded"
+                                        />
+                                        {resposta.assinatura_data_hora && (
+                                          <p className="text-[9px] text-muted-foreground mt-1">
+                                            📅 {resposta.assinatura_data_hora}
+                                          </p>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <span className="text-sm text-muted-foreground">Sem assinatura</span>
+                                    )
+                                  ) : pergunta.tipo === "sim_nao" ? (
+                                    resposta.resposta === "sim" ? (
+                                      <Badge className="bg-green-600">Sim</Badge>
+                                    ) : resposta.resposta === "nao" ? (
+                                      <Badge variant="secondary">Não</Badge>
+                                    ) : (
+                                      <span className="text-sm">{String(resposta.resposta || '-')}</span>
+                                    )
+                                  ) : (
+                                    <span className="text-sm">{String(resposta.resposta || '-')}</span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     )}
