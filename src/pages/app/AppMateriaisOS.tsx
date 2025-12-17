@@ -377,11 +377,15 @@ export default function AppMateriaisOS() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    console.log("[AppMateriaisOS] handleSubmit chamado", { formData, tipoOperacao });
+    
     if (!formData.material_id) {
+      console.log("[AppMateriaisOS] Erro: Material não selecionado");
       toast.error("Selecione um material");
       return;
     }
     if (formData.quantidade <= 0) {
+      console.log("[AppMateriaisOS] Erro: Quantidade inválida");
       toast.error("Quantidade inválida");
       return;
     }
@@ -395,6 +399,7 @@ export default function AppMateriaisOS() {
     const requerSerial = material?.requer_serial || material?.unidade === "SR";
     
     if (requerSerial && !formData.numero_serie) {
+      console.log("[AppMateriaisOS] Erro: Requer número de série");
       toast.error("Este material requer número de série/rastro único");
       return;
     }
@@ -402,12 +407,17 @@ export default function AppMateriaisOS() {
     // Se for aplicar, verificar estoque ANTES de chamar a mutation
     if (tipoOperacao === "aplicar") {
       const itemEstoque = estoqueEquipe?.find((e) => e.material_id === formData.material_id);
+      console.log("[AppMateriaisOS] Verificando estoque", { itemEstoque, quantidade: formData.quantidade });
+      
       if (!itemEstoque) {
+        console.log("[AppMateriaisOS] Erro: Material não encontrado no estoque");
         toast.error("Material não encontrado no seu estoque");
         return;
       }
       if (itemEstoque.quantidade < formData.quantidade) {
-        toast.error(`Quantidade insuficiente! Você tem apenas ${itemEstoque.quantidade} ${itemEstoque.materiais.unidade} em estoque.`);
+        const mensagem = `Quantidade insuficiente! Você tem apenas ${itemEstoque.quantidade} ${itemEstoque.materiais.unidade} em estoque.`;
+        console.log("[AppMateriaisOS] Erro:", mensagem);
+        toast.error(mensagem);
         return;
       }
 
@@ -420,11 +430,14 @@ export default function AppMateriaisOS() {
       });
 
       if (jaAplicado) {
-        toast.error("Este material já está aplicado nesta OS. Use o botão de editar para alterar a quantidade.");
+        const mensagem = "Este material já está aplicado nesta OS. Use o botão de editar para alterar a quantidade.";
+        console.log("[AppMateriaisOS] Erro:", mensagem);
+        toast.error(mensagem);
         return;
       }
     }
 
+    console.log("[AppMateriaisOS] Chamando mutation");
     aplicarMutation.mutate({
       ...formData,
       tipo: tipoOperacao === "aplicar" ? "aplicado" : "retirado",
