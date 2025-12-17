@@ -284,81 +284,15 @@ Analise o seguinte conteúdo e crie um checklist completo e estruturado:
 ${textoParaProcessar}
 ---
 
-INSTRUÇÕES:
-1. Identifique o tipo/propósito do checklist
-2. Organize as perguntas em grupos/seções lógicas
-3. Para cada pergunta, determine:
-   - Tipo mais adequado (texto, numero, sim_nao, conforme_nao_conforme, selecao_unica, multipla_escolha, escala, foto, assinatura, data, informativo)
-   - Se é obrigatória
-   - Opções de resposta (quando aplicável)
-   - Condições/regras (ex: se responder "não", exigir foto)
-   - Dicas ou instruções
+Crie um checklist estruturado em JSON. Seja CONCISO. Máximo 10-15 perguntas.
 
-4. Adicione regras inteligentes como:
-   - Exigir foto quando houver não conformidade
-   - Exigir observação para respostas negativas
-   - Campos condicionais baseados em respostas anteriores
+FORMATO JSON (sem explicações, apenas o JSON):
+{"nome":"Nome","descricao":"Desc","tipo":"apr","grupos":[{"id":"g1","nome":"Grupo","ordem":1,"perguntas":[{"id":"p1","texto":"Pergunta?","tipo":"sim_nao","obrigatoria":true,"ordem":1}]}],"configuracoes":{"exige_assinatura":true}}
 
-5. Inclua campos padrão relevantes como:
-   - Identificação do responsável
-   - Data/hora
-   - Localização (se aplicável)
-   - Assinatura de conclusão
+Tipos de checklist: apr, inspecao, manutencao, recebimento_materiais, seguranca, qualidade, auditoria, outro
+Tipos de pergunta: texto, numero, sim_nao, conforme_nao_conforme, selecao_unica, multipla_escolha, foto, assinatura, data
 
-RESPONDA APENAS COM JSON VÁLIDO no seguinte formato:
-{
-  "nome": "Nome do Checklist",
-  "descricao": "Descrição breve do propósito",
-  "tipo": "tipo_do_checklist",
-  "grupos": [
-    {
-      "id": "grupo_1",
-      "nome": "Nome do Grupo",
-      "descricao": "Descrição do grupo",
-      "ordem": 1,
-      "perguntas": [
-        {
-          "id": "p1",
-          "texto": "Texto da pergunta?",
-          "descricao": "Instrução adicional",
-          "tipo": "sim_nao",
-          "obrigatoria": true,
-          "ordem": 1,
-          "opcoes": [
-            { "id": "op1", "texto": "Opção 1", "exige_foto": false }
-          ],
-          "foto_obrigatoria": false,
-          "observacao_obrigatoria": false,
-          "condicoes": [
-            {
-              "id": "c1",
-              "pergunta_origem_id": "p1",
-              "operador": "igual",
-              "valor": "nao",
-              "acao": "exigir_foto"
-            }
-          ],
-          "dica": "Dica para o usuário"
-        }
-      ]
-    }
-  ],
-  "configuracoes": {
-    "exige_localizacao": true,
-    "exige_foto_inicial": false,
-    "exige_foto_final": false,
-    "exige_assinatura": true,
-    "permite_salvar_rascunho": true
-  }
-}
-
-Tipos de checklist válidos: apr, inspecao, manutencao, recebimento_materiais, seguranca, qualidade, auditoria, outro
-
-Tipos de pergunta válidos: texto, texto_longo, numero, sim_nao, conforme_nao_conforme, selecao_unica, multipla_escolha, escala, foto, assinatura, data, informativo
-
-Operadores de condição: igual, diferente, contem, maior, menor, vazio, preenchido, sim, nao, conforme, nao_conforme
-
-Ações de condição: mostrar, ocultar, obrigar, desobrigar, exigir_foto, exigir_observacao, alerta`;
+IMPORTANTE: Retorne APENAS o JSON válido e completo, sem texto adicional.`;
 
       setProgressMessage(`Gerando checklist com ${aiProvider === "gemini" ? "Gemini" : "GPT-4"}...`);
 
@@ -479,7 +413,47 @@ Ações de condição: mostrar, ocultar, obrigar, desobrigar, exigir_foto, exigi
         jsonStr = conteudo.split("```")[1].split("```")[0];
       }
 
-      const checklistData = JSON.parse(jsonStr.trim()) as ChecklistGerado;
+      // Limpar caracteres problemáticos
+      jsonStr = jsonStr.trim();
+      
+      // Tentar corrigir JSON truncado
+      let checklistData: ChecklistGerado;
+      try {
+        checklistData = JSON.parse(jsonStr) as ChecklistGerado;
+      } catch (parseError: any) {
+        console.error("Erro ao parsear JSON:", parseError);
+        console.log("JSON recebido:", jsonStr.substring(0, 500) + "...");
+        
+        // Tentar corrigir JSON incompleto
+        let jsonCorrigido = jsonStr;
+        
+        // Contar chaves abertas e fechar as que faltam
+        const aberturas = (jsonCorrigido.match(/{/g) || []).length;
+        const fechamentos = (jsonCorrigido.match(/}/g) || []).length;
+        const colchetesAbertos = (jsonCorrigido.match(/\[/g) || []).length;
+        const colchetesFechados = (jsonCorrigido.match(/\]/g) || []).length;
+        
+        // Remover vírgula final se houver
+        jsonCorrigido = jsonCorrigido.replace(/,\s*$/, '');
+        jsonCorrigido = jsonCorrigido.replace(/,\s*}/, '}');
+        jsonCorrigido = jsonCorrigido.replace(/,\s*\]/, ']');
+        
+        // Fechar arrays e objetos abertos
+        for (let i = 0; i < colchetesAbertos - colchetesFechados; i++) {
+          jsonCorrigido += ']';
+        }
+        for (let i = 0; i < aberturas - fechamentos; i++) {
+          jsonCorrigido += '}';
+        }
+        
+        try {
+          checklistData = JSON.parse(jsonCorrigido) as ChecklistGerado;
+          console.log("JSON corrigido com sucesso!");
+        } catch (e) {
+          // Se ainda falhar, criar um checklist básico com o que temos
+          throw new Error(`JSON inválido da IA. Tente novamente com um texto mais curto. Erro: ${parseError.message}`);
+        }
+      }
       
       // Validar e ajustar IDs
       checklistData.grupos = checklistData.grupos.map((grupo, gIdx) => ({
