@@ -101,6 +101,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
 import { cn } from "@/lib/utils";
+import { GerarChecklistIA } from "@/components/checklists/GerarChecklistIA";
+import { Sparkles } from "lucide-react";
 
 // ============================================
 // TIPOS E INTERFACES
@@ -374,6 +376,7 @@ export default function ChecklistsAvancado() {
   const [dialogPerguntaOpen, setDialogPerguntaOpen] = useState(false);
   const [dialogGrupoOpen, setDialogGrupoOpen] = useState(false);
   const [dialogCondicaoOpen, setDialogCondicaoOpen] = useState(false);
+  const [gerarIAOpen, setGerarIAOpen] = useState(false);
 
   // Carregar checklists
   const fetchChecklists = async () => {
@@ -877,6 +880,15 @@ export default function ChecklistsAvancado() {
                 ))}
               </SelectContent>
             </Select>
+
+            <Button
+              variant="outline"
+              className="gap-2 border-violet-300 text-violet-700 hover:bg-violet-50"
+              onClick={() => setGerarIAOpen(true)}
+            >
+              <Sparkles className="h-4 w-4" />
+              Gerar com IA
+            </Button>
 
             <Button
               className="gap-2"
@@ -1582,6 +1594,69 @@ export default function ChecklistsAvancado() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Dialog de Geração com IA */}
+      <GerarChecklistIA
+        open={gerarIAOpen}
+        onOpenChange={setGerarIAOpen}
+        onChecklistGerado={(checklistIA) => {
+          // Converter o checklist gerado pela IA para o formato do sistema
+          const novoChecklist: Partial<ChecklistCompleto> = {
+            nome: checklistIA.nome,
+            descricao: checklistIA.descricao,
+            tipo: checklistIA.tipo,
+            versao: "1.0",
+            ativo: true,
+            permite_salvar_rascunho: checklistIA.configuracoes?.permite_salvar_rascunho ?? true,
+            exige_localizacao: checklistIA.configuracoes?.exige_localizacao ?? false,
+            exige_foto_inicial: checklistIA.configuracoes?.exige_foto_inicial ?? false,
+            exige_foto_final: checklistIA.configuracoes?.exige_foto_final ?? false,
+            exige_assinatura: checklistIA.configuracoes?.exige_assinatura ?? false,
+            usa_pontuacao: false,
+            grupos: checklistIA.grupos.map((grupo, gIdx) => ({
+              id: crypto.randomUUID(),
+              nome: grupo.nome,
+              descricao: grupo.descricao,
+              ordem: gIdx + 1,
+              perguntas: grupo.perguntas.map((pergunta, pIdx) => ({
+                id: crypto.randomUUID(),
+                texto: pergunta.texto,
+                descricao: pergunta.descricao,
+                tipo: pergunta.tipo as TipoPergunta,
+                obrigatoria: pergunta.obrigatoria,
+                ordem: pIdx + 1,
+                opcoes: pergunta.opcoes?.map(op => ({
+                  id: crypto.randomUUID(),
+                  texto: op.texto,
+                  valor: op.valor,
+                  exige_foto: op.exige_foto,
+                  exige_observacao: op.exige_observacao,
+                })),
+                foto_obrigatoria: pergunta.foto_obrigatoria,
+                observacao_obrigatoria: pergunta.observacao_obrigatoria,
+                condicoes: pergunta.condicoes?.map(cond => ({
+                  id: crypto.randomUUID(),
+                  pergunta_origem_id: cond.pergunta_origem_id,
+                  operador: cond.operador as keyof typeof OPERADORES_CONDICAO,
+                  valor: cond.valor,
+                  acao: cond.acao as keyof typeof ACOES_CONDICAO,
+                  acao_valor: cond.acao_valor,
+                })),
+                valor_min: pergunta.valor_min,
+                valor_max: pergunta.valor_max,
+                placeholder: pergunta.placeholder,
+                dica: pergunta.dica,
+              })),
+            })),
+          };
+
+          // Abrir o formulário com os dados preenchidos
+          setFormData(novoChecklist);
+          setSelectedChecklist(null);
+          setFormOpen(true);
+          toast.success("Checklist importado! Revise e salve para confirmar.");
+        }}
+      />
     </MainLayout>
   );
 }
