@@ -215,27 +215,30 @@ export default function ChecklistDetalhes() {
         {/* Valor principal */}
         {pergunta.tipo === "foto" ? (
           fotos && fotos.length > 0 ? (
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-4">
               {fotos.map((foto: any, index: number) => (
-                <button
-                  key={index}
-                  type="button"
-                  className="relative group block focus:outline-none focus:ring-2 focus:ring-violet-500 rounded"
-                  onClick={(e) => handleFotoClick(e, fotos, index, pergunta.texto)}
-                >
-                  <img 
-                    src={foto.url} 
-                    alt={`Foto ${index + 1}`} 
-                    className="w-32 h-28 object-cover rounded border-2 border-gray-200 hover:border-violet-500 transition-all shadow-sm hover:shadow-md" 
-                    loading="lazy"
-                  />
-                  <span className="absolute top-1 left-1 bg-black/70 text-white text-xs px-1.5 py-0.5 rounded font-medium">
-                    {index + 1}
-                  </span>
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all rounded flex items-center justify-center">
-                    <ZoomIn className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 transition-all drop-shadow-lg" />
-                  </div>
-                </button>
+                <div key={index} className="flex flex-col">
+                  <button
+                    type="button"
+                    className="relative group block focus:outline-none focus:ring-2 focus:ring-violet-500 rounded"
+                    onClick={(e) => handleFotoClick(e, fotos, index, pergunta.texto)}
+                  >
+                    <img 
+                      src={foto.url} 
+                      alt={`Foto ${index + 1}`} 
+                      className="w-32 h-28 object-cover rounded border-2 border-gray-200 hover:border-violet-500 transition-all shadow-sm hover:shadow-md" 
+                      loading="lazy"
+                    />
+                    <span className="absolute top-1 left-1 bg-black/70 text-white text-xs px-1.5 py-0.5 rounded font-medium">
+                      {index + 1}
+                    </span>
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all rounded flex items-center justify-center">
+                      <ZoomIn className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 transition-all drop-shadow-lg" />
+                    </div>
+                  </button>
+                  {/* Data/hora e coordenadas abaixo de cada foto */}
+                  {renderCoordenadasCopiavel(foto.latitude, foto.longitude, foto.data_hora || foto.dataHora)}
+                </div>
               ))}
             </div>
           ) : fotoUrl ? (
@@ -307,24 +310,27 @@ export default function ChecklistDetalhes() {
         {pergunta.tipo !== "foto" && (fotos && fotos.length > 0 ? (
           <div className="mt-3">
             <p className="text-xs text-muted-foreground mb-2 font-medium">📷 Fotos anexadas:</p>
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-4">
               {fotos.map((foto: any, index: number) => (
-                <button
-                  key={index}
-                  type="button"
-                  className="relative group block focus:outline-none focus:ring-2 focus:ring-violet-500 rounded"
-                  onClick={(e) => handleFotoClick(e, fotos, index, `${pergunta.texto} - Fotos`)}
-                >
-                  <img 
-                    src={foto.url} 
-                    alt={`Foto ${index + 1}`} 
-                    className="w-28 h-24 object-cover rounded border-2 border-gray-200 hover:border-violet-500 transition-all shadow-sm hover:shadow-md" 
-                    loading="lazy"
-                  />
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all rounded flex items-center justify-center">
-                    <ZoomIn className="h-5 w-5 text-white opacity-0 group-hover:opacity-100 transition-all drop-shadow-lg" />
-                  </div>
-                </button>
+                <div key={index} className="flex flex-col">
+                  <button
+                    type="button"
+                    className="relative group block focus:outline-none focus:ring-2 focus:ring-violet-500 rounded"
+                    onClick={(e) => handleFotoClick(e, fotos, index, `${pergunta.texto} - Fotos`)}
+                  >
+                    <img 
+                      src={foto.url} 
+                      alt={`Foto ${index + 1}`} 
+                      className="w-28 h-24 object-cover rounded border-2 border-gray-200 hover:border-violet-500 transition-all shadow-sm hover:shadow-md" 
+                      loading="lazy"
+                    />
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all rounded flex items-center justify-center">
+                      <ZoomIn className="h-5 w-5 text-white opacity-0 group-hover:opacity-100 transition-all drop-shadow-lg" />
+                    </div>
+                  </button>
+                  {/* Data/hora e coordenadas abaixo de cada foto */}
+                  {renderCoordenadasCopiavel(foto.latitude, foto.longitude, foto.data_hora || foto.dataHora)}
+                </div>
               ))}
             </div>
           </div>
