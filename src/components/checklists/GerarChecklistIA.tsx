@@ -366,13 +366,13 @@ Ações de condição: mostrar, ocultar, obrigar, desobrigar, exigir_foto, exigi
 
       if (aiProvider === "gemini") {
         // Chamada para Google Gemini API
-        // Tentar múltiplos modelos e versões de API
+        // Usar modelos mais recentes disponíveis
         const tentativas = [
-          { versao: "v1beta", modelo: "gemini-2.0-flash-exp" },
-          { versao: "v1beta", modelo: "gemini-1.5-flash-latest" },
-          { versao: "v1beta", modelo: "gemini-1.5-flash" },
-          { versao: "v1", modelo: "gemini-pro" },
-          { versao: "v1beta", modelo: "gemini-pro" },
+          { versao: "v1beta", modelo: "gemini-2.5-flash" },
+          { versao: "v1beta", modelo: "gemini-2.0-flash" },
+          { versao: "v1beta", modelo: "gemini-flash-latest" },
+          { versao: "v1beta", modelo: "gemini-2.0-flash-001" },
+          { versao: "v1beta", modelo: "gemini-2.5-pro" },
         ];
         let response: Response | null = null;
         let ultimoErro = "";
