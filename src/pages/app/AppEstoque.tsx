@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
@@ -33,10 +33,13 @@ import {
   Trash2,
   MapPin,
   Calendar,
+  Plus,
+  Eye,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import { SignatureFullScreen } from "@/components/app/SignatureFullScreen";
 
 interface EstoqueItem {
   id: string;
@@ -83,6 +86,13 @@ interface EntregaPendente {
   }[];
 }
 
+interface FotoData {
+  url: string;
+  latitude?: number;
+  longitude?: number;
+  data_hora: string;
+}
+
 export default function AppEstoque() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -94,12 +104,12 @@ export default function AppEstoque() {
   // Estado para confirmação de entrega
   const [dialogConfirmacao, setDialogConfirmacao] = useState(false);
   const [entregaSelecionada, setEntregaSelecionada] = useState<EntregaPendente | null>(null);
-  const [fotoRecebimento, setFotoRecebimento] = useState<string | null>(null);
+  const [fotosRecebimento, setFotosRecebimento] = useState<FotoData[]>([]);
   const [assinaturaRecebimento, setAssinaturaRecebimento] = useState<string | null>(null);
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [coordenadas, setCoordenadas] = useState<{ lat: number; lng: number } | null>(null);
+  const [assinaturaData, setAssinaturaData] = useState<{ data_hora: string; latitude?: number; longitude?: number } | null>(null);
+  const [showSignatureScreen, setShowSignatureScreen] = useState(false);
+  const [fotoPreview, setFotoPreview] = useState<string | null>(null);
   
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const inputFotoRef = useRef<HTMLInputElement>(null);
 
   const equipeId = equipe?.id || equipeAuth?.id;
@@ -212,18 +222,24 @@ export default function AppEstoque() {
   const confirmarRecebimentoMutation = useMutation({
     mutationFn: async (data: {
       entrega_id: string;
-      foto: string;
+      fotos: FotoData[];
       assinatura: string;
-      coordenadas: { lat: number; lng: number } | null;
+      assinatura_data: { data_hora: string; latitude?: number; longitude?: number } | null;
     }) => {
+      // Preparar dados da foto (primeira foto como principal)
+      const fotoPrincipal = data.fotos[0]?.url || null;
+      const coordenadas = data.fotos[0] 
+        ? `${data.fotos[0].latitude || 0},${data.fotos[0].longitude || 0}` 
+        : null;
+
       // Atualizar status da entrega
       const { error } = await supabase
         .from("materiais_entregas")
         .update({
           status: "confirmado",
-          foto_recebimento: data.foto,
+          foto_recebimento: fotoPrincipal,
           assinatura_recebimento: data.assinatura,
-          coordenadas_recebimento: data.coordenadas ? `${data.coordenadas.lat},${data.coordenadas.lng}` : null,
+          coordenadas_recebimento: coordenadas,
           data_confirmacao: new Date().toISOString(),
         })
         .eq("id", data.entrega_id);
@@ -245,9 +261,9 @@ export default function AppEstoque() {
           status: "concluido",
           respostas: {
             entrega_id: data.entrega_id,
-            foto_recebimento: data.foto,
+            fotos: data.fotos,
             assinatura: data.assinatura,
-            coordenadas: data.coordenadas,
+            assinatura_data: data.assinatura_data,
             data_recebimento: new Date().toISOString(),
           },
         });
@@ -266,29 +282,113 @@ export default function AppEstoque() {
     },
   });
 
+  // Obter localização atual (mesmo padrão da APR)
+  const getCurrentLocation = useCallback((): Promise<{ latitude: number; longitude: number } | null> => {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        console.warn("[Estoque] Geolocalização não suportada");
+        resolve(null);
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          resolve({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          });
+        },
+        (error) => {
+          console.warn("[Estoque] Erro ao obter localização:", error);
+          resolve(null);
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+      );
+    });
+  }, []);
+
+  // Adicionar carimbo na imagem (mesmo padrão da APR)
+  const addImageStamp = useCallback((
+    imageDataUrl: string,
+    timestamp: string,
+    coords: { latitude: number; longitude: number } | null
+  ): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext("2d");
+        
+        if (!ctx) {
+          resolve(imageDataUrl);
+          return;
+        }
+
+        // Desenhar imagem original
+        ctx.drawImage(img, 0, 0);
+
+        // Configurar estilo do texto
+        const fontSize = Math.max(14, Math.floor(img.width / 35));
+        ctx.font = `bold ${fontSize}px Arial`;
+        
+        // Preparar textos
+        const line1 = `📅 ${timestamp}`;
+        const line2 = coords ? `📍 ${coords.latitude.toFixed(6)}, ${coords.longitude.toFixed(6)}` : "📍 Sem GPS";
+        
+        // Medir textos
+        const metrics1 = ctx.measureText(line1);
+        const metrics2 = ctx.measureText(line2);
+        const maxWidth = Math.max(metrics1.width, metrics2.width);
+        const lineHeight = fontSize * 1.4;
+        const padding = fontSize * 0.6;
+        const boxHeight = lineHeight * 2 + padding * 2;
+        const boxWidth = maxWidth + padding * 2;
+
+        // Desenhar fundo semi-transparente no canto superior esquerdo
+        ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+        ctx.fillRect(0, 0, boxWidth, boxHeight);
+
+        // Desenhar textos
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(line1, padding, padding + fontSize);
+        ctx.fillText(line2, padding, padding + fontSize + lineHeight);
+
+        // Converter para base64
+        resolve(canvas.toDataURL("image/jpeg", 0.85));
+      };
+      
+      img.onerror = () => {
+        console.error("[Estoque] Erro ao carregar imagem para carimbo");
+        resolve(imageDataUrl);
+      };
+      
+      img.src = imageDataUrl;
+    });
+  }, []);
+
+  // Converter arquivo para base64
+  const fileToBase64 = useCallback((file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = (error) => reject(error);
+    });
+  }, []);
+
   // Funções auxiliares
   const resetFormConfirmacao = () => {
     setEntregaSelecionada(null);
-    setFotoRecebimento(null);
+    setFotosRecebimento([]);
     setAssinaturaRecebimento(null);
-    setCoordenadas(null);
-    if (canvasRef.current) {
-      const ctx = canvasRef.current.getContext("2d");
-      ctx?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-    }
+    setAssinaturaData(null);
   };
 
   const handleAbrirConfirmacao = async (entrega: EntregaPendente) => {
     setEntregaSelecionada(entrega);
     setDialogConfirmacao(true);
-    
-    // Capturar coordenadas
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => setCoordenadas({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        () => console.log("Não foi possível obter localização")
-      );
-    }
   };
 
   const handleTirarFoto = () => {
@@ -299,162 +399,75 @@ export default function AppEstoque() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target?.result as string;
+    toast.loading("Obtendo localização e processando foto...", { id: "foto-upload" });
+
+    try {
+      // Obter localização
+      const coords = await getCurrentLocation();
+      const timestamp = format(new Date(), "dd/MM/yyyy HH:mm:ss");
       
-      // Adicionar data/hora e coordenadas na foto
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext("2d");
-        
-        if (ctx) {
-          ctx.drawImage(img, 0, 0);
-          
-          // Adicionar texto
-          const fontSize = Math.max(16, img.width / 40);
-          ctx.font = `bold ${fontSize}px Arial`;
-          ctx.fillStyle = "white";
-          ctx.strokeStyle = "black";
-          ctx.lineWidth = 2;
-          
-          const dataHora = format(new Date(), "dd/MM/yyyy HH:mm:ss");
-          const texto = coordenadas 
-            ? `${dataHora} | ${coordenadas.lat.toFixed(6)}, ${coordenadas.lng.toFixed(6)}`
-            : dataHora;
-          
-          const x = 10;
-          const y = img.height - 10;
-          
-          ctx.strokeText(texto, x, y);
-          ctx.fillText(texto, x, y);
-          
-          setFotoRecebimento(canvas.toDataURL("image/jpeg", 0.8));
-        }
+      // Converter para base64
+      const base64 = await fileToBase64(file);
+      
+      // Adicionar carimbo
+      const stampedImage = await addImageStamp(base64, timestamp, coords);
+
+      const novaFoto: FotoData = {
+        url: stampedImage,
+        latitude: coords?.latitude,
+        longitude: coords?.longitude,
+        data_hora: timestamp,
       };
-      img.src = base64;
-    };
-    reader.readAsDataURL(file);
+
+      setFotosRecebimento(prev => [...prev, novaFoto]);
+      toast.success("Foto adicionada!", { id: "foto-upload" });
+    } catch (error) {
+      console.error("[Estoque] Erro ao processar foto:", error);
+      toast.error("Erro ao processar foto", { id: "foto-upload" });
+    }
     
     // Limpar input
     e.target.value = "";
   };
 
-  // Funções de assinatura
-  const initCanvas = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    ctx.scale(dpr, dpr);
-    
-    ctx.fillStyle = "white";
-    ctx.fillRect(0, 0, rect.width, rect.height);
-    ctx.strokeStyle = "#000";
-    ctx.lineWidth = 2;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
+  const handleRemoverFoto = (index: number) => {
+    setFotosRecebimento(prev => prev.filter((_, i) => i !== index));
   };
 
-  useEffect(() => {
-    if (dialogConfirmacao && canvasRef.current) {
-      setTimeout(initCanvas, 100);
-    }
-  }, [dialogConfirmacao]);
-
-  const getCanvasCoords = (e: React.TouchEvent | React.MouseEvent) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
+  // Handler para assinatura (usando SignatureFullScreen)
+  const handleAssinaturaSalva = async (dataUrl: string) => {
+    toast.loading("Processando assinatura...", { id: "assinatura" });
     
-    const rect = canvas.getBoundingClientRect();
-    
-    if ("touches" in e) {
-      const touch = e.touches[0];
-      return {
-        x: touch.clientX - rect.left,
-        y: touch.clientY - rect.top,
-      };
-    }
-    
-    return {
-      x: (e as React.MouseEvent).clientX - rect.left,
-      y: (e as React.MouseEvent).clientY - rect.top,
-    };
-  };
-
-  const startDrawing = (e: React.TouchEvent | React.MouseEvent) => {
-    e.preventDefault();
-    setIsDrawing(true);
-    
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-    if (!ctx) return;
-    
-    const { x, y } = getCanvasCoords(e);
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-  };
-
-  const draw = (e: React.TouchEvent | React.MouseEvent) => {
-    if (!isDrawing) return;
-    e.preventDefault();
-    
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-    if (!ctx) return;
-    
-    const { x, y } = getCanvasCoords(e);
-    ctx.lineTo(x, y);
-    ctx.stroke();
-  };
-
-  const stopDrawing = () => {
-    setIsDrawing(false);
-  };
-
-  const limparAssinatura = () => {
-    initCanvas();
-    setAssinaturaRecebimento(null);
-  };
-
-  const salvarAssinatura = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    
-    // Adicionar data/hora e coordenadas
-    const ctx = canvas.getContext("2d");
-    if (ctx) {
-      const fontSize = 10;
-      ctx.font = `${fontSize}px Arial`;
-      ctx.fillStyle = "#666";
+    try {
+      const coords = await getCurrentLocation();
+      const timestamp = format(new Date(), "dd/MM/yyyy HH:mm:ss");
       
-      const dataHora = format(new Date(), "dd/MM/yyyy HH:mm:ss");
-      const texto = coordenadas 
-        ? `${dataHora} | ${coordenadas.lat.toFixed(6)}, ${coordenadas.lng.toFixed(6)}`
-        : dataHora;
+      // Adicionar carimbo na assinatura também
+      const stampedSignature = await addImageStamp(dataUrl, timestamp, coords);
       
-      ctx.fillText(texto, 5, canvas.height / (window.devicePixelRatio || 1) - 5);
+      setAssinaturaRecebimento(stampedSignature);
+      setAssinaturaData({
+        data_hora: timestamp,
+        latitude: coords?.latitude,
+        longitude: coords?.longitude,
+      });
+      
+      toast.success("Assinatura salva!", { id: "assinatura" });
+    } catch (error) {
+      console.error("[Estoque] Erro ao processar assinatura:", error);
+      setAssinaturaRecebimento(dataUrl);
+      setAssinaturaData({
+        data_hora: format(new Date(), "dd/MM/yyyy HH:mm:ss"),
+      });
+      toast.success("Assinatura salva!", { id: "assinatura" });
     }
-    
-    setAssinaturaRecebimento(canvas.toDataURL("image/png"));
-    toast.success("Assinatura salva!");
   };
 
   const handleConfirmarRecebimento = () => {
     if (!entregaSelecionada) return;
     
-    if (!fotoRecebimento) {
-      toast.error("Tire uma foto do recebimento");
+    if (fotosRecebimento.length === 0) {
+      toast.error("Tire pelo menos uma foto do recebimento");
       return;
     }
     
@@ -465,9 +478,9 @@ export default function AppEstoque() {
     
     confirmarRecebimentoMutation.mutate({
       entrega_id: entregaSelecionada.id,
-      foto: fotoRecebimento,
+      fotos: fotosRecebimento,
       assinatura: assinaturaRecebimento,
-      coordenadas,
+      assinatura_data: assinaturaData,
     });
   };
 
@@ -770,102 +783,119 @@ export default function AppEstoque() {
                 </CardContent>
               </Card>
 
-              {/* Coordenadas */}
-              {coordenadas && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <MapPin className="h-4 w-4" />
-                  <span>{coordenadas.lat.toFixed(6)}, {coordenadas.lng.toFixed(6)}</span>
-                </div>
-              )}
-
-              {/* Foto do recebimento */}
-              <div className="space-y-2">
+              {/* Fotos do recebimento (múltiplas) */}
+              <div className="space-y-3">
                 <Label className="flex items-center gap-2">
                   <Camera className="h-4 w-4" />
-                  Foto do Recebimento *
+                  Fotos do Recebimento * (pode tirar várias)
                 </Label>
                 
-                {fotoRecebimento ? (
-                  <div className="relative">
-                    <img 
-                      src={fotoRecebimento} 
-                      alt="Foto do recebimento" 
-                      className="w-full h-48 object-cover rounded-lg border"
-                    />
-                    <Button
-                      variant="destructive"
-                      size="icon"
-                      className="absolute top-2 right-2 h-8 w-8"
-                      onClick={() => setFotoRecebimento(null)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                {/* Grid de fotos */}
+                {fotosRecebimento.length > 0 && (
+                  <div className="grid grid-cols-2 gap-2">
+                    {fotosRecebimento.map((foto, index) => (
+                      <div key={index} className="relative group">
+                        <img 
+                          src={foto.url} 
+                          alt={`Foto ${index + 1}`} 
+                          className="w-full h-32 object-cover rounded-lg border cursor-pointer"
+                          onClick={() => setFotoPreview(foto.url)}
+                        />
+                        <Button
+                          variant="destructive"
+                          size="icon"
+                          className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={() => handleRemoverFoto(index)}
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                        <div className="absolute bottom-1 left-1 right-1 bg-black/60 text-white text-[10px] px-1 py-0.5 rounded truncate">
+                          📅 {foto.data_hora}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ) : (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full h-32 border-dashed"
-                    onClick={handleTirarFoto}
-                  >
-                    <div className="flex flex-col items-center gap-2">
-                      <Camera className="h-8 w-8 text-muted-foreground" />
-                      <span className="text-sm text-muted-foreground">Tirar foto do recebimento</span>
-                    </div>
-                  </Button>
+                )}
+                
+                {/* Botão para tirar mais fotos */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={`w-full ${fotosRecebimento.length === 0 ? 'h-32 border-dashed' : 'h-12'}`}
+                  onClick={handleTirarFoto}
+                >
+                  <div className="flex items-center gap-2">
+                    {fotosRecebimento.length === 0 ? (
+                      <>
+                        <Camera className="h-8 w-8 text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground">Tirar foto do recebimento</span>
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="h-4 w-4" />
+                        <span>Adicionar mais fotos</span>
+                      </>
+                    )}
+                  </div>
+                </Button>
+                
+                {fotosRecebimento.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {fotosRecebimento.length} foto(s) adicionada(s) - com data/hora e coordenadas
+                  </p>
                 )}
               </div>
 
-              {/* Assinatura */}
-              <div className="space-y-2">
+              {/* Assinatura (usando SignatureFullScreen) */}
+              <div className="space-y-3">
                 <Label className="flex items-center gap-2">
                   <FileSignature className="h-4 w-4" />
                   Assinatura *
                 </Label>
                 
-                <div className="border rounded-lg overflow-hidden bg-white">
-                  <canvas
-                    ref={canvasRef}
-                    className="w-full touch-none"
-                    style={{ height: "150px" }}
-                    onMouseDown={startDrawing}
-                    onMouseMove={draw}
-                    onMouseUp={stopDrawing}
-                    onMouseLeave={stopDrawing}
-                    onTouchStart={startDrawing}
-                    onTouchMove={draw}
-                    onTouchEnd={stopDrawing}
-                  />
-                </div>
-                
-                <div className="flex gap-2">
+                {assinaturaRecebimento ? (
+                  <div className="space-y-2">
+                    <div className="relative">
+                      <img 
+                        src={assinaturaRecebimento} 
+                        alt="Assinatura" 
+                        className="w-full h-32 object-contain rounded-lg border bg-white cursor-pointer"
+                        onClick={() => setFotoPreview(assinaturaRecebimento)}
+                      />
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        className="absolute top-2 right-2 h-8 w-8"
+                        onClick={() => {
+                          setAssinaturaRecebimento(null);
+                          setAssinaturaData(null);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <p className="text-xs text-green-600 flex items-center gap-1">
+                      <CheckCircle className="h-3 w-3" />
+                      Assinatura salva
+                      {assinaturaData && (
+                        <span className="text-muted-foreground ml-1">
+                          - {assinaturaData.data_hora}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                ) : (
                   <Button
                     type="button"
                     variant="outline"
-                    size="sm"
-                    onClick={limparAssinatura}
-                    className="flex-1"
+                    className="w-full h-24 border-dashed"
+                    onClick={() => setShowSignatureScreen(true)}
                   >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Limpar
+                    <div className="flex flex-col items-center gap-2">
+                      <FileSignature className="h-8 w-8 text-muted-foreground" />
+                      <span className="text-sm text-muted-foreground">Toque para assinar (tela cheia)</span>
+                    </div>
                   </Button>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    onClick={salvarAssinatura}
-                    className="flex-1"
-                  >
-                    <CheckCircle className="h-4 w-4 mr-2" />
-                    Salvar Assinatura
-                  </Button>
-                </div>
-                
-                {assinaturaRecebimento && (
-                  <p className="text-xs text-green-600 flex items-center gap-1">
-                    <CheckCircle className="h-3 w-3" />
-                    Assinatura salva
-                  </p>
                 )}
               </div>
 
@@ -881,12 +911,46 @@ export default function AppEstoque() {
                 </Button>
                 <Button
                   onClick={handleConfirmarRecebimento}
-                  disabled={confirmarRecebimentoMutation.isPending || !fotoRecebimento || !assinaturaRecebimento}
+                  disabled={confirmarRecebimentoMutation.isPending || fotosRecebimento.length === 0 || !assinaturaRecebimento}
                   className="bg-green-600 hover:bg-green-700"
                 >
                   {confirmarRecebimentoMutation.isPending ? "Confirmando..." : "Confirmar Recebimento"}
                 </Button>
               </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Tela de Assinatura Full Screen */}
+      <SignatureFullScreen
+        open={showSignatureScreen}
+        onClose={() => setShowSignatureScreen(false)}
+        onSave={handleAssinaturaSalva}
+        titulo="Assinatura de Recebimento"
+      />
+
+      {/* Dialog de Preview de Foto */}
+      <Dialog open={!!fotoPreview} onOpenChange={() => setFotoPreview(null)}>
+        <DialogContent className="max-w-[95vw] max-h-[90vh] p-2">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Visualizar Imagem</DialogTitle>
+          </DialogHeader>
+          {fotoPreview && (
+            <div className="relative">
+              <img 
+                src={fotoPreview} 
+                alt="Preview" 
+                className="w-full h-auto max-h-[80vh] object-contain rounded-lg"
+              />
+              <Button
+                variant="secondary"
+                size="icon"
+                className="absolute top-2 right-2"
+                onClick={() => setFotoPreview(null)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
             </div>
           )}
         </DialogContent>

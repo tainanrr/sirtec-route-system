@@ -9,12 +9,11 @@ ADD COLUMN IF NOT EXISTS coordenadas_recebimento VARCHAR(100),
 ADD COLUMN IF NOT EXISTS data_confirmacao TIMESTAMPTZ;
 
 -- Criar checklist de recebimento de materiais (se não existir)
-INSERT INTO checklists (nome, descricao, tipo, ativo, obrigatorio, perguntas)
+INSERT INTO checklists (nome, descricao, tipo, ativo, perguntas)
 SELECT 
   'Recebimento de Materiais',
   'Checklist para confirmação de recebimento de materiais pela equipe',
   'recebimento_materiais',
-  true,
   true,
   '[
     {
