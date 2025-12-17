@@ -60,6 +60,7 @@ import {
   Printer,
   Download,
   QrCode,
+  Check,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -121,6 +122,11 @@ export default function EntregasEquipes() {
   const [buscaMaterial, setBuscaMaterial] = useState("");
   const [dialogRastros, setDialogRastros] = useState(false);
   const [buscaRastro, setBuscaRastro] = useState("");
+  const [rastrosSelecionados, setRastrosSelecionados] = useState<string[]>([]);
+  const [modoSelecaoRastros, setModoSelecaoRastros] = useState<"individual" | "multiplo" | "range" | "importar">("individual");
+  const [rangeInicio, setRangeInicio] = useState("");
+  const [rangeFim, setRangeFim] = useState("");
+  const [importarTexto, setImportarTexto] = useState("");
 
   // Query para entregas
   const { data: entregas, isLoading } = useQuery({
@@ -1012,93 +1018,425 @@ export default function EntregasEquipes() {
           </DialogContent>
         </Dialog>
 
-        {/* Dialog de Seleção de Rastros */}
-        <Dialog open={dialogRastros} onOpenChange={setDialogRastros}>
-          <DialogContent className="max-w-md">
+        {/* Dialog de Seleção de Rastros - Robusto com múltiplas opções */}
+        <Dialog open={dialogRastros} onOpenChange={(open) => {
+          setDialogRastros(open);
+          if (!open) {
+            setBuscaRastro("");
+            setRastrosSelecionados([]);
+            setModoSelecaoRastros("individual");
+            setRangeInicio("");
+            setRangeFim("");
+            setImportarTexto("");
+          }
+        }}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Selecionar Rastro</DialogTitle>
+              <DialogTitle className="flex items-center gap-2">
+                <QrCode className="h-5 w-5" />
+                Selecionar Rastros
+              </DialogTitle>
               <DialogDescription>
-                Selecione um rastro disponível em estoque para este material
+                Selecione os rastros disponíveis em estoque para este material
               </DialogDescription>
             </DialogHeader>
 
             {itemTemp.material_id && (() => {
               const material = materiais?.find((m: any) => m.id === itemTemp.material_id);
               
+              // Filtrar rastros que já estão na entrega
+              const rastrosJaAdicionados = novaEntrega.itens
+                .filter(i => i.material_id === itemTemp.material_id && i.numero_serie)
+                .map(i => i.numero_serie);
+              
+              const rastrosDisponiveisFiltrados = rastrosDisponiveis?.filter(
+                (r: any) => !rastrosJaAdicionados.includes(r.numero_serie)
+              ) || [];
+              
+              const handleAdicionarRastros = () => {
+                if (rastrosSelecionados.length === 0) {
+                  toast.error("Selecione pelo menos um rastro");
+                  return;
+                }
+
+                // Verificar se algum rastro já está na lista
+                const duplicados = rastrosSelecionados.filter(rs => 
+                  novaEntrega.itens.some(i => i.numero_serie === rs)
+                );
+                
+                if (duplicados.length > 0) {
+                  toast.error(`Rastro(s) já adicionado(s): ${duplicados.join(", ")}`);
+                  return;
+                }
+
+                // Adicionar todos os rastros selecionados
+                const novosItens = rastrosSelecionados.map(ns => ({
+                  material_id: itemTemp.material_id,
+                  quantidade: 1,
+                  numero_serie: ns,
+                  material: material,
+                }));
+
+                setNovaEntrega({
+                  ...novaEntrega,
+                  itens: [...novaEntrega.itens, ...novosItens],
+                });
+
+                toast.success(`${rastrosSelecionados.length} rastro(s) adicionado(s)`);
+                setDialogRastros(false);
+                setRastrosSelecionados([]);
+                setItemTemp({ material_id: "", quantidade: 1, numero_serie: "" });
+                setBuscaMaterial("");
+              };
+
+              const handleSelecionarRange = () => {
+                if (!rangeInicio || !rangeFim) {
+                  toast.error("Preencha o início e fim do range");
+                  return;
+                }
+
+                const disponiveis = rastrosDisponiveisFiltrados.map((r: any) => r.numero_serie).sort();
+                const inicioIdx = disponiveis.findIndex((ns: string) => ns >= rangeInicio);
+                const fimIdx = disponiveis.findIndex((ns: string) => ns > rangeFim);
+                
+                if (inicioIdx === -1) {
+                  toast.error("Nenhum rastro encontrado no range especificado");
+                  return;
+                }
+
+                const rastrosNoRange = disponiveis.slice(
+                  inicioIdx, 
+                  fimIdx === -1 ? undefined : fimIdx
+                );
+
+                if (rastrosNoRange.length === 0) {
+                  toast.error("Nenhum rastro encontrado no range especificado");
+                  return;
+                }
+
+                setRastrosSelecionados(prev => {
+                  const novos = rastrosNoRange.filter((r: string) => !prev.includes(r));
+                  return [...prev, ...novos];
+                });
+
+                toast.success(`${rastrosNoRange.length} rastro(s) selecionado(s) do range`);
+              };
+
+              const handleImportarRastros = () => {
+                if (!importarTexto.trim()) {
+                  toast.error("Cole os números de série para importar");
+                  return;
+                }
+
+                // Separar por vírgula, ponto-e-vírgula, tab ou quebra de linha
+                const rastrosImportados = importarTexto
+                  .split(/[,;\t\n]+/)
+                  .map(r => r.trim().toUpperCase())
+                  .filter(r => r.length > 0);
+
+                const disponiveis = rastrosDisponiveisFiltrados.map((r: any) => r.numero_serie);
+                const validos: string[] = [];
+                const invalidos: string[] = [];
+
+                rastrosImportados.forEach(r => {
+                  if (disponiveis.includes(r)) {
+                    if (!rastrosSelecionados.includes(r)) {
+                      validos.push(r);
+                    }
+                  } else {
+                    invalidos.push(r);
+                  }
+                });
+
+                if (invalidos.length > 0) {
+                  toast.error(`Rastros não encontrados em estoque: ${invalidos.slice(0, 3).join(", ")}${invalidos.length > 3 ? ` e mais ${invalidos.length - 3}` : ""}`);
+                }
+
+                if (validos.length > 0) {
+                  setRastrosSelecionados(prev => [...prev, ...validos]);
+                  toast.success(`${validos.length} rastro(s) importado(s)`);
+                  setImportarTexto("");
+                }
+              };
+
+              const toggleRastro = (numeroSerie: string) => {
+                setRastrosSelecionados(prev => 
+                  prev.includes(numeroSerie)
+                    ? prev.filter(r => r !== numeroSerie)
+                    : [...prev, numeroSerie]
+                );
+              };
+
+              const selecionarTodos = () => {
+                const filtrados = rastrosDisponiveisFiltrados
+                  .filter((rastro: any) => {
+                    if (!buscaRastro) return true;
+                    const term = buscaRastro.toLowerCase();
+                    return (
+                      rastro.numero_serie.toLowerCase().includes(term) ||
+                      rastro.lote?.toLowerCase().includes(term)
+                    );
+                  })
+                  .map((r: any) => r.numero_serie);
+                
+                setRastrosSelecionados(filtrados);
+              };
+
+              const deselecionarTodos = () => {
+                setRastrosSelecionados([]);
+              };
+              
               return (
                 <div className="space-y-4">
-                  <div>
-                    <p className="text-sm font-medium">{material?.codigo}</p>
-                    <p className="text-xs text-muted-foreground">{material?.nome}</p>
+                  {/* Info do material */}
+                  <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                    <div>
+                      <p className="text-sm font-medium">{material?.codigo}</p>
+                      <p className="text-xs text-muted-foreground">{material?.nome}</p>
+                    </div>
+                    <Badge variant="secondary">
+                      {rastrosDisponiveisFiltrados.length} disponíveis
+                    </Badge>
                   </div>
 
-                  <div className="space-y-2">
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Buscar por número de série ou lote..."
-                        value={buscaRastro}
-                        onChange={(e) => setBuscaRastro(e.target.value)}
-                        className="pl-10"
+                  {/* Tabs de modo de seleção */}
+                  <div className="flex gap-1 p-1 bg-muted rounded-lg">
+                    <Button
+                      type="button"
+                      variant={modoSelecaoRastros === "individual" ? "default" : "ghost"}
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => setModoSelecaoRastros("individual")}
+                    >
+                      Individual
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={modoSelecaoRastros === "multiplo" ? "default" : "ghost"}
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => setModoSelecaoRastros("multiplo")}
+                    >
+                      Múltiplo
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={modoSelecaoRastros === "range" ? "default" : "ghost"}
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => setModoSelecaoRastros("range")}
+                    >
+                      Range
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={modoSelecaoRastros === "importar" ? "default" : "ghost"}
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => setModoSelecaoRastros("importar")}
+                    >
+                      Importar
+                    </Button>
+                  </div>
+
+                  {/* Modo Range */}
+                  {modoSelecaoRastros === "range" && (
+                    <div className="space-y-3 p-3 border rounded-lg bg-muted/30">
+                      <p className="text-sm font-medium">Selecionar por Range</p>
+                      <div className="flex gap-2 items-center">
+                        <Input
+                          placeholder="Início (ex: MED001)"
+                          value={rangeInicio}
+                          onChange={(e) => setRangeInicio(e.target.value.toUpperCase())}
+                          className="flex-1"
+                        />
+                        <span className="text-muted-foreground">até</span>
+                        <Input
+                          placeholder="Fim (ex: MED010)"
+                          value={rangeFim}
+                          onChange={(e) => setRangeFim(e.target.value.toUpperCase())}
+                          className="flex-1"
+                        />
+                        <Button type="button" onClick={handleSelecionarRange}>
+                          Aplicar
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Seleciona todos os rastros disponíveis entre o início e fim especificados
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Modo Importar */}
+                  {modoSelecaoRastros === "importar" && (
+                    <div className="space-y-3 p-3 border rounded-lg bg-muted/30">
+                      <p className="text-sm font-medium">Importar Lista de Rastros</p>
+                      <Textarea
+                        placeholder="Cole aqui os números de série separados por vírgula, ponto-e-vírgula, tab ou quebra de linha..."
+                        value={importarTexto}
+                        onChange={(e) => setImportarTexto(e.target.value)}
+                        rows={4}
                       />
+                      <div className="flex justify-between items-center">
+                        <p className="text-xs text-muted-foreground">
+                          Ex: MED001, MED002, MED003 ou um por linha
+                        </p>
+                        <Button type="button" onClick={handleImportarRastros}>
+                          Importar
+                        </Button>
+                      </div>
                     </div>
+                  )}
 
-                    <div className="max-h-64 overflow-y-auto border rounded-lg">
-                      {rastrosDisponiveis && rastrosDisponiveis.length > 0 ? (
-                        <div className="divide-y">
-                          {rastrosDisponiveis
-                            .filter((rastro: any) => {
-                              if (!buscaRastro) return true;
-                              const term = buscaRastro.toLowerCase();
-                              return (
-                                rastro.numero_serie.toLowerCase().includes(term) ||
-                                rastro.lote?.toLowerCase().includes(term)
-                              );
-                            })
-                            .map((rastro: any) => (
-                              <button
-                                key={rastro.id}
-                                type="button"
-                                className={`w-full p-3 text-left hover:bg-muted/50 transition-all ${
-                                  itemTemp.numero_serie === rastro.numero_serie
-                                    ? "bg-violet-100 border-2 border-violet-500 rounded-lg font-semibold"
-                                    : "border border-transparent"
-                                }`}
-                                onClick={() => {
-                                  setItemTemp({ ...itemTemp, numero_serie: rastro.numero_serie });
-                                  setDialogRastros(false);
-                                  setBuscaRastro("");
-                                }}
-                              >
-                                <div className="flex items-center justify-between">
-                                  <div>
-                                    <p className={`text-sm font-mono ${itemTemp.numero_serie === rastro.numero_serie ? "text-violet-700 font-bold" : "font-medium"}`}>
-                                      {rastro.numero_serie}
-                                    </p>
-                                    {rastro.lote && (
-                                      <p className="text-xs text-muted-foreground">Lote: {rastro.lote}</p>
-                                    )}
-                                  </div>
-                                  <QrCode className={`h-4 w-4 ${itemTemp.numero_serie === rastro.numero_serie ? "text-violet-600" : "text-muted-foreground"}`} />
-                                </div>
-                              </button>
-                            ))}
+                  {/* Lista de rastros (Individual/Múltiplo) */}
+                  {(modoSelecaoRastros === "individual" || modoSelecaoRastros === "multiplo") && (
+                    <div className="space-y-2">
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            placeholder="Buscar por número de série ou lote..."
+                            value={buscaRastro}
+                            onChange={(e) => setBuscaRastro(e.target.value)}
+                            className="pl-10"
+                          />
                         </div>
-                      ) : (
-                        <div className="p-4 text-center text-muted-foreground text-sm">
-                          {buscaRastro ? "Nenhum rastro encontrado" : "Nenhum rastro disponível em estoque"}
-                        </div>
-                      )}
+                        {modoSelecaoRastros === "multiplo" && (
+                          <div className="flex gap-1">
+                            <Button type="button" variant="outline" size="sm" onClick={selecionarTodos}>
+                              Todos
+                            </Button>
+                            <Button type="button" variant="outline" size="sm" onClick={deselecionarTodos}>
+                              Limpar
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="max-h-64 overflow-y-auto border rounded-lg">
+                        {rastrosDisponiveisFiltrados && rastrosDisponiveisFiltrados.length > 0 ? (
+                          <div className="divide-y">
+                            {rastrosDisponiveisFiltrados
+                              .filter((rastro: any) => {
+                                if (!buscaRastro) return true;
+                                const term = buscaRastro.toLowerCase();
+                                return (
+                                  rastro.numero_serie.toLowerCase().includes(term) ||
+                                  rastro.lote?.toLowerCase().includes(term)
+                                );
+                              })
+                              .map((rastro: any) => {
+                                const selecionado = rastrosSelecionados.includes(rastro.numero_serie);
+                                return (
+                                  <button
+                                    key={rastro.id}
+                                    type="button"
+                                    className={`w-full p-3 text-left hover:bg-muted/50 transition-all ${
+                                      selecionado
+                                        ? "bg-violet-100 border-l-4 border-l-violet-500"
+                                        : ""
+                                    }`}
+                                    onClick={() => {
+                                      if (modoSelecaoRastros === "individual") {
+                                        // Modo individual: seleciona e fecha
+                                        setItemTemp({ ...itemTemp, numero_serie: rastro.numero_serie });
+                                        setDialogRastros(false);
+                                        setBuscaRastro("");
+                                      } else {
+                                        // Modo múltiplo: toggle seleção
+                                        toggleRastro(rastro.numero_serie);
+                                      }
+                                    }}
+                                  >
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-3">
+                                        {modoSelecaoRastros === "multiplo" && (
+                                          <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
+                                            selecionado ? "bg-violet-500 border-violet-500" : "border-gray-300"
+                                          }`}>
+                                            {selecionado && <CheckCircle className="h-3 w-3 text-white" />}
+                                          </div>
+                                        )}
+                                        <div>
+                                          <p className={`text-sm font-mono ${selecionado ? "text-violet-700 font-bold" : "font-medium"}`}>
+                                            {rastro.numero_serie}
+                                          </p>
+                                          {rastro.lote && (
+                                            <p className="text-xs text-muted-foreground">Lote: {rastro.lote}</p>
+                                          )}
+                                        </div>
+                                      </div>
+                                      <QrCode className={`h-4 w-4 ${selecionado ? "text-violet-600" : "text-muted-foreground"}`} />
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                          </div>
+                        ) : (
+                          <div className="p-4 text-center text-muted-foreground text-sm">
+                            {buscaRastro ? "Nenhum rastro encontrado" : "Nenhum rastro disponível em estoque"}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
+                  )}
+
+                  {/* Rastros selecionados (modo múltiplo, range ou importar) */}
+                  {(modoSelecaoRastros !== "individual" && rastrosSelecionados.length > 0) && (
+                    <div className="p-3 border rounded-lg bg-green-50">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-sm font-medium text-green-700">
+                          {rastrosSelecionados.length} rastro(s) selecionado(s)
+                        </p>
+                        <Button 
+                          type="button" 
+                          variant="ghost" 
+                          size="sm"
+                          className="text-red-600 h-6"
+                          onClick={deselecionarTodos}
+                        >
+                          Limpar
+                        </Button>
+                      </div>
+                      <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto">
+                        {rastrosSelecionados.slice(0, 10).map(rs => (
+                          <Badge key={rs} variant="secondary" className="text-xs">
+                            {rs}
+                            <button
+                              type="button"
+                              className="ml-1 hover:text-red-600"
+                              onClick={() => toggleRastro(rs)}
+                            >
+                              ×
+                            </button>
+                          </Badge>
+                        ))}
+                        {rastrosSelecionados.length > 10 && (
+                          <Badge variant="outline" className="text-xs">
+                            +{rastrosSelecionados.length - 10} mais
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   <DialogFooter>
                     <Button variant="outline" onClick={() => {
                       setDialogRastros(false);
                       setBuscaRastro("");
+                      setRastrosSelecionados([]);
                     }}>
                       Cancelar
                     </Button>
+                    {modoSelecaoRastros !== "individual" && (
+                      <Button 
+                        type="button"
+                        onClick={handleAdicionarRastros}
+                        disabled={rastrosSelecionados.length === 0}
+                      >
+                        Adicionar {rastrosSelecionados.length > 0 ? `(${rastrosSelecionados.length})` : ""}
+                      </Button>
+                    )}
                   </DialogFooter>
                 </div>
               );

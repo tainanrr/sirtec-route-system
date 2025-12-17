@@ -198,15 +198,15 @@ export default function Rastreabilidade() {
     },
   });
 
-  // Query para materiais que requerem serial
+  // Query para materiais que requerem serial (requer_serial = true OU unidade = 'SR')
   const { data: materiaisSeriais } = useQuery({
     queryKey: ["materiais-com-serial"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("materiais")
-        .select("id, codigo, nome")
+        .select("id, codigo, nome, unidade")
         .eq("ativo", true)
-        .eq("requer_serial", true)
+        .or("requer_serial.eq.true,unidade.eq.SR")
         .order("codigo");
 
       if (error) throw error;
