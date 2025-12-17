@@ -42,6 +42,8 @@ import {
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 
 const ITEMS_PER_PAGE = 20;
 
@@ -332,16 +334,68 @@ const downloadPdf = async (id: string, nomeArquivo: string) => {
   const { dadosBasicos, grupos, materiaisEntrega } = await buscarDadosChecklist(id);
   const htmlContent = gerarHtmlPdf(dadosBasicos, dadosBasicos?.respostas, grupos, materiaisEntrega);
   
-  // Criar blob e fazer download
-  const blob = new Blob([htmlContent], { type: 'text/html' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = nomeArquivo;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  // Criar container temporário invisível
+  const container = document.createElement('div');
+  container.style.position = 'absolute';
+  container.style.left = '-9999px';
+  container.style.top = '0';
+  container.style.width = '800px';
+  container.style.background = 'white';
+  container.innerHTML = htmlContent;
+  document.body.appendChild(container);
+
+  // Aguardar carregamento de imagens
+  const images = container.querySelectorAll('img');
+  await Promise.all(
+    Array.from(images).map(img => {
+      if (img.complete) return Promise.resolve();
+      return new Promise((resolve) => {
+        img.onload = resolve;
+        img.onerror = resolve;
+      });
+    })
+  );
+
+  // Pequeno delay para garantir renderização
+  await new Promise(resolve => setTimeout(resolve, 100));
+
+  try {
+    // Capturar como canvas
+    const canvas = await html2canvas(container, {
+      scale: 2,
+      useCORS: true,
+      allowTaint: true,
+      logging: false,
+      backgroundColor: '#ffffff',
+    });
+
+    // Criar PDF
+    const imgWidth = 210; // A4 width in mm
+    const pageHeight = 297; // A4 height in mm
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    
+    const pdf = new jsPDF('p', 'mm', 'a4');
+    let heightLeft = imgHeight;
+    let position = 0;
+
+    // Adicionar primeira página
+    pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, position, imgWidth, imgHeight);
+    heightLeft -= pageHeight;
+
+    // Adicionar páginas adicionais se necessário
+    while (heightLeft > 0) {
+      position = heightLeft - imgHeight;
+      pdf.addPage();
+      pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+    }
+
+    // Salvar PDF
+    pdf.save(nomeArquivo);
+  } finally {
+    // Remover container temporário
+    document.body.removeChild(container);
+  }
 };
 
 export default function ConsultaChecklists() {
@@ -476,7 +530,7 @@ export default function ConsultaChecklists() {
     toast.loading("Gerando PDF...", { id: `pdf-${id}` });
 
     try {
-      const nomeArquivo = `checklist_${codigoUnico || id}.html`;
+      const nomeArquivo = `checklist_${codigoUnico || id}.pdf`;
       await downloadPdf(id, nomeArquivo);
       toast.success("PDF baixado com sucesso!", { id: `pdf-${id}` });
     } catch (error: any) {
@@ -570,7 +624,7 @@ export default function ConsultaChecklists() {
       let count = 0;
       for (const id of selectedIds) {
         const resposta = respostasFiltradas?.find(r => r.id === id);
-        const nomeArquivo = `checklist_${resposta?.codigo_unico || id}.html`;
+        const nomeArquivo = `checklist_${resposta?.codigo_unico || id}.pdf`;
         await downloadPdf(id, nomeArquivo);
         count++;
         // Pequeno delay entre downloads
