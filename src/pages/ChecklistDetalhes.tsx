@@ -3,13 +3,11 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
-import { ptBR } from "date-fns/locale";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
   Dialog,
@@ -29,6 +27,7 @@ import {
   ExternalLink,
   ZoomIn,
   Loader2,
+  Download,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -70,14 +69,17 @@ export default function ChecklistDetalhes() {
     currentIndex: 0,
   });
 
-  // Buscar detalhes do checklist
-  const { data: resposta, isLoading } = useQuery({
-    queryKey: ["checklist-detalhes", id],
+  // Query 1: Dados básicos (RÁPIDA) - carrega primeiro para mostrar o header
+  const { data: dadosBasicos, isLoading: loadingBasicos } = useQuery({
+    queryKey: ["checklist-basico", id],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("checklist_respostas")
         .select(`
-          *,
+          id,
+          status,
+          created_at,
+          checklist_id,
           checklists (id, nome, tipo, grupos),
           ordens_servico (id, numero, tipo, endereco, cliente_nome),
           tecnicos:equipe_id (id, codigo, nome)
@@ -87,6 +89,22 @@ export default function ChecklistDetalhes() {
 
       if (error) throw error;
       return data;
+    },
+    enabled: !!id,
+  });
+
+  // Query 2: Só as respostas (o mais pesado)
+  const { data: respostasData, isLoading: loadingRespostas } = useQuery({
+    queryKey: ["checklist-respostas", id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("checklist_respostas")
+        .select("respostas")
+        .eq("id", id)
+        .single();
+
+      if (error) throw error;
+      return data?.respostas;
     },
     enabled: !!id,
   });
@@ -111,36 +129,59 @@ export default function ChecklistDetalhes() {
     });
   };
 
-  // Renderizar coordenadas copiáveis
+  // Renderizar coordenadas clicáveis (abre no Google Maps)
   const renderCoordenadasCopiavel = (lat?: number, lng?: number, dataHora?: string) => {
     if (!lat && !lng && !dataHora) return null;
     
     const coordsText = lat && lng ? `${lat.toFixed(6)}, ${lng.toFixed(6)}` : null;
     
-    const handleCopy = (text: string) => {
+    const handleCopy = (e: React.MouseEvent, text: string) => {
+      e.preventDefault();
+      e.stopPropagation();
       navigator.clipboard.writeText(text);
       toast.success("Copiado!");
     };
 
+    const abrirNoMaps = (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (lat && lng) {
+        // Abre o Google Maps com o ponto marcado
+        const url = `https://www.google.com/maps?q=${lat},${lng}&z=18`;
+        window.open(url, '_blank');
+      }
+    };
+
     return (
-      <div className="mt-1 space-y-0.5">
+      <div className="mt-1 space-y-0.5" onClick={(e) => e.stopPropagation()}>
         {dataHora && (
           <p 
             className="text-[10px] text-muted-foreground font-mono cursor-pointer hover:text-foreground"
-            onClick={() => handleCopy(dataHora)}
+            onClick={(e) => handleCopy(e, dataHora)}
             title="Clique para copiar"
           >
             📅 {dataHora}
           </p>
         )}
         {coordsText && (
-          <p 
-            className="text-[10px] text-muted-foreground font-mono cursor-pointer hover:text-foreground"
-            onClick={() => handleCopy(coordsText)}
-            title="Clique para copiar"
-          >
-            📍 {coordsText}
-          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="text-[10px] text-blue-600 font-mono cursor-pointer hover:text-blue-800 hover:underline flex items-center gap-1"
+              onClick={abrirNoMaps}
+              title="Abrir no Google Maps"
+            >
+              📍 {coordsText}
+            </button>
+            <button
+              type="button"
+              className="text-[9px] text-muted-foreground hover:text-foreground px-1 py-0.5 rounded hover:bg-muted"
+              onClick={(e) => handleCopy(e, coordsText)}
+              title="Copiar coordenadas"
+            >
+              📋
+            </button>
+          </div>
         )}
       </div>
     );
@@ -162,59 +203,79 @@ export default function ChecklistDetalhes() {
     const assLng = respostaItem.assinatura_longitude;
     const assDataHora = respostaItem.assinatura_data_hora;
 
+    // Handler para abrir foto
+    const handleFotoClick = (e: React.MouseEvent, fotosArray: any[], index: number, titulo: string) => {
+      e.preventDefault();
+      e.stopPropagation();
+      abrirFotoViewer(fotosArray, index, titulo);
+    };
+
     return (
       <div className="space-y-2">
         {/* Valor principal */}
         {pergunta.tipo === "foto" ? (
           fotos && fotos.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-3">
               {fotos.map((foto: any, index: number) => (
-                <div key={index} className="relative group">
+                <button
+                  key={index}
+                  type="button"
+                  className="relative group block focus:outline-none focus:ring-2 focus:ring-violet-500 rounded"
+                  onClick={(e) => handleFotoClick(e, fotos, index, pergunta.texto)}
+                >
                   <img 
                     src={foto.url} 
                     alt={`Foto ${index + 1}`} 
-                    className="w-24 h-20 object-cover rounded cursor-pointer hover:opacity-80 border transition-all" 
-                    onClick={() => abrirFotoViewer(fotos, index, pergunta.texto)} 
+                    className="w-32 h-28 object-cover rounded border-2 border-gray-200 hover:border-violet-500 transition-all shadow-sm hover:shadow-md" 
+                    loading="lazy"
                   />
-                  <span className="absolute top-1 left-1 bg-black/60 text-white text-[10px] px-1 rounded">
+                  <span className="absolute top-1 left-1 bg-black/70 text-white text-xs px-1.5 py-0.5 rounded font-medium">
                     {index + 1}
                   </span>
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all rounded flex items-center justify-center">
-                    <ZoomIn className="h-5 w-5 text-white opacity-0 group-hover:opacity-100 transition-all" />
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all rounded flex items-center justify-center">
+                    <ZoomIn className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 transition-all drop-shadow-lg" />
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           ) : fotoUrl ? (
-            <div className="relative group inline-block">
+            <button
+              type="button"
+              className="relative group block focus:outline-none focus:ring-2 focus:ring-violet-500 rounded"
+              onClick={(e) => handleFotoClick(e, [{ url: fotoUrl, latitude: fotoLat, longitude: fotoLng, dataHora: fotoDataHora }], 0, pergunta.texto)}
+            >
               <img 
                 src={fotoUrl} 
                 alt="Foto" 
-                className="w-32 h-24 object-cover rounded cursor-pointer hover:opacity-80" 
-                onClick={() => abrirFotoViewer([{ url: fotoUrl, latitude: fotoLat, longitude: fotoLng, dataHora: fotoDataHora }], 0, pergunta.texto)} 
+                className="w-40 h-32 object-cover rounded border-2 border-gray-200 hover:border-violet-500 transition-all shadow-sm hover:shadow-md" 
+                loading="lazy"
               />
-              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all rounded flex items-center justify-center">
-                <ZoomIn className="h-5 w-5 text-white opacity-0 group-hover:opacity-100 transition-all" />
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all rounded flex items-center justify-center">
+                <ZoomIn className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 transition-all drop-shadow-lg" />
               </div>
               {renderCoordenadasCopiavel(fotoLat, fotoLng, fotoDataHora)}
-            </div>
+            </button>
           ) : (
             <span className="text-muted-foreground">Sem foto</span>
           )
         ) : pergunta.tipo === "assinatura" ? (
           assinaturaUrl ? (
-            <div className="relative group inline-block">
+            <button
+              type="button"
+              className="relative group block focus:outline-none focus:ring-2 focus:ring-violet-500 rounded"
+              onClick={(e) => handleFotoClick(e, [{ url: assinaturaUrl, latitude: assLat, longitude: assLng, dataHora: assDataHora }], 0, "Assinatura")}
+            >
               <img 
                 src={assinaturaUrl} 
                 alt="Assinatura" 
-                className="w-40 h-20 object-contain bg-white border rounded cursor-pointer" 
-                onClick={() => abrirFotoViewer([{ url: assinaturaUrl, latitude: assLat, longitude: assLng, dataHora: assDataHora }], 0, "Assinatura")}
+                className="w-56 h-28 object-contain bg-white border-2 border-gray-200 hover:border-violet-500 rounded transition-all shadow-sm hover:shadow-md p-2" 
+                loading="lazy"
               />
-              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all rounded flex items-center justify-center">
-                <ZoomIn className="h-4 w-4 text-gray-600 opacity-0 group-hover:opacity-100 transition-all" />
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-all rounded flex items-center justify-center">
+                <ZoomIn className="h-5 w-5 text-gray-600 opacity-0 group-hover:opacity-100 transition-all" />
               </div>
               {renderCoordenadasCopiavel(assLat, assLng, assDataHora)}
-            </div>
+            </button>
           ) : (
             <span className="text-muted-foreground">Sem assinatura</span>
           )
@@ -244,38 +305,47 @@ export default function ChecklistDetalhes() {
 
         {/* Foto adicional (para perguntas que exigem foto) */}
         {pergunta.tipo !== "foto" && (fotos && fotos.length > 0 ? (
-          <div className="mt-2">
-            <p className="text-xs text-muted-foreground mb-1">Fotos anexadas:</p>
-            <div className="flex flex-wrap gap-2">
+          <div className="mt-3">
+            <p className="text-xs text-muted-foreground mb-2 font-medium">📷 Fotos anexadas:</p>
+            <div className="flex flex-wrap gap-3">
               {fotos.map((foto: any, index: number) => (
-                <div key={index} className="relative group">
+                <button
+                  key={index}
+                  type="button"
+                  className="relative group block focus:outline-none focus:ring-2 focus:ring-violet-500 rounded"
+                  onClick={(e) => handleFotoClick(e, fotos, index, `${pergunta.texto} - Fotos`)}
+                >
                   <img 
                     src={foto.url} 
                     alt={`Foto ${index + 1}`} 
-                    className="w-20 h-16 object-cover rounded cursor-pointer hover:opacity-80 border" 
-                    onClick={() => abrirFotoViewer(fotos, index, `${pergunta.texto} - Fotos`)} 
+                    className="w-28 h-24 object-cover rounded border-2 border-gray-200 hover:border-violet-500 transition-all shadow-sm hover:shadow-md" 
+                    loading="lazy"
                   />
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all rounded flex items-center justify-center">
-                    <ZoomIn className="h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-all" />
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all rounded flex items-center justify-center">
+                    <ZoomIn className="h-5 w-5 text-white opacity-0 group-hover:opacity-100 transition-all drop-shadow-lg" />
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           </div>
         ) : fotoUrl && (
-          <div className="mt-2">
-            <p className="text-xs text-muted-foreground mb-1">Foto anexada:</p>
-            <div className="relative group inline-block">
+          <div className="mt-3">
+            <p className="text-xs text-muted-foreground mb-2 font-medium">📷 Foto anexada:</p>
+            <button
+              type="button"
+              className="relative group block focus:outline-none focus:ring-2 focus:ring-violet-500 rounded"
+              onClick={(e) => handleFotoClick(e, [{ url: fotoUrl, latitude: fotoLat, longitude: fotoLng, dataHora: fotoDataHora }], 0, `${pergunta.texto} - Foto`)}
+            >
               <img 
                 src={fotoUrl} 
                 alt="Foto anexada" 
-                className="w-24 h-18 object-cover rounded cursor-pointer hover:opacity-80" 
-                onClick={() => abrirFotoViewer([{ url: fotoUrl, latitude: fotoLat, longitude: fotoLng, dataHora: fotoDataHora }], 0, `${pergunta.texto} - Foto`)} 
+                className="w-32 h-28 object-cover rounded border-2 border-gray-200 hover:border-violet-500 transition-all shadow-sm hover:shadow-md" 
+                loading="lazy"
               />
-              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all rounded flex items-center justify-center">
-                <ZoomIn className="h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-all" />
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all rounded flex items-center justify-center">
+                <ZoomIn className="h-5 w-5 text-white opacity-0 group-hover:opacity-100 transition-all drop-shadow-lg" />
               </div>
-            </div>
+            </button>
             {renderCoordenadasCopiavel(fotoLat, fotoLng, fotoDataHora)}
           </div>
         ))}
@@ -291,7 +361,8 @@ export default function ChecklistDetalhes() {
     );
   };
 
-  if (isLoading) {
+  // Loading inicial - só mostra skeleton se os dados básicos estão carregando
+  if (loadingBasicos) {
     return (
       <MainLayout>
         <div className="container mx-auto py-6 space-y-6">
@@ -304,13 +375,12 @@ export default function ChecklistDetalhes() {
               <Skeleton key={i} className="h-24" />
             ))}
           </div>
-          <Skeleton className="h-96" />
         </div>
       </MainLayout>
     );
   }
 
-  if (!resposta) {
+  if (!dadosBasicos) {
     return (
       <MainLayout>
         <div className="container mx-auto py-6">
@@ -327,31 +397,47 @@ export default function ChecklistDetalhes() {
     );
   }
 
-  const respostasMap = Array.isArray(resposta.respostas)
-    ? resposta.respostas.reduce((acc: any, r: any) => ({ ...acc, [r.pergunta_id]: r }), {})
-    : resposta.respostas || {};
+  // Preparar mapa de respostas
+  const respostasMap = respostasData 
+    ? (Array.isArray(respostasData) 
+        ? respostasData.reduce((acc: any, r: any) => ({ ...acc, [r.pergunta_id]: r }), {})
+        : respostasData)
+    : {};
+
+  const grupos = dadosBasicos?.checklists?.grupos as GrupoPerguntas[] | undefined;
 
   return (
     <MainLayout>
       <div className="container mx-auto py-6 space-y-6">
-        {/* Header */}
+        {/* Header - Carrega imediatamente */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Button variant="outline" size="icon" onClick={() => window.close()}>
+            <Button 
+              variant="outline" 
+              size="icon" 
+              onClick={() => {
+                if (window.history.length <= 1) {
+                  window.close();
+                } else {
+                  navigate("/consulta-checklists");
+                }
+              }}
+              title="Fechar / Voltar"
+            >
               <X className="h-4 w-4" />
             </Button>
             <div>
               <h1 className="text-2xl font-bold flex items-center gap-2">
                 <ClipboardCheck className="h-7 w-7 text-violet-600" />
-                {resposta.checklists?.nome || "Checklist"}
+                {dadosBasicos.checklists?.nome || "Checklist"}
               </h1>
               <p className="text-muted-foreground">
-                {resposta.checklists?.tipo?.toUpperCase()} - Preenchido em {format(new Date(resposta.created_at), "dd/MM/yyyy 'às' HH:mm")}
+                {dadosBasicos.checklists?.tipo?.toUpperCase()} - Preenchido em {format(new Date(dadosBasicos.created_at), "dd/MM/yyyy 'às' HH:mm")}
               </p>
             </div>
           </div>
-          <Badge className={resposta.status === "completo" ? "bg-green-600" : ""}>
-            {resposta.status === "completo" ? (
+          <Badge className={dadosBasicos.status === "completo" ? "bg-green-600" : ""}>
+            {dadosBasicos.status === "completo" ? (
               <>
                 <CheckCircle className="h-3 w-3 mr-1" />
                 Completo
@@ -362,7 +448,7 @@ export default function ChecklistDetalhes() {
           </Badge>
         </div>
 
-        {/* Informações Gerais */}
+        {/* Informações Gerais - Carrega imediatamente */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <Card>
             <CardContent className="pt-4">
@@ -371,8 +457,8 @@ export default function ChecklistDetalhes() {
                 Ordem de Serviço
               </div>
               <p className="font-semibold">
-                {resposta.ordens_servico ? (
-                  <>#{resposta.ordens_servico.numero}</>
+                {dadosBasicos.ordens_servico ? (
+                  <>#{dadosBasicos.ordens_servico.numero}</>
                 ) : (
                   "-"
                 )}
@@ -386,7 +472,7 @@ export default function ChecklistDetalhes() {
                 Equipe
               </div>
               <p className="font-semibold">
-                {resposta.tecnicos?.codigo || "-"}
+                {dadosBasicos.tecnicos?.codigo || "-"}
               </p>
             </CardContent>
           </Card>
@@ -397,7 +483,7 @@ export default function ChecklistDetalhes() {
                 Data
               </div>
               <p className="font-semibold">
-                {format(new Date(resposta.created_at), "dd/MM/yyyy HH:mm")}
+                {format(new Date(dadosBasicos.created_at), "dd/MM/yyyy HH:mm")}
               </p>
             </CardContent>
           </Card>
@@ -407,25 +493,25 @@ export default function ChecklistDetalhes() {
                 <CheckCircle className="h-4 w-4" />
                 Status
               </div>
-              <Badge className={resposta.status === "completo" ? "bg-green-600" : ""}>
-                {resposta.status === "completo" ? "Completo" : "Rascunho"}
+              <Badge className={dadosBasicos.status === "completo" ? "bg-green-600" : ""}>
+                {dadosBasicos.status === "completo" ? "Completo" : "Rascunho"}
               </Badge>
             </CardContent>
           </Card>
         </div>
 
         {/* Endereço da OS */}
-        {resposta.ordens_servico?.endereco && (
+        {dadosBasicos.ordens_servico?.endereco && (
           <Card>
             <CardContent className="pt-4">
               <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
                 <MapPin className="h-4 w-4" />
                 Endereço
               </div>
-              <p>{resposta.ordens_servico.endereco}</p>
-              {resposta.ordens_servico.cliente_nome && (
+              <p>{dadosBasicos.ordens_servico.endereco}</p>
+              {dadosBasicos.ordens_servico.cliente_nome && (
                 <p className="text-sm text-muted-foreground mt-1">
-                  Cliente: {resposta.ordens_servico.cliente_nome}
+                  Cliente: {dadosBasicos.ordens_servico.cliente_nome}
                 </p>
               )}
             </CardContent>
@@ -434,165 +520,246 @@ export default function ChecklistDetalhes() {
 
         <Separator />
 
-        {/* Respostas por Grupo */}
-        {resposta.checklists?.grupos?.map((grupo: GrupoPerguntas) => (
-          <Card key={grupo.id}>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">{grupo.nome}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {grupo.perguntas
-                  ?.sort((a, b) => a.ordem - b.ordem)
-                  .map((pergunta, index) => {
-                    const respostaItem = respostasMap[pergunta.id];
-                    return (
-                      <div key={pergunta.id} className="border-b pb-4 last:border-0 last:pb-0">
-                        <div className="flex items-start gap-2 mb-2">
-                          <Badge variant="outline" className="shrink-0">
-                            {grupo.ordem}.{index + 1}
-                          </Badge>
-                          <p className="text-sm font-medium">
-                            {pergunta.texto}
-                            {pergunta.obrigatoria && (
-                              <span className="text-red-500 ml-1">*</span>
-                            )}
-                          </p>
-                        </div>
-                        <div className="ml-10">
-                          {renderValorResposta(pergunta, respostaItem)}
-                        </div>
-                      </div>
-                    );
-                  })}
+        {/* Respostas por Grupo - Carrega depois */}
+        {loadingRespostas ? (
+          <Card>
+            <CardContent className="py-12">
+              <div className="flex flex-col items-center justify-center gap-3">
+                <Loader2 className="h-8 w-8 animate-spin text-violet-600" />
+                <p className="text-muted-foreground">Carregando respostas...</p>
               </div>
             </CardContent>
           </Card>
-        ))}
+        ) : grupos && grupos.length > 0 ? (
+          grupos.map((grupo: GrupoPerguntas) => (
+            <Card key={grupo.id}>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">{grupo.nome}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {grupo.perguntas
+                    ?.sort((a, b) => a.ordem - b.ordem)
+                    .map((pergunta, index) => {
+                      const respostaItem = respostasMap[pergunta.id];
+                      return (
+                        <div key={pergunta.id} className="border-b pb-4 last:border-0 last:pb-0">
+                          <div className="flex items-start gap-2 mb-2">
+                            <Badge variant="outline" className="shrink-0">
+                              {grupo.ordem}.{index + 1}
+                            </Badge>
+                            <p className="text-sm font-medium">
+                              {pergunta.texto}
+                              {pergunta.obrigatoria && (
+                                <span className="text-red-500 ml-1">*</span>
+                              )}
+                            </p>
+                          </div>
+                          <div className="ml-10">
+                            {renderValorResposta(pergunta, respostaItem)}
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        ) : (
+          <Card>
+            <CardContent className="py-12">
+              <div className="text-center text-muted-foreground">
+                Nenhuma pergunta encontrada neste checklist
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Visualizador de Fotos */}
       <Dialog open={fotoViewer.open} onOpenChange={(open) => setFotoViewer(prev => ({ ...prev, open }))}>
-        <DialogContent className="max-w-4xl p-0 bg-black/95">
-          <div className="relative min-h-[60vh] flex flex-col">
-            {/* Header */}
-            <div className="absolute top-0 left-0 right-0 z-10 bg-gradient-to-b from-black/80 to-transparent p-4">
-              <div className="flex items-center justify-between">
-                <div className="text-white">
-                  {fotoViewer.titulo && (
-                    <p className="font-medium text-sm">{fotoViewer.titulo}</p>
-                  )}
-                  <p className="text-xs opacity-70">
-                    {fotoViewer.currentIndex + 1} de {fotoViewer.fotos.length}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {fotoViewer.fotos[fotoViewer.currentIndex]?.url && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-white hover:bg-white/20"
-                      onClick={() => window.open(fotoViewer.fotos[fotoViewer.currentIndex].url, '_blank')}
-                    >
-                      <ExternalLink className="h-4 w-4 mr-1" />
-                      Abrir em nova guia
-                    </Button>
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-white hover:bg-white/20"
-                    onClick={() => setFotoViewer(prev => ({ ...prev, open: false }))}
-                  >
-                    <X className="h-5 w-5" />
-                  </Button>
-                </div>
+        <DialogContent className="max-w-4xl p-0 bg-black/95 max-h-[95vh] overflow-hidden">
+          <div className="flex flex-col h-full">
+            {/* Header - fixo no topo */}
+            <div className="flex items-center justify-between p-3 border-b border-white/10">
+              <div className="text-white">
+                {fotoViewer.titulo && (
+                  <p className="font-medium text-sm">{fotoViewer.titulo}</p>
+                )}
+                <p className="text-xs opacity-70">
+                  {fotoViewer.currentIndex + 1} de {fotoViewer.fotos.length}
+                </p>
               </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-white hover:bg-white/20"
+                onClick={() => setFotoViewer(prev => ({ ...prev, open: false }))}
+              >
+                <X className="h-5 w-5" />
+              </Button>
             </div>
 
-            {/* Imagem */}
-            <div className="flex-1 flex items-center justify-center p-4 pt-16 pb-24">
+            {/* Área da imagem com navegação */}
+            <div className="relative flex-1 flex items-center justify-center p-4 min-h-[300px]">
               {fotoViewer.fotos[fotoViewer.currentIndex]?.url && (
                 <img
                   src={fotoViewer.fotos[fotoViewer.currentIndex].url}
                   alt={`Foto ${fotoViewer.currentIndex + 1}`}
-                  className="max-w-full max-h-[60vh] object-contain rounded"
+                  className="max-w-full max-h-[50vh] object-contain rounded"
                 />
+              )}
+
+              {/* Navegação */}
+              {fotoViewer.fotos.length > 1 && (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="absolute left-2 top-1/2 -translate-y-1/2 h-12 w-12 rounded-full bg-black/50 hover:bg-black/70 text-white"
+                    onClick={() => setFotoViewer(prev => ({
+                      ...prev,
+                      currentIndex: prev.currentIndex > 0 ? prev.currentIndex - 1 : prev.fotos.length - 1
+                    }))}
+                  >
+                    <ChevronLeft className="h-8 w-8" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 h-12 w-12 rounded-full bg-black/50 hover:bg-black/70 text-white"
+                    onClick={() => setFotoViewer(prev => ({
+                      ...prev,
+                      currentIndex: prev.currentIndex < prev.fotos.length - 1 ? prev.currentIndex + 1 : 0
+                    }))}
+                  >
+                    <ChevronRight className="h-8 w-8" />
+                  </Button>
+                </>
               )}
             </div>
 
-            {/* Navegação */}
-            {fotoViewer.fotos.length > 1 && (
-              <>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute left-2 top-1/2 -translate-y-1/2 h-12 w-12 rounded-full bg-black/50 hover:bg-black/70 text-white"
-                  onClick={() => setFotoViewer(prev => ({
-                    ...prev,
-                    currentIndex: prev.currentIndex > 0 ? prev.currentIndex - 1 : prev.fotos.length - 1
-                  }))}
-                >
-                  <ChevronLeft className="h-8 w-8" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 h-12 w-12 rounded-full bg-black/50 hover:bg-black/70 text-white"
-                  onClick={() => setFotoViewer(prev => ({
-                    ...prev,
-                    currentIndex: prev.currentIndex < prev.fotos.length - 1 ? prev.currentIndex + 1 : 0
-                  }))}
-                >
-                  <ChevronRight className="h-8 w-8" />
-                </Button>
-              </>
-            )}
-
-            {/* Footer com informações */}
-            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
-              <div className="text-white text-center space-y-1">
+            {/* Footer com informações - fixo na parte inferior */}
+            <div className="border-t border-white/10 p-4 bg-black/50">
+              <div className="text-white text-center space-y-3">
+                {/* Data e hora */}
                 {fotoViewer.fotos[fotoViewer.currentIndex]?.dataHora && (
                   <p className="text-sm">
                     📅 {fotoViewer.fotos[fotoViewer.currentIndex].dataHora}
                   </p>
                 )}
+
+                {/* Coordenadas */}
                 {fotoViewer.fotos[fotoViewer.currentIndex]?.latitude && fotoViewer.fotos[fotoViewer.currentIndex]?.longitude && (
-                  <p 
-                    className="text-xs font-mono cursor-pointer hover:underline"
-                    onClick={() => {
-                      const foto = fotoViewer.fotos[fotoViewer.currentIndex];
-                      navigator.clipboard.writeText(`${foto.latitude?.toFixed(6)}, ${foto.longitude?.toFixed(6)}`);
-                      toast.success("Coordenadas copiadas!");
-                    }}
-                  >
-                    📍 {fotoViewer.fotos[fotoViewer.currentIndex].latitude?.toFixed(6)}, {fotoViewer.fotos[fotoViewer.currentIndex].longitude?.toFixed(6)}
-                  </p>
+                  <div className="flex items-center justify-center gap-3">
+                    <button
+                      type="button"
+                      className="text-sm font-mono cursor-pointer hover:underline text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                      onClick={() => {
+                        const foto = fotoViewer.fotos[fotoViewer.currentIndex];
+                        const url = `https://www.google.com/maps?q=${foto.latitude},${foto.longitude}&z=18`;
+                        window.open(url, '_blank');
+                      }}
+                      title="Abrir no Google Maps"
+                    >
+                      📍 {fotoViewer.fotos[fotoViewer.currentIndex].latitude?.toFixed(6)}, {fotoViewer.fotos[fotoViewer.currentIndex].longitude?.toFixed(6)}
+                    </button>
+                    <button
+                      type="button"
+                      className="text-xs text-white/70 hover:text-white px-2 py-1 rounded hover:bg-white/20"
+                      onClick={() => {
+                        const foto = fotoViewer.fotos[fotoViewer.currentIndex];
+                        navigator.clipboard.writeText(`${foto.latitude?.toFixed(6)}, ${foto.longitude?.toFixed(6)}`);
+                        toast.success("Coordenadas copiadas!");
+                      }}
+                      title="Copiar coordenadas"
+                    >
+                      📋 Copiar
+                    </button>
+                  </div>
+                )}
+
+                {/* Botões de ação */}
+                {fotoViewer.fotos[fotoViewer.currentIndex]?.url && (
+                  <div className="flex items-center justify-center gap-3">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="bg-white/20 hover:bg-white/30 text-white border-0"
+                      onClick={() => {
+                        const url = fotoViewer.fotos[fotoViewer.currentIndex]?.url;
+                        if (url) {
+                          const link = document.createElement('a');
+                          link.href = url;
+                          link.download = `foto_${fotoViewer.currentIndex + 1}_${Date.now()}.jpg`;
+                          document.body.appendChild(link);
+                          link.click();
+                          document.body.removeChild(link);
+                          toast.success("Download iniciado!");
+                        }
+                      }}
+                    >
+                      <Download className="h-4 w-4 mr-1" />
+                      Baixar imagem
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="bg-white/20 hover:bg-white/30 text-white border-0"
+                      onClick={() => {
+                        const url = fotoViewer.fotos[fotoViewer.currentIndex]?.url;
+                        if (url) {
+                          const newWindow = window.open('', '_blank');
+                          if (newWindow) {
+                            newWindow.document.write(`
+                              <!DOCTYPE html>
+                              <html>
+                                <head>
+                                  <title>Imagem - Checklist</title>
+                                  <style>
+                                    body { margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #1a1a1a; }
+                                    img { max-width: 100%; max-height: 100vh; object-fit: contain; }
+                                  </style>
+                                </head>
+                                <body>
+                                  <img src="${url}" alt="Imagem do checklist" />
+                                </body>
+                              </html>
+                            `);
+                            newWindow.document.close();
+                          }
+                        }
+                      }}
+                    >
+                      <ExternalLink className="h-4 w-4 mr-1" />
+                      Abrir em nova guia
+                    </Button>
+                  </div>
+                )}
+
+                {/* Miniaturas */}
+                {fotoViewer.fotos.length > 1 && (
+                  <div className="flex justify-center gap-2 mt-3 overflow-x-auto pb-1">
+                    {fotoViewer.fotos.map((foto, index) => (
+                      <button
+                        key={index}
+                        className={`shrink-0 w-12 h-12 rounded overflow-hidden border-2 transition-all ${
+                          index === fotoViewer.currentIndex
+                            ? "border-white ring-1 ring-white"
+                            : "border-transparent opacity-60 hover:opacity-100"
+                        }`}
+                        onClick={() => setFotoViewer(prev => ({ ...prev, currentIndex: index }))}
+                      >
+                        <img
+                          src={foto.url}
+                          alt={`Miniatura ${index + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
-
-              {/* Miniaturas */}
-              {fotoViewer.fotos.length > 1 && (
-                <div className="flex justify-center gap-2 mt-3 overflow-x-auto pb-1">
-                  {fotoViewer.fotos.map((foto, index) => (
-                    <button
-                      key={index}
-                      className={`shrink-0 w-12 h-12 rounded overflow-hidden border-2 transition-all ${
-                        index === fotoViewer.currentIndex
-                          ? "border-white ring-1 ring-white"
-                          : "border-transparent opacity-60 hover:opacity-100"
-                      }`}
-                      onClick={() => setFotoViewer(prev => ({ ...prev, currentIndex: index }))}
-                    >
-                      <img
-                        src={foto.url}
-                        alt={`Miniatura ${index + 1}`}
-                        className="w-full h-full object-cover"
-                      />
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
           </div>
         </DialogContent>
@@ -600,4 +767,3 @@ export default function ChecklistDetalhes() {
     </MainLayout>
   );
 }
-

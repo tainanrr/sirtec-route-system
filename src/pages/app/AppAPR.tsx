@@ -20,8 +20,19 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -36,7 +47,12 @@ import {
   ChevronRight,
   Trash2,
   X,
+  Plus,
+  Eye,
+  Lock,
+  AlertCircle,
 } from "lucide-react";
+import { SignatureFullScreen } from "@/components/app/SignatureFullScreen";
 
 interface PerguntaConfig {
   placeholder?: string;
@@ -92,10 +108,18 @@ interface Checklist {
   exige_localizacao?: boolean;
 }
 
+interface FotoData {
+  url: string;
+  latitude?: number;
+  longitude?: number;
+  data_hora?: string;
+}
+
 interface Resposta {
   pergunta_id: string;
   resposta: string | string[] | boolean | number | null;
   foto_url?: string;
+  fotos?: FotoData[]; // Múltiplas fotos
   assinatura_url?: string;
   observacao?: string;
   foto_latitude?: number;
@@ -104,167 +128,6 @@ interface Resposta {
   assinatura_latitude?: number;
   assinatura_longitude?: number;
   assinatura_data_hora?: string;
-}
-
-// Componente de Canvas para Assinatura
-function SignatureCanvas({
-  open,
-  onClose,
-  onSave,
-  title,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onSave: (dataUrl: string) => void;
-  title: string;
-}) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [hasDrawn, setHasDrawn] = useState(false);
-
-  useEffect(() => {
-    if (open && canvasRef.current) {
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        // Configurar canvas
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width * 2; // Retina display
-        canvas.height = rect.height * 2;
-        ctx.scale(2, 2);
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.strokeStyle = "#000000";
-        ctx.lineWidth = 2;
-        ctx.lineCap = "round";
-        ctx.lineJoin = "round";
-      }
-      setHasDrawn(false);
-    }
-  }, [open]);
-
-  const getCoordinates = (e: React.TouchEvent | React.MouseEvent) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
-
-    const rect = canvas.getBoundingClientRect();
-    
-    if ("touches" in e) {
-      const touch = e.touches[0];
-      return {
-        x: touch.clientX - rect.left,
-        y: touch.clientY - rect.top,
-      };
-    } else {
-      return {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top,
-      };
-    }
-  };
-
-  const startDrawing = (e: React.TouchEvent | React.MouseEvent) => {
-    e.preventDefault();
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-    if (!ctx) return;
-
-    setIsDrawing(true);
-    setHasDrawn(true);
-    const { x, y } = getCoordinates(e);
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-  };
-
-  const draw = (e: React.TouchEvent | React.MouseEvent) => {
-    e.preventDefault();
-    if (!isDrawing) return;
-    
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-    if (!ctx) return;
-
-    const { x, y } = getCoordinates(e);
-    ctx.lineTo(x, y);
-    ctx.stroke();
-  };
-
-  const stopDrawing = () => {
-    setIsDrawing(false);
-  };
-
-  const clearCanvas = () => {
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-    if (!ctx || !canvas) return;
-
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    setHasDrawn(false);
-  };
-
-  const handleSave = () => {
-    if (!hasDrawn) {
-      toast.error("Por favor, faça sua assinatura antes de salvar");
-      return;
-    }
-
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const dataUrl = canvas.toDataURL("image/png");
-    onSave(dataUrl);
-    onClose();
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-[95vw] w-full sm:max-w-lg p-4">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <FileSignature className="h-5 w-5" />
-            {title}
-          </DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Desenhe sua assinatura no campo abaixo usando o dedo ou caneta.
-          </p>
-
-          <div className="relative border-2 border-dashed rounded-lg bg-white overflow-hidden">
-            <canvas
-              ref={canvasRef}
-              className="w-full h-48 touch-none cursor-crosshair"
-              onMouseDown={startDrawing}
-              onMouseMove={draw}
-              onMouseUp={stopDrawing}
-              onMouseLeave={stopDrawing}
-              onTouchStart={startDrawing}
-              onTouchMove={draw}
-              onTouchEnd={stopDrawing}
-            />
-            {!hasDrawn && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <p className="text-gray-400 text-sm">Assine aqui</p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <DialogFooter className="flex gap-2 sm:gap-0">
-          <Button variant="outline" onClick={clearCanvas} className="flex-1 sm:flex-none">
-            <Trash2 className="h-4 w-4 mr-2" />
-            Limpar
-          </Button>
-          <Button onClick={handleSave} className="flex-1 sm:flex-none bg-violet-600 hover:bg-violet-700">
-            <CheckCircle className="h-4 w-4 mr-2" />
-            Confirmar
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
 }
 
 export default function AppAPR() {
@@ -277,11 +140,16 @@ export default function AppAPR() {
   const [respostas, setRespostas] = useState<Record<string, Resposta>>({});
   const [gruposExpandidos, setGruposExpandidos] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
-  const [signatureDialog, setSignatureDialog] = useState<{
-    open: boolean;
-    perguntaId: string;
-    title: string;
-  }>({ open: false, perguntaId: "", title: "" });
+  const [signatureOpen, setSignatureOpen] = useState(false);
+  const [signaturePerguntaId, setSignaturePerguntaId] = useState<string>("");
+  const [signatureTitulo, setSignatureTitulo] = useState<string>("");
+  const [pendenciasHighlight, setPendenciasHighlight] = useState<Set<string>>(new Set());
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [fotoViewer, setFotoViewer] = useState<{ open: boolean; fotos: FotoData[]; index: number }>({ open: false, fotos: [], index: 0 });
+  
+  // Refs para scroll
+  const perguntaRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const grupoRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   // Buscar checklist de APR ativo
   const { data: checklist, isLoading: loadingChecklist } = useQuery({
@@ -364,6 +232,9 @@ export default function AppAPR() {
     enabled: !!ordemId,
   });
 
+  // Verificar se a APR está concluída (não pode editar)
+  const aprConcluida = respostaExistente?.status === 'completo';
+
   // Carregar respostas existentes
   useEffect(() => {
     if (respostaExistente?.respostas) {
@@ -396,6 +267,8 @@ export default function AppAPR() {
   };
 
   const updateResposta = (perguntaId: string, valor: any, campo: keyof Resposta = 'resposta') => {
+    if (aprConcluida) return; // Não permite editar se concluída
+    
     setRespostas(prev => {
       const respostaAtual = prev[perguntaId] || { pergunta_id: perguntaId };
       return {
@@ -407,10 +280,19 @@ export default function AppAPR() {
         },
       };
     });
+    
+    // Remover highlight de pendência quando responder
+    setPendenciasHighlight(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(perguntaId);
+      return newSet;
+    });
   };
   
   // Atualizar múltiplos campos de uma resposta de uma vez
   const updateRespostaMultiplo = (perguntaId: string, campos: Partial<Resposta>) => {
+    if (aprConcluida) return; // Não permite editar se concluída
+    
     setRespostas(prev => {
       const respostaAtual = prev[perguntaId] || { pergunta_id: perguntaId };
       return {
@@ -422,15 +304,12 @@ export default function AppAPR() {
         },
       };
     });
-  };
-
-  // Converter arquivo para base64
-  const fileToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = (error) => reject(error);
+    
+    // Remover highlight de pendência quando responder
+    setPendenciasHighlight(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(perguntaId);
+      return newSet;
     });
   };
 
@@ -482,24 +361,24 @@ export default function AppAPR() {
         ctx.drawImage(img, 0, 0);
 
         // Configurar estilo do texto
-        const fontSize = Math.max(12, Math.floor(img.width / 40));
+        const fontSize = Math.max(14, Math.floor(img.width / 35));
         ctx.font = `bold ${fontSize}px Arial`;
         
         // Preparar textos
-        const line1 = timestamp;
-        const line2 = coords ? `${coords.latitude.toFixed(6)}, ${coords.longitude.toFixed(6)}` : "Sem GPS";
+        const line1 = `📅 ${timestamp}`;
+        const line2 = coords ? `📍 ${coords.latitude.toFixed(6)}, ${coords.longitude.toFixed(6)}` : "📍 Sem GPS";
         
         // Medir textos
         const metrics1 = ctx.measureText(line1);
         const metrics2 = ctx.measureText(line2);
         const maxWidth = Math.max(metrics1.width, metrics2.width);
-        const lineHeight = fontSize * 1.3;
-        const padding = fontSize * 0.5;
+        const lineHeight = fontSize * 1.4;
+        const padding = fontSize * 0.6;
         const boxHeight = lineHeight * 2 + padding * 2;
         const boxWidth = maxWidth + padding * 2;
 
-        // Desenhar fundo semi-transparente
-        ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+        // Desenhar fundo semi-transparente no canto superior esquerdo
+        ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
         ctx.fillRect(0, 0, boxWidth, boxHeight);
 
         // Desenhar textos
@@ -508,7 +387,7 @@ export default function AppAPR() {
         ctx.fillText(line2, padding, padding + fontSize + lineHeight);
 
         // Converter para base64
-        resolve(canvas.toDataURL("image/jpeg", 0.9));
+        resolve(canvas.toDataURL("image/jpeg", 0.85));
       };
       
       img.onerror = () => {
@@ -517,6 +396,16 @@ export default function AppAPR() {
       };
       
       img.src = imageDataUrl;
+    });
+  };
+
+  // Converter arquivo para base64
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = (error) => reject(error);
     });
   };
 
@@ -531,8 +420,10 @@ export default function AppAPR() {
     return { dataUrl: stampedImage, timestamp };
   };
 
-  // Upload de foto
-  const handleFotoUpload = async (perguntaId: string, file: File) => {
+  // Upload de foto (agora suporta múltiplas fotos)
+  const handleFotoUpload = async (perguntaId: string, file: File, isMultiple: boolean = false) => {
+    if (aprConcluida) return; // Não permite editar se concluída
+    
     console.log("[APR] Iniciando upload de foto para pergunta:", perguntaId);
     toast.loading("Obtendo localização e processando foto...", { id: "foto-upload" });
     
@@ -563,34 +454,62 @@ export default function AppAPR() {
           upsert: true,
         });
 
-      if (uploadError) {
+      let fotoUrl = stampedImage; // Fallback para base64
+
+      if (!uploadError && uploadData) {
+        console.log("[APR] Upload bem sucedido:", uploadData);
+        const { data: urlData } = supabase.storage
+          .from("service-attachments")
+          .getPublicUrl(fileName);
+        fotoUrl = urlData.publicUrl;
+        console.log("[APR] URL pública:", fotoUrl);
+      } else {
         console.error("[APR] Erro no Storage, usando base64:", uploadError);
-        // Fallback: salvar como base64 com coordenadas
+      }
+
+      const novaFoto: FotoData = {
+        url: fotoUrl,
+        latitude: coords?.latitude,
+        longitude: coords?.longitude,
+        data_hora: timestamp,
+      };
+
+      if (isMultiple) {
+        // Adicionar às fotos existentes
+        setRespostas(prev => {
+          const respostaAtual = prev[perguntaId] || { pergunta_id: perguntaId };
+          const fotosAtuais = respostaAtual.fotos || [];
+          return {
+            ...prev,
+            [perguntaId]: {
+              ...respostaAtual,
+              pergunta_id: perguntaId,
+              fotos: [...fotosAtuais, novaFoto],
+              // Manter compatibilidade com foto_url para primeira foto
+              foto_url: fotosAtuais.length === 0 ? fotoUrl : respostaAtual.foto_url,
+              foto_latitude: fotosAtuais.length === 0 ? coords?.latitude : respostaAtual.foto_latitude,
+              foto_longitude: fotosAtuais.length === 0 ? coords?.longitude : respostaAtual.foto_longitude,
+              foto_data_hora: fotosAtuais.length === 0 ? timestamp : respostaAtual.foto_data_hora,
+            },
+          };
+        });
+      } else {
+        // Substituir foto única (campos condicionais)
         updateRespostaMultiplo(perguntaId, {
-          foto_url: stampedImage,
+          foto_url: fotoUrl,
           foto_latitude: coords?.latitude,
           foto_longitude: coords?.longitude,
           foto_data_hora: timestamp,
         });
-        toast.success("Foto salva!", { id: "foto-upload" });
-        return;
       }
 
-      console.log("[APR] Upload bem sucedido:", uploadData);
-
-      const { data: urlData } = supabase.storage
-        .from("service-attachments")
-        .getPublicUrl(fileName);
-
-      console.log("[APR] URL pública:", urlData.publicUrl);
-
-      // Atualiza foto_url e coordenadas
-      updateRespostaMultiplo(perguntaId, {
-        foto_url: urlData.publicUrl,
-        foto_latitude: coords?.latitude,
-        foto_longitude: coords?.longitude,
-        foto_data_hora: timestamp,
+      // Remover highlight de pendência
+      setPendenciasHighlight(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(perguntaId);
+        return newSet;
       });
+
       toast.success("Foto enviada!", { id: "foto-upload" });
     } catch (error: any) {
       console.error("[APR] Erro ao enviar foto:", error);
@@ -599,12 +518,40 @@ export default function AppAPR() {
       try {
         const coords = await getCurrentLocation();
         const { dataUrl: stampedImage, timestamp } = await processImageWithStamp(file, coords);
-        updateRespostaMultiplo(perguntaId, {
-          foto_url: stampedImage,
-          foto_latitude: coords?.latitude,
-          foto_longitude: coords?.longitude,
-          foto_data_hora: timestamp,
-        });
+        
+        const novaFoto: FotoData = {
+          url: stampedImage,
+          latitude: coords?.latitude,
+          longitude: coords?.longitude,
+          data_hora: timestamp,
+        };
+
+        if (isMultiple) {
+          setRespostas(prev => {
+            const respostaAtual = prev[perguntaId] || { pergunta_id: perguntaId };
+            const fotosAtuais = respostaAtual.fotos || [];
+            return {
+              ...prev,
+              [perguntaId]: {
+                ...respostaAtual,
+                pergunta_id: perguntaId,
+                fotos: [...fotosAtuais, novaFoto],
+                foto_url: fotosAtuais.length === 0 ? stampedImage : respostaAtual.foto_url,
+                foto_latitude: fotosAtuais.length === 0 ? coords?.latitude : respostaAtual.foto_latitude,
+                foto_longitude: fotosAtuais.length === 0 ? coords?.longitude : respostaAtual.foto_longitude,
+                foto_data_hora: fotosAtuais.length === 0 ? timestamp : respostaAtual.foto_data_hora,
+              },
+            };
+          });
+        } else {
+          updateRespostaMultiplo(perguntaId, {
+            foto_url: stampedImage,
+            foto_latitude: coords?.latitude,
+            foto_longitude: coords?.longitude,
+            foto_data_hora: timestamp,
+          });
+        }
+
         toast.success("Foto salva localmente!", { id: "foto-upload" });
       } catch (base64Error) {
         console.error("[APR] Erro ao converter para base64:", base64Error);
@@ -613,9 +560,36 @@ export default function AppAPR() {
     }
   };
 
+  // Remover uma foto específica
+  const removerFoto = (perguntaId: string, fotoIndex: number) => {
+    if (aprConcluida) return;
+    
+    setRespostas(prev => {
+      const respostaAtual = prev[perguntaId];
+      if (!respostaAtual?.fotos) return prev;
+      
+      const novasFotos = respostaAtual.fotos.filter((_, i) => i !== fotoIndex);
+      
+      return {
+        ...prev,
+        [perguntaId]: {
+          ...respostaAtual,
+          fotos: novasFotos,
+          // Atualizar foto_url para primeira foto ou null
+          foto_url: novasFotos.length > 0 ? novasFotos[0].url : undefined,
+          foto_latitude: novasFotos.length > 0 ? novasFotos[0].latitude : undefined,
+          foto_longitude: novasFotos.length > 0 ? novasFotos[0].longitude : undefined,
+          foto_data_hora: novasFotos.length > 0 ? novasFotos[0].data_hora : undefined,
+        },
+      };
+    });
+  };
+
   // Upload de assinatura
-  const handleSignatureSave = async (perguntaId: string, dataUrl: string) => {
-    console.log("[APR] Salvando assinatura para pergunta:", perguntaId);
+  const handleSignatureSave = async (dataUrl: string) => {
+    if (aprConcluida || !signaturePerguntaId) return;
+    
+    console.log("[APR] Salvando assinatura para pergunta:", signaturePerguntaId);
     toast.loading("Obtendo localização...", { id: "assinatura-upload" });
     
     try {
@@ -630,7 +604,7 @@ export default function AppAPR() {
       const response = await fetch(dataUrl);
       const blob = await response.blob();
       
-      const fileName = `apr/${ordemId}/assinatura_${perguntaId}_${Date.now()}.png`;
+      const fileName = `apr/${ordemId}/assinatura_${signaturePerguntaId}_${Date.now()}.png`;
 
       console.log("[APR] Tentando upload de assinatura para Storage:", fileName);
 
@@ -642,36 +616,28 @@ export default function AppAPR() {
           upsert: true,
         });
 
-      if (uploadError) {
+      let assinaturaUrl = dataUrl; // Fallback para base64
+
+      if (!uploadError && uploadData) {
+        console.log("[APR] Upload de assinatura bem sucedido:", uploadData);
+        const { data: urlData } = supabase.storage
+          .from("service-attachments")
+          .getPublicUrl(fileName);
+        assinaturaUrl = urlData.publicUrl;
+        console.log("[APR] URL pública da assinatura:", assinaturaUrl);
+      } else {
         console.error("[APR] Erro no Storage para assinatura, usando base64:", uploadError);
-        // Fallback: salvar o dataUrl diretamente (já é base64)
-        updateRespostaMultiplo(perguntaId, { 
-          assinatura_url: dataUrl, 
-          resposta: true,
-          assinatura_latitude: coords?.latitude,
-          assinatura_longitude: coords?.longitude,
-          assinatura_data_hora: timestamp,
-        });
-        toast.success("Assinatura salva!", { id: "assinatura-upload" });
-        return;
       }
 
-      console.log("[APR] Upload de assinatura bem sucedido:", uploadData);
-
-      const { data: urlData } = supabase.storage
-        .from("service-attachments")
-        .getPublicUrl(fileName);
-
-      console.log("[APR] URL pública da assinatura:", urlData.publicUrl);
-
       // Atualiza assinatura_url, coordenadas e marca resposta como true
-      updateRespostaMultiplo(perguntaId, { 
-        assinatura_url: urlData.publicUrl, 
+      updateRespostaMultiplo(signaturePerguntaId, { 
+        assinatura_url: assinaturaUrl, 
         resposta: true,
         assinatura_latitude: coords?.latitude,
         assinatura_longitude: coords?.longitude,
         assinatura_data_hora: timestamp,
       });
+      
       toast.success("Assinatura salva!", { id: "assinatura-upload" });
     } catch (error: any) {
       console.error("[APR] Erro ao salvar assinatura:", error);
@@ -680,7 +646,7 @@ export default function AppAPR() {
       try {
         const coords = await getCurrentLocation();
         const timestamp = format(new Date(), "dd/MM/yyyy HH:mm:ss");
-        updateRespostaMultiplo(perguntaId, { 
+        updateRespostaMultiplo(signaturePerguntaId, { 
           assinatura_url: dataUrl, 
           resposta: true,
           assinatura_latitude: coords?.latitude,
@@ -759,38 +725,109 @@ export default function AppAPR() {
 
   const todasPerguntas = checklist?.grupos?.flatMap(g => g.perguntas) || [];
 
+  // Verificar pendências e retornar lista
+  const verificarPendencias = (): { perguntaId: string; grupoId: string; tipo: string }[] => {
+    const pendencias: { perguntaId: string; grupoId: string; tipo: string }[] = [];
+    
+    if (!checklist?.grupos) return pendencias;
+    
+    for (const grupo of checklist.grupos) {
+      for (const pergunta of grupo.perguntas) {
+        const resposta = respostas[pergunta.id];
+        
+        // Verificar obrigatórias
+        if (pergunta.obrigatoria) {
+          if (pergunta.tipo === 'foto') {
+            const fotos = resposta?.fotos || [];
+            if (fotos.length === 0 && !resposta?.foto_url) {
+              pendencias.push({ perguntaId: pergunta.id, grupoId: grupo.id, tipo: 'foto_obrigatoria' });
+            }
+          } else if (pergunta.tipo === 'assinatura') {
+            if (!resposta?.assinatura_url) {
+              pendencias.push({ perguntaId: pergunta.id, grupoId: grupo.id, tipo: 'assinatura_obrigatoria' });
+            }
+          } else {
+            if (resposta?.resposta === null || resposta?.resposta === undefined || resposta?.resposta === '') {
+              pendencias.push({ perguntaId: pergunta.id, grupoId: grupo.id, tipo: 'resposta_obrigatoria' });
+            }
+          }
+        }
+        
+        // Verificar fotos condicionais
+        if (perguntaExigeFoto(pergunta) && !resposta?.foto_url) {
+          pendencias.push({ perguntaId: pergunta.id, grupoId: grupo.id, tipo: 'foto_condicional' });
+        }
+        
+        // Verificar observações condicionais
+        if (perguntaExigeObservacao(pergunta) && !resposta?.observacao) {
+          pendencias.push({ perguntaId: pergunta.id, grupoId: grupo.id, tipo: 'observacao_condicional' });
+        }
+      }
+    }
+    
+    return pendencias;
+  };
+
+  // Scroll para primeira pendência
+  const scrollParaPendencia = (pendencias: { perguntaId: string; grupoId: string; tipo: string }[]) => {
+    if (pendencias.length === 0) return;
+    
+    const primeiraPendencia = pendencias[0];
+    
+    // Expandir o grupo
+    setGruposExpandidos(prev => {
+      const newSet = new Set(prev);
+      newSet.add(primeiraPendencia.grupoId);
+      return newSet;
+    });
+    
+    // Aguardar expansão e fazer scroll
+    setTimeout(() => {
+      const element = perguntaRefs.current[primeiraPendencia.perguntaId];
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 300);
+  };
+
+  // Tentar salvar APR
+  const tentarSalvarAPR = () => {
+    if (aprConcluida) {
+      toast.error("Esta APR já foi concluída e não pode ser editada.");
+      return;
+    }
+    
+    const pendencias = verificarPendencias();
+    
+    if (pendencias.length > 0) {
+      // Destacar pendências
+      const pendenciasIds = new Set(pendencias.map(p => p.perguntaId));
+      setPendenciasHighlight(pendenciasIds);
+      
+      // Scroll para primeira pendência
+      scrollParaPendencia(pendencias);
+      
+      // Mensagem de erro
+      const tiposErro = new Set(pendencias.map(p => p.tipo));
+      let mensagem = `Preencha todos os campos obrigatórios (${pendencias.length} pendência(s))`;
+      
+      if (tiposErro.has('foto_obrigatoria') || tiposErro.has('foto_condicional')) {
+        mensagem = `Adicione as fotos obrigatórias (${pendencias.filter(p => p.tipo.includes('foto')).length} pendente(s))`;
+      } else if (tiposErro.has('assinatura_obrigatoria')) {
+        mensagem = `Adicione as assinaturas obrigatórias`;
+      }
+      
+      toast.error(mensagem);
+      return;
+    }
+    
+    // Abrir dialog de confirmação
+    setConfirmDialogOpen(true);
+  };
+
   // Salvar APR
   const salvarAPR = async () => {
     if (!checklist) return;
-
-    // Validar perguntas obrigatórias
-    const perguntasObrigatorias = todasPerguntas.filter(p => p.obrigatoria);
-    const naoRespondidas = perguntasObrigatorias.filter(p => {
-      const resposta = respostas[p.id];
-      if (!resposta) return true;
-      if (p.tipo === 'foto') return !resposta.foto_url;
-      if (p.tipo === 'assinatura') return !resposta.assinatura_url;
-      return resposta.resposta === null || resposta.resposta === undefined || resposta.resposta === '';
-    });
-
-    if (naoRespondidas.length > 0) {
-      toast.error(`Responda todas as perguntas obrigatórias (${naoRespondidas.length} pendente(s))`);
-      return;
-    }
-
-    // Validar fotos condicionais
-    const fotosFaltando = todasPerguntas.filter(p => {
-      if (perguntaExigeFoto(p)) {
-        const resposta = respostas[p.id];
-        return !resposta?.foto_url;
-      }
-      return false;
-    });
-
-    if (fotosFaltando.length > 0) {
-      toast.error(`Adicione as fotos obrigatórias (${fotosFaltando.length} pendente(s))`);
-      return;
-    }
 
     setSaving(true);
     try {
@@ -805,7 +842,7 @@ export default function AppAPR() {
         status: 'completo',
       };
 
-      if (respostaExistente) {
+      if (respostaExistente && !aprConcluida) {
         const { error } = await supabase
           .from("checklist_respostas")
           .update(payload)
@@ -824,13 +861,13 @@ export default function AppAPR() {
         await supabase.from("planejamento_logs").insert({
           ordem_servico_id: ordemId,
           acao: "apr_preenchida",
-          descricao: `APR "${checklist.nome}" preenchida`,
+          descricao: `APR "${checklist.nome}" preenchida e concluída`,
           dados_novos: { checklist_id: checklist.id, respostas_count: respostasArray.length },
           created_by: equipeId,
         });
       }
 
-      toast.success("APR salva com sucesso!");
+      toast.success("APR concluída com sucesso!");
       queryClient.invalidateQueries({ queryKey: ["apr-existente", ordemId] });
       navigate(-1);
     } catch (error: any) {
@@ -838,6 +875,7 @@ export default function AppAPR() {
       toast.error("Erro ao salvar APR");
     } finally {
       setSaving(false);
+      setConfirmDialogOpen(false);
     }
   };
 
@@ -861,6 +899,7 @@ export default function AppAPR() {
     const exigeFoto = perguntaExigeFoto(pergunta);
     const exigeObservacao = perguntaExigeObservacao(pergunta);
     const alerta = getAlertaResposta(pergunta);
+    const isPendente = pendenciasHighlight.has(pergunta.id);
 
     const campoBase = (() => {
       switch (pergunta.tipo) {
@@ -870,6 +909,8 @@ export default function AppAPR() {
               value={(resposta?.resposta as string) || ''}
               onChange={(e) => updateResposta(pergunta.id, e.target.value)}
               placeholder={pergunta.config?.placeholder || "Digite sua resposta..."}
+              disabled={aprConcluida}
+              className={isPendente ? "border-red-500 ring-2 ring-red-200" : ""}
             />
           );
 
@@ -880,6 +921,8 @@ export default function AppAPR() {
               onChange={(e) => updateResposta(pergunta.id, e.target.value)}
               placeholder={pergunta.config?.placeholder || "Digite sua resposta..."}
               rows={3}
+              disabled={aprConcluida}
+              className={isPendente ? "border-red-500 ring-2 ring-red-200" : ""}
             />
           );
 
@@ -890,7 +933,8 @@ export default function AppAPR() {
               value={(resposta?.resposta as number) || ''}
               onChange={(e) => updateResposta(pergunta.id, e.target.value ? Number(e.target.value) : null)}
               placeholder="0"
-              className="w-32"
+              className={`w-32 ${isPendente ? "border-red-500 ring-2 ring-red-200" : ""}`}
+              disabled={aprConcluida}
             />
           );
 
@@ -899,14 +943,15 @@ export default function AppAPR() {
             <RadioGroup
               value={resposta?.resposta as string || ''}
               onValueChange={(value) => updateResposta(pergunta.id, value)}
-              className="flex gap-4"
+              className={`flex gap-4 ${isPendente ? "p-2 rounded-lg bg-red-50 border border-red-300" : ""}`}
+              disabled={aprConcluida}
             >
               <div className="flex items-center space-x-2">
-                <RadioGroupItem value="nao" id={`${pergunta.id}-nao`} />
+                <RadioGroupItem value="nao" id={`${pergunta.id}-nao`} disabled={aprConcluida} />
                 <Label htmlFor={`${pergunta.id}-nao`} className="text-green-600 font-medium cursor-pointer">Não</Label>
               </div>
               <div className="flex items-center space-x-2">
-                <RadioGroupItem value="sim" id={`${pergunta.id}-sim`} />
+                <RadioGroupItem value="sim" id={`${pergunta.id}-sim`} disabled={aprConcluida} />
                 <Label htmlFor={`${pergunta.id}-sim`} className="text-red-600 font-medium cursor-pointer">Sim</Label>
               </div>
             </RadioGroup>
@@ -918,11 +963,12 @@ export default function AppAPR() {
             <RadioGroup
               value={resposta?.resposta as string || ''}
               onValueChange={(value) => updateResposta(pergunta.id, value)}
-              className="space-y-2"
+              className={`space-y-2 ${isPendente ? "p-2 rounded-lg bg-red-50 border border-red-300" : ""}`}
+              disabled={aprConcluida}
             >
               {opcoes.map((opcao) => (
                 <div key={opcao.id} className="flex items-center space-x-2">
-                  <RadioGroupItem value={opcao.valor || opcao.texto} id={`${pergunta.id}-${opcao.id}`} />
+                  <RadioGroupItem value={opcao.valor || opcao.texto} id={`${pergunta.id}-${opcao.id}`} disabled={aprConcluida} />
                   <Label htmlFor={`${pergunta.id}-${opcao.id}`} className="cursor-pointer">{opcao.texto}</Label>
                 </div>
               ))}
@@ -932,13 +978,15 @@ export default function AppAPR() {
         case 'multipla_escolha':
           const selecionados = (resposta?.resposta as string[]) || [];
           return (
-            <div className="space-y-2 max-h-64 overflow-y-auto">
+            <div className={`space-y-2 max-h-64 overflow-y-auto ${isPendente ? "p-2 rounded-lg bg-red-50 border border-red-300" : ""}`}>
               {opcoes.map((opcao) => (
                 <div key={opcao.id} className="flex items-center space-x-2">
                   <Checkbox
                     id={`${pergunta.id}-${opcao.id}`}
                     checked={selecionados.includes(opcao.texto)}
+                    disabled={aprConcluida}
                     onCheckedChange={(checked) => {
+                      if (aprConcluida) return;
                       const novos = checked
                         ? [...selecionados, opcao.texto]
                         : selecionados.filter(s => s !== opcao.texto);
@@ -952,93 +1000,166 @@ export default function AppAPR() {
           );
 
         case 'foto':
-          const inputFotoId = `foto-input-${pergunta.id}`;
+          // Tipo foto agora suporta múltiplas fotos e só aceita câmera
+          const fotos = resposta?.fotos || [];
           
           return (
-            <div className="space-y-2">
-              <input
-                id={inputFotoId}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="sr-only"
-                onChange={(e) => {
-                  console.log("[APR] Arquivo selecionado:", e.target.files);
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    handleFotoUpload(pergunta.id, file);
-                  }
-                  // Limpar o input para permitir selecionar o mesmo arquivo novamente
-                  e.target.value = '';
-                }}
-              />
-              {resposta?.foto_url ? (
-                <div className="relative">
-                  <img
-                    src={resposta.foto_url}
-                    alt="Foto"
-                    className="w-full h-48 object-cover rounded-lg"
+            <div className={`space-y-3 ${isPendente ? "p-3 rounded-lg bg-red-50 border-2 border-red-400" : ""}`}>
+              {/* Grid de fotos existentes */}
+              {fotos.length > 0 && (
+                <div className="grid grid-cols-3 gap-2">
+                  {fotos.map((foto, index) => (
+                    <div key={index} className="relative group">
+                      <button
+                        type="button"
+                        onClick={() => setFotoViewer({ open: true, fotos, index })}
+                        className="w-full aspect-square rounded-lg overflow-hidden border-2 border-gray-200 hover:border-violet-400 transition-colors"
+                      >
+                        <img
+                          src={foto.url}
+                          alt={`Foto ${index + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                      </button>
+                      {!aprConcluida && (
+                        <button
+                          type="button"
+                          onClick={() => removerFoto(pergunta.id, index)}
+                          className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-1 shadow-md opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              {/* Botão para adicionar mais fotos */}
+              {!aprConcluida && (
+                <div>
+                  <input
+                    id={`foto-input-${pergunta.id}`}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="sr-only"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        handleFotoUpload(pergunta.id, file, true);
+                      }
+                      e.target.value = '';
+                    }}
                   />
                   <label
-                    htmlFor={inputFotoId}
-                    className="absolute bottom-2 right-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 bg-secondary text-secondary-foreground hover:bg-secondary/80 h-9 px-3 cursor-pointer"
+                    htmlFor={`foto-input-${pergunta.id}`}
+                    className={`flex flex-col items-center justify-center gap-2 w-full h-28 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
+                      fotos.length > 0 
+                        ? "border-violet-300 bg-violet-50/50 hover:bg-violet-100/50" 
+                        : "border-gray-300 hover:bg-muted/50"
+                    }`}
                   >
-                    <Camera className="h-4 w-4 mr-1" />
-                    Trocar
+                    {fotos.length > 0 ? (
+                      <>
+                        <Plus className="h-6 w-6 text-violet-500" />
+                        <span className="text-sm text-violet-600 font-medium">Adicionar outra foto</span>
+                      </>
+                    ) : (
+                      <>
+                        <Camera className="h-8 w-8 text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground">Tirar Foto</span>
+                        <span className="text-xs text-muted-foreground">(Apenas câmera)</span>
+                      </>
+                    )}
                   </label>
                 </div>
-              ) : (
-                <label
-                  htmlFor={inputFotoId}
-                  className="flex flex-col items-center justify-center gap-2 w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
-                >
-                  <Camera className="h-8 w-8 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">Tirar Foto</span>
-                </label>
               )}
+              
+              {fotos.length > 0 && (
+                <p className="text-xs text-muted-foreground text-center">
+                  {fotos.length} foto(s) adicionada(s) • Toque para ampliar
+                </p>
+              )}
+              
               {pergunta.config?.dica && (
                 <p className="text-xs text-muted-foreground">{pergunta.config.dica}</p>
+              )}
+              
+              {isPendente && (
+                <div className="flex items-center gap-2 text-red-600">
+                  <AlertCircle className="h-4 w-4" />
+                  <span className="text-sm font-medium">Foto obrigatória</span>
+                </div>
               )}
             </div>
           );
 
         case 'assinatura':
           return (
-            <div className="space-y-2">
+            <div className={`space-y-2 ${isPendente ? "p-3 rounded-lg bg-red-50 border-2 border-red-400" : ""}`}>
               {resposta?.assinatura_url ? (
                 <div className="relative">
-                  <img
-                    src={resposta.assinatura_url}
-                    alt="Assinatura"
-                    className="w-full h-32 object-contain bg-white rounded-lg border"
-                  />
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    className="absolute top-2 right-2"
-                    onClick={() => {
-                      updateResposta(pergunta.id, null, 'assinatura_url');
-                      updateResposta(pergunta.id, null, 'resposta');
-                    }}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
+                  <div className="bg-white rounded-lg border-2 border-gray-200 p-2">
+                    <img
+                      src={resposta.assinatura_url}
+                      alt="Assinatura"
+                      className="w-full h-40 object-contain"
+                    />
+                    {resposta.assinatura_data_hora && (
+                      <p className="text-xs text-muted-foreground text-center mt-2">
+                        📅 {resposta.assinatura_data_hora}
+                        {resposta.assinatura_latitude && resposta.assinatura_longitude && (
+                          <> • 📍 {resposta.assinatura_latitude.toFixed(4)}, {resposta.assinatura_longitude.toFixed(4)}</>
+                        )}
+                      </p>
+                    )}
+                  </div>
+                  {!aprConcluida && (
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      className="absolute top-2 right-2"
+                      onClick={() => {
+                        updateRespostaMultiplo(pergunta.id, {
+                          assinatura_url: undefined,
+                          resposta: null,
+                          assinatura_latitude: undefined,
+                          assinatura_longitude: undefined,
+                          assinatura_data_hora: undefined,
+                        });
+                      }}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
                 </div>
               ) : (
                 <Button
                   variant="outline"
-                  className="w-full h-32 border-dashed border-2"
-                  onClick={() => setSignatureDialog({
-                    open: true,
-                    perguntaId: pergunta.id,
-                    title: pergunta.texto,
-                  })}
+                  className={`w-full h-36 border-dashed border-2 ${isPendente ? "border-red-400 bg-red-50" : ""}`}
+                  disabled={aprConcluida}
+                  onClick={() => {
+                    setSignaturePerguntaId(pergunta.id);
+                    setSignatureTitulo(pergunta.texto);
+                    setSignatureOpen(true);
+                  }}
                 >
                   <div className="flex flex-col items-center gap-2">
-                    <FileSignature className="h-8 w-8 text-violet-500" />
-                    <span className="text-sm text-muted-foreground">Toque para assinar</span>
+                    <FileSignature className={`h-10 w-10 ${isPendente ? "text-red-500" : "text-violet-500"}`} />
+                    <span className={`text-sm ${isPendente ? "text-red-600 font-medium" : "text-muted-foreground"}`}>
+                      {isPendente ? "Assinatura obrigatória" : "Toque para assinar"}
+                    </span>
+                    <span className="text-xs text-muted-foreground">Abre em tela cheia</span>
                   </div>
                 </Button>
+              )}
+              
+              {isPendente && !resposta?.assinatura_url && (
+                <div className="flex items-center gap-2 text-red-600">
+                  <AlertCircle className="h-4 w-4" />
+                  <span className="text-sm font-medium">Assinatura obrigatória</span>
+                </div>
               )}
             </div>
           );
@@ -1048,14 +1169,15 @@ export default function AppAPR() {
             <RadioGroup
               value={resposta?.resposta as string || ''}
               onValueChange={(value) => updateResposta(pergunta.id, value)}
-              className="flex gap-4"
+              className={`flex gap-4 ${isPendente ? "p-2 rounded-lg bg-red-50 border border-red-300" : ""}`}
+              disabled={aprConcluida}
             >
               <div className="flex items-center space-x-2">
-                <RadioGroupItem value="conforme" id={`${pergunta.id}-conforme`} />
+                <RadioGroupItem value="conforme" id={`${pergunta.id}-conforme`} disabled={aprConcluida} />
                 <Label htmlFor={`${pergunta.id}-conforme`} className="text-green-600 font-medium cursor-pointer">Conforme</Label>
               </div>
               <div className="flex items-center space-x-2">
-                <RadioGroupItem value="nao_conforme" id={`${pergunta.id}-nao_conforme`} />
+                <RadioGroupItem value="nao_conforme" id={`${pergunta.id}-nao_conforme`} disabled={aprConcluida} />
                 <Label htmlFor={`${pergunta.id}-nao_conforme`} className="text-red-600 font-medium cursor-pointer">Não Conforme</Label>
               </div>
             </RadioGroup>
@@ -1067,7 +1189,8 @@ export default function AppAPR() {
               type="date"
               value={(resposta?.resposta as string) || ''}
               onChange={(e) => updateResposta(pergunta.id, e.target.value)}
-              className="w-48"
+              className={`w-48 ${isPendente ? "border-red-500 ring-2 ring-red-200" : ""}`}
+              disabled={aprConcluida}
             />
           );
 
@@ -1077,7 +1200,8 @@ export default function AppAPR() {
               type="time"
               value={(resposta?.resposta as string) || ''}
               onChange={(e) => updateResposta(pergunta.id, e.target.value)}
-              className="w-32"
+              className={`w-32 ${isPendente ? "border-red-500 ring-2 ring-red-200" : ""}`}
+              disabled={aprConcluida}
             />
           );
 
@@ -1087,6 +1211,8 @@ export default function AppAPR() {
               value={(resposta?.resposta as string) || ''}
               onChange={(e) => updateResposta(pergunta.id, e.target.value)}
               placeholder="Digite sua resposta..."
+              disabled={aprConcluida}
+              className={isPendente ? "border-red-500 ring-2 ring-red-200" : ""}
             />
           );
       }
@@ -1107,10 +1233,11 @@ export default function AppAPR() {
         {/* Campo de foto condicional */}
         {exigeFoto && pergunta.tipo !== 'foto' && (() => {
           const inputFotoCondId = `foto-cond-input-${pergunta.id}`;
+          const fotoCondPendente = isPendente && !resposta?.foto_url;
           
           return (
-            <div className="space-y-2 p-3 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-sm text-red-700 font-medium flex items-center gap-2">
+            <div className={`space-y-2 p-3 rounded-lg ${fotoCondPendente ? "bg-red-100 border-2 border-red-400" : "bg-red-50 border border-red-200"}`}>
+              <p className={`text-sm font-medium flex items-center gap-2 ${fotoCondPendente ? "text-red-700" : "text-red-700"}`}>
                 <Camera className="h-4 w-4" />
                 Foto obrigatória para esta resposta
               </p>
@@ -1120,9 +1247,10 @@ export default function AppAPR() {
                 accept="image/*"
                 capture="environment"
                 className="sr-only"
+                disabled={aprConcluida}
                 onChange={(e) => {
                   const file = e.target.files?.[0];
-                  if (file) handleFotoUpload(pergunta.id, file);
+                  if (file) handleFotoUpload(pergunta.id, file, false);
                   e.target.value = '';
                 }}
               />
@@ -1133,21 +1261,25 @@ export default function AppAPR() {
                     alt="Foto"
                     className="w-full h-32 object-cover rounded-lg"
                   />
-                  <label
-                    htmlFor={inputFotoCondId}
-                    className="absolute bottom-2 right-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 h-9 px-3 cursor-pointer"
-                  >
-                    <Camera className="h-4 w-4 mr-1" />
-                    Trocar
-                  </label>
+                  {!aprConcluida && (
+                    <label
+                      htmlFor={inputFotoCondId}
+                      className="absolute bottom-2 right-2 inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 h-9 px-3 cursor-pointer"
+                    >
+                      <Camera className="h-4 w-4 mr-1" />
+                      Trocar
+                    </label>
+                  )}
                 </div>
               ) : (
                 <label
                   htmlFor={inputFotoCondId}
-                  className="flex flex-col items-center justify-center gap-1 w-full h-24 border-2 border-dashed rounded-lg bg-white cursor-pointer hover:bg-red-100/50 transition-colors"
+                  className={`flex flex-col items-center justify-center gap-1 w-full h-24 border-2 border-dashed rounded-lg bg-white cursor-pointer transition-colors ${
+                    aprConcluida ? "opacity-50 cursor-not-allowed" : "hover:bg-red-100/50"
+                  }`}
                 >
                   <Camera className="h-6 w-6 text-red-500" />
-                  <span className="text-xs text-red-600">Adicionar Foto</span>
+                  <span className="text-xs text-red-600">Adicionar Foto (Câmera)</span>
                 </label>
               )}
             </div>
@@ -1156,7 +1288,7 @@ export default function AppAPR() {
 
         {/* Campo de observação condicional */}
         {exigeObservacao && (
-          <div className="space-y-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+          <div className={`space-y-2 p-3 rounded-lg ${isPendente && !resposta?.observacao ? "bg-amber-100 border-2 border-amber-400" : "bg-amber-50 border border-amber-200"}`}>
             <p className="text-sm text-amber-700 font-medium">
               Observação obrigatória para esta resposta
             </p>
@@ -1166,6 +1298,7 @@ export default function AppAPR() {
               placeholder="Descreva a situação encontrada..."
               rows={2}
               className="bg-white"
+              disabled={aprConcluida}
             />
           </div>
         )}
@@ -1176,7 +1309,10 @@ export default function AppAPR() {
   const isPerguntaRespondida = (pergunta: Pergunta): boolean => {
     const resposta = respostas[pergunta.id];
     if (!resposta) return false;
-    if (pergunta.tipo === 'foto') return !!resposta.foto_url;
+    if (pergunta.tipo === 'foto') {
+      const fotos = resposta.fotos || [];
+      return fotos.length > 0 || !!resposta.foto_url;
+    }
     if (pergunta.tipo === 'assinatura') return !!resposta.assinatura_url;
     if (Array.isArray(resposta.resposta)) return resposta.resposta.length > 0;
     return resposta.resposta !== null && resposta.resposta !== undefined && resposta.resposta !== '';
@@ -1252,12 +1388,17 @@ export default function AppAPR() {
               </p>
             )}
           </div>
-          {respostaExistente && (
-            <Badge variant="outline" className="text-green-600 border-green-600">
-              <CheckCircle className="h-3 w-3 mr-1" />
-              Preenchido
+          {aprConcluida ? (
+            <Badge variant="outline" className="text-amber-600 border-amber-600 bg-amber-50">
+              <Lock className="h-3 w-3 mr-1" />
+              Concluída
             </Badge>
-          )}
+          ) : respostaExistente ? (
+            <Badge variant="outline" className="text-blue-600 border-blue-600">
+              <CheckCircle className="h-3 w-3 mr-1" />
+              Em andamento
+            </Badge>
+          ) : null}
         </div>
 
         {/* Barra de progresso */}
@@ -1268,12 +1409,29 @@ export default function AppAPR() {
           </div>
           <div className="h-2 bg-muted rounded-full overflow-hidden">
             <div
-              className="h-full bg-violet-600 transition-all duration-300"
+              className={`h-full transition-all duration-300 ${aprConcluida ? "bg-amber-500" : "bg-violet-600"}`}
               style={{ width: `${progresso}%` }}
             />
           </div>
         </div>
       </div>
+
+      {/* Aviso de APR concluída */}
+      {aprConcluida && (
+        <div className="mx-4 mt-4">
+          <Card className="bg-amber-50 border-amber-300">
+            <CardContent className="p-4 flex items-start gap-3">
+              <Lock className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium text-amber-800">APR Concluída</p>
+                <p className="text-sm text-amber-700 mt-1">
+                  Esta APR já foi concluída e não pode ser editada. Você pode apenas consultar as informações.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Grupos e Perguntas */}
       <div className="p-4 space-y-3">
@@ -1291,6 +1449,7 @@ export default function AppAPR() {
             const { respondidas, total } = getProgressoGrupo(grupo);
             const isExpanded = gruposExpandidos.has(grupo.id);
             const todasRespondidas = respondidas === total && total > 0;
+            const temPendencia = grupo.perguntas.some(p => pendenciasHighlight.has(p.id));
 
             return (
               <Collapsible
@@ -1298,7 +1457,10 @@ export default function AppAPR() {
                 open={isExpanded}
                 onOpenChange={() => toggleGrupo(grupo.id)}
               >
-                <Card className={todasRespondidas ? 'border-green-300 bg-green-50/50' : ''}>
+                <Card 
+                  ref={(el) => grupoRefs.current[grupo.id] = el}
+                  className={`${todasRespondidas ? 'border-green-300 bg-green-50/50' : ''} ${temPendencia ? 'border-red-400 ring-2 ring-red-200' : ''}`}
+                >
                   <CollapsibleTrigger asChild>
                     <CardHeader className="pb-2 cursor-pointer hover:bg-muted/50 transition-colors">
                       <div className="flex items-center justify-between">
@@ -1308,10 +1470,15 @@ export default function AppAPR() {
                           ) : (
                             <ChevronRight className="h-4 w-4 text-muted-foreground" />
                           )}
-                          <CardTitle className="text-sm font-semibold">{grupo.nome}</CardTitle>
+                          <CardTitle className={`text-sm font-semibold ${temPendencia ? "text-red-700" : ""}`}>
+                            {grupo.nome}
+                          </CardTitle>
+                          {temPendencia && (
+                            <AlertCircle className="h-4 w-4 text-red-500" />
+                          )}
                         </div>
                         <Badge 
-                          variant={todasRespondidas ? "default" : "secondary"}
+                          variant={todasRespondidas ? "default" : temPendencia ? "destructive" : "secondary"}
                           className={todasRespondidas ? "bg-green-600" : ""}
                         >
                           {respondidas}/{total}
@@ -1329,20 +1496,34 @@ export default function AppAPR() {
                         .sort((a, b) => a.ordem - b.ordem)
                         .map((pergunta, index) => {
                           const respondida = isPerguntaRespondida(pergunta);
+                          const isPendente = pendenciasHighlight.has(pergunta.id);
 
                           return (
                             <div 
-                              key={pergunta.id} 
-                              className={`p-3 rounded-lg border ${respondida ? 'border-green-200 bg-green-50/50' : 'border-muted bg-muted/20'}`}
+                              key={pergunta.id}
+                              ref={(el) => perguntaRefs.current[pergunta.id] = el}
+                              className={`p-3 rounded-lg border transition-all ${
+                                isPendente 
+                                  ? 'border-red-400 bg-red-50 ring-2 ring-red-200 animate-pulse' 
+                                  : respondida 
+                                    ? 'border-green-200 bg-green-50/50' 
+                                    : 'border-muted bg-muted/20'
+                              }`}
                             >
                               <div className="flex items-start gap-2 mb-2">
                                 <Badge 
                                   variant="outline" 
-                                  className={`shrink-0 text-xs ${respondida ? 'bg-green-100 text-green-700 border-green-300' : ''}`}
+                                  className={`shrink-0 text-xs ${
+                                    isPendente 
+                                      ? 'bg-red-100 text-red-700 border-red-300' 
+                                      : respondida 
+                                        ? 'bg-green-100 text-green-700 border-green-300' 
+                                        : ''
+                                  }`}
                                 >
                                   {grupo.ordem}.{index + 1}
                                 </Badge>
-                                <span className="text-sm flex-1">
+                                <span className={`text-sm flex-1 ${isPendente ? "text-red-800 font-medium" : ""}`}>
                                   {pergunta.texto}
                                   {pergunta.obrigatoria && <span className="text-red-500 ml-1">*</span>}
                                 </span>
@@ -1362,28 +1543,131 @@ export default function AppAPR() {
           })}
 
         {/* Botão Salvar */}
-        <Button
-          className="w-full bg-violet-600 hover:bg-violet-700"
-          size="lg"
-          onClick={salvarAPR}
-          disabled={saving}
-        >
-          {saving ? (
-            <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-          ) : (
-            <Send className="h-5 w-5 mr-2" />
-          )}
-          {respostaExistente ? 'Atualizar APR' : 'Enviar APR'}
-        </Button>
+        {!aprConcluida && (
+          <Button
+            className="w-full bg-violet-600 hover:bg-violet-700"
+            size="lg"
+            onClick={tentarSalvarAPR}
+            disabled={saving}
+          >
+            {saving ? (
+              <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+            ) : (
+              <Send className="h-5 w-5 mr-2" />
+            )}
+            {respostaExistente ? 'Concluir APR' : 'Enviar APR'}
+          </Button>
+        )}
       </div>
 
-      {/* Dialog de Assinatura */}
-      <SignatureCanvas
-        open={signatureDialog.open}
-        onClose={() => setSignatureDialog({ open: false, perguntaId: "", title: "" })}
-        onSave={(dataUrl) => handleSignatureSave(signatureDialog.perguntaId, dataUrl)}
-        title={signatureDialog.title}
+      {/* Dialog de Assinatura em Tela Cheia */}
+      <SignatureFullScreen
+        open={signatureOpen}
+        onClose={() => setSignatureOpen(false)}
+        onSave={handleSignatureSave}
+        titulo={signatureTitulo}
       />
+
+      {/* Dialog de Confirmação */}
+      <AlertDialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              Confirmar Conclusão da APR
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <p>
+                <strong className="text-foreground">Atenção:</strong> Após concluir a APR, ela <strong className="text-red-600">não poderá mais ser editada</strong>.
+              </p>
+              <p>
+                Certifique-se de que todas as informações estão corretas antes de prosseguir.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>Revisar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={salvarAPR}
+              disabled={saving}
+              className="bg-violet-600 hover:bg-violet-700"
+            >
+              {saving ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <CheckCircle className="h-4 w-4 mr-2" />
+              )}
+              Confirmar e Concluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Visualizador de Fotos */}
+      <Dialog open={fotoViewer.open} onOpenChange={(open) => setFotoViewer(prev => ({ ...prev, open }))}>
+        <DialogContent className="max-w-[95vw] max-h-[90vh] p-0 bg-black/95">
+          <div className="relative flex flex-col h-full min-h-[60vh]">
+            {/* Header */}
+            <div className="absolute top-0 left-0 right-0 z-10 bg-gradient-to-b from-black/80 to-transparent p-4">
+              <div className="flex items-center justify-between">
+                <div className="text-white">
+                  <p className="text-sm opacity-70">
+                    Foto {fotoViewer.index + 1} de {fotoViewer.fotos.length}
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-white hover:bg-white/20"
+                  onClick={() => setFotoViewer(prev => ({ ...prev, open: false }))}
+                >
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
+            </div>
+
+            {/* Imagem */}
+            <div className="flex-1 flex items-center justify-center p-4 pt-16 pb-20">
+              {fotoViewer.fotos[fotoViewer.index]?.url && (
+                <img
+                  src={fotoViewer.fotos[fotoViewer.index].url}
+                  alt={`Foto ${fotoViewer.index + 1}`}
+                  className="max-w-full max-h-[60vh] object-contain rounded"
+                />
+              )}
+            </div>
+
+            {/* Footer com informações */}
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4">
+              <div className="text-white text-center space-y-1 text-sm">
+                {fotoViewer.fotos[fotoViewer.index]?.data_hora && (
+                  <p>📅 {fotoViewer.fotos[fotoViewer.index].data_hora}</p>
+                )}
+                {fotoViewer.fotos[fotoViewer.index]?.latitude && fotoViewer.fotos[fotoViewer.index]?.longitude && (
+                  <p>📍 {fotoViewer.fotos[fotoViewer.index].latitude?.toFixed(6)}, {fotoViewer.fotos[fotoViewer.index].longitude?.toFixed(6)}</p>
+                )}
+              </div>
+              
+              {/* Navegação */}
+              {fotoViewer.fotos.length > 1 && (
+                <div className="flex justify-center gap-2 mt-3">
+                  {fotoViewer.fotos.map((_, index) => (
+                    <button
+                      key={index}
+                      className={`w-2 h-2 rounded-full transition-all ${
+                        index === fotoViewer.index
+                          ? "bg-white w-4"
+                          : "bg-white/50 hover:bg-white/80"
+                      }`}
+                      onClick={() => setFotoViewer(prev => ({ ...prev, index }))}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
