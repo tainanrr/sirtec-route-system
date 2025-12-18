@@ -307,6 +307,8 @@ export default function AppEstoque() {
           id,
           numero_serie,
           data_entrega_equipe,
+          created_at,
+          updated_at,
           materiais (
             codigo,
             nome,
@@ -314,8 +316,9 @@ export default function AppEstoque() {
           )
         `)
         .eq("status", "com_equipe")
-        .eq("equipe_atual_id", equipeId)
-        .order("data_entrega_equipe", { ascending: true });
+        .eq("localizacao_tipo", "equipe")
+        .eq("localizacao_id", equipeId)
+        .order("created_at", { ascending: true });
 
       if (error) throw error;
       return data || [];
@@ -812,9 +815,13 @@ export default function AppEstoque() {
     (item) => item.quantidade <= item.materiais.estoque_minimo
   ).length || 0;
 
+  // Função auxiliar para obter data de entrega (usa created_at como fallback)
+  const getDataEntrega = (item: any) => item.data_entrega_equipe || item.updated_at || item.created_at;
+
   // Calcular materiais serializados em alerta
   const materiaisEmAlerta = materiaisSerializados?.filter((item: any) => {
-    const dias = calcularDiasDesde(item.data_entrega_equipe);
+    const dataEntrega = getDataEntrega(item);
+    const dias = calcularDiasDesde(dataEntrega);
     const diasAlerta = item.materiais?.dias_alerta_retencao || 7;
     const nivel = getNivelAlerta(dias, diasAlerta);
     return nivel === "alerta" || nivel === "critico";
@@ -919,7 +926,8 @@ export default function AppEstoque() {
                 Estes materiais estão há muito tempo sem aplicação em campo
               </p>
               {materiaisEmAlerta.slice(0, 3).map((item: any) => {
-                const dias = calcularDiasDesde(item.data_entrega_equipe);
+                const dataEntrega = getDataEntrega(item);
+                const dias = calcularDiasDesde(dataEntrega);
                 const diasAlerta = item.materiais?.dias_alerta_retencao || 7;
                 const nivel = getNivelAlerta(dias, diasAlerta);
                 
@@ -938,7 +946,7 @@ export default function AppEstoque() {
                       </div>
                     </div>
                     <DiasRetencaoBadge
-                      dataEntregaEquipe={item.data_entrega_equipe}
+                      dataEntregaEquipe={dataEntrega}
                       diasAlertaRetencao={diasAlerta}
                       size="sm"
                       showTooltip={false}
@@ -1047,7 +1055,8 @@ export default function AppEstoque() {
             {materiaisSerializados && materiaisSerializados.length > 0 ? (
               <div className="space-y-2">
                 {materiaisSerializados.map((item: any) => {
-                  const dias = calcularDiasDesde(item.data_entrega_equipe);
+                  const dataEntrega = getDataEntrega(item);
+                  const dias = calcularDiasDesde(dataEntrega);
                   const diasAlerta = item.materiais?.dias_alerta_retencao || 7;
                   const nivel = getNivelAlerta(dias, diasAlerta);
                   const isAlerta = nivel === "alerta" || nivel === "critico";
@@ -1079,7 +1088,7 @@ export default function AppEstoque() {
                             </div>
                           </div>
                           <DiasRetencaoBadge
-                            dataEntregaEquipe={item.data_entrega_equipe}
+                            dataEntregaEquipe={dataEntrega}
                             diasAlertaRetencao={diasAlerta}
                             size="sm"
                             showTooltip={false}

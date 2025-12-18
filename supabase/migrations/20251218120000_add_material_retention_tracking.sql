@@ -116,17 +116,10 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- 9. Atualizar materiais existentes que já estão com equipe
--- Definir data_entrega_equipe como a data da última movimentação para 'com_equipe'
+-- Definir data_entrega_equipe como a data de atualização do registro (melhor aproximação disponível)
 UPDATE public.materiais_serializados ms
 SET 
-  data_entrega_equipe = COALESCE(
-    (SELECT MAX(mh.created_at) 
-     FROM public.materiais_historico mh 
-     WHERE mh.material_serializado_id = ms.id 
-       AND mh.status_novo = 'com_equipe'),
-    ms.updated_at,
-    ms.created_at
-  ),
+  data_entrega_equipe = COALESCE(ms.updated_at, ms.created_at, NOW()),
   equipe_atual_id = CASE 
     WHEN ms.localizacao_tipo = 'equipe' AND ms.localizacao_id IS NOT NULL 
     THEN ms.localizacao_id::UUID 
