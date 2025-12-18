@@ -172,6 +172,25 @@ export default function Movimentacoes() {
     },
   });
 
+  // Query para buscar equipes (para exibir códigos corretos)
+  const { data: equipesMap } = useQuery({
+    queryKey: ["equipes-map"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("tecnicos")
+        .select("id, codigo, nome");
+
+      if (error) throw error;
+
+      const map: Record<string, { codigo: string; nome: string }> = {};
+      data?.forEach((equipe: any) => {
+        map[equipe.id] = { codigo: equipe.codigo, nome: equipe.nome };
+      });
+      return map;
+    },
+    staleTime: 5 * 60 * 1000, // Cache por 5 minutos
+  });
+
   const getTipoConfig = (tipo: string) => {
     return TIPOS_MOVIMENTACAO.find((t) => t.value === tipo) || TIPOS_MOVIMENTACAO[0];
   };
@@ -179,7 +198,13 @@ export default function Movimentacoes() {
   const getLocalLabel = (tipo: string | null, id: string | null) => {
     if (!tipo) return "-";
     if (tipo === "central") return "Estoque Central";
-    if (tipo === "equipe") return `Equipe ${id?.substring(0, 8) || ""}`;
+    if (tipo === "equipe") {
+      // Buscar código real da equipe
+      if (id && equipesMap?.[id]) {
+        return `Equipe ${equipesMap[id].codigo}`;
+      }
+      return `Equipe ${id?.substring(0, 8) || ""}`;
+    }
     if (tipo === "campo") return "Campo/OS";
     if (tipo === "externo") return "Externo";
     return tipo;
