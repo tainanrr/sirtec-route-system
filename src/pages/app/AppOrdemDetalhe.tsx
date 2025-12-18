@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
+import { usePageState } from "@/contexts/ScrollRestoreContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -110,7 +111,28 @@ export default function AppOrdemDetalhe() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [observacao, setObservacao] = useState("");
-  const [showTimeline, setShowTimeline] = useState(false);
+  const { getState, saveState } = usePageState<{
+    showTimeline?: boolean;
+    observacao?: string;
+  }>(`app-ordem-detalhe-${id || "sem-id"}`);
+
+  const initialState = getState();
+  const [showTimeline, setShowTimeline] = useState(() => Boolean(initialState?.showTimeline));
+  useEffect(() => {
+    // restaurar observação local (apenas UX; não substitui o backend)
+    if (initialState?.observacao && !observacao) {
+      setObservacao(initialState.observacao);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persistir estado de UI desta tela
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      saveState({ showTimeline, observacao });
+    }, 250);
+    return () => window.clearTimeout(t);
+  }, [showTimeline, observacao, saveState]);
   const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; status: string; title: string; description: string }>({
     open: false,
     status: "",

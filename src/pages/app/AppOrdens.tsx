@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useTecnico } from "@/contexts/TecnicoContext";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
+import { usePageState } from "@/contexts/ScrollRestoreContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -95,11 +96,39 @@ export default function AppOrdens() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { equipe, isLoading: isLoadingEquipe } = useTecnico();
-  const [searchTerm, setSearchTerm] = useState("");
-  const [activeTab, setActiveTab] = useState("todas");
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const { getState, saveState } = usePageState<{
+    searchTerm?: string;
+    activeTab?: string;
+    selectedDate?: string; // ISO
+    showMap?: boolean;
+  }>("app-ordens");
+
+  const initialState = getState();
+  const [searchTerm, setSearchTerm] = useState(() => initialState?.searchTerm || "");
+  const [activeTab, setActiveTab] = useState(() => initialState?.activeTab || "todas");
+  const [selectedDate, setSelectedDate] = useState<Date>(() => {
+    const iso = initialState?.selectedDate;
+    if (iso) {
+      const d = new Date(iso);
+      if (!Number.isNaN(d.getTime())) return d;
+    }
+    return new Date();
+  });
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [showMap, setShowMap] = useState(false);
+  const [showMap, setShowMap] = useState(() => Boolean(initialState?.showMap));
+
+  // Persistir estado de UI desta tela (além do scroll)
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      saveState({
+        searchTerm,
+        activeTab,
+        selectedDate: selectedDate.toISOString(),
+        showMap,
+      });
+    }, 250);
+    return () => window.clearTimeout(t);
+  }, [searchTerm, activeTab, selectedDate, showMap, saveState]);
 
   // Buscar ordens planejadas para a data selecionada
   const { equipe: equipeAuth } = useEquipeAuth();
