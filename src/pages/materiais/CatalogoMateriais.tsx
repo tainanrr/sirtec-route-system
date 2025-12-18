@@ -697,41 +697,51 @@ export default function CatalogoMateriais() {
                             {material.ativo ? "Ativo" : "Inativo"}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-right">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon">
-                                <MoreVertical className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => handleOpenDialog(material)}>
-                                <Pencil className="h-4 w-4 mr-2" />
-                                Editar
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => {
+                        <TableCell>
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                              onClick={() => handleOpenDialog(material)}
+                              title="Editar"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-slate-600 hover:text-slate-700 hover:bg-slate-50"
+                              onClick={() => {
                                 navigator.clipboard.writeText(material.codigo);
                                 toast.success("Código copiado!");
-                              }}>
-                                <Copy className="h-4 w-4 mr-2" />
-                                Copiar Código
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => toggleStatusMutation.mutate({ id: material.id, ativo: !material.ativo })}>
-                                <Archive className="h-4 w-4 mr-2" />
-                                {material.ativo ? "Desativar" : "Ativar"}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                className="text-destructive"
-                                onClick={() => {
-                                  setSelectedMaterial(material);
-                                  setDeleteDialogOpen(true);
-                                }}
-                              >
-                                <Trash2 className="h-4 w-4 mr-2" />
-                                Excluir
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
+                              }}
+                              title="Copiar Código"
+                            >
+                              <Copy className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className={`h-8 w-8 ${material.ativo ? "text-amber-600 hover:text-amber-700 hover:bg-amber-50" : "text-green-600 hover:text-green-700 hover:bg-green-50"}`}
+                              onClick={() => toggleStatusMutation.mutate({ id: material.id, ativo: !material.ativo })}
+                              title={material.ativo ? "Desativar" : "Ativar"}
+                            >
+                              <Archive className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
+                              onClick={() => {
+                                setSelectedMaterial(material);
+                                setDeleteDialogOpen(true);
+                              }}
+                              title="Excluir"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     );

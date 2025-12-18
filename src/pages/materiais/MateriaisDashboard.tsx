@@ -364,9 +364,9 @@ export default function MateriaisDashboard() {
           </div>
         </div>
 
-        {/* KPIs */}
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-          <Card>
+        {/* KPIs - Grid responsivo com 5 cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          <Card className="hover:shadow-md transition-shadow">
             <CardContent className="pt-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -374,15 +374,17 @@ export default function MateriaisDashboard() {
                   {loadingStats ? (
                     <Skeleton className="h-8 w-16 mt-1" />
                   ) : (
-                    <p className="text-2xl font-bold">{stats?.totalMateriais}</p>
+                    <p className="text-2xl font-bold text-blue-600">{stats?.totalMateriais}</p>
                   )}
                 </div>
-                <Package className="h-8 w-8 text-blue-500 opacity-80" />
+                <div className="h-12 w-12 rounded-xl bg-blue-100 flex items-center justify-center">
+                  <Package className="h-6 w-6 text-blue-600" />
+                </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="hover:shadow-md transition-shadow">
             <CardContent className="pt-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -393,12 +395,14 @@ export default function MateriaisDashboard() {
                     <p className="text-2xl font-bold text-amber-600">{stats?.itensBaixoEstoque}</p>
                   )}
                 </div>
-                <AlertTriangle className="h-8 w-8 text-amber-500 opacity-80" />
+                <div className="h-12 w-12 rounded-xl bg-amber-100 flex items-center justify-center">
+                  <AlertTriangle className="h-6 w-6 text-amber-600" />
+                </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="hover:shadow-md transition-shadow">
             <CardContent className="pt-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -409,12 +413,14 @@ export default function MateriaisDashboard() {
                     <p className="text-2xl font-bold text-green-600">{stats?.entradas}</p>
                   )}
                 </div>
-                <ArrowUpRight className="h-8 w-8 text-green-500 opacity-80" />
+                <div className="h-12 w-12 rounded-xl bg-green-100 flex items-center justify-center">
+                  <ArrowUpRight className="h-6 w-6 text-green-600" />
+                </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="hover:shadow-md transition-shadow">
             <CardContent className="pt-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -425,12 +431,14 @@ export default function MateriaisDashboard() {
                     <p className="text-2xl font-bold text-red-600">{stats?.saidas}</p>
                   )}
                 </div>
-                <ArrowDownRight className="h-8 w-8 text-red-500 opacity-80" />
+                <div className="h-12 w-12 rounded-xl bg-red-100 flex items-center justify-center">
+                  <ArrowDownRight className="h-6 w-6 text-red-600" />
+                </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="hover:shadow-md transition-shadow">
             <CardContent className="pt-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -441,11 +449,32 @@ export default function MateriaisDashboard() {
                     <p className="text-2xl font-bold text-orange-600">{stats?.entregasPendentes}</p>
                   )}
                 </div>
-                <Users className="h-8 w-8 text-orange-500 opacity-80" />
+                <div className="h-12 w-12 rounded-xl bg-orange-100 flex items-center justify-center">
+                  <Users className="h-6 w-6 text-orange-600" />
+                </div>
               </div>
             </CardContent>
           </Card>
         </div>
+
+        {/* Card de Valor em Estoque em destaque */}
+        <Card className="bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-lg">
+          <CardContent className="py-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-violet-200 text-sm font-medium">Valor Total em Estoque</p>
+                {loadingStats ? (
+                  <Skeleton className="h-10 w-40 mt-2 bg-white/20" />
+                ) : (
+                  <p className="text-4xl font-bold mt-1">{formatCurrency(stats?.valorTotal || 0)}</p>
+                )}
+              </div>
+              <div className="h-16 w-16 rounded-2xl bg-white/20 flex items-center justify-center">
+                <Warehouse className="h-8 w-8 text-white" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Valor em Estoque e Alertas de Retenção */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
