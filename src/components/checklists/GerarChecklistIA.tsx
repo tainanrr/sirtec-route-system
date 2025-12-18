@@ -370,8 +370,8 @@ IMPORTANTE:
                     }
                   ],
                   generationConfig: {
-                    temperature: 0.7,
-                    maxOutputTokens: 8192,
+                    temperature: 0.3,
+                    maxOutputTokens: 65536,
                   }
                 }),
               }
@@ -454,42 +454,87 @@ IMPORTANTE:
       // Limpar caracteres problemáticos
       jsonStr = jsonStr.trim();
       
-      // Tentar corrigir JSON truncado
+      // Função para corrigir JSON truncado
+      const corrigirJsonTruncado = (json: string): string => {
+        let corrigido = json;
+        
+        // Remover texto antes do primeiro {
+        const primeiraChave = corrigido.indexOf('{');
+        if (primeiraChave > 0) {
+          corrigido = corrigido.substring(primeiraChave);
+        }
+        
+        // Remover texto depois do último } válido (se houver lixo no final)
+        const ultimaChave = corrigido.lastIndexOf('}');
+        if (ultimaChave > 0 && ultimaChave < corrigido.length - 1) {
+          corrigido = corrigido.substring(0, ultimaChave + 1);
+        }
+        
+        // Se termina com string não fechada, tentar fechar
+        // Detectar se estamos no meio de uma string
+        const lastQuoteIndex = corrigido.lastIndexOf('"');
+        if (lastQuoteIndex > 0) {
+          const afterLastQuote = corrigido.substring(lastQuoteIndex + 1);
+          // Se depois da última aspas não tem : ou , ou } ou ], provavelmente string truncada
+          if (!/^[\s]*[:\},\]]/.test(afterLastQuote)) {
+            // Encontrar o início da string truncada e removê-la
+            let searchPos = lastQuoteIndex - 1;
+            while (searchPos > 0 && corrigido[searchPos] !== '"') {
+              searchPos--;
+            }
+            if (searchPos > 0) {
+              // Remover a propriedade truncada inteira
+              let propStart = searchPos;
+              while (propStart > 0 && corrigido[propStart - 1] !== ',' && corrigido[propStart - 1] !== '{' && corrigido[propStart - 1] !== '[') {
+                propStart--;
+              }
+              corrigido = corrigido.substring(0, propStart);
+            }
+          }
+        }
+        
+        // Remover vírgulas finais
+        corrigido = corrigido.replace(/,\s*$/, '');
+        corrigido = corrigido.replace(/,(\s*[}\]])/g, '$1');
+        
+        // Contar e fechar estruturas abertas
+        const aberturas = (corrigido.match(/{/g) || []).length;
+        const fechamentos = (corrigido.match(/}/g) || []).length;
+        const colchetesAbertos = (corrigido.match(/\[/g) || []).length;
+        const colchetesFechados = (corrigido.match(/\]/g) || []).length;
+        
+        // Fechar na ordem correta (arrays primeiro, depois objetos)
+        for (let i = 0; i < colchetesAbertos - colchetesFechados; i++) {
+          corrigido += ']';
+        }
+        for (let i = 0; i < aberturas - fechamentos; i++) {
+          corrigido += '}';
+        }
+        
+        return corrigido;
+      };
+      
+      // Tentar parsear JSON
       let checklistData: ChecklistGerado;
       try {
         checklistData = JSON.parse(jsonStr) as ChecklistGerado;
       } catch (parseError: any) {
         console.error("Erro ao parsear JSON:", parseError);
-        console.log("JSON recebido:", jsonStr.substring(0, 500) + "...");
+        console.log("JSON recebido (primeiros 1000 chars):", jsonStr.substring(0, 1000));
+        console.log("JSON recebido (últimos 500 chars):", jsonStr.substring(jsonStr.length - 500));
         
         // Tentar corrigir JSON incompleto
-        let jsonCorrigido = jsonStr;
-        
-        // Contar chaves abertas e fechar as que faltam
-        const aberturas = (jsonCorrigido.match(/{/g) || []).length;
-        const fechamentos = (jsonCorrigido.match(/}/g) || []).length;
-        const colchetesAbertos = (jsonCorrigido.match(/\[/g) || []).length;
-        const colchetesFechados = (jsonCorrigido.match(/\]/g) || []).length;
-        
-        // Remover vírgula final se houver
-        jsonCorrigido = jsonCorrigido.replace(/,\s*$/, '');
-        jsonCorrigido = jsonCorrigido.replace(/,\s*}/, '}');
-        jsonCorrigido = jsonCorrigido.replace(/,\s*\]/, ']');
-        
-        // Fechar arrays e objetos abertos
-        for (let i = 0; i < colchetesAbertos - colchetesFechados; i++) {
-          jsonCorrigido += ']';
-        }
-        for (let i = 0; i < aberturas - fechamentos; i++) {
-          jsonCorrigido += '}';
-        }
+        const jsonCorrigido = corrigirJsonTruncado(jsonStr);
+        console.log("JSON corrigido (últimos 200 chars):", jsonCorrigido.substring(jsonCorrigido.length - 200));
         
         try {
           checklistData = JSON.parse(jsonCorrigido) as ChecklistGerado;
           console.log("JSON corrigido com sucesso!");
-        } catch (e) {
-          // Se ainda falhar, criar um checklist básico com o que temos
-          throw new Error(`JSON inválido da IA. Tente novamente com um texto mais curto. Erro: ${parseError.message}`);
+          toast.info("O checklist foi parcialmente recuperado. Alguns itens podem estar faltando.");
+        } catch (e: any) {
+          console.error("Falha ao corrigir JSON:", e);
+          // Última tentativa: tentar extrair o que for possível
+          throw new Error(`JSON incompleto da IA. O formulário é muito grande. Tente dividir em partes menores ou simplificar. Erro técnico: ${parseError.message}`);
         }
       }
       
