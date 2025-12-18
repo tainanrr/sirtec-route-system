@@ -75,11 +75,13 @@ interface RecebimentoItem {
   quantidade_recebida?: number;
   observacao?: string;
   rastros?: string[];
+  valor_unitario?: number | null;
   material?: {
     codigo: string;
     nome: string;
     unidade: string;
     requer_serial?: boolean;
+    valor_unitario?: number | null;
   };
 }
 
@@ -122,10 +124,12 @@ interface NovoRecebimentoForm {
 
 type ImportRow = {
   rowIndex: number;
+  origens?: number[];
   codigo: string;
   quantidade: number;
   observacao?: string;
   rastros?: string[];
+  valor_unitario?: number | null;
   material_id?: string;
   materialLabel?: string;
   error?: string;
@@ -298,6 +302,22 @@ function expandSerialRange(inicio: string, fim: string, maxItems: number = 500):
   return list;
 }
 
+async function insertMovimentacaoSafe(payload: any) {
+  // Compatibilidade: se a coluna recebimento_id ainda não existir no banco, tenta sem ela.
+  const { error } = await supabase.from("materiais_movimentacoes").insert(payload as any);
+  if (!error) return;
+
+  const msg = String((error as any)?.message || "");
+  if (msg.toLowerCase().includes("recebimento_id") && msg.toLowerCase().includes("column")) {
+    const { recebimento_id, ...rest } = payload || {};
+    const { error: retryError } = await supabase.from("materiais_movimentacoes").insert(rest as any);
+    if (retryError) throw retryError;
+    return;
+  }
+
+  throw error;
+}
+
 export default function Recebimentos() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -334,6 +354,7 @@ export default function Recebimentos() {
   const [rangeFim, setRangeFim] = useState("");
   const [importarTexto, setImportarTexto] = useState("");
   const [rastrosSelecionados, setRastrosSelecionados] = useState<string[]>([]);
+  const [valorUnitarioTemp, setValorUnitarioTemp] = useState<number | null>(null);
 
   // Form para conferência
   const [conferencia, setConferencia] = useState<Record<string, number>>({});
@@ -407,8 +428,9 @@ export default function Recebimentos() {
             material_id,
             quantidade_esperada,
             quantidade_recebida,
+            valor_unitario,
             observacao,
-            materiais (codigo, nome, unidade, requer_serial)
+            materiais (codigo, nome, unidade, requer_serial, valor_unitario)
           `)
           .in("recebimento_id", ids);
 
@@ -420,6 +442,7 @@ export default function Recebimentos() {
             material_id: item.material_id,
             quantidade_esperada: item.quantidade_esperada,
             quantidade_recebida: item.quantidade_recebida,
+            valor_unitario: item.valor_unitario,
             observacao: item.observacao,
             material: item.materiais,
           });
@@ -453,7 +476,7 @@ export default function Recebimentos() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("materiais")
-        .select("id, codigo, nome, unidade, requer_serial")
+        .select("id, codigo, nome, unidade, requer_serial, valor_unitario")
         .eq("ativo", true)
         .order("codigo");
 
@@ -590,6 +613,7 @@ export default function Recebimentos() {
       const colQtd = keyMap.get("quantidade") || keyMap.get("qtd");
       const colObs = keyMap.get("observacaoitem") || keyMap.get("observacao") || keyMap.get("obs");
       const colRastros = keyMap.get("rastros") || keyMap.get("numeroserie") || keyMap.get("numero_serie") || keyMap.get("serial") || keyMap.get("series");
+      const colValor = keyMap.get("valorunitario") || keyMap.get("valor") || keyMap.get("preco") || keyMap.get("preco_unitario") || keyMap.get("preçounitario");
 
       if (!colCodigo || !colQtd) {
         toast.error('Template inválido: colunas obrigatórias "Código Material" e "Quantidade" não encontradas.');
@@ -612,6 +636,7 @@ export default function Recebimentos() {
         const qtd = parseNumero(row[colQtd]);
         const obs = colObs ? String(row[colObs] || "").trim() : "";
         const rastrosRaw = colRastros ? String(row[colRastros] || "").trim() : "";
+        const valorRaw = colValor ? row[colValor] : "";
 
         if (!codigo) {
           return { rowIndex: idx + 2, codigo: "", quantidade: 0, observacao: obs, error: "Código do material vazio" };
@@ -621,6 +646,10 @@ export default function Recebimentos() {
         if (!material) {
           return { rowIndex: idx + 2, codigo, quantidade: qtd || 0, observacao: obs, error: "Código não encontrado no catálogo" };
         }
+
+        const valorDefault = typeof material.valor_unitario === "number" ? material.valor_unitario : null;
+        const valorPlanilha = colValor ? parseNumero(valorRaw) : null;
+        const valorUnitario = valorPlanilha != null ? valorPlanilha : valorDefault;
 
         const requerSerial = isSerialMaterial(material);
         const rastros = rastrosRaw ? parseRastrosText(rastrosRaw) : [];
@@ -651,6 +680,7 @@ export default function Recebimentos() {
             codigo,
             quantidade: rastros.length,
             rastros,
+            valor_unitario: valorUnitario,
             observacao: obs,
             material_id: material.id,
             materialLabel: `${material.codigo} - ${material.nome}`,
@@ -666,13 +696,69 @@ export default function Recebimentos() {
           codigo,
           quantidade: qtd,
           observacao: obs,
+          valor_unitario: valorUnitario,
           material_id: material.id,
           materialLabel: `${material.codigo} - ${material.nome}`,
         };
       });
 
-      setImportRows(rows);
-      toast.success(`Planilha carregada: ${rows.length} linhas`);
+      // Consolidar linhas duplicadas (mesmo material) para evitar criar 2 itens iguais
+      const consolidadasMap = new Map<string, ImportRow>();
+      const naoConsolidaveis: ImportRow[] = [];
+
+      for (const r of rows) {
+        if (!r.material_id || r.error) {
+          naoConsolidaveis.push(r);
+          continue;
+        }
+
+        const key = r.material_id;
+        const atual = consolidadasMap.get(key);
+        const material = materiais?.find((m: any) => m.id === r.material_id);
+        const requerSerial = isSerialMaterial(material);
+
+        if (!atual) {
+          consolidadasMap.set(key, { ...r, origens: [r.rowIndex] });
+          continue;
+        }
+
+        const origens = Array.from(new Set([...(atual.origens || [atual.rowIndex]), r.rowIndex]));
+
+        if (requerSerial) {
+          const rastros = Array.from(
+            new Set([...(atual.rastros || []), ...(r.rastros || [])].map((x) => String(x).toUpperCase()))
+          );
+          const valor_unitario = (r.valor_unitario != null ? r.valor_unitario : atual.valor_unitario) ?? null;
+          const merged: ImportRow = {
+            ...atual,
+            origens,
+            rastros,
+            quantidade: rastros.length,
+            valor_unitario,
+          };
+          if (!rastros.length) {
+            merged.error = "Material com rastro: preencha a coluna 'Rastros'";
+          } else {
+            merged.error = undefined;
+          }
+          consolidadasMap.set(key, merged);
+        } else {
+          const merged: ImportRow = {
+            ...atual,
+            origens,
+            quantidade: (atual.quantidade || 0) + (r.quantidade || 0),
+            observacao: [atual.observacao, r.observacao].filter(Boolean).join(" | ").slice(0, 500),
+            valor_unitario: (r.valor_unitario != null ? r.valor_unitario : atual.valor_unitario) ?? null,
+          };
+          consolidadasMap.set(key, merged);
+        }
+      }
+
+      const consolidadas = [...consolidadasMap.values()];
+      const finalRows = [...consolidadas, ...naoConsolidaveis].sort((a, b) => a.rowIndex - b.rowIndex);
+
+      setImportRows(finalRows);
+      toast.success(`Planilha carregada: ${finalRows.length} item(ns) após consolidação`);
     } catch (err: any) {
       console.error(err);
       toast.error("Erro ao ler planilha");
@@ -691,6 +777,7 @@ export default function Recebimentos() {
       quantidade_esperada: r.quantidade,
       observacao: r.observacao,
       rastros: r.rastros,
+      valor_unitario: r.valor_unitario ?? null,
       material: materiais?.find((m: any) => m.id === r.material_id),
     }));
 
@@ -865,48 +952,17 @@ Regras:
   const criarRecebimentoMutation = useMutation({
     mutationFn: async (args: { form: NovoRecebimentoForm; anexos: File[] }) => {
       const { form, anexos } = args;
-      // Criar recebimento
-      const { data: recebimento, error: recError } = await supabase
-        .from("materiais_recebimentos")
-        .insert({
-          numero_documento: form.numero_documento || null,
-          fornecedor: form.fornecedor || null,
-          recebido_por: form.recebido_por || null,
-          recebido_por_user_id: user?.id || null,
-          canal_entrada: form.canal_entrada || "manual",
-          chave_nfe: form.chave_nfe || null,
-          observacao: form.observacao || null,
-          status: "pendente",
-        })
-        .select()
-        .single();
 
-      if (recError) throw recError;
-
-      // Criar itens
-      const itensPayload = form.itens.map((item) => ({
-        recebimento_id: recebimento.id,
-        material_id: item.material_id,
-        quantidade_esperada: item.quantidade_esperada,
-      }));
-
-      const { error: itensError } = await supabase
-        .from("materiais_recebimentos_itens")
-        .insert(itensPayload);
-
-      if (itensError) throw itensError;
-
-      // Persistir rastros (materiais serializados)
+      // Pré-validações (ANTES de inserir qualquer coisa) para evitar recebimentos “parciais”
       const itensComRastro = form.itens.filter((i) => (i.rastros?.length || 0) > 0);
       if (itensComRastro.length) {
-        // Validar duplicados dentro do recebimento
         const all = itensComRastro.flatMap((i) => (i.rastros || []).map((r) => r.toUpperCase()));
         const dup = all.filter((r, idx) => all.indexOf(r) !== idx);
         if (dup.length) {
-          throw new Error(`Rastros duplicados no recebimento: ${Array.from(new Set(dup)).slice(0, 10).join(", ")}`);
+          throw new Error(`Rastros duplicados no arquivo: ${Array.from(new Set(dup)).slice(0, 10).join(", ")}`);
         }
 
-        // 1) Verificar se algum rastro já existe no sistema (já cadastrado como serializado)
+        // 1) Já cadastrado como serializado
         const { data: existentes, error: existError } = await supabase
           .from("materiais_serializados")
           .select("numero_serie, material_id")
@@ -920,7 +976,7 @@ Regras:
           );
         }
 
-        // 2) Verificar se algum rastro já está reservado em OUTRO recebimento (pendente/finalizado etc.)
+        // 2) Já reservado em outro recebimento
         const { data: reservados, error: resError } = await supabase
           .from("materiais_recebimentos_itens_rastros")
           .select("recebimento_id, material_id, numero_serie")
@@ -951,53 +1007,119 @@ Regras:
             `Exemplos: ${exemplos}`
           );
         }
-
-        const rastrosPayload = itensComRastro.flatMap((i) =>
-          (i.rastros || []).map((numero_serie) => ({
-            recebimento_id: recebimento.id,
-            material_id: i.material_id,
-            numero_serie: numero_serie.toUpperCase(),
-            created_by: user?.id || null,
-          }))
-        );
-
-        const { error: rastrosError } = await supabase
-          .from("materiais_recebimentos_itens_rastros")
-          .insert(rastrosPayload);
-        if (rastrosError) throw rastrosError;
       }
 
-      // Upload de anexos (opcional)
-      if (anexos?.length) {
-        for (const file of anexos) {
-          const safeName = file.name.replace(/[^\w.\-() ]+/g, "_");
-          const fileName = `recebimentos/${recebimento.id}/${Date.now()}_${safeName}`;
+      let recebimentoIdCriado: string | null = null;
+      try {
+        // Criar recebimento
+        const { data: recebimento, error: recError } = await supabase
+          .from("materiais_recebimentos")
+          .insert({
+            numero_documento: form.numero_documento || null,
+            fornecedor: form.fornecedor || null,
+            recebido_por: form.recebido_por || null,
+            recebido_por_user_id: user?.id || null,
+            canal_entrada: form.canal_entrada || "manual",
+            chave_nfe: form.chave_nfe || null,
+            observacao: form.observacao || null,
+            status: "pendente",
+          })
+          .select()
+          .single();
 
-          const { error: uploadError } = await supabase.storage
-            .from("service-attachments")
-            .upload(fileName, file, { upsert: true });
+        if (recError) throw recError;
+        recebimentoIdCriado = recebimento.id;
 
-          if (uploadError) throw uploadError;
-
-          const { data: urlData } = supabase.storage
-            .from("service-attachments")
-            .getPublicUrl(fileName);
-
-          const { error: insertError } = await supabase
-            .from("materiais_recebimentos_anexos")
-            .insert({
-              recebimento_id: recebimento.id,
-              tipo: guessAnexoTipo(file),
-              nome_arquivo: safeName,
-              url: urlData.publicUrl,
-              created_by: user?.id || null,
-            });
-
-          if (insertError) throw insertError;
+      // Atualizar preço no catálogo se o importador alterou (histórico via RPC)
+      const precosAlterados = new Map<string, number>();
+      for (const item of form.itens) {
+        const v = item.valor_unitario;
+        if (v == null) continue;
+        const current = (item.material?.valor_unitario ?? null) as number | null;
+        if (current == null) continue;
+        if (Number(current) !== Number(v)) {
+          precosAlterados.set(item.material_id, Number(v));
         }
       }
+      for (const [materialId, valor] of precosAlterados.entries()) {
+        const { error: rpcErr } = await supabase.rpc("update_material_price", {
+          p_material_id: materialId,
+          p_valor_unitario: valor,
+          p_origem: "recebimento",
+          p_referencia: form.numero_documento || null,
+        });
+        if (rpcErr) throw rpcErr;
+      }
 
-      return recebimento;
+      // Criar itens
+        const itensPayload = form.itens.map((item) => ({
+          recebimento_id: recebimento.id,
+          material_id: item.material_id,
+          quantidade_esperada: item.quantidade_esperada,
+        valor_unitario: item.valor_unitario ?? item.material?.valor_unitario ?? null,
+        }));
+
+        const { error: itensError } = await supabase
+          .from("materiais_recebimentos_itens")
+          .insert(itensPayload);
+
+        if (itensError) throw itensError;
+
+        // Persistir rastros (materiais serializados)
+        if (itensComRastro.length) {
+          const rastrosPayload = itensComRastro.flatMap((i) =>
+            (i.rastros || []).map((numero_serie) => ({
+              recebimento_id: recebimento.id,
+              material_id: i.material_id,
+              numero_serie: numero_serie.toUpperCase(),
+              created_by: user?.id || null,
+            }))
+          );
+
+          const { error: rastrosError } = await supabase
+            .from("materiais_recebimentos_itens_rastros")
+            .insert(rastrosPayload);
+          if (rastrosError) throw rastrosError;
+        }
+
+        // Upload de anexos (opcional)
+        if (anexos?.length) {
+          for (const file of anexos) {
+            const safeName = file.name.replace(/[^\w.\-() ]+/g, "_");
+            const fileName = `recebimentos/${recebimento.id}/${Date.now()}_${safeName}`;
+
+            const { error: uploadError } = await supabase.storage
+              .from("service-attachments")
+              .upload(fileName, file, { upsert: true });
+
+            if (uploadError) throw uploadError;
+
+            const { data: urlData } = supabase.storage
+              .from("service-attachments")
+              .getPublicUrl(fileName);
+
+            const { error: insertError } = await supabase
+              .from("materiais_recebimentos_anexos")
+              .insert({
+                recebimento_id: recebimento.id,
+                tipo: guessAnexoTipo(file),
+                nome_arquivo: safeName,
+                url: urlData.publicUrl,
+                created_by: user?.id || null,
+              });
+
+            if (insertError) throw insertError;
+          }
+        }
+
+        return recebimento;
+      } catch (e) {
+        // Rollback: se criou o cabeçalho e falhou depois, apaga o recebimento para não ficar “pendente fantasma”
+        if (recebimentoIdCriado) {
+          await supabase.from("materiais_recebimentos").delete().eq("id", recebimentoIdCriado);
+        }
+        throw e;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["recebimentos"] });
@@ -1070,7 +1192,8 @@ Regras:
           }
 
           // Registrar movimentação
-          await supabase.from("materiais_movimentacoes").insert({
+          const valorUnitario = item.valor_unitario ?? item.material?.valor_unitario ?? null;
+          await insertMovimentacaoSafe({
             material_id: item.material_id,
             tipo: "entrada",
             quantidade: qtdRecebida,
@@ -1081,6 +1204,8 @@ Regras:
             documento_referencia: recebimento.numero_documento,
             observacao: `Recebimento ${recebimento.fornecedor || ""}`,
             recebimento_id: recebimento.id,
+            valor_unitario: valorUnitario,
+            valor_total: valorUnitario != null ? Number(valorUnitario) * qtdRecebida : null,
           });
         }
 
@@ -1143,7 +1268,7 @@ Regras:
       }
 
       // Atualizar status do recebimento
-      await supabase
+      const { error: statusError } = await supabase
         .from("materiais_recebimentos")
         .update({
           status: "finalizado",
@@ -1151,6 +1276,8 @@ Regras:
           conferido_por: getUserDisplayName(user) || null,
         })
         .eq("id", recebimento.id);
+
+      if (statusError) throw statusError;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["recebimentos"] });
@@ -1271,7 +1398,8 @@ Regras:
             .eq("id", estoqueAtual!.id);
 
           // Registrar movimentação de estorno
-          await supabase.from("materiais_movimentacoes").insert({
+          const valorUnitario = item.valor_unitario ?? item.material?.valor_unitario ?? null;
+          await insertMovimentacaoSafe({
             material_id: item.material_id,
             tipo: "saida",
             quantidade: qtd,
@@ -1282,6 +1410,8 @@ Regras:
             documento_referencia: rec.numero_documento,
             observacao: `Estorno recebimento ${rec.id}`,
             recebimento_id: rec.id,
+            valor_unitario: valorUnitario,
+            valor_total: valorUnitario != null ? Number(valorUnitario) * qtd : null,
           });
         }
       }
@@ -1344,6 +1474,7 @@ Regras:
           material_id: itemTemp.material_id,
           quantidade_esperada: requerSerial ? rastrosSelecionados.length : itemTemp.quantidade,
           rastros: requerSerial ? rastrosSelecionados : undefined,
+          valor_unitario: valorUnitarioTemp ?? material?.valor_unitario ?? null,
           material,
         },
       ],
@@ -1355,6 +1486,7 @@ Regras:
     setRangeInicio("");
     setRangeFim("");
     setImportarTexto("");
+    setValorUnitarioTemp(null);
   };
 
   const handleRemoveItem = (materialId: string) => {
@@ -1454,6 +1586,11 @@ Regras:
                       unidade: i.material?.unidade,
                       quantidade_esperada: i.quantidade_esperada,
                       quantidade_recebida: i.quantidade_recebida ?? null,
+                      valor_unitario: i.valor_unitario ?? i.material?.valor_unitario ?? null,
+                      valor_total:
+                        (i.valor_unitario ?? i.material?.valor_unitario) != null
+                          ? Number(i.valor_unitario ?? i.material?.valor_unitario) * Number(i.quantidade_recebida ?? i.quantidade_esperada)
+                          : null,
                       observacao: i.observacao ?? null,
                       requer_serial: isSerialMaterial(i.material),
                     }))
@@ -1500,6 +1637,8 @@ Regras:
                           unidade: i.material?.unidade,
                           numero_serie: ns,
                           quantidade: 1,
+                          valor_unitario: i.valor_unitario ?? i.material?.valor_unitario ?? null,
+                          valor_total: (i.valor_unitario ?? i.material?.valor_unitario) != null ? Number(i.valor_unitario ?? i.material?.valor_unitario) : null,
                         }));
                       }
 
@@ -1514,6 +1653,11 @@ Regras:
                         unidade: i.material?.unidade,
                         numero_serie: null,
                         quantidade: i.quantidade_recebida ?? i.quantidade_esperada,
+                        valor_unitario: i.valor_unitario ?? i.material?.valor_unitario ?? null,
+                        valor_total:
+                          (i.valor_unitario ?? i.material?.valor_unitario) != null
+                            ? Number(i.valor_unitario ?? i.material?.valor_unitario) * Number(i.quantidade_recebida ?? i.quantidade_esperada)
+                            : null,
                       }];
                     })
                   );
@@ -1858,6 +2002,7 @@ Regras:
                             }`}
                             onClick={() => {
                               setItemTemp({ ...itemTemp, material_id: mat.id });
+                              setValorUnitarioTemp(typeof mat.valor_unitario === "number" ? mat.valor_unitario : null);
                               setRastrosSelecionados([]);
                               setRastroDigitado("");
                               setRangeInicio("");
@@ -1916,6 +2061,15 @@ Regras:
                           />
                         );
                       })()}
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        className="w-36"
+                        placeholder="Valor (R$)"
+                        value={valorUnitarioTemp ?? ""}
+                        onChange={(e) => setValorUnitarioTemp(e.target.value === "" ? null : Number(e.target.value))}
+                      />
                       <Button type="button" onClick={handleAddItem}>
                         <Plus className="h-4 w-4" />
                       </Button>
@@ -2331,6 +2485,7 @@ Regras:
                             <TableHead>Linha</TableHead>
                             <TableHead>Código</TableHead>
                             <TableHead className="text-center">Qtd</TableHead>
+                            <TableHead className="text-right">Valor Unit.</TableHead>
                             <TableHead className="text-center">Rastros</TableHead>
                             <TableHead>Material</TableHead>
                             <TableHead>Erro</TableHead>
@@ -2339,9 +2494,30 @@ Regras:
                         <TableBody>
                           {importRows.map((r) => (
                             <TableRow key={`${r.rowIndex}-${r.codigo}`}>
-                              <TableCell className="text-muted-foreground">{r.rowIndex}</TableCell>
+                              <TableCell className="text-muted-foreground">
+                                {r.origens && r.origens.length > 1 ? r.origens.join(",") : r.rowIndex}
+                              </TableCell>
                               <TableCell className="font-medium">{r.codigo || "-"}</TableCell>
                               <TableCell className="text-center">{r.quantidade}</TableCell>
+                              <TableCell className="text-right">
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  className="w-28 text-right"
+                                  value={r.valor_unitario ?? ""}
+                                  onChange={(e) => {
+                                    const v = e.target.value === "" ? null : Number(e.target.value);
+                                    setImportRows((prev) =>
+                                      prev.map((x) =>
+                                        x.rowIndex === r.rowIndex && x.codigo === r.codigo
+                                          ? { ...x, valor_unitario: v }
+                                          : x
+                                      )
+                                    );
+                                  }}
+                                />
+                              </TableCell>
                               <TableCell className="text-center">
                                 {(() => {
                                   const material = r.material_id ? materiais?.find((m: any) => m.id === r.material_id) : null;
