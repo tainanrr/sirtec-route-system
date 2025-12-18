@@ -318,6 +318,50 @@ async function insertMovimentacaoSafe(payload: any) {
   throw error;
 }
 
+async function getMovimentacoesEntradaRecebimento(params: {
+  recebimentoId: string;
+  documento: string | null;
+  observacao: string | null;
+  createdAt: string | null;
+}) {
+  // 1) Preferencial: por recebimento_id (quando a coluna existir)
+  try {
+    const { data, error } = await supabase
+      .from("materiais_movimentacoes")
+      .select("material_id, quantidade, created_at, tipo, documento_referencia, observacao")
+      .eq("recebimento_id", params.recebimentoId)
+      .eq("tipo", "entrada");
+
+    if (error) throw error;
+    return (data || []) as any[];
+  } catch (e: any) {
+    const msg = String(e?.message || e?.error_description || "");
+    const isMissingColumn = msg.toLowerCase().includes("recebimento_id") && msg.toLowerCase().includes("column");
+    if (!isMissingColumn) throw e;
+  }
+
+  // 2) Fallback: por documento/observação e janela de tempo (quando não existe recebimento_id)
+  let query = supabase
+    .from("materiais_movimentacoes")
+    .select("material_id, quantidade, created_at, tipo, documento_referencia, observacao")
+    .eq("tipo", "entrada");
+
+  if (params.documento) {
+    query = query.eq("documento_referencia", params.documento);
+  }
+  if (params.observacao) {
+    query = query.eq("observacao", params.observacao);
+  }
+  if (params.createdAt) {
+    // janela: a partir do created_at do recebimento (ou data_recebimento), para evitar pegar entradas antigas com mesmo doc
+    query = query.gte("created_at", params.createdAt);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data || []) as any[];
+}
+
 export default function Recebimentos() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -510,8 +554,8 @@ export default function Recebimentos() {
   });
 
   const { data: rastrosRecebimento } = useQuery({
-    queryKey: ["recebimentos-rastros", selectedRecebimento?.id],
-    enabled: !!selectedRecebimento?.id && viewDialog,
+    queryKey: ["recebimentos-rastros", selectedRecebimento?.id, viewDialog, conferirDialog],
+    enabled: !!selectedRecebimento?.id && (viewDialog || conferirDialog),
     queryFn: async () => {
       const { data, error } = await supabase
         .from("materiais_recebimentos_itens_rastros")
@@ -1144,6 +1188,20 @@ Regras:
   // Mutation para conferir recebimento
   const conferirMutation = useMutation({
     mutationFn: async ({ recebimento, quantidades }: { recebimento: Recebimento; quantidades: Record<string, number> }) => {
+      // Idempotência: se a conferência já gerou movimentações/rastros, não repetir e apenas finalizar.
+      const movsEntrada = await getMovimentacoesEntradaRecebimento({
+        recebimentoId: recebimento.id,
+        documento: recebimento.numero_documento,
+        observacao: `Recebimento ${recebimento.fornecedor || ""}`.trim(),
+        createdAt: recebimento.created_at || recebimento.data_recebimento || null,
+      });
+
+      const movsEntradaMap = new Map<string, number>();
+      (movsEntrada || []).forEach((m: any) => {
+        const cur = movsEntradaMap.get(m.material_id) || 0;
+        movsEntradaMap.set(m.material_id, cur + Number(m.quantidade || 0));
+      });
+
       // Se houver itens serializados, validar/usar os rastros informados no recebimento
       const { data: rastrosData, error: rastrosError } = await supabase
         .from("materiais_recebimentos_itens_rastros")
@@ -1162,6 +1220,8 @@ Regras:
       // Atualizar quantidades recebidas
       for (const item of recebimento.itens || []) {
         const qtdRecebida = quantidades[item.material_id] || 0;
+        const jaEntrou = movsEntradaMap.get(item.material_id) || 0;
+        const deltaEntrada = Math.max(0, qtdRecebida - jaEntrou);
 
         await supabase
           .from("materiais_recebimentos_itens")
@@ -1170,7 +1230,7 @@ Regras:
           .eq("material_id", item.material_id);
 
         // Dar entrada no estoque
-        if (qtdRecebida > 0) {
+        if (deltaEntrada > 0) {
           const { data: estoqueAtual } = await supabase
             .from("materiais_estoque")
             .select("id, quantidade")
@@ -1181,12 +1241,12 @@ Regras:
           if (estoqueAtual) {
             await supabase
               .from("materiais_estoque")
-              .update({ quantidade: estoqueAtual.quantidade + qtdRecebida })
+              .update({ quantidade: estoqueAtual.quantidade + deltaEntrada })
               .eq("id", estoqueAtual.id);
           } else {
             await supabase.from("materiais_estoque").insert({
               material_id: item.material_id,
-              quantidade: qtdRecebida,
+              quantidade: deltaEntrada,
               local_tipo: "central",
             });
           }
@@ -1196,16 +1256,16 @@ Regras:
           await insertMovimentacaoSafe({
             material_id: item.material_id,
             tipo: "entrada",
-            quantidade: qtdRecebida,
+            quantidade: deltaEntrada,
             quantidade_anterior: estoqueAtual?.quantidade || 0,
-            quantidade_nova: (estoqueAtual?.quantidade || 0) + qtdRecebida,
+            quantidade_nova: (estoqueAtual?.quantidade || 0) + deltaEntrada,
             local_origem_tipo: "externo",
             local_destino_tipo: "central",
             documento_referencia: recebimento.numero_documento,
             observacao: `Recebimento ${recebimento.fornecedor || ""}`,
             recebimento_id: recebimento.id,
             valor_unitario: valorUnitario,
-            valor_total: valorUnitario != null ? Number(valorUnitario) * qtdRecebida : null,
+            valor_total: valorUnitario != null ? Number(valorUnitario) * deltaEntrada : null,
           });
         }
 
@@ -1220,48 +1280,47 @@ Regras:
           }
 
           if (qtdRecebida > 0) {
-            // Garantir que nenhum rastro já existe (validação extra no momento da conferência)
+            // Idempotência de rastros: criar apenas os que ainda não existem.
             const { data: existentes, error: existError } = await supabase
               .from("materiais_serializados")
-              .select("numero_serie")
+              .select("id, numero_serie")
               .in("numero_serie", rastros);
             if (existError) throw existError;
-            if (existentes && existentes.length) {
-              const list = existentes.map((e: any) => e.numero_serie).slice(0, 10).join(", ");
-              throw new Error(`Alguns rastros já existem no sistema: ${list}`);
-            }
 
-            // Inserir serializados
-            const serialPayload = rastros.map((numero_serie) => ({
-              material_id: item.material_id,
-              numero_serie,
-              status: "em_estoque",
-              localizacao_tipo: "central",
-              observacao: `Recebimento ${recebimento.id}`,
-            }));
+            const existentesSet = new Set((existentes || []).map((e: any) => String(e.numero_serie).toUpperCase()));
+            const faltantes = rastros.filter((ns) => !existentesSet.has(String(ns).toUpperCase()));
 
-            const { data: novosSerializados, error: serialError } = await supabase
-              .from("materiais_serializados")
-              .insert(serialPayload)
-              .select("id, numero_serie");
-
-            if (serialError) throw serialError;
-
-            // Registrar histórico
-            if (novosSerializados?.length) {
-              const histPayload = novosSerializados.map((s: any) => ({
-                serializado_id: s.id,
-                acao: "cadastro",
-                status_novo: "em_estoque",
-                localizacao_nova: "central",
-                observacao: `Cadastro via recebimento ${recebimento.id}`,
+            if (faltantes.length) {
+              const serialPayload = faltantes.map((numero_serie) => ({
+                material_id: item.material_id,
+                numero_serie,
+                status: "em_estoque",
+                localizacao_tipo: "central",
+                observacao: `Recebimento ${recebimento.id}`,
               }));
 
-              const { error: histError } = await supabase
-                .from("materiais_serializados_historico")
-                .insert(histPayload);
+              const { data: novosSerializados, error: serialError } = await supabase
+                .from("materiais_serializados")
+                .insert(serialPayload)
+                .select("id, numero_serie");
 
-              if (histError) throw histError;
+              if (serialError) throw serialError;
+
+              if (novosSerializados?.length) {
+                const histPayload = novosSerializados.map((s: any) => ({
+                  serializado_id: s.id,
+                  acao: "cadastro",
+                  status_novo: "em_estoque",
+                  localizacao_nova: "central",
+                  observacao: `Cadastro via recebimento ${recebimento.id}`,
+                }));
+
+                const { error: histError } = await supabase
+                  .from("materiais_serializados_historico")
+                  .insert(histPayload);
+
+                if (histError) throw histError;
+              }
             }
           }
         }
@@ -1273,7 +1332,8 @@ Regras:
         .update({
           status: "finalizado",
           data_conferencia: new Date().toISOString(),
-          conferido_por: getUserDisplayName(user) || null,
+          // No banco este campo é UUID; gravar o user.id (e não email/nome)
+          conferido_por: user?.id || null,
         })
         .eq("id", recebimento.id);
 
@@ -1282,6 +1342,8 @@ Regras:
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["recebimentos"] });
       queryClient.invalidateQueries({ queryKey: ["estoque-central"] });
+      queryClient.invalidateQueries({ queryKey: ["materiais-serializados"] });
+      queryClient.invalidateQueries({ queryKey: ["serializados-stats"] });
       toast.success("Recebimento conferido e estoque atualizado!");
       setConferirDialog(false);
       setSelectedRecebimento(null);
@@ -3134,6 +3196,7 @@ Regras:
                         <TableHead>Material</TableHead>
                         <TableHead className="text-center">Esperado</TableHead>
                         <TableHead className="text-center">Recebido</TableHead>
+                        <TableHead>Rastros</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -3159,6 +3222,27 @@ Regras:
                               }
                               className="w-20 mx-auto text-center"
                             />
+                          </TableCell>
+                          <TableCell>
+                            {(() => {
+                              const rastros = rastrosMap.get(item.material_id) || [];
+                              if (!rastros.length) return <span className="text-muted-foreground text-xs">-</span>;
+                              return (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2"
+                                  onClick={() => {
+                                    setViewRastrosMaterialId(item.material_id);
+                                    setViewRastrosOpen(true);
+                                  }}
+                                >
+                                  <QrCode className="h-3 w-3 mr-1" />
+                                  Ver ({rastros.length})
+                                </Button>
+                              );
+                            })()}
                           </TableCell>
                         </TableRow>
                       ))}

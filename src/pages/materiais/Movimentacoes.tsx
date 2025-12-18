@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
   TableBody,
@@ -37,12 +39,16 @@ import {
   Truck,
   User,
   FileText,
+  QrCode,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { format, subDays, startOfDay, endOfDay } from "date-fns";
+import * as XLSX from "xlsx";
+import { toast } from "sonner";
 
 interface Movimentacao {
   id: string;
+  material_id: string;
   tipo: string;
   quantidade: number;
   quantidade_anterior: number | null;
@@ -55,12 +61,119 @@ interface Movimentacao {
   observacao: string | null;
   created_at: string;
   created_by: string | null;
+  recebimento_id?: string | null;
+  entrega_id?: string | null;
+  valor_unitario?: number | null;
+  valor_total?: number | null;
   materiais: {
     codigo: string;
     nome: string;
     unidade: string;
+    valor_unitario?: number | null;
   };
   ordem_servico_id: string | null;
+}
+
+function formatCurrencyBRL(value: number | null | undefined) {
+  if (value == null || Number.isNaN(Number(value))) return "-";
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value));
+}
+
+function isMissingColumnError(err: any, column: string) {
+  const msg = String(err?.message || "");
+  return msg.toLowerCase().includes("column") && msg.toLowerCase().includes(column.toLowerCase());
+}
+
+async function fetchMovimentacoesSafe(params: {
+  filtroTipo: string;
+  dataInicioISO: string;
+  rangeFrom?: number;
+  rangeTo?: number;
+}) {
+  // Tenta buscar com colunas novas (valor_unitario/valor_total/recebimento_id/entrega_id).
+  try {
+    let query = supabase
+      .from("materiais_movimentacoes")
+      .select(`
+        id,
+        material_id,
+        tipo,
+        quantidade,
+        quantidade_anterior,
+        quantidade_nova,
+        local_origem_tipo,
+        local_origem_id,
+        local_destino_tipo,
+        local_destino_id,
+        documento_referencia,
+        observacao,
+        created_at,
+        created_by,
+        ordem_servico_id,
+        recebimento_id,
+        entrega_id,
+        valor_unitario,
+        valor_total,
+        materiais!inner (codigo, nome, unidade, valor_unitario)
+      `)
+      .gte("created_at", params.dataInicioISO)
+      .order("created_at", { ascending: false });
+
+    if (params.filtroTipo !== "todos") {
+      query = query.eq("tipo", params.filtroTipo);
+    }
+
+    if (params.rangeFrom != null && params.rangeTo != null) {
+      query = query.range(params.rangeFrom, params.rangeTo);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return data as Movimentacao[];
+  } catch (err: any) {
+    // Fallback para bancos que ainda não aplicaram migrations de colunas novas.
+    if (
+      isMissingColumnError(err, "valor_unitario") ||
+      isMissingColumnError(err, "valor_total") ||
+      isMissingColumnError(err, "recebimento_id") ||
+      isMissingColumnError(err, "entrega_id")
+    ) {
+      let query = supabase
+        .from("materiais_movimentacoes")
+        .select(`
+          id,
+          material_id,
+          tipo,
+          quantidade,
+          quantidade_anterior,
+          quantidade_nova,
+          local_origem_tipo,
+          local_origem_id,
+          local_destino_tipo,
+          local_destino_id,
+          documento_referencia,
+          observacao,
+          created_at,
+          created_by,
+          ordem_servico_id,
+          materiais!inner (codigo, nome, unidade, valor_unitario)
+        `)
+        .gte("created_at", params.dataInicioISO)
+        .order("created_at", { ascending: false });
+
+      if (params.filtroTipo !== "todos") {
+        query = query.eq("tipo", params.filtroTipo);
+      }
+      if (params.rangeFrom != null && params.rangeTo != null) {
+        query = query.range(params.rangeFrom, params.rangeTo);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return (data as any[]).map((m) => ({ ...m, valor_unitario: null, valor_total: null, recebimento_id: null, entrega_id: null })) as Movimentacao[];
+    }
+    throw err;
+  }
 }
 
 const TIPOS_MOVIMENTACAO = [
@@ -77,42 +190,182 @@ export default function Movimentacoes() {
   const [currentPage, setCurrentPage] = useState(0);
   const ITEMS_PER_PAGE = 50;
   const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
+  const [rastroDialog, setRastroDialog] = useState<{ open: boolean; title: string; serials: string[] }>({
+    open: false,
+    title: "",
+    serials: [],
+  });
+
+  const handleExport = async () => {
+    try {
+      toast.loading("Gerando exportação...", { id: "mov-export" });
+
+      const dataInicio = subDays(new Date(), parseInt(filtroPeriodo));
+      const dataInicioISO = startOfDay(dataInicio).toISOString();
+
+      // Buscar tudo do período/filtro (paginações de 1000)
+      const pageSize = 1000;
+      let from = 0;
+      let all: Movimentacao[] = [];
+
+      while (true) {
+        const chunk = await fetchMovimentacoesSafe({
+          filtroTipo,
+          dataInicioISO,
+          rangeFrom: from,
+          rangeTo: from + pageSize - 1,
+        });
+        if (!chunk.length) break;
+        all = all.concat(chunk);
+        if (chunk.length < pageSize) break;
+        from += pageSize;
+      }
+
+      // Aplicar busca (mesma regra da tela)
+      let filtered = all;
+      if (searchTerm) {
+        const term = searchTerm.toLowerCase();
+        filtered = all.filter(
+          (mov) =>
+            mov.materiais.codigo.toLowerCase().includes(term) ||
+            mov.materiais.nome.toLowerCase().includes(term) ||
+            mov.documento_referencia?.toLowerCase().includes(term)
+        );
+      }
+
+      if (!filtered.length) {
+        toast.error("Nada para exportar com os filtros atuais.", { id: "mov-export" });
+        return;
+      }
+
+      // Buscar serials/rastros (best-effort)
+      const recIds = Array.from(new Set(filtered.map((m) => m.recebimento_id).filter(Boolean))) as string[];
+      const entIds = Array.from(new Set(filtered.map((m) => m.entrega_id).filter(Boolean))) as string[];
+
+      const serialsByRecMat = new Map<string, string[]>();
+      if (recIds.length) {
+        const { data: rastros } = await supabase
+          .from("materiais_recebimentos_itens_rastros")
+          .select("recebimento_id, material_id, numero_serie")
+          .in("recebimento_id", recIds);
+        (rastros || []).forEach((r: any) => {
+          const k = `${r.recebimento_id}::${r.material_id}`;
+          const arr = serialsByRecMat.get(k) || [];
+          arr.push(String(r.numero_serie || "").toUpperCase());
+          serialsByRecMat.set(k, arr);
+        });
+      }
+
+      const serialsByEntMat = new Map<string, string[]>();
+      if (entIds.length) {
+        const { data: itens } = await supabase
+          .from("materiais_entregas_itens")
+          .select("entrega_id, material_id, numero_serie")
+          .in("entrega_id", entIds);
+        (itens || []).forEach((i: any) => {
+          if (!i.numero_serie) return;
+          const k = `${i.entrega_id}::${i.material_id}`;
+          const arr = serialsByEntMat.get(k) || [];
+          arr.push(String(i.numero_serie || "").toUpperCase());
+          serialsByEntMat.set(k, arr);
+        });
+      }
+
+      const linhas = filtered.map((m) => {
+        const unit = m.valor_unitario ?? m.materiais.valor_unitario ?? null;
+        const total = m.valor_total ?? (unit != null ? Number(unit) * Number(m.quantidade) : null);
+
+        const serials =
+          (m.recebimento_id ? serialsByRecMat.get(`${m.recebimento_id}::${m.material_id}`) : null) ||
+          (m.entrega_id ? serialsByEntMat.get(`${m.entrega_id}::${m.material_id}`) : null) ||
+          [];
+
+        return {
+          id: m.id,
+          created_at: m.created_at,
+          tipo: m.tipo,
+          material_id: m.material_id,
+          material_codigo: m.materiais.codigo,
+          material_nome: m.materiais.nome,
+          unidade: m.materiais.unidade,
+          quantidade: m.quantidade,
+          valor_unitario: unit,
+          valor_total: total,
+          serial_count: serials.length || null,
+          serials: serials.length ? serials.join("\n") : null,
+          local_origem: getLocalLabel(m.local_origem_tipo, m.local_origem_id),
+          local_destino: getLocalLabel(m.local_destino_tipo, m.local_destino_id),
+          documento: m.documento_referencia,
+          observacao: m.observacao,
+          recebimento_id: m.recebimento_id || null,
+          entrega_id: m.entrega_id || null,
+          ordem_servico_id: m.ordem_servico_id || null,
+        };
+      });
+
+      // Linhas detalhadas (1 por serial quando existir)
+      const detalhadas = filtered.flatMap((m) => {
+        const unit = m.valor_unitario ?? m.materiais.valor_unitario ?? null;
+        const total = m.valor_total ?? (unit != null ? Number(unit) * Number(m.quantidade) : null);
+        const serials =
+          (m.recebimento_id ? serialsByRecMat.get(`${m.recebimento_id}::${m.material_id}`) : null) ||
+          (m.entrega_id ? serialsByEntMat.get(`${m.entrega_id}::${m.material_id}`) : null) ||
+          [];
+
+        if (!serials.length) {
+          return [{
+            movimentacao_id: m.id,
+            created_at: m.created_at,
+            tipo: m.tipo,
+            material_codigo: m.materiais.codigo,
+            material_nome: m.materiais.nome,
+            quantidade: m.quantidade,
+            valor_unitario: unit,
+            valor_total: total,
+            numero_serie: null,
+            documento: m.documento_referencia,
+            observacao: m.observacao,
+          }];
+        }
+
+        return serials.map((ns) => ({
+          movimentacao_id: m.id,
+          created_at: m.created_at,
+          tipo: m.tipo,
+          material_codigo: m.materiais.codigo,
+          material_nome: m.materiais.nome,
+          quantidade: 1,
+          valor_unitario: unit,
+          valor_total: unit != null ? Number(unit) : null,
+          numero_serie: ns,
+          documento: m.documento_referencia,
+          observacao: m.observacao,
+        }));
+      });
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(linhas), "Movimentacoes");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detalhadas), "MovimentacoesDetalhadas");
+      XLSX.writeFile(wb, `movimentacoes-export-${format(new Date(), "yyyyMMdd-HHmm")}.xlsx`);
+
+      toast.success("Exportação gerada!", { id: "mov-export" });
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e.message || "Erro ao exportar", { id: "mov-export" });
+    }
+  };
 
   // Query para movimentações
   const { data: movimentacoes, isLoading } = useQuery({
     queryKey: ["movimentacoes", filtroTipo, filtroPeriodo, searchTerm, currentPage],
     queryFn: async () => {
       const dataInicio = subDays(new Date(), parseInt(filtroPeriodo));
-
-      let query = supabase
-        .from("materiais_movimentacoes")
-        .select(`
-          id,
-          tipo,
-          quantidade,
-          quantidade_anterior,
-          quantidade_nova,
-          local_origem_tipo,
-          local_origem_id,
-          local_destino_tipo,
-          local_destino_id,
-          documento_referencia,
-          observacao,
-          created_at,
-          created_by,
-          ordem_servico_id,
-          materiais!inner (codigo, nome, unidade)
-        `)
-        .gte("created_at", startOfDay(dataInicio).toISOString())
-        .order("created_at", { ascending: false })
-        .range(currentPage * ITEMS_PER_PAGE, (currentPage + 1) * ITEMS_PER_PAGE - 1);
-
-      if (filtroTipo !== "todos") {
-        query = query.eq("tipo", filtroTipo);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
+      const data = await fetchMovimentacoesSafe({
+        filtroTipo,
+        dataInicioISO: startOfDay(dataInicio).toISOString(),
+        rangeFrom: currentPage * ITEMS_PER_PAGE,
+        rangeTo: (currentPage + 1) * ITEMS_PER_PAGE - 1,
+      });
 
       // Filtrar por busca
       if (searchTerm) {
@@ -126,6 +379,68 @@ export default function Movimentacoes() {
       }
 
       return data as Movimentacao[];
+    },
+  });
+
+  // Serial/rastrros (best-effort) para a página atual
+  const { data: serialsMap } = useQuery({
+    queryKey: ["movimentacoes-serials", movimentacoes?.map((m) => m.id).join("|")],
+    enabled: !!movimentacoes?.length,
+    queryFn: async () => {
+      const movs = movimentacoes || [];
+      const recIds = Array.from(new Set(movs.map((m) => m.recebimento_id).filter(Boolean))) as string[];
+      const entIds = Array.from(new Set(movs.map((m) => m.entrega_id).filter(Boolean))) as string[];
+
+      const map = new Map<string, string[]>(); // key: mov.id -> serials
+
+      // Recebimentos: rastros por recebimento_id + material_id
+      if (recIds.length) {
+        const { data: rastros } = await supabase
+          .from("materiais_recebimentos_itens_rastros")
+          .select("recebimento_id, material_id, numero_serie")
+          .in("recebimento_id", recIds);
+
+        const byRecMat = new Map<string, string[]>();
+        (rastros || []).forEach((r: any) => {
+          const k = `${r.recebimento_id}::${r.material_id}`;
+          const arr = byRecMat.get(k) || [];
+          arr.push(String(r.numero_serie || "").toUpperCase());
+          byRecMat.set(k, arr);
+        });
+
+        movs.forEach((m) => {
+          if (!m.recebimento_id) return;
+          const k = `${m.recebimento_id}::${m.material_id}`;
+          const serials = byRecMat.get(k) || [];
+          if (serials.length) map.set(m.id, serials);
+        });
+      }
+
+      // Entregas: numero_serie por entrega_id + material_id
+      if (entIds.length) {
+        const { data: itens } = await supabase
+          .from("materiais_entregas_itens")
+          .select("entrega_id, material_id, numero_serie")
+          .in("entrega_id", entIds);
+
+        const byEntMat = new Map<string, string[]>();
+        (itens || []).forEach((i: any) => {
+          if (!i.numero_serie) return;
+          const k = `${i.entrega_id}::${i.material_id}`;
+          const arr = byEntMat.get(k) || [];
+          arr.push(String(i.numero_serie || "").toUpperCase());
+          byEntMat.set(k, arr);
+        });
+
+        movs.forEach((m) => {
+          if (!m.entrega_id) return;
+          const k = `${m.entrega_id}::${m.material_id}`;
+          const serials = byEntMat.get(k) || [];
+          if (serials.length) map.set(m.id, serials);
+        });
+      }
+
+      return map;
     },
   });
 
@@ -304,7 +619,7 @@ export default function Movimentacoes() {
               </p>
             </div>
           </div>
-          <Button variant="outline">
+          <Button variant="outline" onClick={handleExport}>
             <Download className="h-4 w-4 mr-2" />
             Exportar
           </Button>
@@ -457,6 +772,14 @@ export default function Movimentacoes() {
                         onSort={handleSort}
                         className="text-center"
                       />
+                      <TableHead className="text-center">Rastro/Serial</TableHead>
+                      <SortableTableHead
+                        column="valor_total"
+                        label="Valor"
+                        sortConfig={sortConfig}
+                        onSort={handleSort}
+                        className="text-right"
+                      />
                       <SortableTableHead
                         column="origem"
                         label="Origem"
@@ -517,6 +840,40 @@ export default function Movimentacoes() {
                                 {mov.quantidade_anterior} → {mov.quantidade_nova}
                               </p>
                             )}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {(() => {
+                              const serials = serialsMap?.get(mov.id) || [];
+                              if (!serials.length) return <span className="text-muted-foreground text-xs">-</span>;
+                              return (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2"
+                                  onClick={() =>
+                                    setRastroDialog({
+                                      open: true,
+                                      title: `${mov.materiais.codigo} • ${serials.length} rastro(s)`,
+                                      serials,
+                                    })
+                                  }
+                                >
+                                  <QrCode className="h-3 w-3 mr-1" />
+                                  Ver ({serials.length})
+                                </Button>
+                              );
+                            })()}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="space-y-0.5">
+                              <p className="text-sm font-medium">
+                                {formatCurrencyBRL(mov.valor_total ?? (mov.valor_unitario ?? mov.materiais.valor_unitario) != null ? Number(mov.valor_unitario ?? mov.materiais.valor_unitario) * Number(mov.quantidade) : null)}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {formatCurrencyBRL(mov.valor_unitario ?? mov.materiais.valor_unitario)} / un
+                              </p>
+                            </div>
                           </TableCell>
                           <TableCell>
                             <span className="text-sm">
@@ -586,6 +943,22 @@ export default function Movimentacoes() {
             )}
           </CardContent>
         </Card>
+
+        <Dialog open={rastroDialog.open} onOpenChange={(open) => setRastroDialog((p) => ({ ...p, open }))}>
+          <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>{rastroDialog.title || "Rastros/Seriais"}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <Textarea value={rastroDialog.serials.join("\n")} readOnly rows={12} className="font-mono" />
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setRastroDialog({ open: false, title: "", serials: [] })}>
+                  Fechar
+                </Button>
+              </DialogFooter>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </MainLayout>
   );

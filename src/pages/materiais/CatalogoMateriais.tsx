@@ -74,6 +74,19 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
+import { format } from "date-fns";
+
+function formatCurrencyBRL(value: number | null | undefined) {
+  if (value == null || Number.isNaN(Number(value))) return "-";
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value));
+}
+
+function isMissingRelationOrFunctionError(err: any) {
+  const code = String(err?.code || "");
+  const msg = String(err?.message || "").toLowerCase();
+  // 42P01: undefined_table, 42883: undefined_function
+  return code === "42P01" || code === "42883" || msg.includes("does not exist") || msg.includes("undefined");
+}
 
 // Categorias de materiais do setor elétrico
 const CATEGORIAS = [
@@ -124,6 +137,17 @@ interface Material {
   updated_at: string;
 }
 
+interface MaterialPrecoHistorico {
+  id: string;
+  material_id: string;
+  valor_unitario_anterior: number | null;
+  valor_unitario_novo: number;
+  origem: string;
+  referencia: string | null;
+  created_at: string;
+  created_by: string | null;
+}
+
 interface FormData {
   codigo: string;
   nome: string;
@@ -168,6 +192,11 @@ export default function CatalogoMateriais() {
   const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
   const [formData, setFormData] = useState<FormData>(initialFormData);
   const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
+  const [activeTab, setActiveTab] = useState("geral");
+  const [confirmRevert, setConfirmRevert] = useState<{
+    open: boolean;
+    preco: MaterialPrecoHistorico | null;
+  }>({ open: false, preco: null });
 
   // Query para buscar materiais
   const { data: materiais, isLoading } = useQuery({
@@ -368,6 +397,7 @@ export default function CatalogoMateriais() {
         descricao: data.descricao || null,
         categoria: data.categoria,
         unidade: data.unidade,
+        // valor_unitario será tratado via RPC (para registrar histórico) quando estiver editando
         valor_unitario: data.valor_unitario ? parseFloat(data.valor_unitario) : null,
         estoque_minimo: parseInt(data.estoque_minimo) || 0,
         estoque_maximo: data.estoque_maximo ? parseInt(data.estoque_maximo) : null,
@@ -380,11 +410,27 @@ export default function CatalogoMateriais() {
       };
 
       if (selectedMaterial) {
+        const novoValor = payload.valor_unitario;
+        const valorAtual = selectedMaterial.valor_unitario ?? null;
+
+        // Atualiza campos (exceto preço) diretamente
+        const { valor_unitario: _ignored, ...payloadSemPreco } = payload;
         const { error } = await supabase
           .from("materiais")
-          .update(payload)
+          .update(payloadSemPreco)
           .eq("id", selectedMaterial.id);
         if (error) throw error;
+
+        // Atualiza preço via RPC (para registrar histórico)
+        if (novoValor != null && Number(valorAtual) !== Number(novoValor)) {
+          const { error: rpcErr } = await (supabase as any).rpc("update_material_price", {
+            p_material_id: selectedMaterial.id,
+            p_valor_unitario: novoValor,
+            p_origem: "catalogo",
+            p_referencia: null,
+          });
+          if (rpcErr) throw rpcErr;
+        }
       } else {
         const { error } = await supabase
           .from("materiais")
@@ -394,6 +440,7 @@ export default function CatalogoMateriais() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["materiais"] });
+      queryClient.invalidateQueries({ queryKey: ["materiais-precos-historico"] });
       toast.success(selectedMaterial ? "Material atualizado!" : "Material cadastrado!");
       handleCloseDialog();
     },
@@ -473,6 +520,7 @@ export default function CatalogoMateriais() {
       setSelectedMaterial(null);
       setFormData(initialFormData);
     }
+    setActiveTab("geral");
     setDialogOpen(true);
   };
 
@@ -480,7 +528,62 @@ export default function CatalogoMateriais() {
     setDialogOpen(false);
     setSelectedMaterial(null);
     setFormData(initialFormData);
+    setActiveTab("geral");
+    setConfirmRevert({ open: false, preco: null });
   };
+
+  const { data: precosHistorico, isLoading: isLoadingPrecos, error: precosError } = useQuery({
+    queryKey: ["materiais-precos-historico", selectedMaterial?.id],
+    enabled: dialogOpen && !!selectedMaterial?.id,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("materiais_precos_historico")
+        .select("*")
+        .eq("material_id", selectedMaterial!.id)
+        .order("created_at", { ascending: false })
+        .limit(200);
+      if (error) throw error;
+      return data as MaterialPrecoHistorico[];
+    },
+    retry: (failureCount, error: any) => {
+      // Se a tabela não existir (migration não aplicada), não adianta retry
+      if (isMissingRelationOrFunctionError(error)) return false;
+      return failureCount < 2;
+    },
+  });
+
+  const aplicarPrecoMutation = useMutation({
+    mutationFn: async (preco: MaterialPrecoHistorico) => {
+      if (!selectedMaterial?.id) throw new Error("Material não selecionado");
+      const { error: rpcErr } = await (supabase as any).rpc("update_material_price", {
+        p_material_id: selectedMaterial.id,
+        p_valor_unitario: Number(preco.valor_unitario_novo),
+        p_origem: "catalogo",
+        p_referencia: `revert:${preco.id}`,
+      });
+      if (rpcErr) throw rpcErr;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["materiais"] });
+      queryClient.invalidateQueries({ queryKey: ["materiais-precos-historico", selectedMaterial?.id] });
+      toast.success("Preço aplicado e histórico atualizado!");
+      // Atualiza o campo do formulário para refletir o valor atual
+      if (selectedMaterial?.id) {
+        // forçamos reselect do material (via query invalidate) e deixamos o usuário ver na lista,
+        // mas também atualizamos localmente o form para evitar confusão no modal
+        const ultimo = confirmRevert.preco?.valor_unitario_novo;
+        if (ultimo != null) {
+          setFormData((p) => ({ ...p, valor_unitario: String(ultimo) }));
+          setSelectedMaterial((p) => (p ? { ...p, valor_unitario: Number(ultimo) } : p));
+        }
+      }
+      setConfirmRevert({ open: false, preco: null });
+    },
+    onError: (e: any) => {
+      console.error(e);
+      toast.error(e?.message || "Erro ao aplicar preço");
+    },
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -763,18 +866,22 @@ export default function CatalogoMateriais() {
 
         {/* Dialog de Cadastro/Edição */}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="w-[95vw] max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
                 {selectedMaterial ? "Editar Material" : "Novo Material"}
               </DialogTitle>
             </DialogHeader>
             <form onSubmit={handleSubmit}>
-              <Tabs defaultValue="geral" className="w-full">
-                <TabsList className="grid w-full grid-cols-3">
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 gap-1 h-auto">
                   <TabsTrigger value="geral">Geral</TabsTrigger>
                   <TabsTrigger value="estoque">Estoque</TabsTrigger>
                   <TabsTrigger value="codigos">Códigos</TabsTrigger>
+                  <TabsTrigger value="precos" disabled={!selectedMaterial}>
+                    <span className="hidden sm:inline">Histórico de Preços</span>
+                    <span className="sm:hidden">Preços</span>
+                  </TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="geral" className="space-y-4 mt-4">
@@ -1045,9 +1152,117 @@ export default function CatalogoMateriais() {
                     </p>
                   </div>
                 </TabsContent>
+
+                <TabsContent value="precos" className="space-y-4 mt-4">
+                  {!selectedMaterial ? (
+                    <div className="p-4 bg-muted rounded-lg text-sm text-muted-foreground">
+                      Salve o material primeiro para visualizar o histórico de preços.
+                    </div>
+                  ) : isMissingRelationOrFunctionError(precosError) ? (
+                    <div className="p-4 border border-amber-200 bg-amber-50 rounded-lg">
+                      <p className="text-sm font-medium text-amber-800">Histórico de preços indisponível</p>
+                      <p className="text-xs text-amber-700 mt-1">
+                        Parece que a migration de histórico de preços ainda não foi aplicada no banco.
+                      </p>
+                    </div>
+                  ) : isLoadingPrecos ? (
+                    <div className="space-y-2">
+                      <Skeleton className="h-10 w-full" />
+                      <Skeleton className="h-10 w-full" />
+                      <Skeleton className="h-10 w-full" />
+                    </div>
+                  ) : precosError ? (
+                    <div className="p-4 border border-red-200 bg-red-50 rounded-lg">
+                      <p className="text-sm font-medium text-red-800">Erro ao carregar histórico</p>
+                      <p className="text-xs text-red-700 mt-1">
+                        {String((precosError as any)?.message || "Tente novamente.")}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="p-3 bg-muted rounded-lg flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium">Preço atual</p>
+                          <p className="text-xs text-muted-foreground">
+                            Este é o valor que será usado como padrão para novos recebimentos/movimentações.
+                          </p>
+                        </div>
+                        <div className="sm:text-right">
+                          <p className="text-lg font-bold">{formatCurrencyBRL(selectedMaterial.valor_unitario)}</p>
+                          <p className="text-xs text-muted-foreground">Material: {selectedMaterial.codigo}</p>
+                        </div>
+                      </div>
+
+                      {precosHistorico?.length ? (
+                        <div className="border rounded-lg overflow-hidden">
+                          <div className="w-full overflow-x-auto">
+                            <Table className="min-w-[860px]">
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Data</TableHead>
+                                <TableHead>Origem</TableHead>
+                                <TableHead className="text-right">Anterior</TableHead>
+                                <TableHead className="text-right">Novo</TableHead>
+                                <TableHead>Referência</TableHead>
+                                <TableHead className="text-right">Ação</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {precosHistorico.map((p) => {
+                                const isAtual = Number(selectedMaterial.valor_unitario ?? 0) === Number(p.valor_unitario_novo ?? 0);
+                                return (
+                                  <TableRow key={p.id}>
+                                    <TableCell className="text-sm">
+                                      {format(new Date(p.created_at), "dd/MM/yyyy HH:mm")}
+                                    </TableCell>
+                                    <TableCell>
+                                      <Badge variant="outline" className="text-xs">
+                                        {p.origem}
+                                      </Badge>
+                                    </TableCell>
+                                    <TableCell className="text-right text-sm text-muted-foreground">
+                                      {formatCurrencyBRL(p.valor_unitario_anterior)}
+                                    </TableCell>
+                                    <TableCell className="text-right font-medium">
+                                      {formatCurrencyBRL(p.valor_unitario_novo)}
+                                    </TableCell>
+                                    <TableCell className="text-xs text-muted-foreground max-w-[260px] truncate">
+                                      {p.referencia || "-"}
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant={isAtual ? "outline" : "default"}
+                                        disabled={isAtual || aplicarPrecoMutation.isPending}
+                                        onClick={() => setConfirmRevert({ open: true, preco: p })}
+                                      >
+                                        {isAtual ? "Atual" : "Aplicar"}
+                                      </Button>
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                            </Table>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-4 bg-muted rounded-lg">
+                          <p className="text-sm text-muted-foreground">
+                            Nenhuma alteração de preço registrada ainda.
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Dica: alterações no catálogo e recebimentos passam a registrar histórico automaticamente.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </TabsContent>
               </Tabs>
 
-              <DialogFooter className="mt-6">
+              <DialogFooter className="mt-6 flex-col-reverse sm:flex-row gap-2">
                 <Button type="button" variant="outline" onClick={handleCloseDialog}>
                   Cancelar
                 </Button>
@@ -1058,6 +1273,32 @@ export default function CatalogoMateriais() {
             </form>
           </DialogContent>
         </Dialog>
+
+        {/* Confirmação: aplicar preço do histórico */}
+        <AlertDialog
+          open={confirmRevert.open}
+          onOpenChange={(open) => setConfirmRevert((p) => ({ ...p, open }))}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Aplicar preço do histórico?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Você está prestes a definir o preço atual para{" "}
+                <span className="font-medium">{formatCurrencyBRL(confirmRevert.preco?.valor_unitario_novo ?? null)}</span>.
+                Isso cria um novo registro no histórico e passa a valer para novos recebimentos/movimentações.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={aplicarPrecoMutation.isPending}>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => confirmRevert.preco && aplicarPrecoMutation.mutate(confirmRevert.preco)}
+                disabled={!confirmRevert.preco || aplicarPrecoMutation.isPending}
+              >
+                {aplicarPrecoMutation.isPending ? "Aplicando..." : "Confirmar"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {/* Dialog de Confirmação de Exclusão */}
         <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
