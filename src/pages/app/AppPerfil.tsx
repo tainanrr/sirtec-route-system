@@ -24,13 +24,24 @@ import {
 } from "lucide-react";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { usePageState } from "@/contexts/ScrollRestoreContext";
 
 export default function AppPerfil() {
   const { equipe: equipeAuth, logout } = useEquipeAuth();
   const { equipe, isLoading: isLoadingEquipe, refetch: refetchEquipe } = useTecnico();
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const { getState, saveState } = usePageState<{ isRefreshing?: boolean }>("app-perfil");
+  const initialState = getState();
+  const [isRefreshing, setIsRefreshing] = useState(Boolean(initialState?.isRefreshing));
+
+  // Persistir UI desta tela
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      saveState({ isRefreshing });
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [isRefreshing, saveState]);
 
   // Buscar estatísticas do mês
   const { data: estatisticas, isLoading: isLoadingStats, refetch: refetchStats } = useQuery({

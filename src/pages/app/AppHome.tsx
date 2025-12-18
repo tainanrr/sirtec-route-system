@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
+import { usePageState } from "@/contexts/ScrollRestoreContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -69,8 +70,17 @@ export default function AppHome() {
   const queryClient = useQueryClient();
   const { equipe: equipeAuth } = useEquipeAuth();
   const { equipe, isLoading: isLoadingEquipe, error: equipeError } = useTecnico();
+  const { getState, saveState } = usePageState<{ isRefreshing?: boolean }>("app-home");
+  const initialState = getState();
   const [greeting, setGreeting] = useState("Olá");
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(Boolean(initialState?.isRefreshing));
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      saveState({ isRefreshing });
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [isRefreshing, saveState]);
 
   // Definir saudação baseada na hora
   useEffect(() => {

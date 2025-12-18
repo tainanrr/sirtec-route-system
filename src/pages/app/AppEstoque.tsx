@@ -47,6 +47,7 @@ import { toast } from "sonner";
 import { getAppParentRoute } from "@/lib/appNavigation";
 import { SignatureFullScreen } from "@/components/app/SignatureFullScreen";
 import { DiasRetencaoBadge, calcularDiasDesde, getNivelAlerta } from "@/components/materiais/DiasRetencaoBadge";
+import { usePageState } from "@/contexts/ScrollRestoreContext";
 
 interface EstoqueItem {
   id: string;
@@ -147,7 +148,24 @@ export default function AppEstoque() {
   const queryClient = useQueryClient();
   const { equipe: equipeAuth } = useEquipeAuth();
   const { equipe } = useTecnico();
-  const [searchTerm, setSearchTerm] = useState("");
+  const pageKey = "app-estoque";
+  const { getState, saveState } = usePageState<{
+    activeTab?: "estoque" | "serializados" | "historico";
+    searchTerm?: string;
+    dialogConfirmacao?: boolean;
+    entregaSelecionada?: EntregaPendente | null;
+    respostas?: Record<string, Resposta>;
+    showSignatureScreen?: boolean;
+    signaturePerguntaId?: string;
+    fotoPreview?: string | null;
+    fotoPerguntaAtual?: string;
+  }>(pageKey);
+
+  const initialState = getState();
+  const [activeTab, setActiveTab] = useState<"estoque" | "serializados" | "historico">(
+    initialState?.activeTab || "estoque"
+  );
+  const [searchTerm, setSearchTerm] = useState(initialState?.searchTerm || "");
   const [refreshKey, setRefreshKey] = useState(0);
 
   const handleBack = () => {
@@ -156,17 +174,46 @@ export default function AppEstoque() {
   };
   
   // Estado para confirmação de entrega
-  const [dialogConfirmacao, setDialogConfirmacao] = useState(false);
-  const [entregaSelecionada, setEntregaSelecionada] = useState<EntregaPendente | null>(null);
-  const [respostas, setRespostas] = useState<Record<string, Resposta>>({});
-  const [showSignatureScreen, setShowSignatureScreen] = useState(false);
-  const [signaturePerguntaId, setSignaturePerguntaId] = useState<string>("");
-  const [fotoPreview, setFotoPreview] = useState<string | null>(null);
-  const [fotoPerguntaAtual, setFotoPerguntaAtual] = useState<string>("");
+  const [dialogConfirmacao, setDialogConfirmacao] = useState(Boolean(initialState?.dialogConfirmacao));
+  const [entregaSelecionada, setEntregaSelecionada] = useState<EntregaPendente | null>(initialState?.entregaSelecionada || null);
+  const [respostas, setRespostas] = useState<Record<string, Resposta>>(initialState?.respostas || {});
+  const [showSignatureScreen, setShowSignatureScreen] = useState(Boolean(initialState?.showSignatureScreen));
+  const [signaturePerguntaId, setSignaturePerguntaId] = useState<string>(initialState?.signaturePerguntaId || "");
+  const [fotoPreview, setFotoPreview] = useState<string | null>(initialState?.fotoPreview || null);
+  const [fotoPerguntaAtual, setFotoPerguntaAtual] = useState<string>(initialState?.fotoPerguntaAtual || "");
   
   const inputFotoRef = useRef<HTMLInputElement>(null);
 
   const equipeId = equipe?.id || equipeAuth?.id;
+
+  // Persistir estado do Estoque (para voltar exatamente como estava)
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      saveState({
+        activeTab,
+        searchTerm,
+        dialogConfirmacao,
+        entregaSelecionada,
+        respostas,
+        showSignatureScreen,
+        signaturePerguntaId,
+        fotoPreview,
+        fotoPerguntaAtual,
+      });
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [
+    activeTab,
+    searchTerm,
+    dialogConfirmacao,
+    entregaSelecionada,
+    respostas,
+    showSignatureScreen,
+    signaturePerguntaId,
+    fotoPreview,
+    fotoPerguntaAtual,
+    saveState,
+  ]);
 
   // Query para checklist de recebimento
   const { data: checklistRecebimento } = useQuery({
@@ -1013,7 +1060,15 @@ export default function AppEstoque() {
         )}
 
         {/* Tabs */}
-        <Tabs defaultValue="estoque" className="w-full">
+        <Tabs
+          value={activeTab}
+          onValueChange={(v) => {
+            if (v === "estoque" || v === "serializados" || v === "historico") {
+              setActiveTab(v);
+            }
+          }}
+          className="w-full"
+        >
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="estoque">Estoque</TabsTrigger>
             <TabsTrigger value="serializados">
