@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { MainLayout } from "@/components/layout/MainLayout";
@@ -18,6 +18,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { SortableTableHead, SortConfig } from "@/components/ui/sortable-table-head";
 import {
   Dialog,
   DialogContent,
@@ -166,6 +167,7 @@ export default function CatalogoMateriais() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
   const [formData, setFormData] = useState<FormData>(initialFormData);
+  const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
 
   // Query para buscar materiais
   const { data: materiais, isLoading } = useQuery({
@@ -214,6 +216,148 @@ export default function CatalogoMateriais() {
       return map;
     },
   });
+
+  // Query para calcular sugestão de estoque baseada nos movimentos dos últimos 3 meses
+  const { data: sugestoesEstoque } = useQuery({
+    queryKey: ["sugestoes-estoque"],
+    queryFn: async () => {
+      // Data de 3 meses atrás
+      const tresMesesAtras = new Date();
+      tresMesesAtras.setMonth(tresMesesAtras.getMonth() - 3);
+      const dataInicio = tresMesesAtras.toISOString();
+
+      // Buscar movimentações de saída dos últimos 3 meses
+      const { data: movimentacoes, error } = await supabase
+        .from("materiais_movimentacoes")
+        .select("material_id, quantidade, tipo, created_at")
+        .gte("created_at", dataInicio)
+        .in("tipo", ["saida", "transferencia"]);
+
+      if (error) {
+        console.error("Erro ao buscar movimentações:", error);
+        return {};
+      }
+
+      // Buscar aplicações em OS dos últimos 3 meses
+      const { data: aplicacoes } = await supabase
+        .from("materiais_aplicados_os")
+        .select("material_id, quantidade, created_at")
+        .gte("created_at", dataInicio)
+        .eq("tipo", "aplicado");
+
+      // Calcular consumo por material
+      const consumoPorMaterial: Record<string, { total: number; count: number }> = {};
+
+      // Somar movimentações
+      movimentacoes?.forEach((mov: any) => {
+        if (!consumoPorMaterial[mov.material_id]) {
+          consumoPorMaterial[mov.material_id] = { total: 0, count: 0 };
+        }
+        consumoPorMaterial[mov.material_id].total += mov.quantidade;
+        consumoPorMaterial[mov.material_id].count += 1;
+      });
+
+      // Somar aplicações
+      aplicacoes?.forEach((ap: any) => {
+        if (!consumoPorMaterial[ap.material_id]) {
+          consumoPorMaterial[ap.material_id] = { total: 0, count: 0 };
+        }
+        consumoPorMaterial[ap.material_id].total += ap.quantidade;
+        consumoPorMaterial[ap.material_id].count += 1;
+      });
+
+      // Calcular sugestões
+      // Estoque mínimo sugerido = consumo médio mensal (para 1 mês de segurança)
+      // Estoque máximo sugerido = consumo médio mensal * 3 (para 3 meses)
+      const sugestoes: Record<string, { minimo: number; maximo: number; consumoMensal: number }> = {};
+      
+      Object.entries(consumoPorMaterial).forEach(([materialId, dados]) => {
+        const consumoMensal = Math.ceil(dados.total / 3); // Média mensal
+        sugestoes[materialId] = {
+          minimo: Math.max(1, consumoMensal), // Mínimo de 1 mês
+          maximo: Math.max(3, consumoMensal * 3), // Máximo de 3 meses
+          consumoMensal,
+        };
+      });
+
+      return sugestoes;
+    },
+  });
+
+  // Handler de ordenação
+  const handleSort = (column: string) => {
+    setSortConfig((current) => {
+      if (current?.column === column) {
+        if (current.direction === "asc") {
+          return { column, direction: "desc" };
+        } else if (current.direction === "desc") {
+          return null;
+        }
+      }
+      return { column, direction: "asc" };
+    });
+  };
+
+  // Ordenar materiais
+  const materiaisOrdenados = useMemo(() => {
+    if (!materiais || !sortConfig || !sortConfig.direction) {
+      return materiais;
+    }
+
+    return [...materiais].sort((a: any, b: any) => {
+      let aValue: any;
+      let bValue: any;
+
+      switch (sortConfig.column) {
+        case "codigo":
+          aValue = a.codigo;
+          bValue = b.codigo;
+          break;
+        case "nome":
+          aValue = a.nome;
+          bValue = b.nome;
+          break;
+        case "categoria":
+          aValue = a.categoria;
+          bValue = b.categoria;
+          break;
+        case "unidade":
+          aValue = a.unidade;
+          bValue = b.unidade;
+          break;
+        case "valor_unitario":
+          aValue = a.valor_unitario || 0;
+          bValue = b.valor_unitario || 0;
+          break;
+        case "estoque":
+          aValue = estoqueMap?.[a.id] || 0;
+          bValue = estoqueMap?.[b.id] || 0;
+          break;
+        case "ativo":
+          aValue = a.ativo ? 1 : 0;
+          bValue = b.ativo ? 1 : 0;
+          break;
+        default:
+          aValue = a[sortConfig.column];
+          bValue = b[sortConfig.column];
+      }
+
+      if (aValue == null && bValue == null) return 0;
+      if (aValue == null) return sortConfig.direction === "asc" ? 1 : -1;
+      if (bValue == null) return sortConfig.direction === "asc" ? -1 : 1;
+
+      let comparison = 0;
+      if (typeof aValue === "string" && typeof bValue === "string") {
+        comparison = aValue.localeCompare(bValue, "pt-BR", { numeric: true });
+      } else if (typeof aValue === "number" && typeof bValue === "number") {
+        comparison = aValue - bValue;
+      } else {
+        comparison = String(aValue).localeCompare(String(bValue), "pt-BR");
+      }
+
+      return sortConfig.direction === "asc" ? comparison : -comparison;
+    });
+  }, [materiais, sortConfig, estoqueMap]);
 
   // Mutation para salvar material
   const saveMutation = useMutation({
@@ -450,22 +594,62 @@ export default function CatalogoMateriais() {
                   <Skeleton key={i} className="h-16 w-full" />
                 ))}
               </div>
-            ) : materiais && materiais.length > 0 ? (
+            ) : materiaisOrdenados && materiaisOrdenados.length > 0 ? (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[100px]">Código</TableHead>
-                    <TableHead>Material</TableHead>
-                    <TableHead>Categoria</TableHead>
-                    <TableHead className="text-center">Unidade</TableHead>
-                    <TableHead className="text-right">Valor Unit.</TableHead>
-                    <TableHead className="text-center">Estoque</TableHead>
-                    <TableHead className="text-center">Status</TableHead>
+                    <SortableTableHead
+                      column="codigo"
+                      label="Código"
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                      className="w-[100px]"
+                    />
+                    <SortableTableHead
+                      column="nome"
+                      label="Material"
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                    />
+                    <SortableTableHead
+                      column="categoria"
+                      label="Categoria"
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                    />
+                    <SortableTableHead
+                      column="unidade"
+                      label="Unidade"
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                      className="text-center"
+                    />
+                    <SortableTableHead
+                      column="valor_unitario"
+                      label="Valor Unit."
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                      className="text-right"
+                    />
+                    <SortableTableHead
+                      column="estoque"
+                      label="Estoque"
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                      className="text-center"
+                    />
+                    <SortableTableHead
+                      column="ativo"
+                      label="Status"
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                      className="text-center"
+                    />
                     <TableHead className="text-right w-[80px]">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {materiais.map((material) => {
+                  {materiaisOrdenados.map((material) => {
                     const estoqueStatus = getEstoqueStatus(material);
                     const quantidade = estoqueMap?.[material.id] || 0;
 
@@ -681,9 +865,55 @@ export default function CatalogoMateriais() {
                 </TabsContent>
 
                 <TabsContent value="estoque" className="space-y-4 mt-4">
+                  {/* Sugestão baseada em consumo */}
+                  {selectedMaterial && sugestoesEstoque?.[selectedMaterial.id] && (
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="h-4 w-4 text-blue-600 mt-0.5" />
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-blue-800">
+                            Sugestão baseada no consumo dos últimos 3 meses
+                          </p>
+                          <p className="text-xs text-blue-600 mt-1">
+                            Consumo médio mensal: {sugestoesEstoque[selectedMaterial.id].consumoMensal} unidades
+                          </p>
+                          <div className="flex gap-4 mt-2">
+                            <button
+                              type="button"
+                              className="text-xs text-blue-700 hover:text-blue-900 underline"
+                              onClick={() => setFormData({
+                                ...formData,
+                                estoque_minimo: sugestoesEstoque[selectedMaterial.id].minimo.toString()
+                              })}
+                            >
+                              Usar mínimo sugerido: {sugestoesEstoque[selectedMaterial.id].minimo}
+                            </button>
+                            <button
+                              type="button"
+                              className="text-xs text-blue-700 hover:text-blue-900 underline"
+                              onClick={() => setFormData({
+                                ...formData,
+                                estoque_maximo: sugestoesEstoque[selectedMaterial.id].maximo.toString()
+                              })}
+                            >
+                              Usar máximo sugerido: {sugestoesEstoque[selectedMaterial.id].maximo}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="estoque_minimo">Estoque Mínimo</Label>
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="estoque_minimo">Estoque Mínimo</Label>
+                        {selectedMaterial && sugestoesEstoque?.[selectedMaterial.id] && (
+                          <Badge variant="outline" className="text-xs text-blue-600 border-blue-300">
+                            Sugerido: {sugestoesEstoque[selectedMaterial.id].minimo}
+                          </Badge>
+                        )}
+                      </div>
                       <Input
                         id="estoque_minimo"
                         type="number"
@@ -697,7 +927,14 @@ export default function CatalogoMateriais() {
                       </p>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="estoque_maximo">Estoque Máximo</Label>
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="estoque_maximo">Estoque Máximo</Label>
+                        {selectedMaterial && sugestoesEstoque?.[selectedMaterial.id] && (
+                          <Badge variant="outline" className="text-xs text-blue-600 border-blue-300">
+                            Sugerido: {sugestoesEstoque[selectedMaterial.id].maximo}
+                          </Badge>
+                        )}
+                      </div>
                       <Input
                         id="estoque_maximo"
                         type="number"

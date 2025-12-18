@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { MainLayout } from "@/components/layout/MainLayout";
@@ -17,6 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { SortableTableHead, SortConfig } from "@/components/ui/sortable-table-head";
 import {
   Dialog,
   DialogContent,
@@ -97,6 +98,7 @@ export default function EstoqueCentral() {
     documento_referencia: "",
   });
   const [selectedItem, setSelectedItem] = useState<EstoqueItem | null>(null);
+  const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
 
   // Query para buscar estoque central
   const { data: estoque, isLoading } = useQuery({
@@ -362,6 +364,78 @@ export default function EstoqueCentral() {
     return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
   };
 
+  // Handler de ordenação
+  const handleSort = (column: string) => {
+    setSortConfig((current) => {
+      if (current?.column === column) {
+        if (current.direction === "asc") {
+          return { column, direction: "desc" };
+        } else if (current.direction === "desc") {
+          return null;
+        }
+      }
+      return { column, direction: "asc" };
+    });
+  };
+
+  // Ordenar estoque
+  const estoqueOrdenado = useMemo(() => {
+    if (!estoque || !sortConfig || !sortConfig.direction) {
+      return estoque;
+    }
+
+    return [...estoque].sort((a: any, b: any) => {
+      let aValue: any;
+      let bValue: any;
+
+      switch (sortConfig.column) {
+        case "codigo":
+          aValue = a.materiais?.codigo || "";
+          bValue = b.materiais?.codigo || "";
+          break;
+        case "nome":
+          aValue = a.materiais?.nome || "";
+          bValue = b.materiais?.nome || "";
+          break;
+        case "quantidade":
+          aValue = a.quantidade;
+          bValue = b.quantidade;
+          break;
+        case "status":
+          // Ordenar por status: zerado > baixo > ok
+          aValue = a.quantidade <= 0 ? 0 : a.quantidade <= a.materiais.estoque_minimo ? 1 : 2;
+          bValue = b.quantidade <= 0 ? 0 : b.quantidade <= b.materiais.estoque_minimo ? 1 : 2;
+          break;
+        case "localizacao":
+          aValue = a.materiais?.localizacao || "";
+          bValue = b.materiais?.localizacao || "";
+          break;
+        case "valor":
+          aValue = a.quantidade * (a.materiais?.valor_unitario || 0);
+          bValue = b.quantidade * (b.materiais?.valor_unitario || 0);
+          break;
+        default:
+          aValue = a[sortConfig.column];
+          bValue = b[sortConfig.column];
+      }
+
+      if (aValue == null && bValue == null) return 0;
+      if (aValue == null) return sortConfig.direction === "asc" ? 1 : -1;
+      if (bValue == null) return sortConfig.direction === "asc" ? -1 : 1;
+
+      let comparison = 0;
+      if (typeof aValue === "string" && typeof bValue === "string") {
+        comparison = aValue.localeCompare(bValue, "pt-BR", { numeric: true });
+      } else if (typeof aValue === "number" && typeof bValue === "number") {
+        comparison = aValue - bValue;
+      } else {
+        comparison = String(aValue).localeCompare(String(bValue), "pt-BR");
+      }
+
+      return sortConfig.direction === "asc" ? comparison : -comparison;
+    });
+  }, [estoque, sortConfig]);
+
   return (
     <MainLayout title="Estoque Central">
       <div className="space-y-6">
@@ -507,22 +581,56 @@ export default function EstoqueCentral() {
                   <Skeleton key={i} className="h-16 w-full" />
                 ))}
               </div>
-            ) : estoque && estoque.length > 0 ? (
+            ) : estoqueOrdenado && estoqueOrdenado.length > 0 ? (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[100px]">Código</TableHead>
-                    <TableHead>Material</TableHead>
-                    <TableHead className="text-center">Quantidade</TableHead>
+                    <SortableTableHead
+                      column="codigo"
+                      label="Código"
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                      className="w-[100px]"
+                    />
+                    <SortableTableHead
+                      column="nome"
+                      label="Material"
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                    />
+                    <SortableTableHead
+                      column="quantidade"
+                      label="Quantidade"
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                      className="text-center"
+                    />
                     <TableHead className="text-center">Nível</TableHead>
-                    <TableHead className="text-center">Status</TableHead>
-                    <TableHead>Localização</TableHead>
-                    <TableHead className="text-right">Valor Total</TableHead>
+                    <SortableTableHead
+                      column="status"
+                      label="Status"
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                      className="text-center"
+                    />
+                    <SortableTableHead
+                      column="localizacao"
+                      label="Localização"
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                    />
+                    <SortableTableHead
+                      column="valor"
+                      label="Valor Total"
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                      className="text-right"
+                    />
                     <TableHead className="text-center w-[150px]">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {estoque.map((item) => {
+                  {estoqueOrdenado.map((item) => {
                     const status = getEstoqueStatus(item);
                     const progress = getEstoqueProgress(item);
                     const valorTotal = item.quantidade * (item.materiais.valor_unitario || 0);

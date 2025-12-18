@@ -20,7 +20,6 @@ import {
   ClipboardCheck,
   BarChart3,
   History,
-  Zap,
   Settings,
   FileText,
   Search,
@@ -142,12 +141,6 @@ export default function MateriaisDashboard() {
         .is("assinatura_recebimento", null)
         .eq("status", "pendente");
 
-      // Buscar medidores em estoque
-      const { count: medidoresEstoque } = await supabase
-        .from("materiais_serializados")
-        .select("*", { count: "exact", head: true })
-        .eq("status", "em_estoque");
-
       // Valor total em estoque (estimado)
       const { data: valorEstoque } = await supabase
         .from("materiais_estoque")
@@ -167,7 +160,6 @@ export default function MateriaisDashboard() {
         entradas,
         saidas,
         entregasPendentes: entregasPendentes || 0,
-        medidoresEstoque: medidoresEstoque || 0,
         valorTotal,
       };
     },
@@ -256,47 +248,67 @@ export default function MateriaisDashboard() {
     queryKey: ["materiais-alertas-retencao", refreshKey],
     queryFn: async () => {
       // Buscar materiais com rastro que estão com equipes
+      // Primeiro tenta buscar por status "com_equipe", depois por localizacao_tipo = "equipe"
       const { data: materiaisComEquipe } = await supabase
         .from("materiais_serializados")
         .select(`
           id,
           numero_serie,
+          status,
+          localizacao_tipo,
+          localizacao_id,
           data_entrega_equipe,
           equipe_atual_id,
+          created_at,
+          updated_at,
           materiais (
             codigo,
             nome,
             dias_alerta_retencao
-          ),
-          tecnicos:equipe_atual_id (
-            codigo,
-            nome
           )
         `)
-        .eq("status", "com_equipe")
-        .not("data_entrega_equipe", "is", null);
+        .or("status.eq.com_equipe,localizacao_tipo.eq.equipe")
+        .not("localizacao_id", "is", null);
 
-      if (!materiaisComEquipe) {
+      if (!materiaisComEquipe || materiaisComEquipe.length === 0) {
         return { totalComEquipe: 0, totalEmAlerta: 0, totalCritico: 0, totalAtencao: 0, itensEmAlerta: [] };
       }
+
+      // Filtrar apenas os que realmente estão com equipe (não instalados/retirados)
+      const materiaisFiltrados = materiaisComEquipe.filter((item: any) => 
+        item.status === "com_equipe" || 
+        (item.localizacao_tipo === "equipe" && !["instalado", "retirado", "defeito", "descartado"].includes(item.status))
+      );
+
+      // Buscar dados das equipes
+      const equipeIds = [...new Set(materiaisFiltrados.map((m: any) => m.localizacao_id || m.equipe_atual_id).filter(Boolean))];
+      const { data: equipesData } = equipeIds.length > 0 
+        ? await supabase.from("tecnicos").select("id, codigo, nome").in("id", equipeIds)
+        : { data: [] };
+      
+      const equipesMap = new Map((equipesData || []).map((e: any) => [e.id, e]));
 
       let totalEmAlerta = 0;
       let totalCritico = 0;
       let totalAtencao = 0;
       const itensEmAlerta: any[] = [];
 
-      materiaisComEquipe.forEach((item: any) => {
-        const dias = calcularDiasDesde(item.data_entrega_equipe);
+      materiaisFiltrados.forEach((item: any) => {
+        // Usar data_entrega_equipe ou updated_at/created_at como fallback
+        const dataEntrega = item.data_entrega_equipe || item.updated_at || item.created_at;
+        const dias = calcularDiasDesde(dataEntrega);
         const diasAlerta = item.materiais?.dias_alerta_retencao || 7;
         const nivel = getNivelAlerta(dias, diasAlerta);
+        const equipeId = item.localizacao_id || item.equipe_atual_id;
+        const equipe = equipesMap.get(equipeId);
 
         if (nivel === "critico") {
           totalCritico++;
           totalEmAlerta++;
-          itensEmAlerta.push({ ...item, dias, nivel });
+          itensEmAlerta.push({ ...item, dias, nivel, tecnicos: equipe });
         } else if (nivel === "alerta") {
           totalEmAlerta++;
-          itensEmAlerta.push({ ...item, dias, nivel });
+          itensEmAlerta.push({ ...item, dias, nivel, tecnicos: equipe });
         } else if (nivel === "atencao") {
           totalAtencao++;
         }
@@ -306,7 +318,7 @@ export default function MateriaisDashboard() {
       itensEmAlerta.sort((a, b) => b.dias - a.dias);
 
       return {
-        totalComEquipe: materiaisComEquipe.length,
+        totalComEquipe: materiaisFiltrados.length,
         totalEmAlerta,
         totalCritico,
         totalAtencao,
@@ -433,22 +445,6 @@ export default function MateriaisDashboard() {
               </div>
             </CardContent>
           </Card>
-
-          <Card>
-            <CardContent className="pt-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Medidores</p>
-                  {loadingStats ? (
-                    <Skeleton className="h-8 w-16 mt-1" />
-                  ) : (
-                    <p className="text-2xl font-bold text-cyan-600">{stats?.medidoresEstoque}</p>
-                  )}
-                </div>
-                <Zap className="h-8 w-8 text-cyan-500 opacity-80" />
-              </div>
-            </CardContent>
-          </Card>
         </div>
 
         {/* Valor em Estoque e Alertas de Retenção */}
@@ -491,42 +487,12 @@ export default function MateriaisDashboard() {
               {loadingRetencao ? (
                 <Skeleton className="h-20 w-full" />
               ) : (
-                <>
-                  <ResumoAlertasRetencao
-                    totalComEquipe={alertasRetencao?.totalComEquipe || 0}
-                    totalEmAlerta={alertasRetencao?.totalEmAlerta || 0}
-                    totalCritico={alertasRetencao?.totalCritico || 0}
-                    totalAtencao={alertasRetencao?.totalAtencao || 0}
-                  />
-                  
-                  {alertasRetencao?.itensEmAlerta && alertasRetencao.itensEmAlerta.length > 0 && (
-                    <div className="mt-4 space-y-2">
-                      <p className="text-sm font-medium text-muted-foreground">Materiais em alerta:</p>
-                      {alertasRetencao.itensEmAlerta.map((item: any) => (
-                        <div 
-                          key={item.id} 
-                          className={`flex items-center justify-between p-2 rounded-lg text-sm ${
-                            item.nivel === "critico" ? "bg-red-100 text-red-800" : "bg-orange-100 text-orange-800"
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <Zap className="h-4 w-4" />
-                            <span className="font-mono">{item.numero_serie}</span>
-                            <span className="text-xs opacity-70">
-                              ({item.materiais?.codigo})
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium">{item.dias} dias</span>
-                            <span className="text-xs opacity-70">
-                              {item.tecnicos?.codigo}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
+                <ResumoAlertasRetencao
+                  totalComEquipe={alertasRetencao?.totalComEquipe || 0}
+                  totalEmAlerta={alertasRetencao?.totalEmAlerta || 0}
+                  totalCritico={alertasRetencao?.totalCritico || 0}
+                  totalAtencao={alertasRetencao?.totalAtencao || 0}
+                />
               )}
             </CardContent>
           </Card>

@@ -296,32 +296,80 @@ export default function AppEstoque() {
   });
 
   // Query para materiais serializados (com rastro) da equipe
+  // Busca materiais que foram entregues para a equipe e ainda não foram aplicados/devolvidos
   const { data: materiaisSerializados } = useQuery({
     queryKey: ["materiais-serializados-equipe", equipeId, refreshKey],
     queryFn: async () => {
       if (!equipeId) return [];
 
-      const { data, error } = await supabase
-        .from("materiais_serializados")
+      // Primeiro, buscar entregas confirmadas da equipe
+      const { data: entregas, error: entregasError } = await supabase
+        .from("materiais_entregas")
+        .select("id, data_entrega, data_confirmacao")
+        .eq("equipe_id", equipeId)
+        .eq("status", "confirmado");
+
+      if (entregasError) throw entregasError;
+      if (!entregas || entregas.length === 0) return [];
+
+      // Buscar itens das entregas que têm número de série
+      const entregaIds = entregas.map((e: any) => e.id);
+      const { data: itensEntrega, error: itensError } = await supabase
+        .from("materiais_entregas_itens")
         .select(`
           id,
+          entrega_id,
           numero_serie,
-          data_entrega_equipe,
-          created_at,
-          updated_at,
+          material_id,
           materiais (
             codigo,
             nome,
             dias_alerta_retencao
           )
         `)
-        .eq("status", "com_equipe")
-        .eq("localizacao_tipo", "equipe")
-        .eq("localizacao_id", equipeId)
-        .order("created_at", { ascending: true });
+        .in("entrega_id", entregaIds)
+        .not("numero_serie", "is", null);
 
-      if (error) throw error;
-      return data || [];
+      if (itensError) throw itensError;
+      if (!itensEntrega || itensEntrega.length === 0) return [];
+
+      // Verificar quais materiais ainda estão com a equipe (não foram aplicados)
+      const numerosSerieEntregues = itensEntrega.map((i: any) => i.numero_serie).filter(Boolean);
+      
+      const { data: serializados, error: serializadosError } = await supabase
+        .from("materiais_serializados")
+        .select("numero_serie, status")
+        .in("numero_serie", numerosSerieEntregues);
+
+      if (serializadosError) throw serializadosError;
+
+      // Filtrar apenas os que ainda não foram instalados/retirados
+      const serializadosMap = new Map(
+        (serializados || []).map((s: any) => [s.numero_serie, s.status])
+      );
+
+      // Montar resultado com data de entrega
+      const entregasMap = new Map(
+        entregas.map((e: any) => [e.id, e])
+      );
+
+      return itensEntrega
+        .filter((item: any) => {
+          const status = serializadosMap.get(item.numero_serie);
+          // Manter se status é em_estoque (ainda não aplicado) ou não existe registro
+          return !status || status === "em_estoque" || status === "com_equipe";
+        })
+        .map((item: any) => {
+          const entrega = entregasMap.get(item.entrega_id);
+          return {
+            id: item.id,
+            numero_serie: item.numero_serie,
+            data_entrega_equipe: entrega?.data_confirmacao || entrega?.data_entrega,
+            created_at: entrega?.data_entrega,
+            updated_at: entrega?.data_confirmacao,
+            materiais: item.materiais,
+          };
+        });
     },
     enabled: !!equipeId,
   });
@@ -343,6 +391,8 @@ export default function AppEstoque() {
         ? `${fotoResposta.fotos[0].latitude || 0},${fotoResposta.fotos[0].longitude || 0}` 
         : null;
 
+      const dataConfirmacao = new Date().toISOString();
+
       // Atualizar status da entrega
       const { error } = await supabase
         .from("materiais_entregas")
@@ -351,9 +401,32 @@ export default function AppEstoque() {
           foto_recebimento: fotoPrincipal,
           assinatura_recebimento: assinaturaResposta?.assinatura_url || null,
           coordenadas_recebimento: coordenadas,
-          data_confirmacao: new Date().toISOString(),
+          data_confirmacao: dataConfirmacao,
         })
         .eq("id", data.entrega_id);
+
+      // Buscar itens serializados da entrega e atualizar status
+      const { data: itensEntrega } = await supabase
+        .from("materiais_entregas_itens")
+        .select("numero_serie")
+        .eq("entrega_id", data.entrega_id)
+        .not("numero_serie", "is", null);
+
+      if (itensEntrega && itensEntrega.length > 0) {
+        const numerosSerieEntregues = itensEntrega.map((i: any) => i.numero_serie).filter(Boolean);
+        
+        // Atualizar status dos materiais serializados para "com_equipe"
+        await supabase
+          .from("materiais_serializados")
+          .update({
+            status: "com_equipe",
+            localizacao_tipo: "equipe",
+            localizacao_id: equipeId,
+            data_entrega_equipe: dataConfirmacao,
+            equipe_atual_id: equipeId,
+          })
+          .in("numero_serie", numerosSerieEntregues);
+      }
 
       if (error) throw error;
 
@@ -369,6 +442,7 @@ export default function AppEstoque() {
       queryClient.invalidateQueries({ queryKey: ["entregas-pendentes-equipe"] });
       queryClient.invalidateQueries({ queryKey: ["estoque-equipe"] });
       queryClient.invalidateQueries({ queryKey: ["movimentacoes-equipe"] });
+      queryClient.invalidateQueries({ queryKey: ["materiais-serializados-equipe"] });
       toast.success("Recebimento confirmado com sucesso!");
       setDialogConfirmacao(false);
       resetFormConfirmacao();
@@ -912,53 +986,21 @@ export default function AppEstoque() {
           </Card>
         </div>
 
-        {/* Alertas de Materiais Serializados */}
+        {/* Alerta compacto de Materiais com Rastro */}
         {materiaisEmAlerta.length > 0 && (
           <Card className="border-orange-300 bg-orange-50">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2 text-orange-700">
-                <AlertTriangle className="h-4 w-4" />
-                Materiais com Rastro em Alerta
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <p className="text-xs text-orange-600 mb-3">
-                Estes materiais estão há muito tempo sem aplicação em campo
-              </p>
-              {materiaisEmAlerta.slice(0, 3).map((item: any) => {
-                const dataEntrega = getDataEntrega(item);
-                const dias = calcularDiasDesde(dataEntrega);
-                const diasAlerta = item.materiais?.dias_alerta_retencao || 7;
-                const nivel = getNivelAlerta(dias, diasAlerta);
-                
-                return (
-                  <div 
-                    key={item.id} 
-                    className={`flex items-center justify-between p-2 rounded-lg ${
-                      nivel === "critico" ? "bg-red-100" : "bg-orange-100"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Zap className={`h-4 w-4 ${nivel === "critico" ? "text-red-600" : "text-orange-600"}`} />
-                      <div>
-                        <span className="font-mono text-sm font-medium">{item.numero_serie}</span>
-                        <p className="text-xs text-muted-foreground">{item.materiais?.codigo}</p>
-                      </div>
-                    </div>
-                    <DiasRetencaoBadge
-                      dataEntregaEquipe={dataEntrega}
-                      diasAlertaRetencao={diasAlerta}
-                      size="sm"
-                      showTooltip={false}
-                    />
-                  </div>
-                );
-              })}
-              {materiaisEmAlerta.length > 3 && (
-                <p className="text-xs text-center text-orange-600 pt-1">
-                  +{materiaisEmAlerta.length - 3} outros materiais em alerta
-                </p>
-              )}
+            <CardContent className="p-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-orange-600" />
+                  <span className="text-sm font-medium text-orange-700">
+                    {materiaisEmAlerta.length} material(is) com rastro em alerta
+                  </span>
+                </div>
+                <Badge variant="outline" className="bg-orange-100 text-orange-700 border-orange-300 text-xs">
+                  Ver em Rastro
+                </Badge>
+              </div>
             </CardContent>
           </Card>
         )}

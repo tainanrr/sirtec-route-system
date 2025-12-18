@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { MainLayout } from "@/components/layout/MainLayout";
@@ -17,6 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { SortableTableHead, SortConfig } from "@/components/ui/sortable-table-head";
 import {
   Dialog,
   DialogContent,
@@ -121,6 +122,7 @@ export default function EntregasEquipes() {
   const [imagemViewer, setImagemViewer] = useState<{ open: boolean; src: string; titulo: string }>({ open: false, src: "", titulo: "" });
   const [checklistRespostas, setChecklistRespostas] = useState<any>(null);
   const [loadingRespostas, setLoadingRespostas] = useState(false);
+  const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
 
   // Form para nova entrega
   const [novaEntrega, setNovaEntrega] = useState<NovaEntregaForm>({
@@ -638,6 +640,70 @@ export default function EntregasEquipes() {
     criarEntregaMutation.mutate(novaEntrega);
   };
 
+  // Handler de ordenação
+  const handleSort = (column: string) => {
+    setSortConfig((current) => {
+      if (current?.column === column) {
+        if (current.direction === "asc") {
+          return { column, direction: "desc" };
+        } else if (current.direction === "desc") {
+          return null;
+        }
+      }
+      return { column, direction: "asc" };
+    });
+  };
+
+  // Ordenar entregas
+  const entregasOrdenadas = useMemo(() => {
+    if (!entregas || !sortConfig || !sortConfig.direction) {
+      return entregas;
+    }
+
+    return [...entregas].sort((a: any, b: any) => {
+      let aValue: any;
+      let bValue: any;
+
+      switch (sortConfig.column) {
+        case "created_at":
+          aValue = new Date(a.created_at).getTime();
+          bValue = new Date(b.created_at).getTime();
+          break;
+        case "equipe":
+          aValue = a.tecnicos?.codigo || "";
+          bValue = b.tecnicos?.codigo || "";
+          break;
+        case "itens":
+          aValue = a.itens?.length || 0;
+          bValue = b.itens?.length || 0;
+          break;
+        case "status":
+          const statusOrder = { pendente: 0, confirmado: 1, recebida: 1, cancelada: 2 };
+          aValue = statusOrder[a.status as keyof typeof statusOrder] ?? 99;
+          bValue = statusOrder[b.status as keyof typeof statusOrder] ?? 99;
+          break;
+        default:
+          aValue = a[sortConfig.column];
+          bValue = b[sortConfig.column];
+      }
+
+      if (aValue == null && bValue == null) return 0;
+      if (aValue == null) return sortConfig.direction === "asc" ? 1 : -1;
+      if (bValue == null) return sortConfig.direction === "asc" ? -1 : 1;
+
+      let comparison = 0;
+      if (typeof aValue === "string" && typeof bValue === "string") {
+        comparison = aValue.localeCompare(bValue, "pt-BR", { numeric: true });
+      } else if (typeof aValue === "number" && typeof bValue === "number") {
+        comparison = aValue - bValue;
+      } else {
+        comparison = String(aValue).localeCompare(String(bValue), "pt-BR");
+      }
+
+      return sortConfig.direction === "asc" ? comparison : -comparison;
+    });
+  }, [entregas, sortConfig]);
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "pendente":
@@ -731,20 +797,41 @@ export default function EntregasEquipes() {
                   <Skeleton key={i} className="h-20 w-full" />
                 ))}
               </div>
-            ) : entregas && entregas.length > 0 ? (
+            ) : entregasOrdenadas && entregasOrdenadas.length > 0 ? (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Data</TableHead>
-                    <TableHead>Equipe</TableHead>
-                    <TableHead>Itens</TableHead>
-                    <TableHead className="text-center">Status</TableHead>
+                    <SortableTableHead
+                      column="created_at"
+                      label="Data"
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                    />
+                    <SortableTableHead
+                      column="equipe"
+                      label="Equipe"
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                    />
+                    <SortableTableHead
+                      column="itens"
+                      label="Itens"
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                    />
+                    <SortableTableHead
+                      column="status"
+                      label="Status"
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                      className="text-center"
+                    />
                     <TableHead>Recebimento</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {entregas.map((entrega) => (
+                  {entregasOrdenadas.map((entrega) => (
                     <TableRow key={entrega.id}>
                       <TableCell>
                         <div>

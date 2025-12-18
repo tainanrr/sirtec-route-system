@@ -70,19 +70,19 @@ const NIVEL_CONFIG = {
 
 const SIZE_CONFIG = {
   sm: {
-    badge: "text-xs px-1.5 py-0.5",
-    icon: "h-3 w-3",
-    gap: "gap-1",
+    badge: "text-[10px] px-1.5 py-0.5 whitespace-nowrap",
+    icon: "h-3 w-3 shrink-0",
+    gap: "gap-0.5",
   },
   md: {
-    badge: "text-sm px-2 py-1",
-    icon: "h-4 w-4",
-    gap: "gap-1.5",
+    badge: "text-xs px-2 py-1 whitespace-nowrap",
+    icon: "h-3.5 w-3.5 shrink-0",
+    gap: "gap-1",
   },
   lg: {
-    badge: "text-base px-3 py-1.5",
-    icon: "h-5 w-5",
-    gap: "gap-2",
+    badge: "text-sm px-3 py-1.5 whitespace-nowrap",
+    icon: "h-4 w-4 shrink-0",
+    gap: "gap-1.5",
   },
 };
 
@@ -123,7 +123,7 @@ export function DiasRetencaoBadge({
       )}
     >
       {showIcon && <Icon className={sizeConfig.icon} />}
-      <span>{dias} {dias === 1 ? "dia" : "dias"}</span>
+      <span className="whitespace-nowrap">{dias}d</span>
     </Badge>
   );
 

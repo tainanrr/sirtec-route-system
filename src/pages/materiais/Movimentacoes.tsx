@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { MainLayout } from "@/components/layout/MainLayout";
@@ -15,6 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { SortableTableHead, SortConfig } from "@/components/ui/sortable-table-head";
 import {
   Select,
   SelectContent,
@@ -75,6 +76,7 @@ export default function Movimentacoes() {
   const [filtroPeriodo, setFiltroPeriodo] = useState("7");
   const [currentPage, setCurrentPage] = useState(0);
   const ITEMS_PER_PAGE = 50;
+  const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
 
   // Query para movimentações
   const { data: movimentacoes, isLoading } = useQuery({
@@ -184,6 +186,77 @@ export default function Movimentacoes() {
   };
 
   const totalPages = Math.ceil((totalCount || 0) / ITEMS_PER_PAGE);
+
+  // Handler de ordenação
+  const handleSort = (column: string) => {
+    setSortConfig((current) => {
+      if (current?.column === column) {
+        if (current.direction === "asc") {
+          return { column, direction: "desc" };
+        } else if (current.direction === "desc") {
+          return null;
+        }
+      }
+      return { column, direction: "asc" };
+    });
+  };
+
+  // Ordenar movimentações
+  const movimentacoesOrdenadas = useMemo(() => {
+    if (!movimentacoes || !sortConfig || !sortConfig.direction) {
+      return movimentacoes;
+    }
+
+    return [...movimentacoes].sort((a: any, b: any) => {
+      let aValue: any;
+      let bValue: any;
+
+      switch (sortConfig.column) {
+        case "created_at":
+          aValue = new Date(a.created_at).getTime();
+          bValue = new Date(b.created_at).getTime();
+          break;
+        case "material":
+          aValue = a.materiais?.codigo || "";
+          bValue = b.materiais?.codigo || "";
+          break;
+        case "tipo":
+          aValue = a.tipo;
+          bValue = b.tipo;
+          break;
+        case "quantidade":
+          aValue = a.quantidade;
+          bValue = b.quantidade;
+          break;
+        case "origem":
+          aValue = a.local_origem_tipo || "";
+          bValue = b.local_origem_tipo || "";
+          break;
+        case "destino":
+          aValue = a.local_destino_tipo || "";
+          bValue = b.local_destino_tipo || "";
+          break;
+        default:
+          aValue = a[sortConfig.column];
+          bValue = b[sortConfig.column];
+      }
+
+      if (aValue == null && bValue == null) return 0;
+      if (aValue == null) return sortConfig.direction === "asc" ? 1 : -1;
+      if (bValue == null) return sortConfig.direction === "asc" ? -1 : 1;
+
+      let comparison = 0;
+      if (typeof aValue === "string" && typeof bValue === "string") {
+        comparison = aValue.localeCompare(bValue, "pt-BR", { numeric: true });
+      } else if (typeof aValue === "number" && typeof bValue === "number") {
+        comparison = aValue - bValue;
+      } else {
+        comparison = String(aValue).localeCompare(String(bValue), "pt-BR");
+      }
+
+      return sortConfig.direction === "asc" ? comparison : -comparison;
+    });
+  }, [movimentacoes, sortConfig]);
 
   return (
     <MainLayout title="Movimentações">
@@ -328,23 +401,55 @@ export default function Movimentacoes() {
                   <Skeleton key={i} className="h-14 w-full" />
                 ))}
               </div>
-            ) : movimentacoes && movimentacoes.length > 0 ? (
+            ) : movimentacoesOrdenadas && movimentacoesOrdenadas.length > 0 ? (
               <>
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Data/Hora</TableHead>
-                      <TableHead>Material</TableHead>
-                      <TableHead className="text-center">Tipo</TableHead>
-                      <TableHead className="text-center">Quantidade</TableHead>
-                      <TableHead>Origem</TableHead>
-                      <TableHead>Destino</TableHead>
+                      <SortableTableHead
+                        column="created_at"
+                        label="Data/Hora"
+                        sortConfig={sortConfig}
+                        onSort={handleSort}
+                      />
+                      <SortableTableHead
+                        column="material"
+                        label="Material"
+                        sortConfig={sortConfig}
+                        onSort={handleSort}
+                      />
+                      <SortableTableHead
+                        column="tipo"
+                        label="Tipo"
+                        sortConfig={sortConfig}
+                        onSort={handleSort}
+                        className="text-center"
+                      />
+                      <SortableTableHead
+                        column="quantidade"
+                        label="Quantidade"
+                        sortConfig={sortConfig}
+                        onSort={handleSort}
+                        className="text-center"
+                      />
+                      <SortableTableHead
+                        column="origem"
+                        label="Origem"
+                        sortConfig={sortConfig}
+                        onSort={handleSort}
+                      />
+                      <SortableTableHead
+                        column="destino"
+                        label="Destino"
+                        sortConfig={sortConfig}
+                        onSort={handleSort}
+                      />
                       <TableHead>Documento</TableHead>
                       <TableHead>Observação</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {movimentacoes.map((mov) => {
+                    {movimentacoesOrdenadas.map((mov) => {
                       const tipoConfig = getTipoConfig(mov.tipo);
                       const TipoIcon = tipoConfig.icon;
 

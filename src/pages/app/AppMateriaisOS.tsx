@@ -33,15 +33,17 @@ import {
   Minus,
   Zap,
   QrCode,
-  Camera,
   CheckCircle,
   Trash2,
-  AlertTriangle,
   Search,
   Pencil,
+  AlertTriangle,
+  Camera,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import { DiasRetencaoBadge, calcularDiasDesde, getNivelAlerta } from "@/components/materiais/DiasRetencaoBadge";
+import { BarcodeScanner } from "@/components/ui/barcode-scanner";
 
 interface MaterialAplicado {
   id: string;
@@ -71,6 +73,20 @@ interface EstoqueItem {
   };
 }
 
+interface RastroDisponivel {
+  id: string;
+  numero_serie: string;
+  material_id: string;
+  data_entrega_equipe: string | null;
+  created_at: string;
+  updated_at: string;
+  materiais: {
+    codigo: string;
+    nome: string;
+    dias_alerta_retencao: number | null;
+  };
+}
+
 export default function AppMateriaisOS() {
   const { id: ordemId } = useParams();
   const navigate = useNavigate();
@@ -85,12 +101,15 @@ export default function AppMateriaisOS() {
   const [tipoOperacao, setTipoOperacao] = useState<"aplicar" | "retirar">("aplicar");
   const [abaAtiva, setAbaAtiva] = useState<"aplicados" | "retirados">("aplicados");
   const [searchTerm, setSearchTerm] = useState("");
+  const [searchRastro, setSearchRastro] = useState(""); // Pesquisa de rastro
+  const [scannerOpen, setScannerOpen] = useState(false); // Scanner de código de barras
   const [formData, setFormData] = useState({
     material_id: "",
     quantidade: "" as unknown as number, // Começa vazio
     numero_serie: "",
     observacao: "",
   });
+  
 
   const equipeId = equipe?.id || equipeAuth?.id;
 
@@ -179,6 +198,95 @@ export default function AppMateriaisOS() {
     },
   });
 
+  // Query para TODOS os rastros disponíveis da equipe (materiais serializados)
+  // Usa a mesma lógica do AppEstoque - busca via entregas confirmadas
+  const { data: rastrosDisponiveis } = useQuery({
+    queryKey: ["rastros-disponiveis-equipe", equipeId],
+    queryFn: async () => {
+      if (!equipeId) return [];
+
+      // Primeiro, buscar entregas confirmadas da equipe
+      const { data: entregas, error: entregasError } = await supabase
+        .from("materiais_entregas")
+        .select("id, data_entrega, data_confirmacao")
+        .eq("equipe_id", equipeId)
+        .eq("status", "confirmado");
+
+      if (entregasError) throw entregasError;
+      if (!entregas || entregas.length === 0) return [];
+
+      // Buscar itens das entregas que têm número de série
+      const entregaIds = entregas.map((e: any) => e.id);
+      const { data: itensEntrega, error: itensError } = await supabase
+        .from("materiais_entregas_itens")
+        .select(`
+          id,
+          entrega_id,
+          numero_serie,
+          material_id,
+          materiais (
+            codigo,
+            nome,
+            dias_alerta_retencao
+          )
+        `)
+        .in("entrega_id", entregaIds)
+        .not("numero_serie", "is", null);
+
+      if (itensError) throw itensError;
+      if (!itensEntrega || itensEntrega.length === 0) return [];
+
+      // Verificar quais materiais ainda estão com a equipe (não foram aplicados)
+      const numerosSerieEntregues = itensEntrega.map((i: any) => i.numero_serie).filter(Boolean);
+      
+      const { data: serializados, error: serializadosError } = await supabase
+        .from("materiais_serializados")
+        .select("numero_serie, status")
+        .in("numero_serie", numerosSerieEntregues);
+
+      if (serializadosError) throw serializadosError;
+
+      // Filtrar apenas os que ainda não foram instalados/retirados
+      const serializadosMap = new Map(
+        (serializados || []).map((s: any) => [s.numero_serie, s.status])
+      );
+
+      // Montar resultado com data de entrega
+      const entregasMap = new Map(
+        entregas.map((e: any) => [e.id, e])
+      );
+
+      return itensEntrega
+        .filter((item: any) => {
+          const status = serializadosMap.get(item.numero_serie);
+          // Manter se status é em_estoque (ainda não aplicado), com_equipe ou não existe registro
+          return !status || status === "em_estoque" || status === "com_equipe";
+        })
+        .map((item: any) => {
+          const entrega = entregasMap.get(item.entrega_id);
+          return {
+            id: item.id,
+            numero_serie: item.numero_serie,
+            material_id: item.material_id,
+            data_entrega_equipe: entrega?.data_confirmacao || entrega?.data_entrega,
+            created_at: entrega?.data_entrega,
+            updated_at: entrega?.data_confirmacao,
+            materiais: item.materiais,
+          };
+        }) as RastroDisponivel[];
+    },
+    enabled: !!equipeId,
+  });
+  
+  // Agrupar rastros por material_id para fácil acesso
+  const rastrosPorMaterial = (rastrosDisponiveis || []).reduce((acc, rastro) => {
+    if (!acc[rastro.material_id]) {
+      acc[rastro.material_id] = [];
+    }
+    acc[rastro.material_id].push(rastro);
+    return acc;
+  }, {} as Record<string, RastroDisponivel[]>);
+
   // Mutation para aplicar/retirar material
   const aplicarMutation = useMutation({
     mutationFn: async (data: typeof formData & { tipo: "aplicado" | "retirado" }) => {
@@ -252,6 +360,7 @@ export default function AppMateriaisOS() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["materiais-os", ordemId] });
       queryClient.invalidateQueries({ queryKey: ["estoque-equipe-os", equipeId] });
+      queryClient.invalidateQueries({ queryKey: ["rastros-disponiveis-equipe", equipeId] });
       toast.success(variables.tipo === "aplicado" ? "Material aplicado!" : "Material retirado!");
       setDialogOpen(false);
       setFormData({ material_id: "", quantidade: "" as unknown as number, numero_serie: "", observacao: "" });
@@ -372,6 +481,7 @@ export default function AppMateriaisOS() {
     setTipoOperacao(tipo);
     setFormData({ material_id: "", quantidade: "" as unknown as number, numero_serie: "", observacao: "" });
     setSearchTerm("");
+    setSearchRastro(""); // Limpar pesquisa de rastro
     setDialogOpen(true);
   };
 
@@ -384,20 +494,24 @@ export default function AppMateriaisOS() {
       toast.error("Selecione um material");
       return;
     }
-    if (!formData.quantidade || formData.quantidade <= 0) {
+
+    // Buscar material (do estoque ou de todos os materiais)
+    const materialInfo = tipoOperacao === "aplicar" 
+      ? estoqueEquipe?.find((e) => e.material_id === formData.material_id)?.materiais
+      : todosMateriais?.find((m: any) => m.id === formData.material_id);
+    
+    const requerSerial = materialInfo?.requer_serial || materialInfo?.unidade === "SR";
+    
+    // Para materiais com rastro, a quantidade é sempre 1
+    const quantidadeFinal = requerSerial ? 1 : formData.quantidade;
+    
+    if (!quantidadeFinal || quantidadeFinal <= 0) {
       console.log("[AppMateriaisOS] Erro: Quantidade inválida");
       toast.error("Digite uma quantidade válida");
       return;
     }
 
-    // Buscar material (do estoque ou de todos os materiais)
-    const material = tipoOperacao === "aplicar" 
-      ? estoqueEquipe?.find((e) => e.material_id === formData.material_id)?.materiais
-      : todosMateriais?.find((m: any) => m.id === formData.material_id);
-
-    // Verificar se requer número de série (requer_serial OU unidade SR)
-    const requerSerial = material?.requer_serial || material?.unidade === "SR";
-    
+    // Verificar se requer número de série
     if (requerSerial && !formData.numero_serie) {
       console.log("[AppMateriaisOS] Erro: Requer número de série");
       toast.error("Este material requer número de série/rastro único");
@@ -407,14 +521,14 @@ export default function AppMateriaisOS() {
     // Se for aplicar, verificar estoque ANTES de chamar a mutation
     if (tipoOperacao === "aplicar") {
       const itemEstoque = estoqueEquipe?.find((e) => e.material_id === formData.material_id);
-      console.log("[AppMateriaisOS] Verificando estoque", { itemEstoque, quantidade: formData.quantidade });
+      console.log("[AppMateriaisOS] Verificando estoque", { itemEstoque, quantidade: quantidadeFinal });
       
       if (!itemEstoque) {
         console.log("[AppMateriaisOS] Erro: Material não encontrado no estoque");
         toast.error("Material não encontrado no seu estoque");
         return;
       }
-      if (itemEstoque.quantidade < formData.quantidade) {
+      if (itemEstoque.quantidade < quantidadeFinal) {
         const mensagem = `Quantidade insuficiente! Você tem apenas ${itemEstoque.quantidade} ${itemEstoque.materiais.unidade} em estoque.`;
         console.log("[AppMateriaisOS] Erro:", mensagem);
         toast.error(mensagem);
@@ -437,15 +551,27 @@ export default function AppMateriaisOS() {
       }
     }
 
-    console.log("[AppMateriaisOS] Chamando mutation");
+    console.log("[AppMateriaisOS] Chamando mutation com quantidade:", quantidadeFinal);
     aplicarMutation.mutate({
       ...formData,
+      quantidade: quantidadeFinal,
       tipo: tipoOperacao === "aplicar" ? "aplicado" : "retirado",
     });
   };
 
   // Filtrar estoque para seleção (aplicar)
+  // Para materiais com rastro, só mostrar se tiver rastros disponíveis
   const estoqueFiltrado = estoqueEquipe?.filter((item) => {
+    const requerSerial = item.materiais.requer_serial || item.materiais.unidade === "SR";
+    
+    // Se requer serial, verificar se tem rastros disponíveis
+    if (requerSerial) {
+      const rastrosDoMaterial = rastrosPorMaterial[item.material_id] || [];
+      if (rastrosDoMaterial.length === 0) {
+        return false; // Não mostrar se não tem rastros disponíveis
+      }
+    }
+    
     if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
     return (
@@ -707,34 +833,64 @@ export default function AppMateriaisOS() {
               <div className="max-h-48 overflow-y-auto border rounded-lg">
                 {estoqueFiltrado && estoqueFiltrado.length > 0 ? (
                   <div className="divide-y">
-                    {estoqueFiltrado.map((item) => (
-                      <button
-                        key={item.material_id}
-                        type="button"
-                        className={`w-full p-3 text-left hover:bg-muted/50 transition-all ${
-                          formData.material_id === item.material_id 
-                            ? "bg-violet-100 border-2 border-violet-500 rounded-lg font-semibold" 
-                            : "border border-transparent"
-                        }`}
-                        onClick={() =>
-                          setFormData({ ...formData, material_id: item.material_id })
-                        }
-                      >
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className={`text-sm ${formData.material_id === item.material_id ? "text-violet-700 font-bold" : "font-medium"}`}>
-                              {item.materiais.codigo}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {item.materiais.nome}
-                            </p>
+                    {estoqueFiltrado.map((item) => {
+                      const requerSerial = item.materiais.requer_serial || item.materiais.unidade === "SR";
+                      const rastrosDoMaterial = rastrosPorMaterial[item.material_id] || [];
+                      
+                      return (
+                        <button
+                          key={item.material_id}
+                          type="button"
+                          className={`w-full p-3 text-left hover:bg-muted/50 transition-all ${
+                            formData.material_id === item.material_id 
+                              ? "bg-violet-100 border-2 border-violet-500 rounded-lg font-semibold" 
+                              : "border border-transparent"
+                          }`}
+                          onClick={() => {
+                            if (requerSerial && rastrosDoMaterial.length === 1) {
+                              // Se só tem 1 rastro, já seleciona automaticamente
+                              setFormData({ 
+                                ...formData, 
+                                material_id: item.material_id,
+                                numero_serie: rastrosDoMaterial[0].numero_serie,
+                                quantidade: 1
+                              });
+                            } else {
+                              setFormData({ ...formData, material_id: item.material_id });
+                            }
+                          }}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              {requerSerial && (
+                                <div className="p-1.5 bg-amber-100 rounded">
+                                  <QrCode className="h-4 w-4 text-amber-600" />
+                                </div>
+                              )}
+                              <div>
+                                <p className={`text-sm ${formData.material_id === item.material_id ? "text-violet-700 font-bold" : "font-medium"}`}>
+                                  {item.materiais.codigo}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {item.materiais.nome}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {requerSerial ? (
+                                <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+                                  {rastrosDoMaterial.length} rastro{rastrosDoMaterial.length !== 1 ? 's' : ''}
+                                </Badge>
+                              ) : (
+                                <Badge variant="secondary">
+                                  {item.quantidade} {item.materiais.unidade}
+                                </Badge>
+                              )}
+                            </div>
                           </div>
-                          <Badge variant="secondary">
-                            {item.quantidade} {item.materiais.unidade}
-                          </Badge>
-                        </div>
-                      </button>
-                    ))}
+                        </button>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="p-4 text-center text-muted-foreground text-sm">
@@ -783,57 +939,248 @@ export default function AppMateriaisOS() {
               </div>
             )}
 
-            {/* Quantidade */}
-            <div className="space-y-2">
-              <Label>Quantidade *</Label>
-              <Input
-                type="number"
-                min="1"
-                value={formData.quantidade || ""}
-                onChange={(e) =>
-                  setFormData({ ...formData, quantidade: e.target.value ? parseInt(e.target.value) : ("" as unknown as number) })
-                }
-                placeholder="Digite a quantidade"
-              />
-            </div>
-
-            {/* Número de Série (se necessário) */}
+            {/* Quantidade e Número de Série (lógica condicional) */}
             {formData.material_id && (
               (() => {
+                const estoqueItem = tipoOperacao === "aplicar"
+                  ? estoqueEquipe?.find((e) => e.material_id === formData.material_id)
+                  : null;
                 const material = tipoOperacao === "aplicar"
-                  ? estoqueEquipe?.find((e) => e.material_id === formData.material_id)?.materiais
+                  ? estoqueItem?.materiais
                   : todosMateriais?.find((m: any) => m.id === formData.material_id);
                 
                 const requerSerial = material?.requer_serial || material?.unidade === "SR";
                 
+                // Se requer serial, mostrar seletor de rastro e ocultar quantidade
                 if (requerSerial) {
+                  // Para aplicar: mostrar rastros do estoque da equipe
+                  // Para retirar: permitir digitar/escanear qualquer número de série
+                  
+                  if (tipoOperacao === "aplicar") {
+                    // Filtrar rastros disponíveis para este material
+                    const todosRastrosDoMaterial = (rastrosPorMaterial[formData.material_id] || [])
+                    .sort((a, b) => {
+                      // Ordenar por dias com equipe (mais antigos primeiro)
+                      const diasA = a.data_entrega_equipe ? calcularDiasDesde(a.data_entrega_equipe) : 0;
+                      const diasB = b.data_entrega_equipe ? calcularDiasDesde(b.data_entrega_equipe) : 0;
+                      return diasB - diasA;
+                    });
+                  
+                  // Aplicar filtro de pesquisa
+                  const rastrosDoMaterial = searchRastro 
+                    ? todosRastrosDoMaterial.filter(r => 
+                        r.numero_serie.toLowerCase().includes(searchRastro.toLowerCase())
+                      )
+                    : todosRastrosDoMaterial;
+                  
                   return (
-                    <div className="space-y-2">
-                      <Label>Número de Série/Rastro Único *</Label>
-                      <div className="flex gap-2">
-                        <Input
-                          value={formData.numero_serie}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              numero_serie: e.target.value.toUpperCase(),
-                            })
-                          }
-                          placeholder="Ex: MED2024001234"
-                          className="flex-1"
-                        />
-                        <Button type="button" variant="outline" size="icon">
-                          <Camera className="h-4 w-4" />
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Label>Selecione o Rastro *</Label>
+                        <Button 
+                          type="button" 
+                          variant="outline" 
+                          size="sm" 
+                          className="h-8"
+                          onClick={() => setScannerOpen(true)}
+                        >
+                          <Camera className="h-4 w-4 mr-1" />
+                          Ler Código
                         </Button>
                       </div>
-                      <p className="text-xs text-muted-foreground">
-                        Material do tipo {material?.unidade} requer número de rastro único
-                      </p>
+                      
+                      {/* Campo de pesquisa */}
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Pesquisar por número de série..."
+                          value={searchRastro}
+                          onChange={(e) => setSearchRastro(e.target.value.toUpperCase())}
+                          className="pl-10 pr-10"
+                        />
+                        {searchRastro && (
+                          <button
+                            type="button"
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                            onClick={() => setSearchRastro("")}
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                      
+                      {/* Lista de rastros disponíveis */}
+                      <div className="border rounded-lg divide-y max-h-40 overflow-y-auto">
+                        {rastrosDoMaterial.length > 0 ? (
+                          rastrosDoMaterial.map((rastro) => {
+                            const dias = rastro.data_entrega_equipe 
+                              ? calcularDiasDesde(rastro.data_entrega_equipe) 
+                              : 0;
+                            const nivel = getNivelAlerta(dias, rastro.materiais?.dias_alerta_retencao || 7);
+                            const isSelected = formData.numero_serie === rastro.numero_serie;
+                            
+                            return (
+                              <button
+                                key={rastro.id}
+                                type="button"
+                                className={`w-full p-3 text-left transition-all ${
+                                  isSelected 
+                                    ? "bg-violet-100 border-l-4 border-l-violet-500" 
+                                    : "hover:bg-muted/50"
+                                }`}
+                                onClick={() => {
+                                  setFormData({
+                                    ...formData,
+                                    numero_serie: rastro.numero_serie,
+                                    quantidade: 1,
+                                  });
+                                  setSearchRastro(""); // Limpar pesquisa após selecionar
+                                }}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <div className={`w-2 h-2 rounded-full ${
+                                      nivel === "critico" ? "bg-red-500" :
+                                      nivel === "alerta" ? "bg-orange-500" :
+                                      nivel === "atencao" ? "bg-amber-500" :
+                                      "bg-green-500"
+                                    }`} />
+                                    <span className={`font-mono text-sm ${isSelected ? "font-bold text-violet-700" : ""}`}>
+                                      {rastro.numero_serie}
+                                    </span>
+                                  </div>
+                                  <DiasRetencaoBadge
+                                    dataEntregaEquipe={rastro.data_entrega_equipe}
+                                    diasAlertaRetencao={rastro.materiais?.dias_alerta_retencao || 7}
+                                    size="sm"
+                                  />
+                                </div>
+                                {nivel !== "normal" && dias > 0 && (
+                                  <p className={`text-xs mt-1 ${
+                                    nivel === "critico" ? "text-red-600" :
+                                    nivel === "alerta" ? "text-orange-600" :
+                                    "text-amber-600"
+                                  }`}>
+                                    ⚠️ Priorize este - {dias} dias com a equipe
+                                  </p>
+                                )}
+                              </button>
+                            );
+                          })
+                        ) : (
+                          <div className="p-4 text-center text-muted-foreground text-sm">
+                            {searchRastro 
+                              ? `Nenhum rastro encontrado com "${searchRastro}"` 
+                              : "Nenhum rastro disponível"
+                            }
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* Contador de resultados */}
+                      {todosRastrosDoMaterial.length > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          {searchRastro 
+                            ? `${rastrosDoMaterial.length} de ${todosRastrosDoMaterial.length} rastros`
+                            : `${todosRastrosDoMaterial.length} rastro${todosRastrosDoMaterial.length !== 1 ? 's' : ''} disponível${todosRastrosDoMaterial.length !== 1 ? 'is' : ''}`
+                          }
+                        </p>
+                      )}
+                      
+                      {formData.numero_serie && (
+                        <div className="flex items-center gap-2 p-2 bg-violet-50 rounded-lg text-sm">
+                          <CheckCircle className="h-4 w-4 text-violet-600" />
+                          <span className="text-violet-700">
+                            Selecionado: <strong className="font-mono">{formData.numero_serie}</strong>
+                          </span>
+                        </div>
+                      )}
                     </div>
                   );
+                  } else {
+                    // Retirar material com rastro - permitir digitar/escanear
+                    return (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <Label>Número de Série *</Label>
+                          <Button 
+                            type="button" 
+                            variant="outline" 
+                            size="sm" 
+                            className="h-8"
+                            onClick={() => setScannerOpen(true)}
+                          >
+                            <Camera className="h-4 w-4 mr-1" />
+                            Ler Código
+                          </Button>
+                        </div>
+                        
+                        {/* Campo para digitar o número de série */}
+                        <div className="relative">
+                          <QrCode className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            placeholder="Digite ou escaneie o número de série..."
+                            value={formData.numero_serie}
+                            onChange={(e) => setFormData({ 
+                              ...formData, 
+                              numero_serie: e.target.value.toUpperCase(),
+                              quantidade: 1 // Sempre 1 para materiais com rastro
+                            })}
+                            className="pl-10 font-mono"
+                          />
+                        </div>
+                        
+                        <p className="text-xs text-muted-foreground flex items-center gap-1">
+                          <AlertTriangle className="h-3 w-3" />
+                          Material com rastro - quantidade fixa: 1 unidade
+                        </p>
+                        
+                        {formData.numero_serie && (
+                          <div className="flex items-center gap-2 p-2 bg-orange-50 rounded-lg text-sm">
+                            <CheckCircle className="h-4 w-4 text-orange-600" />
+                            <span className="text-orange-700">
+                              Série: <strong className="font-mono">{formData.numero_serie}</strong>
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
                 }
-                return null;
+                
+                // Material normal (sem rastro) - mostrar campo de quantidade
+                return (
+                  <div className="space-y-2">
+                    <Label>Quantidade *</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      value={formData.quantidade || ""}
+                      onChange={(e) =>
+                        setFormData({ ...formData, quantidade: e.target.value ? parseInt(e.target.value) : ("" as unknown as number) })
+                      }
+                      placeholder="Digite a quantidade"
+                    />
+                  </div>
+                );
               })()
+            )}
+            
+            {/* Campo de quantidade para quando não tem material selecionado ainda */}
+            {!formData.material_id && (
+              <div className="space-y-2">
+                <Label>Quantidade *</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  value={formData.quantidade || ""}
+                  onChange={(e) =>
+                    setFormData({ ...formData, quantidade: e.target.value ? parseInt(e.target.value) : ("" as unknown as number) })
+                  }
+                  placeholder="Selecione um material primeiro"
+                  disabled
+                />
+              </div>
             )}
 
             {/* Observação */}
@@ -915,6 +1262,59 @@ export default function AppMateriaisOS() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Scanner de Código de Barras */}
+      <BarcodeScanner
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScan={(code) => {
+          // Verificar se o código escaneado está na lista de rastros disponíveis
+          if (tipoOperacao === "aplicar") {
+            const rastroEncontrado = rastrosDisponiveis?.find(
+              r => r.numero_serie.toUpperCase() === code.toUpperCase() && 
+                   r.material_id === formData.material_id
+            );
+            
+            if (rastroEncontrado) {
+              setFormData({
+                ...formData,
+                numero_serie: rastroEncontrado.numero_serie,
+                quantidade: 1,
+              });
+              setSearchRastro("");
+              toast.success(`Rastro encontrado: ${rastroEncontrado.numero_serie}`);
+            } else if (formData.material_id) {
+              // Rastro não encontrado para o material selecionado
+              toast.error("Este código não corresponde a um rastro disponível para o material selecionado.");
+            } else {
+              // Nenhum material selecionado, tentar encontrar pelo código
+              const rastroQualquer = rastrosDisponiveis?.find(
+                r => r.numero_serie.toUpperCase() === code.toUpperCase()
+              );
+              if (rastroQualquer) {
+                setFormData({
+                  ...formData,
+                  material_id: rastroQualquer.material_id,
+                  numero_serie: rastroQualquer.numero_serie,
+                  quantidade: 1,
+                });
+                toast.success(`Rastro encontrado: ${rastroQualquer.numero_serie}`);
+              } else {
+                toast.error("Código não encontrado no seu estoque.");
+              }
+            }
+          } else {
+            // Retirar - aceitar qualquer código
+            setFormData({
+              ...formData,
+              numero_serie: code.toUpperCase(),
+              quantidade: 1,
+            });
+          }
+        }}
+        title={tipoOperacao === "aplicar" ? "Ler Código do Material" : "Ler Código para Retirada"}
+      />
+
     </div>
   );
 }

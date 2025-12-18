@@ -4,7 +4,8 @@ import { cn } from "@/lib/utils";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
 import { Badge } from "@/components/ui/badge";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
+import { ScrollRestoreProvider } from "@/contexts/ScrollRestoreContext";
 
 export default function AppLayout() {
   const location = useLocation();
@@ -45,6 +46,7 @@ export default function AppLayout() {
   };
 
   return (
+    <ScrollRestoreProvider>
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
       <header className="sticky top-0 z-40 bg-gradient-to-r from-primary to-primary/90 text-primary-foreground px-4 py-3 shadow-lg">
@@ -138,5 +140,6 @@ export default function AppLayout() {
         </div>
       </nav>
     </div>
+    </ScrollRestoreProvider>
   );
 }
