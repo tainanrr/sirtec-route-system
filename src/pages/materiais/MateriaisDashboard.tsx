@@ -30,6 +30,7 @@ import {
 import { Link } from "react-router-dom";
 import { format, subDays, startOfMonth, endOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { ResumoAlertasRetencao, calcularDiasDesde, getNivelAlerta } from "@/components/materiais/DiasRetencaoBadge";
 
 // Cards de navegação rápida
 const quickAccessCards = [
@@ -250,6 +251,70 @@ export default function MateriaisDashboard() {
     },
   });
 
+  // Query para alertas de retenção de materiais com rastro
+  const { data: alertasRetencao, isLoading: loadingRetencao } = useQuery({
+    queryKey: ["materiais-alertas-retencao", refreshKey],
+    queryFn: async () => {
+      // Buscar materiais com rastro que estão com equipes
+      const { data: materiaisComEquipe } = await supabase
+        .from("materiais_serializados")
+        .select(`
+          id,
+          numero_serie,
+          data_entrega_equipe,
+          equipe_atual_id,
+          materiais (
+            codigo,
+            nome,
+            dias_alerta_retencao
+          ),
+          tecnicos:equipe_atual_id (
+            codigo,
+            nome
+          )
+        `)
+        .eq("status", "com_equipe")
+        .not("data_entrega_equipe", "is", null);
+
+      if (!materiaisComEquipe) {
+        return { totalComEquipe: 0, totalEmAlerta: 0, totalCritico: 0, totalAtencao: 0, itensEmAlerta: [] };
+      }
+
+      let totalEmAlerta = 0;
+      let totalCritico = 0;
+      let totalAtencao = 0;
+      const itensEmAlerta: any[] = [];
+
+      materiaisComEquipe.forEach((item: any) => {
+        const dias = calcularDiasDesde(item.data_entrega_equipe);
+        const diasAlerta = item.materiais?.dias_alerta_retencao || 7;
+        const nivel = getNivelAlerta(dias, diasAlerta);
+
+        if (nivel === "critico") {
+          totalCritico++;
+          totalEmAlerta++;
+          itensEmAlerta.push({ ...item, dias, nivel });
+        } else if (nivel === "alerta") {
+          totalEmAlerta++;
+          itensEmAlerta.push({ ...item, dias, nivel });
+        } else if (nivel === "atencao") {
+          totalAtencao++;
+        }
+      });
+
+      // Ordenar por dias (mais críticos primeiro)
+      itensEmAlerta.sort((a, b) => b.dias - a.dias);
+
+      return {
+        totalComEquipe: materiaisComEquipe.length,
+        totalEmAlerta,
+        totalCritico,
+        totalAtencao,
+        itensEmAlerta: itensEmAlerta.slice(0, 5), // Top 5 mais críticos
+      };
+    },
+  });
+
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("pt-BR", {
       style: "currency",
@@ -386,22 +451,86 @@ export default function MateriaisDashboard() {
           </Card>
         </div>
 
-        {/* Valor em Estoque */}
-        <Card className="bg-gradient-to-r from-violet-500 to-purple-600 text-white">
-          <CardContent className="py-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-violet-100">Valor Total em Estoque</p>
-                {loadingStats ? (
-                  <Skeleton className="h-10 w-40 mt-1 bg-white/20" />
-                ) : (
-                  <p className="text-4xl font-bold">{formatCurrency(stats?.valorTotal || 0)}</p>
-                )}
+        {/* Valor em Estoque e Alertas de Retenção */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card className="bg-gradient-to-r from-violet-500 to-purple-600 text-white">
+            <CardContent className="py-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-violet-100">Valor Total em Estoque</p>
+                  {loadingStats ? (
+                    <Skeleton className="h-10 w-40 mt-1 bg-white/20" />
+                  ) : (
+                    <p className="text-4xl font-bold">{formatCurrency(stats?.valorTotal || 0)}</p>
+                  )}
+                </div>
+                <Warehouse className="h-16 w-16 text-white/30" />
               </div>
-              <Warehouse className="h-16 w-16 text-white/30" />
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+
+          {/* Card de Alertas de Retenção */}
+          <Card className={alertasRetencao?.totalEmAlerta ? "border-orange-200 bg-orange-50/50" : ""}>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <AlertTriangle className={`h-5 w-5 ${alertasRetencao?.totalCritico ? "text-red-500" : alertasRetencao?.totalEmAlerta ? "text-orange-500" : "text-muted-foreground"}`} />
+                  Materiais com Equipes
+                </CardTitle>
+                <Button variant="ghost" size="sm" asChild>
+                  <Link to="/materiais/rastreabilidade?status=com_equipe">
+                    Ver todos
+                  </Link>
+                </Button>
+              </div>
+              <CardDescription>
+                Materiais com rastro entregues às equipes
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loadingRetencao ? (
+                <Skeleton className="h-20 w-full" />
+              ) : (
+                <>
+                  <ResumoAlertasRetencao
+                    totalComEquipe={alertasRetencao?.totalComEquipe || 0}
+                    totalEmAlerta={alertasRetencao?.totalEmAlerta || 0}
+                    totalCritico={alertasRetencao?.totalCritico || 0}
+                    totalAtencao={alertasRetencao?.totalAtencao || 0}
+                  />
+                  
+                  {alertasRetencao?.itensEmAlerta && alertasRetencao.itensEmAlerta.length > 0 && (
+                    <div className="mt-4 space-y-2">
+                      <p className="text-sm font-medium text-muted-foreground">Materiais em alerta:</p>
+                      {alertasRetencao.itensEmAlerta.map((item: any) => (
+                        <div 
+                          key={item.id} 
+                          className={`flex items-center justify-between p-2 rounded-lg text-sm ${
+                            item.nivel === "critico" ? "bg-red-100 text-red-800" : "bg-orange-100 text-orange-800"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Zap className="h-4 w-4" />
+                            <span className="font-mono">{item.numero_serie}</span>
+                            <span className="text-xs opacity-70">
+                              ({item.materiais?.codigo})
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{item.dias} dias</span>
+                            <span className="text-xs opacity-70">
+                              {item.tecnicos?.codigo}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </div>
 
         {/* Grid Principal */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -546,4 +675,6 @@ export default function MateriaisDashboard() {
     </MainLayout>
   );
 }
+
+
 

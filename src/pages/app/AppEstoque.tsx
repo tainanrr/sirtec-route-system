@@ -45,6 +45,7 @@ import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { SignatureFullScreen } from "@/components/app/SignatureFullScreen";
+import { DiasRetencaoBadge, calcularDiasDesde, getNivelAlerta } from "@/components/materiais/DiasRetencaoBadge";
 
 interface EstoqueItem {
   id: string;
@@ -290,6 +291,34 @@ export default function AppEstoque() {
       );
 
       return entregasComItens as EntregaPendente[];
+    },
+    enabled: !!equipeId,
+  });
+
+  // Query para materiais serializados (com rastro) da equipe
+  const { data: materiaisSerializados } = useQuery({
+    queryKey: ["materiais-serializados-equipe", equipeId, refreshKey],
+    queryFn: async () => {
+      if (!equipeId) return [];
+
+      const { data, error } = await supabase
+        .from("materiais_serializados")
+        .select(`
+          id,
+          numero_serie,
+          data_entrega_equipe,
+          materiais (
+            codigo,
+            nome,
+            dias_alerta_retencao
+          )
+        `)
+        .eq("status", "com_equipe")
+        .eq("equipe_atual_id", equipeId)
+        .order("data_entrega_equipe", { ascending: true });
+
+      if (error) throw error;
+      return data || [];
     },
     enabled: !!equipeId,
   });
@@ -783,6 +812,14 @@ export default function AppEstoque() {
     (item) => item.quantidade <= item.materiais.estoque_minimo
   ).length || 0;
 
+  // Calcular materiais serializados em alerta
+  const materiaisEmAlerta = materiaisSerializados?.filter((item: any) => {
+    const dias = calcularDiasDesde(item.data_entrega_equipe);
+    const diasAlerta = item.materiais?.dias_alerta_retencao || 7;
+    const nivel = getNivelAlerta(dias, diasAlerta);
+    return nivel === "alerta" || nivel === "critico";
+  }) || [];
+
   const perguntas = (checklistRecebimento as any)?.perguntasNormalizadas || [];
 
   return (
@@ -868,10 +905,63 @@ export default function AppEstoque() {
           </Card>
         </div>
 
+        {/* Alertas de Materiais Serializados */}
+        {materiaisEmAlerta.length > 0 && (
+          <Card className="border-orange-300 bg-orange-50">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2 text-orange-700">
+                <AlertTriangle className="h-4 w-4" />
+                Materiais com Rastro em Alerta
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <p className="text-xs text-orange-600 mb-3">
+                Estes materiais estão há muito tempo sem aplicação em campo
+              </p>
+              {materiaisEmAlerta.slice(0, 3).map((item: any) => {
+                const dias = calcularDiasDesde(item.data_entrega_equipe);
+                const diasAlerta = item.materiais?.dias_alerta_retencao || 7;
+                const nivel = getNivelAlerta(dias, diasAlerta);
+                
+                return (
+                  <div 
+                    key={item.id} 
+                    className={`flex items-center justify-between p-2 rounded-lg ${
+                      nivel === "critico" ? "bg-red-100" : "bg-orange-100"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Zap className={`h-4 w-4 ${nivel === "critico" ? "text-red-600" : "text-orange-600"}`} />
+                      <div>
+                        <span className="font-mono text-sm font-medium">{item.numero_serie}</span>
+                        <p className="text-xs text-muted-foreground">{item.materiais?.codigo}</p>
+                      </div>
+                    </div>
+                    <DiasRetencaoBadge
+                      dataEntregaEquipe={item.data_entrega_equipe}
+                      diasAlertaRetencao={diasAlerta}
+                      size="sm"
+                      showTooltip={false}
+                    />
+                  </div>
+                );
+              })}
+              {materiaisEmAlerta.length > 3 && (
+                <p className="text-xs text-center text-orange-600 pt-1">
+                  +{materiaisEmAlerta.length - 3} outros materiais em alerta
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         {/* Tabs */}
         <Tabs defaultValue="estoque" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="estoque">Estoque</TabsTrigger>
+            <TabsTrigger value="serializados">
+              Rastro {materiaisSerializados?.length ? `(${materiaisSerializados.length})` : ""}
+            </TabsTrigger>
             <TabsTrigger value="historico">Histórico</TabsTrigger>
           </TabsList>
 
@@ -947,6 +1037,77 @@ export default function AppEstoque() {
                   <Package className="h-12 w-12 mx-auto text-muted-foreground/30 mb-3" />
                   <p className="text-muted-foreground">
                     {searchTerm ? "Nenhum material encontrado" : "Seu estoque está vazio"}
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+
+          <TabsContent value="serializados" className="mt-4">
+            {materiaisSerializados && materiaisSerializados.length > 0 ? (
+              <div className="space-y-2">
+                {materiaisSerializados.map((item: any) => {
+                  const dias = calcularDiasDesde(item.data_entrega_equipe);
+                  const diasAlerta = item.materiais?.dias_alerta_retencao || 7;
+                  const nivel = getNivelAlerta(dias, diasAlerta);
+                  const isAlerta = nivel === "alerta" || nivel === "critico";
+
+                  return (
+                    <Card
+                      key={item.id}
+                      className={isAlerta ? (nivel === "critico" ? "border-red-300 bg-red-50/50" : "border-orange-300 bg-orange-50/50") : ""}
+                    >
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className={`p-2 rounded-lg ${
+                              nivel === "critico" ? "bg-red-100" : 
+                              nivel === "alerta" ? "bg-orange-100" : 
+                              nivel === "atencao" ? "bg-amber-100" : "bg-violet-100"
+                            }`}>
+                              <Zap className={`h-5 w-5 ${
+                                nivel === "critico" ? "text-red-600" : 
+                                nivel === "alerta" ? "text-orange-600" : 
+                                nivel === "atencao" ? "text-amber-600" : "text-violet-600"
+                              }`} />
+                            </div>
+                            <div>
+                              <p className="font-mono font-medium text-sm">{item.numero_serie}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {item.materiais?.codigo} - {item.materiais?.nome}
+                              </p>
+                            </div>
+                          </div>
+                          <DiasRetencaoBadge
+                            dataEntregaEquipe={item.data_entrega_equipe}
+                            diasAlertaRetencao={diasAlerta}
+                            size="sm"
+                            showTooltip={false}
+                          />
+                        </div>
+                        {isAlerta && (
+                          <div className={`mt-2 flex items-center gap-1 ${nivel === "critico" ? "text-red-600" : "text-orange-600"}`}>
+                            <AlertTriangle className="h-3 w-3" />
+                            <span className="text-xs">
+                              {nivel === "critico" ? "Situação crítica!" : "Ultrapassou prazo de alerta"}
+                              {" - "}Aplique em uma OS ou devolva ao estoque
+                            </span>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            ) : (
+              <Card>
+                <CardContent className="p-8 text-center">
+                  <Zap className="h-12 w-12 mx-auto text-muted-foreground/30 mb-3" />
+                  <p className="text-muted-foreground">
+                    Nenhum material com rastro em seu estoque
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Medidores e equipamentos serializados aparecerão aqui
                   </p>
                 </CardContent>
               </Card>

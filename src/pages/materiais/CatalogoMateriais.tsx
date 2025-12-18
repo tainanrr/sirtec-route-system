@@ -117,6 +117,7 @@ interface Material {
   codigo_barras: string | null;
   codigo_concessionaria: string | null;
   requer_serial: boolean;
+  dias_alerta_retencao: number | null;
   ativo: boolean;
   created_at: string;
   updated_at: string;
@@ -135,6 +136,7 @@ interface FormData {
   codigo_barras: string;
   codigo_concessionaria: string;
   requer_serial: boolean;
+  dias_alerta_retencao: string;
   ativo: boolean;
 }
 
@@ -151,6 +153,7 @@ const initialFormData: FormData = {
   codigo_barras: "",
   codigo_concessionaria: "",
   requer_serial: false,
+  dias_alerta_retencao: "7",
   ativo: true,
 };
 
@@ -228,6 +231,7 @@ export default function CatalogoMateriais() {
         codigo_barras: data.codigo_barras || null,
         codigo_concessionaria: data.codigo_concessionaria || null,
         requer_serial: data.requer_serial,
+        dias_alerta_retencao: data.dias_alerta_retencao ? parseInt(data.dias_alerta_retencao) : 7,
         ativo: data.ativo,
       };
 
@@ -318,6 +322,7 @@ export default function CatalogoMateriais() {
         codigo_barras: material.codigo_barras || "",
         codigo_concessionaria: material.codigo_concessionaria || "",
         requer_serial: material.requer_serial,
+        dias_alerta_retencao: material.dias_alerta_retencao?.toString() || "7",
         ativo: material.ativo,
       });
     } else {
@@ -735,6 +740,34 @@ export default function CatalogoMateriais() {
                       onCheckedChange={(checked) => setFormData({ ...formData, requer_serial: checked })}
                     />
                   </div>
+
+                  {/* Campo de dias de alerta - só aparece para materiais com rastro */}
+                  {formData.requer_serial && (
+                    <div className="p-4 bg-violet-50 border border-violet-200 rounded-lg space-y-3">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="h-4 w-4 text-violet-600" />
+                        <Label className="text-violet-700 font-medium">Alerta de Retenção</Label>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        Configure após quantos dias um material com rastro entregue à equipe deve gerar alerta de retenção.
+                      </p>
+                      <div className="flex items-center gap-3">
+                        <Input
+                          id="dias_alerta_retencao"
+                          type="number"
+                          min="1"
+                          max="365"
+                          value={formData.dias_alerta_retencao}
+                          onChange={(e) => setFormData({ ...formData, dias_alerta_retencao: e.target.value })}
+                          className="w-24"
+                        />
+                        <span className="text-sm text-muted-foreground">dias sem aplicação em campo</span>
+                      </div>
+                      <p className="text-xs text-violet-600">
+                        💡 Materiais que ultrapassarem este prazo aparecerão em destaque nas telas de gestão
+                      </p>
+                    </div>
+                  )}
                 </TabsContent>
 
                 <TabsContent value="codigos" className="space-y-4 mt-4">
@@ -804,4 +837,6 @@ export default function CatalogoMateriais() {
     </MainLayout>
   );
 }
+
+
 

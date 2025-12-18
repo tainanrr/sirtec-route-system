@@ -68,3 +68,5 @@ COMMENT ON FUNCTION public.criar_usuario_equipe IS 'Função placeholder - use E
 
 
 
+
+

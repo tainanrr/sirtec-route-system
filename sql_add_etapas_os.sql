@@ -42,3 +42,5 @@ COMMENT ON COLUMN public.ordens_servico.tempo_execucao_minutos IS 'Tempo total d
 
 
 
+
+

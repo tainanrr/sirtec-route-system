@@ -42,3 +42,5 @@ COMMENT ON COLUMN public.tecnicos.usuario IS 'Nome de usuário para login no apl
 
 
 
+
+

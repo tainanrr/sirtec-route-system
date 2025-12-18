@@ -128,3 +128,5 @@ Após executar os scripts de exemplo:
 - Ajuste os IDs de equipes e OSs conforme seu banco de dados
 - Os valores unitários são exemplos - ajuste conforme sua realidade
 
+
+

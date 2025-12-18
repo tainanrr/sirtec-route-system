@@ -263,3 +263,5 @@ COMMENT ON TABLE materiais_entregas IS 'Entregas de materiais às equipes de cam
 COMMENT ON TABLE materiais_serializados IS 'Itens com número de série (medidores, etc.)';
 COMMENT ON TABLE materiais_aplicados_os IS 'Materiais aplicados/retirados em ordens de serviço';
 
+
+

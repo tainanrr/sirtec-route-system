@@ -56,6 +56,7 @@ import {
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import { DiasRetencaoBadge } from "@/components/materiais/DiasRetencaoBadge";
 
 interface MaterialSerializado {
   id: string;
@@ -69,12 +70,15 @@ interface MaterialSerializado {
   localizacao_id: string | null;
   ordem_servico_id: string | null;
   observacao: string | null;
+  data_entrega_equipe: string | null;
+  equipe_atual_id: string | null;
   created_at: string;
   updated_at: string;
   materiais?: {
     codigo: string;
     nome: string;
     categoria: string;
+    dias_alerta_retencao: number | null;
   };
   tecnicos?: {
     codigo: string;
@@ -148,6 +152,8 @@ export default function Rastreabilidade() {
           localizacao_id,
           ordem_servico_id,
           observacao,
+          data_entrega_equipe,
+          equipe_atual_id,
           created_at,
           updated_at
         `)
@@ -179,7 +185,7 @@ export default function Rastreabilidade() {
       const equipeIds = serializados.filter((s: any) => s.localizacao_tipo === "equipe" && s.localizacao_id).map((s: any) => s.localizacao_id);
 
       const [materiaisData, osData, equipesData] = await Promise.all([
-        supabase.from("materiais").select("id, codigo, nome, categoria").in("id", materialIds),
+        supabase.from("materiais").select("id, codigo, nome, categoria, dias_alerta_retencao").in("id", materialIds),
         osIds.length > 0 ? supabase.from("ordens_servico").select("id, numero, endereco, cliente_nome").in("id", osIds) : Promise.resolve({ data: [] }),
         equipeIds.length > 0 ? supabase.from("tecnicos").select("id, codigo, nome").in("id", equipeIds) : Promise.resolve({ data: [] }),
       ]);
@@ -496,6 +502,7 @@ export default function Rastreabilidade() {
                     <TableHead>Lote</TableHead>
                     <TableHead className="text-center">Status</TableHead>
                     <TableHead>Localização</TableHead>
+                    <TableHead className="text-center">Dias</TableHead>
                     <TableHead>Última Atualização</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
@@ -535,6 +542,17 @@ export default function Rastreabilidade() {
                             {item.localizacao_tipo === "campo" && <MapPin className="h-4 w-4 text-muted-foreground" />}
                             <span className="text-sm">{getLocalizacaoLabel(item)}</span>
                           </div>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {item.status === "com_equipe" && item.data_entrega_equipe ? (
+                            <DiasRetencaoBadge
+                              dataEntregaEquipe={item.data_entrega_equipe}
+                              diasAlertaRetencao={item.materiais?.dias_alerta_retencao || 7}
+                              size="sm"
+                            />
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
                         </TableCell>
                         <TableCell>
                           <p className="text-sm">
