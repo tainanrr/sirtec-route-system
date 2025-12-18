@@ -7,12 +7,55 @@ import { Badge } from "@/components/ui/badge";
 import { useEffect, useState } from "react";
 import { ScrollRestoreProvider } from "@/contexts/ScrollRestoreContext";
 
+type AppSection = "home" | "ordens" | "estoque" | "perfil";
+
 export default function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { logout } = useEquipeAuth();
   const { equipe } = useTecnico();
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  const sectionKey = (section: AppSection) => `app_last_route_${section}`;
+
+  const getSectionFromPath = (pathname: string): AppSection | null => {
+    if (pathname === "/app") return "home";
+    if (pathname.startsWith("/app/ordens")) return "ordens";
+    if (pathname.startsWith("/app/estoque")) return "estoque";
+    if (pathname.startsWith("/app/perfil")) return "perfil";
+    return null;
+  };
+
+  const getBaseHref = (section: AppSection) => {
+    switch (section) {
+      case "home":
+        return "/app";
+      case "ordens":
+        return "/app/ordens";
+      case "estoque":
+        return "/app/estoque";
+      case "perfil":
+        return "/app/perfil";
+    }
+  };
+
+  const getRememberedHref = (section: AppSection) => {
+    const base = getBaseHref(section);
+    try {
+      const remembered = sessionStorage.getItem(sectionKey(section));
+      if (remembered) {
+        // Validar para não navegar para fora da seção
+        if (section === "home") {
+          if (remembered === "/app") return "/app";
+        } else {
+          if (remembered.startsWith(base)) return remembered;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return base;
+  };
 
   // Monitorar status de conexão
   useEffect(() => {
@@ -28,21 +71,41 @@ export default function AppLayout() {
     };
   }, []);
 
+  // Memorizar a última rota visitada dentro de cada aba/seção
+  useEffect(() => {
+    const section = getSectionFromPath(location.pathname);
+    if (!section) return;
+    try {
+      sessionStorage.setItem(sectionKey(section), location.pathname);
+    } catch {
+      // ignore
+    }
+  }, [location.pathname]);
+
   const handleLogout = () => {
     logout();
+    try {
+      sessionStorage.removeItem(sectionKey("home"));
+      sessionStorage.removeItem(sectionKey("ordens"));
+      sessionStorage.removeItem(sectionKey("estoque"));
+      sessionStorage.removeItem(sectionKey("perfil"));
+    } catch {
+      // ignore
+    }
     navigate("/app/login");
   };
 
   const navItems = [
-    { icon: Home, label: "Início", href: "/app" },
-    { icon: ClipboardList, label: "Minhas OS", href: "/app/ordens" },
-    { icon: Package, label: "Estoque", href: "/app/estoque" },
-    { icon: User, label: "Perfil", href: "/app/perfil" },
+    { icon: Home, label: "Início", section: "home" as const },
+    { icon: ClipboardList, label: "Minhas OS", section: "ordens" as const },
+    { icon: Package, label: "Estoque", section: "estoque" as const },
+    { icon: User, label: "Perfil", section: "perfil" as const },
   ];
 
-  const isActive = (href: string) => {
-    if (href === "/app") return location.pathname === "/app";
-    return location.pathname.startsWith(href);
+  const isActive = (section: AppSection) => {
+    const base = getBaseHref(section);
+    if (section === "home") return location.pathname === "/app";
+    return location.pathname.startsWith(base);
   };
 
   return (
@@ -115,11 +178,12 @@ export default function AppLayout() {
       <nav className="fixed bottom-0 left-0 right-0 bg-card/95 backdrop-blur border-t border-border z-40 safe-area-inset-bottom">
         <div className="flex justify-around items-center h-16 max-w-md mx-auto">
           {navItems.map((item) => {
-            const active = isActive(item.href);
+            const active = isActive(item.section);
+            const to = getRememberedHref(item.section);
             return (
               <Link
-                key={item.href}
-                to={item.href}
+                key={item.section}
+                to={to}
                 className={cn(
                   "flex flex-col items-center justify-center gap-1 px-6 py-2 rounded-xl transition-all",
                   active

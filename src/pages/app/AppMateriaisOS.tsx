@@ -1,9 +1,10 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
+import { usePageState } from "@/contexts/ScrollRestoreContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -94,24 +95,63 @@ export default function AppMateriaisOS() {
   const { equipe: equipeAuth } = useEquipeAuth();
   const { equipe } = useTecnico();
 
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const pageKey = `app-materiais-os-${ordemId || "sem-id"}`;
+  const { getState, saveState } = usePageState<{
+    dialogOpen?: boolean;
+    tipoOperacao?: "aplicar" | "retirar";
+    abaAtiva?: "aplicados" | "retirados";
+    searchTerm?: string;
+    searchRastro?: string;
+    scannerOpen?: boolean;
+    formData?: {
+      material_id: string;
+      quantidade: number;
+      numero_serie: string;
+      observacao: string;
+    };
+  }>(pageKey);
+  const initialState = getState();
+
+  const [dialogOpen, setDialogOpen] = useState(Boolean(initialState?.dialogOpen));
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [itemEditando, setItemEditando] = useState<MaterialAplicado | null>(null);
   const [novaQuantidade, setNovaQuantidade] = useState(1);
-  const [tipoOperacao, setTipoOperacao] = useState<"aplicar" | "retirar">("aplicar");
-  const [abaAtiva, setAbaAtiva] = useState<"aplicados" | "retirados">("aplicados");
-  const [searchTerm, setSearchTerm] = useState("");
-  const [searchRastro, setSearchRastro] = useState(""); // Pesquisa de rastro
-  const [scannerOpen, setScannerOpen] = useState(false); // Scanner de código de barras
+  const [tipoOperacao, setTipoOperacao] = useState<"aplicar" | "retirar">(initialState?.tipoOperacao || "aplicar");
+  const [abaAtiva, setAbaAtiva] = useState<"aplicados" | "retirados">(initialState?.abaAtiva || "aplicados");
+  const [searchTerm, setSearchTerm] = useState(initialState?.searchTerm || "");
+  const [searchRastro, setSearchRastro] = useState(initialState?.searchRastro || ""); // Pesquisa de rastro
+  const [scannerOpen, setScannerOpen] = useState(Boolean(initialState?.scannerOpen)); // Scanner de código de barras
   const [formData, setFormData] = useState({
-    material_id: "",
-    quantidade: "" as unknown as number, // Começa vazio
-    numero_serie: "",
-    observacao: "",
+    material_id: initialState?.formData?.material_id || "",
+    quantidade: (initialState?.formData?.quantidade ?? ("" as unknown as number)), // Começa vazio
+    numero_serie: initialState?.formData?.numero_serie || "",
+    observacao: initialState?.formData?.observacao || "",
   });
   
 
   const equipeId = equipe?.id || equipeAuth?.id;
+
+  // Persistir estado de UI desta tela (para voltar “intacta”)
+  useEffect(() => {
+    if (!ordemId) return;
+    const t = window.setTimeout(() => {
+      saveState({
+        dialogOpen,
+        tipoOperacao,
+        abaAtiva,
+        searchTerm,
+        searchRastro,
+        scannerOpen,
+        formData: {
+          material_id: formData.material_id,
+          quantidade: Number(formData.quantidade) || 0,
+          numero_serie: formData.numero_serie,
+          observacao: formData.observacao,
+        },
+      });
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [ordemId, dialogOpen, tipoOperacao, abaAtiva, searchTerm, searchRastro, scannerOpen, formData, saveState]);
 
   // Query para dados da OS
   const { data: ordem } = useQuery({

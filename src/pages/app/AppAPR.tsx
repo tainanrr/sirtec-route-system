@@ -5,6 +5,7 @@ import { format } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
+import { usePageState } from "@/contexts/ScrollRestoreContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -151,6 +152,14 @@ export default function AppAPR() {
   const perguntaRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const grupoRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
+  // Persistência de rascunho do APR (para voltar exatamente onde estava)
+  const pageKey = `app-apr-${ordemId || "sem-id"}`;
+  const { getState, saveState } = usePageState<{
+    respostas?: Record<string, Resposta>;
+    gruposExpandidos?: string[];
+  }>(pageKey);
+  const hasRestoredDraftRef = useRef(false);
+
   // Buscar checklist de APR ativo
   const { data: checklist, isLoading: loadingChecklist } = useQuery({
     queryKey: ["checklist-apr"],
@@ -235,9 +244,49 @@ export default function AppAPR() {
   // Verificar se a APR está concluída (não pode editar)
   const aprConcluida = respostaExistente?.status === 'completo';
 
+  // Restaurar rascunho local (se existir)
+  useEffect(() => {
+    if (hasRestoredDraftRef.current) return;
+    if (!ordemId) return;
+
+    const draft = getState();
+    if (draft?.respostas && Object.keys(draft.respostas).length > 0) {
+      setRespostas(draft.respostas);
+      setGruposExpandidos(new Set(draft.gruposExpandidos || []));
+      hasRestoredDraftRef.current = true;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ordemId]);
+
+  // Se concluída, limpar rascunho local
+  useEffect(() => {
+    if (!ordemId) return;
+    if (!aprConcluida) return;
+    try {
+      sessionStorage.removeItem(`page-state-${pageKey}`);
+    } catch {
+      // ignore
+    }
+  }, [aprConcluida, ordemId, pageKey]);
+
+  // Salvar rascunho local (debounced) enquanto preenche
+  useEffect(() => {
+    if (!ordemId) return;
+    if (aprConcluida) return;
+    const t = window.setTimeout(() => {
+      saveState({
+        respostas,
+        gruposExpandidos: Array.from(gruposExpandidos),
+      });
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [respostas, gruposExpandidos, saveState, ordemId, aprConcluida]);
+
   // Carregar respostas existentes
   useEffect(() => {
     if (respostaExistente?.respostas) {
+      // Se já restauramos rascunho local, não sobrescrever automaticamente
+      if (hasRestoredDraftRef.current) return;
       const respostasData = typeof respostaExistente.respostas === 'string'
         ? JSON.parse(respostaExistente.respostas)
         : respostaExistente.respostas;
