@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
 import { usePageState } from "@/contexts/ScrollRestoreContext";
+import { getAppParentRoute } from "@/lib/appNavigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -105,6 +106,7 @@ const formatarTempo = (minutos: number | null | undefined): string => {
 export default function AppOrdemDetalhe() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const { equipe: equipeAuth } = useEquipeAuth();
   const { equipe } = useTecnico();
@@ -139,6 +141,11 @@ export default function AppOrdemDetalhe() {
     title: "",
     description: "",
   });
+
+  const handleBack = () => {
+    const parent = getAppParentRoute(location.pathname);
+    navigate(parent || "/app");
+  };
 
   // Buscar ordem
   const { data: ordem, isLoading } = useQuery({
@@ -471,7 +478,7 @@ export default function AppOrdemDetalhe() {
   if (!ordem) {
     return (
       <div className="p-4">
-        <Button variant="ghost" onClick={() => navigate(-1)}>
+        <Button variant="ghost" onClick={handleBack}>
           <ArrowLeft className="h-4 w-4 mr-2" />
           Voltar
         </Button>
@@ -493,7 +500,7 @@ export default function AppOrdemDetalhe() {
       {/* Header */}
       <div className="sticky top-0 z-30 bg-background border-b px-4 py-3">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+          <Button variant="ghost" size="icon" onClick={handleBack}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="flex-1 min-w-0">

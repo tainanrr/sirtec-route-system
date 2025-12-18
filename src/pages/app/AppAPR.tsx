@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
 import { usePageState } from "@/contexts/ScrollRestoreContext";
+import { getAppParentRoute } from "@/lib/appNavigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -134,6 +135,7 @@ interface Resposta {
 export default function AppAPR() {
   const { id: ordemId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const { equipe: equipeAuth } = useEquipeAuth();
   const { equipe } = useTecnico();
@@ -243,6 +245,11 @@ export default function AppAPR() {
 
   // Verificar se a APR está concluída (não pode editar)
   const aprConcluida = respostaExistente?.status === 'completo';
+
+  const handleBack = () => {
+    const parent = getAppParentRoute(location.pathname);
+    navigate(parent || "/app");
+  };
 
   // Restaurar rascunho local (se existir)
   useEffect(() => {
@@ -918,7 +925,7 @@ export default function AppAPR() {
 
       toast.success("APR concluída com sucesso!");
       queryClient.invalidateQueries({ queryKey: ["apr-existente", ordemId] });
-      navigate(-1);
+      handleBack();
     } catch (error: any) {
       console.error("Erro ao salvar APR:", error);
       toast.error("Erro ao salvar APR");
@@ -1393,7 +1400,7 @@ export default function AppAPR() {
       <div className="pb-6">
         <div className="sticky top-0 z-30 bg-background border-b px-4 py-3">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+            <Button variant="ghost" size="icon" onClick={handleBack}>
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <span className="font-semibold">APR</span>
@@ -1423,7 +1430,7 @@ export default function AppAPR() {
       {/* Header */}
       <div className="sticky top-0 z-30 bg-background border-b px-4 py-3">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+          <Button variant="ghost" size="icon" onClick={handleBack}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="flex-1">

@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
 import { usePageState } from "@/contexts/ScrollRestoreContext";
+import { getAppParentRoute } from "@/lib/appNavigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -91,6 +92,7 @@ interface RastroDisponivel {
 export default function AppMateriaisOS() {
   const { id: ordemId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const { equipe: equipeAuth } = useEquipeAuth();
   const { equipe } = useTecnico();
@@ -130,6 +132,11 @@ export default function AppMateriaisOS() {
   
 
   const equipeId = equipe?.id || equipeAuth?.id;
+
+  const handleBack = () => {
+    const parent = getAppParentRoute(location.pathname);
+    navigate(parent || "/app");
+  };
 
   // Persistir estado de UI desta tela (para voltar “intacta”)
   useEffect(() => {
@@ -639,7 +646,7 @@ export default function AppMateriaisOS() {
       {/* Header */}
       <div className="sticky top-0 z-30 bg-background border-b px-4 py-3">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+          <Button variant="ghost" size="icon" onClick={handleBack}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="flex-1">

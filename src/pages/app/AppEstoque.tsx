@@ -41,9 +41,10 @@ import {
   AlertCircle,
   Loader2,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import { getAppParentRoute } from "@/lib/appNavigation";
 import { SignatureFullScreen } from "@/components/app/SignatureFullScreen";
 import { DiasRetencaoBadge, calcularDiasDesde, getNivelAlerta } from "@/components/materiais/DiasRetencaoBadge";
 
@@ -142,11 +143,17 @@ interface Resposta {
 
 export default function AppEstoque() {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const { equipe: equipeAuth } = useEquipeAuth();
   const { equipe } = useTecnico();
   const [searchTerm, setSearchTerm] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
+
+  const handleBack = () => {
+    const parent = getAppParentRoute(location.pathname);
+    navigate(parent || "/app");
+  };
   
   // Estado para confirmação de entrega
   const [dialogConfirmacao, setDialogConfirmacao] = useState(false);
@@ -908,7 +915,7 @@ export default function AppEstoque() {
       {/* Header */}
       <div className="sticky top-0 z-30 bg-background border-b px-4 py-3">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+          <Button variant="ghost" size="icon" onClick={handleBack}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="flex-1">
