@@ -278,21 +278,59 @@ export function GerarChecklistIA({ open, onOpenChange, onChecklistGerado }: Gera
     try {
       const prompt = `Você é um especialista em criar formulários de checklist para o setor elétrico e de serviços de campo.
 
-Analise o seguinte conteúdo e crie um checklist completo e estruturado:
+TAREFA: Converter o conteúdo abaixo em um checklist estruturado em JSON.
 
+REGRAS OBRIGATÓRIAS:
+1. INCLUA TODOS os itens/perguntas do texto original - NÃO RESUMA, NÃO OMITA NADA
+2. Cada item/linha/pergunta do texto deve virar uma pergunta no checklist
+3. Mantenha a ordem original dos itens
+4. Você PODE adicionar campos extras úteis (como foto, assinatura) mas NUNCA remover itens
+5. Se houver seções/grupos no texto, mantenha essa organização
+
+CONTEÚDO PARA CONVERTER:
 ---
 ${textoParaProcessar}
 ---
 
-Crie um checklist estruturado em JSON. Seja CONCISO. Máximo 10-15 perguntas.
+FORMATO JSON OBRIGATÓRIO:
+{
+  "nome": "Nome do Checklist",
+  "descricao": "Descrição",
+  "tipo": "apr|inspecao|manutencao|recebimento_materiais|seguranca|qualidade|auditoria|outro",
+  "grupos": [
+    {
+      "id": "g1",
+      "nome": "Nome do Grupo/Seção",
+      "ordem": 1,
+      "perguntas": [
+        {
+          "id": "p1",
+          "texto": "Texto exato da pergunta/item",
+          "tipo": "sim_nao|conforme_nao_conforme|texto|numero|selecao_unica|multipla_escolha|foto|assinatura|data",
+          "obrigatoria": true,
+          "ordem": 1
+        }
+      ]
+    }
+  ],
+  "configuracoes": {
+    "exige_assinatura": true,
+    "exige_localizacao": false
+  }
+}
 
-FORMATO JSON (sem explicações, apenas o JSON):
-{"nome":"Nome","descricao":"Desc","tipo":"apr","grupos":[{"id":"g1","nome":"Grupo","ordem":1,"perguntas":[{"id":"p1","texto":"Pergunta?","tipo":"sim_nao","obrigatoria":true,"ordem":1}]}],"configuracoes":{"exige_assinatura":true}}
+DICAS DE TIPO:
+- Verificações/checagens → sim_nao ou conforme_nao_conforme
+- Campos para preencher → texto ou numero
+- Fotos/evidências → foto
+- Assinaturas → assinatura
+- Datas → data
+- Escolhas entre opções → selecao_unica (adicione campo "opcoes": [{"id":"op1","texto":"Opção 1"}])
 
-Tipos de checklist: apr, inspecao, manutencao, recebimento_materiais, seguranca, qualidade, auditoria, outro
-Tipos de pergunta: texto, numero, sim_nao, conforme_nao_conforme, selecao_unica, multipla_escolha, foto, assinatura, data
-
-IMPORTANTE: Retorne APENAS o JSON válido e completo, sem texto adicional.`;
+IMPORTANTE: 
+- Retorne APENAS o JSON válido
+- INCLUA TODOS OS ITENS do texto original
+- Não adicione explicações antes ou depois do JSON`;
 
       setProgressMessage(`Gerando checklist com ${aiProvider === "gemini" ? "Gemini" : "GPT-4"}...`);
 
