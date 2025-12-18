@@ -216,11 +216,15 @@ export function GerarChecklistIA({ open, onOpenChange, onChecklistGerado }: Gera
     const files = Array.from(e.target.files || []);
     const validFiles = files.filter(file => {
       const ext = file.name.split('.').pop()?.toLowerCase();
-      return ['txt', 'pdf', 'doc', 'docx', 'md', 'rtf'].includes(ext || '');
+      const mimeType = file.type;
+      // Aceitar arquivos de texto, PDF e imagens
+      return ['txt', 'pdf', 'doc', 'docx', 'md', 'rtf', 'jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext || '') ||
+             mimeType.startsWith('image/') ||
+             mimeType === 'application/pdf';
     });
 
     if (validFiles.length !== files.length) {
-      toast.warning("Alguns arquivos foram ignorados. Formatos aceitos: TXT, PDF, DOC, DOCX, MD, RTF");
+      toast.warning("Alguns arquivos foram ignorados. Formatos aceitos: TXT, PDF, DOC, DOCX, MD, RTF, JPG, PNG, GIF, WEBP");
     }
 
     setArquivos(prev => [...prev, ...validFiles]);
@@ -231,7 +235,28 @@ export function GerarChecklistIA({ open, onOpenChange, onChecklistGerado }: Gera
     setArquivos(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Extrair texto de arquivos
+  // Converter arquivo para base64
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => {
+        const result = reader.result as string;
+        // Remover o prefixo "data:mime/type;base64,"
+        const base64 = result.split(',')[1];
+        resolve(base64);
+      };
+      reader.onerror = error => reject(error);
+    });
+  };
+
+  // Verificar se arquivo é imagem ou PDF (suportado pelo Gemini diretamente)
+  const isFileSuportadoPeloGemini = (file: File): boolean => {
+    const mimeType = file.type;
+    return mimeType.startsWith('image/') || mimeType === 'application/pdf';
+  };
+
+  // Extrair texto de arquivos (para arquivos de texto simples)
   const extrairTextoArquivos = async (): Promise<string> => {
     let textoTotal = "";
 
@@ -240,18 +265,41 @@ export function GerarChecklistIA({ open, onOpenChange, onChecklistGerado }: Gera
       
       if (ext === 'txt' || ext === 'md') {
         textoTotal += await arquivo.text() + "\n\n";
-      } else if (ext === 'pdf') {
-        // Para PDF, vamos usar uma abordagem simplificada
-        // Em produção, usar pdf.js ou similar
-        textoTotal += `[Conteúdo do arquivo PDF: ${arquivo.name}]\n\n`;
-        toast.info("PDFs serão processados pela IA com base no nome e contexto");
       } else if (ext === 'doc' || ext === 'docx') {
         textoTotal += `[Conteúdo do arquivo Word: ${arquivo.name}]\n\n`;
         toast.info("Arquivos Word serão processados pela IA com base no nome e contexto");
       }
+      // PDF e imagens serão enviados diretamente para o Gemini
     }
 
     return textoTotal;
+  };
+
+  // Preparar partes do conteúdo para o Gemini (incluindo arquivos binários)
+  const prepararPartesGemini = async (prompt: string): Promise<any[]> => {
+    const parts: any[] = [];
+    
+    // Adicionar arquivos binários (PDF e imagens) primeiro
+    for (const arquivo of arquivos) {
+      if (isFileSuportadoPeloGemini(arquivo)) {
+        try {
+          const base64Data = await fileToBase64(arquivo);
+          parts.push({
+            inline_data: {
+              mime_type: arquivo.type,
+              data: base64Data
+            }
+          });
+        } catch (error) {
+          console.error(`Erro ao processar arquivo ${arquivo.name}:`, error);
+        }
+      }
+    }
+    
+    // Adicionar o prompt de texto por último
+    parts.push({ text: prompt });
+    
+    return parts;
   };
 
   // Gerar checklist com IA
@@ -262,11 +310,15 @@ export function GerarChecklistIA({ open, onOpenChange, onChecklistGerado }: Gera
       return;
     }
 
+    // Verificar se há arquivos binários (PDF/imagens) para enviar diretamente ao Gemini
+    const temArquivosBinarios = arquivos.some(isFileSuportadoPeloGemini);
+    
     const textoParaProcessar = inputType === "text" 
       ? textoEntrada 
       : await extrairTextoArquivos();
 
-    if (!textoParaProcessar.trim()) {
+    // Se não tem texto E não tem arquivos binários, erro
+    if (!textoParaProcessar.trim() && !temArquivosBinarios) {
       toast.error("Forneça um texto ou arquivo para gerar o checklist");
       return;
     }
@@ -276,114 +328,158 @@ export function GerarChecklistIA({ open, onOpenChange, onChecklistGerado }: Gera
     setProgressMessage(`Analisando conteúdo com ${aiProvider === "gemini" ? "Gemini" : "GPT-4"}...`);
 
     try {
+      // Construir contexto adicional baseado nos arquivos
+      const contextoBinarios = temArquivosBinarios 
+        ? `\n\nARQUIVOS ANEXADOS: ${arquivos.filter(isFileSuportadoPeloGemini).map(f => f.name).join(', ')}
+INSTRUÇÕES ESPECIAIS PARA ARQUIVOS:
+- Analise COMPLETAMENTE o conteúdo do(s) arquivo(s) anexado(s)
+- Extraia TODAS as perguntas, itens, campos e seções do documento
+- NÃO PULE NENHUMA PERGUNTA OU ITEM - o formulário deve ser uma réplica EXATA do original
+- Se o documento tiver múltiplas páginas, processe TODAS elas
+- Mantenha a numeração e organização original do documento`
+        : '';
+
       const prompt = `Você é um especialista em criar formulários de checklist para o setor elétrico e de serviços de campo.
 
-TAREFA: Converter o conteúdo abaixo em um checklist estruturado em JSON.
+TAREFA CRÍTICA: Converter o conteúdo fornecido em um checklist estruturado em JSON, incluindo ABSOLUTAMENTE TODOS os itens.
 
-REGRAS OBRIGATÓRIAS:
-1. INCLUA TODOS os itens/perguntas do texto original - NÃO RESUMA, NÃO OMITA NADA
-2. Cada item/linha/pergunta do texto deve virar uma pergunta no checklist
-3. Mantenha a ordem original dos itens
-4. Você PODE adicionar campos extras úteis (como foto, assinatura) mas NUNCA remover itens
-5. Se houver seções/grupos no texto, mantenha essa organização
+⚠️ REGRAS OBRIGATÓRIAS - LEIA COM ATENÇÃO:
+1. INCLUA 100% DOS ITENS/PERGUNTAS do documento - NÃO RESUMA, NÃO OMITA NADA, NÃO SIMPLIFIQUE
+2. CADA linha, item, pergunta, campo ou checkbox do original DEVE virar uma pergunta no JSON
+3. Se houver 50 itens no original, o JSON DEVE ter 50 perguntas. Se houver 100, deve ter 100.
+4. Mantenha a ORDEM EXATA dos itens como aparecem no documento
+5. Se houver seções/grupos/categorias, mantenha essa organização
+6. NUNCA agrupe múltiplos itens em uma única pergunta
+7. Preserve o texto EXATO de cada item (não parafraseie)
+8. Se um item tiver sub-itens, crie perguntas separadas para cada sub-item
 
-CONTEÚDO PARA CONVERTER:
----
-${textoParaProcessar}
----
+${textoParaProcessar ? `TEXTO ADICIONAL:\n---\n${textoParaProcessar}\n---` : ''}${contextoBinarios}
 
 FORMATO JSON OBRIGATÓRIO:
 {
-  "nome": "Nome do Checklist",
-  "descricao": "Descrição",
+  "nome": "Nome do Checklist (extraído do título do documento)",
+  "descricao": "Descrição breve do propósito do checklist",
   "tipo": "apr|inspecao|manutencao|recebimento_materiais|seguranca|qualidade|auditoria|outro",
   "grupos": [
     {
       "id": "g1",
-      "nome": "Nome do Grupo/Seção",
+      "nome": "Nome do Grupo/Seção (extraído do documento)",
+      "descricao": "Descrição da seção se houver",
       "ordem": 1,
       "perguntas": [
         {
           "id": "p1",
-          "texto": "Texto exato da pergunta/item",
-          "tipo": "sim_nao|conforme_nao_conforme|texto|numero|selecao_unica|multipla_escolha|foto|assinatura|data",
+          "texto": "Texto EXATO da pergunta/item como está no documento",
+          "tipo": "sim_nao|conforme_nao_conforme|texto|texto_longo|numero|selecao_unica|multipla_escolha|foto|assinatura|data|escala|informativo",
           "obrigatoria": true,
-          "ordem": 1
+          "ordem": 1,
+          "opcoes": [{"id":"op1","texto":"Opção 1"}]
         }
       ]
     }
   ],
   "configuracoes": {
     "exige_assinatura": true,
-    "exige_localizacao": false
+    "exige_localizacao": false,
+    "exige_foto_inicial": false,
+    "exige_foto_final": false
   }
 }
 
-DICAS DE TIPO:
-- Verificações/checagens → sim_nao ou conforme_nao_conforme
-- Campos para preencher → texto ou numero
-- Fotos/evidências → foto
-- Assinaturas → assinatura
-- Datas → data
-- Escolhas entre opções → selecao_unica (adicione campo "opcoes": [{"id":"op1","texto":"Opção 1"}])
+TIPOS DE PERGUNTA - USE O MAIS APROPRIADO:
+- sim_nao → Para verificações simples (Sim/Não)
+- conforme_nao_conforme → Para avaliações de conformidade
+- texto → Campos de texto curto (nome, número, etc)
+- texto_longo → Campos de texto extenso (observações, descrições)
+- numero → Apenas valores numéricos
+- selecao_unica → Escolha uma opção (adicione campo "opcoes")
+- multipla_escolha → Escolha várias opções (adicione campo "opcoes")
+- foto → Captura de imagem/evidência
+- assinatura → Assinatura digital
+- data → Seleção de data
+- escala → Avaliação de 1 a 5
+- informativo → Texto informativo (não requer resposta)
 
-IMPORTANTE: 
-- Retorne APENAS o JSON válido
-- INCLUA TODOS OS ITENS do texto original
-- Não adicione explicações antes ou depois do JSON`;
+VALIDAÇÃO FINAL:
+Antes de retornar, conte quantos itens/perguntas existem no documento original e confirme que seu JSON tem a MESMA quantidade.
+
+RETORNE APENAS O JSON VÁLIDO, SEM EXPLICAÇÕES OU MARKDOWN.`;
 
       setProgressMessage(`Gerando checklist com ${aiProvider === "gemini" ? "Gemini" : "GPT-4"}...`);
 
       let conteudo: string;
 
       if (aiProvider === "gemini") {
+        // Preparar partes do conteúdo (incluindo arquivos binários se houver)
+        let contentParts: any[];
+        
+        if (temArquivosBinarios) {
+          setProgressMessage("Processando arquivos anexados...");
+          contentParts = await prepararPartesGemini(prompt);
+        } else {
+          contentParts = [{ text: prompt }];
+        }
+
+        // Primeiro, listar modelos disponíveis para debug
+        try {
+          const listResponse = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
+          );
+          if (listResponse.ok) {
+            const modelsData = await listResponse.json();
+            console.log("Modelos disponíveis:", modelsData.models?.map((m: any) => m.name));
+          }
+        } catch (e) {
+          console.log("Não foi possível listar modelos:", e);
+        }
+
         // Chamada para Google Gemini API
-        // Usar modelos mais recentes disponíveis
+        // Usar modelos disponíveis na conta (baseado na listagem)
         const tentativas = [
-          { versao: "v1beta", modelo: "gemini-2.5-flash" },
-          { versao: "v1beta", modelo: "gemini-2.0-flash" },
-          { versao: "v1beta", modelo: "gemini-flash-latest" },
-          { versao: "v1beta", modelo: "gemini-2.0-flash-001" },
-          { versao: "v1beta", modelo: "gemini-2.5-pro" },
+          "gemini-2.0-flash",
+          "gemini-2.5-flash",
+          "gemini-2.5-pro",
+          "gemini-2.0-flash-exp",
+          "gemini-2.0-flash-001",
+          "gemini-flash-latest",
         ];
         let response: Response | null = null;
         let ultimoErro = "";
 
-        for (const { versao, modelo } of tentativas) {
+        for (const modelo of tentativas) {
           try {
-            setProgressMessage(`Tentando ${modelo} (${versao})...`);
-            response = await fetch(
-              `https://generativelanguage.googleapis.com/${versao}/models/${modelo}:generateContent?key=${apiKey}`,
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  contents: [
-                    {
-                      parts: [
-                        {
-                          text: prompt
-                        }
-                      ]
-                    }
-                  ],
-                  generationConfig: {
-                    temperature: 0.3,
-                    maxOutputTokens: 65536,
+            setProgressMessage(`Tentando ${modelo}...`);
+            
+            // Construir URL com o nome completo do modelo
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${apiKey}`;
+            
+            console.log(`Tentando URL: ${url}`);
+            
+            response = await fetch(url, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                contents: [
+                  {
+                    parts: contentParts
                   }
-                }),
-              }
-            );
+                ],
+                generationConfig: {
+                    temperature: 0.1,
+                    maxOutputTokens: 65536, // Aumentado para formulários grandes
+                  }
+              }),
+            });
 
             if (response.ok) {
-              console.log(`Modelo ${modelo} (${versao}) funcionou!`);
-              break; // Modelo funcionou!
+              console.log(`Modelo ${modelo} funcionou!`);
+              break;
             } else {
               const errorData = await response.json();
               ultimoErro = errorData.error?.message || `Erro com modelo ${modelo}`;
-              console.log(`Modelo ${modelo} (${versao}) falhou:`, ultimoErro);
+              console.log(`Modelo ${modelo} falhou:`, ultimoErro);
               response = null;
             }
           } catch (e: any) {
@@ -454,7 +550,7 @@ IMPORTANTE:
       // Limpar caracteres problemáticos
       jsonStr = jsonStr.trim();
       
-      // Função para corrigir JSON truncado
+      // Função para corrigir JSON truncado de forma mais robusta
       const corrigirJsonTruncado = (json: string): string => {
         let corrigido = json;
         
@@ -464,50 +560,117 @@ IMPORTANTE:
           corrigido = corrigido.substring(primeiraChave);
         }
         
-        // Remover texto depois do último } válido (se houver lixo no final)
-        const ultimaChave = corrigido.lastIndexOf('}');
-        if (ultimaChave > 0 && ultimaChave < corrigido.length - 1) {
-          corrigido = corrigido.substring(0, ultimaChave + 1);
-        }
-        
-        // Se termina com string não fechada, tentar fechar
-        // Detectar se estamos no meio de uma string
-        const lastQuoteIndex = corrigido.lastIndexOf('"');
-        if (lastQuoteIndex > 0) {
-          const afterLastQuote = corrigido.substring(lastQuoteIndex + 1);
-          // Se depois da última aspas não tem : ou , ou } ou ], provavelmente string truncada
-          if (!/^[\s]*[:\},\]]/.test(afterLastQuote)) {
-            // Encontrar o início da string truncada e removê-la
-            let searchPos = lastQuoteIndex - 1;
-            while (searchPos > 0 && corrigido[searchPos] !== '"') {
-              searchPos--;
+        // Função auxiliar para verificar se estamos dentro de uma string
+        const encontrarUltimoObjetoCompleto = (str: string): string => {
+          let dentroString = false;
+          let escapeNext = false;
+          let nivel = 0;
+          let ultimaPosicaoValida = -1;
+          
+          for (let i = 0; i < str.length; i++) {
+            const char = str[i];
+            
+            if (escapeNext) {
+              escapeNext = false;
+              continue;
             }
-            if (searchPos > 0) {
-              // Remover a propriedade truncada inteira
-              let propStart = searchPos;
-              while (propStart > 0 && corrigido[propStart - 1] !== ',' && corrigido[propStart - 1] !== '{' && corrigido[propStart - 1] !== '[') {
-                propStart--;
+            
+            if (char === '\\') {
+              escapeNext = true;
+              continue;
+            }
+            
+            if (char === '"') {
+              dentroString = !dentroString;
+              continue;
+            }
+            
+            if (!dentroString) {
+              if (char === '{' || char === '[') {
+                nivel++;
+              } else if (char === '}' || char === ']') {
+                nivel--;
+                if (nivel === 0) {
+                  ultimaPosicaoValida = i;
+                }
               }
-              corrigido = corrigido.substring(0, propStart);
             }
+          }
+          
+          if (ultimaPosicaoValida > 0) {
+            return str.substring(0, ultimaPosicaoValida + 1);
+          }
+          return str;
+        };
+        
+        // Tentar encontrar o último objeto/array completo
+        const jsonCompleto = encontrarUltimoObjetoCompleto(corrigido);
+        if (jsonCompleto.length > 100) {
+          try {
+            JSON.parse(jsonCompleto);
+            return jsonCompleto;
+          } catch (e) {
+            // Continuar com a correção manual
           }
         }
         
-        // Remover vírgulas finais
+        // Estratégia alternativa: encontrar o último grupo/pergunta completo
+        // Procurar pelo último "}" que fecha um objeto de pergunta
+        const regexUltimaPerguntaCompleta = /("ordem"\s*:\s*\d+\s*})\s*\]/g;
+        let match;
+        let ultimaMatch = null;
+        while ((match = regexUltimaPerguntaCompleta.exec(corrigido)) !== null) {
+          ultimaMatch = match;
+        }
+        
+        if (ultimaMatch) {
+          const posicaoCorte = ultimaMatch.index + ultimaMatch[0].length;
+          corrigido = corrigido.substring(0, posicaoCorte);
+        } else {
+          // Se não encontrou, tentar cortar na última estrutura válida
+          // Procurar por padrões como "}," ou "}]" que indicam fim de objeto
+          const regexFimObjeto = /}\s*[,\]]/g;
+          let ultimoFim = null;
+          while ((match = regexFimObjeto.exec(corrigido)) !== null) {
+            ultimoFim = match;
+          }
+          if (ultimoFim) {
+            corrigido = corrigido.substring(0, ultimoFim.index + 1);
+          }
+        }
+        
+        // Remover vírgulas finais e espaços
         corrigido = corrigido.replace(/,\s*$/, '');
         corrigido = corrigido.replace(/,(\s*[}\]])/g, '$1');
         
-        // Contar e fechar estruturas abertas
-        const aberturas = (corrigido.match(/{/g) || []).length;
-        const fechamentos = (corrigido.match(/}/g) || []).length;
-        const colchetesAbertos = (corrigido.match(/\[/g) || []).length;
-        const colchetesFechados = (corrigido.match(/\]/g) || []).length;
+        // Contar estruturas abertas/fechadas
+        let aberturas = 0, fechamentos = 0, colchetesAbertos = 0, colchetesFechados = 0;
+        let dentroString = false;
+        let escapeNext = false;
         
-        // Fechar na ordem correta (arrays primeiro, depois objetos)
-        for (let i = 0; i < colchetesAbertos - colchetesFechados; i++) {
+        for (let i = 0; i < corrigido.length; i++) {
+          const char = corrigido[i];
+          if (escapeNext) { escapeNext = false; continue; }
+          if (char === '\\') { escapeNext = true; continue; }
+          if (char === '"') { dentroString = !dentroString; continue; }
+          if (!dentroString) {
+            if (char === '{') aberturas++;
+            else if (char === '}') fechamentos++;
+            else if (char === '[') colchetesAbertos++;
+            else if (char === ']') colchetesFechados++;
+          }
+        }
+        
+        // Fechar estruturas na ordem correta
+        // Precisamos fechar arrays de perguntas, depois objetos de grupo, depois array de grupos, depois objeto principal
+        const arraysFaltando = colchetesAbertos - colchetesFechados;
+        const objetosFaltando = aberturas - fechamentos;
+        
+        // Intercalar fechamentos de forma inteligente
+        for (let i = 0; i < arraysFaltando; i++) {
           corrigido += ']';
         }
-        for (let i = 0; i < aberturas - fechamentos; i++) {
+        for (let i = 0; i < objetosFaltando; i++) {
           corrigido += '}';
         }
         
@@ -794,14 +957,17 @@ IMPORTANTE:
                     ref={fileInputRef}
                     type="file"
                     multiple
-                    accept=".txt,.pdf,.doc,.docx,.md,.rtf"
+                    accept=".txt,.pdf,.doc,.docx,.md,.rtf,.jpg,.jpeg,.png,.gif,.webp,image/*,application/pdf"
                     onChange={handleFileUpload}
                     className="hidden"
                   />
                   <Upload className="h-12 w-12 mx-auto text-gray-400 mb-4" />
                   <p className="text-lg font-medium">Arraste arquivos ou clique para selecionar</p>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Formatos aceitos: TXT, PDF, DOC, DOCX, MD, RTF
+                    Formatos aceitos: TXT, PDF, DOC, DOCX, MD, RTF, JPG, PNG, GIF, WEBP
+                  </p>
+                  <p className="text-xs text-violet-600 mt-2">
+                    💡 PDFs e imagens são processados diretamente pela IA para extrair TODAS as perguntas
                   </p>
                 </div>
 
