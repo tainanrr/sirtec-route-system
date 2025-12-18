@@ -457,25 +457,6 @@ export default function MateriaisDashboard() {
           </Card>
         </div>
 
-        {/* Card de Valor em Estoque em destaque */}
-        <Card className="bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-lg">
-          <CardContent className="py-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-violet-200 text-sm font-medium">Valor Total em Estoque</p>
-                {loadingStats ? (
-                  <Skeleton className="h-10 w-40 mt-2 bg-white/20" />
-                ) : (
-                  <p className="text-4xl font-bold mt-1">{formatCurrency(stats?.valorTotal || 0)}</p>
-                )}
-              </div>
-              <div className="h-16 w-16 rounded-2xl bg-white/20 flex items-center justify-center">
-                <Warehouse className="h-8 w-8 text-white" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
         {/* Valor em Estoque e Alertas de Retenção */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="bg-gradient-to-r from-violet-500 to-purple-600 text-white">
