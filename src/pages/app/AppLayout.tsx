@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
 import { Badge } from "@/components/ui/badge";
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { ScrollRestoreProvider } from "@/contexts/ScrollRestoreContext";
 
 export default function AppLayout() {
@@ -47,7 +47,7 @@ export default function AppLayout() {
 
   return (
     <ScrollRestoreProvider>
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="h-screen bg-background flex flex-col overflow-hidden">
       {/* Header */}
       <header className="sticky top-0 z-40 bg-gradient-to-r from-primary to-primary/90 text-primary-foreground px-4 py-3 shadow-lg">
         <div className="flex items-center justify-between">
@@ -107,7 +107,7 @@ export default function AppLayout() {
       )}
 
       {/* Content */}
-      <main className="flex-1 overflow-y-auto pb-20">
+      <main className="flex-1 min-h-0 overflow-y-auto pb-20 overscroll-contain">
         <Outlet />
       </main>
 

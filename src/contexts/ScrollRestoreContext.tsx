@@ -3,7 +3,8 @@ import { useLocation } from "react-router-dom";
 
 // Chave para sessionStorage
 const SCROLL_STATE_KEY = "app-scroll-positions";
-const DEBUG = true; // Ativar para debug
+// Debug por flag (não polui console em produção)
+const DEBUG = typeof window !== "undefined" && window.localStorage?.getItem("debug_scroll_restore") === "1";
 
 interface ScrollPosition {
   scrollTop: number;
@@ -66,37 +67,57 @@ export function ScrollRestoreProvider({ children }: { children: ReactNode }) {
   const restoreAttemptsRef = useRef(0);
   const maxRestoreAttempts = 50; // Máximo de tentativas
 
-  // Função para obter o elemento main
-  const getMainElement = useCallback((): HTMLElement | null => {
-    return document.querySelector("main");
+  // Detectar o container real de scroll:
+  // - Preferir <main> (quando AppLayout está com overflow)
+  // - Fallback para document.scrollingElement (quando o scroll está no window/body)
+  const getScrollContainer = useCallback((): HTMLElement | null => {
+    const main = document.querySelector("main") as HTMLElement | null;
+    const scrollingEl = (document.scrollingElement || document.documentElement) as HTMLElement | null;
+
+    if (main) {
+      // Se o main realmente é rolável OU já tem scrollTop, usar ele
+      if (main.scrollHeight > main.clientHeight || main.scrollTop > 0) return main;
+
+      // Se o window/document está rolando, então o scroll container é o document
+      if ((scrollingEl?.scrollTop || window.scrollY) > 0) return scrollingEl;
+
+      // Caso neutro (no topo): preferir main (vai funcionar quando o conteúdo carregar)
+      return main;
+    }
+
+    return scrollingEl;
   }, []);
 
   // Função para aplicar scroll
-  const applyScroll = useCallback((scrollTop: number) => {
-    const main = getMainElement();
-    if (main) {
-      // Verificar se o conteúdo é grande o suficiente para o scroll
-      if (main.scrollHeight > main.clientHeight) {
-        const maxScroll = main.scrollHeight - main.clientHeight;
-        const targetScroll = Math.min(scrollTop, maxScroll);
-        main.scrollTop = targetScroll;
-        
+  const applyScroll = useCallback(
+    (scrollTop: number) => {
+      const el = getScrollContainer();
+      if (!el) return false;
+
+      // Se ainda não é rolável, vamos esperar o conteúdo carregar (MutationObserver cuidará disso)
+      if (el.scrollHeight <= el.clientHeight) {
         if (DEBUG) {
-          console.log(`[ScrollRestore] 📍 Applied scroll: ${targetScroll}px (requested: ${scrollTop}px, max: ${maxScroll}px, current: ${main.scrollTop}px)`);
+          console.log(
+            `[ScrollRestore] ⚠️ Container not scrollable yet. scrollHeight: ${el.scrollHeight}px, clientHeight: ${el.clientHeight}px`
+          );
         }
-        
-        // Verificar se funcionou
-        if (Math.abs(main.scrollTop - targetScroll) < 5) {
-          return true; // Sucesso
-        }
-      } else {
-        if (DEBUG) {
-          console.log(`[ScrollRestore] ⚠️ Content not scrollable yet. scrollHeight: ${main.scrollHeight}px, clientHeight: ${main.clientHeight}px`);
-        }
+        return false;
       }
-    }
-    return false;
-  }, [getMainElement]);
+
+      const maxScroll = el.scrollHeight - el.clientHeight;
+      const target = Math.min(Math.max(scrollTop, 0), maxScroll);
+      el.scrollTop = target;
+
+      if (DEBUG) {
+        console.log(
+          `[ScrollRestore] 📍 Applied scroll on ${el.tagName}: ${target}px (requested: ${scrollTop}px, max: ${maxScroll}px, current: ${el.scrollTop}px)`
+        );
+      }
+
+      return Math.abs(el.scrollTop - target) < 5;
+    },
+    [getScrollContainer]
+  );
 
   // Função para tentar restaurar scroll continuamente
   const tryRestoreScroll = useCallback(() => {
@@ -123,12 +144,12 @@ export function ScrollRestoreProvider({ children }: { children: ReactNode }) {
   // Função para salvar scroll atual
   const saveCurrentScroll = useCallback(() => {
     if (isRestoringRef.current) return; // Não salvar enquanto estiver restaurando
-    
-    const main = getMainElement();
-    if (main && location.pathname && main.scrollTop > 0) {
-      savePosition(location.pathname, main.scrollTop);
+
+    const el = getScrollContainer();
+    if (el && location.pathname && el.scrollTop > 0) {
+      savePosition(location.pathname, el.scrollTop);
     }
-  }, [location.pathname, getMainElement]);
+  }, [location.pathname, getScrollContainer]);
 
   // Iniciar restauração de scroll
   const startRestoreScroll = useCallback((path: string) => {
@@ -145,7 +166,7 @@ export function ScrollRestoreProvider({ children }: { children: ReactNode }) {
       tryRestoreScroll();
       
       // Configurar MutationObserver para detectar mudanças no DOM
-      const main = getMainElement();
+      const main = document.querySelector("main");
       if (main) {
         // Limpar observer anterior
         if (observerRef.current) {
@@ -192,12 +213,10 @@ export function ScrollRestoreProvider({ children }: { children: ReactNode }) {
     } else {
       if (DEBUG) console.log(`[ScrollRestore] ℹ️ No saved scroll for ${path}, starting at top`);
       // Garantir que começa no topo
-      const main = getMainElement();
-      if (main) {
-        main.scrollTop = 0;
-      }
+      const el = getScrollContainer();
+      if (el) el.scrollTop = 0;
     }
-  }, [getMainElement, tryRestoreScroll]);
+  }, [getScrollContainer, tryRestoreScroll]);
 
   // Detectar mudança de rota
   useEffect(() => {
@@ -215,10 +234,8 @@ export function ScrollRestoreProvider({ children }: { children: ReactNode }) {
       }
       
       // Salvar scroll da rota anterior
-      const main = getMainElement();
-      if (main && main.scrollTop > 0) {
-        savePosition(previousPath, main.scrollTop);
-      }
+      const el = getScrollContainer();
+      if (el && el.scrollTop > 0) savePosition(previousPath, el.scrollTop);
       
       // Iniciar restauração para a nova rota (com pequeno delay)
       setTimeout(() => {
@@ -235,11 +252,11 @@ export function ScrollRestoreProvider({ children }: { children: ReactNode }) {
         observerRef.current.disconnect();
       }
     };
-  }, [location.pathname, startRestoreScroll, getMainElement]);
+  }, [location.pathname, startRestoreScroll, getScrollContainer]);
 
   // Salvar scroll quando o usuário para de rolar (debounced)
   useEffect(() => {
-    const handleScroll = () => {
+    const handleScroll: EventListener = () => {
       if (isRestoringRef.current) return;
       
       // Debounce
@@ -252,20 +269,20 @@ export function ScrollRestoreProvider({ children }: { children: ReactNode }) {
       }, 500);
     };
     
-    const main = getMainElement();
-    if (main) {
-      main.addEventListener("scroll", handleScroll, { passive: true });
-    }
+    const main = document.querySelector("main");
+    const scrollingEl = document.scrollingElement || document.documentElement;
+
+    main?.addEventListener("scroll", handleScroll, { passive: true });
+    scrollingEl?.addEventListener("scroll", handleScroll, { passive: true });
     
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
-      if (main) {
-        main.removeEventListener("scroll", handleScroll);
-      }
+      main?.removeEventListener("scroll", handleScroll);
+      scrollingEl?.removeEventListener("scroll", handleScroll);
     };
-  }, [saveCurrentScroll, getMainElement, location.pathname]);
+  }, [saveCurrentScroll, location.pathname]);
 
   // Salvar scroll periodicamente como backup
   useEffect(() => {
@@ -308,7 +325,7 @@ export function useScrollRestore() {
  * O ScrollRestoreProvider já cuida de tudo automaticamente
  * Este hook existe apenas para compatibilidade com código existente
  */
-export function usePageScrollRestore(_pageKey?: string, _additionalState?: Record<string, any>) {
+export function usePageScrollRestore(_pageKey?: string, _additionalState?: Record<string, unknown>) {
   // Não precisa fazer nada - o provider já cuida de tudo
   return { savedState: undefined };
 }
@@ -316,7 +333,7 @@ export function usePageScrollRestore(_pageKey?: string, _additionalState?: Recor
 /**
  * Hook para salvar/restaurar estado adicional de uma página (além do scroll)
  */
-export function usePageState<T extends Record<string, any>>(pageKey: string) {
+export function usePageState<T extends Record<string, unknown>>(pageKey: string) {
   const getState = useCallback((): T | null => {
     try {
       const stored = sessionStorage.getItem(`page-state-${pageKey}`);
