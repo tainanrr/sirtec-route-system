@@ -18,6 +18,7 @@ import {
   Users,
   Truck,
   ClipboardCheck,
+  ClipboardList,
   BarChart3,
   History,
   Settings,
@@ -60,6 +61,13 @@ const quickAccessCards = [
     icon: Truck,
     href: "/materiais/recebimentos",
     color: "bg-orange-500",
+  },
+  {
+    title: "Devoluções",
+    description: "Retorno de materiais das equipes",
+    icon: ClipboardList,
+    href: "/materiais/devolucoes",
+    color: "bg-lime-500",
   },
   {
     title: "Entregas às Equipes",

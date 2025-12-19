@@ -36,6 +36,7 @@ import Movimentacoes from "./pages/materiais/Movimentacoes";
 import RelatoriosMateriais from "./pages/materiais/RelatoriosMateriais";
 import Recebimentos from "./pages/materiais/Recebimentos";
 import AplicacoesOS from "./pages/materiais/AplicacoesOS";
+import Devolucoes from "./pages/materiais/Devolucoes";
 
 // App Mobile
 import AppLayout from "./pages/app/AppLayout";
@@ -47,6 +48,7 @@ import AppPerfil from "./pages/app/AppPerfil";
 import AppLogin from "./pages/app/AppLogin";
 import AppEstoque from "./pages/app/AppEstoque";
 import AppMateriaisOS from "./pages/app/AppMateriaisOS";
+import AppDevolucoes from "./pages/app/AppDevolucoes";
 
 const queryClient = new QueryClient();
 
@@ -104,6 +106,7 @@ const App = () => (
             <Route path="/materiais/rastreabilidade" element={<ProtectedRoute><Rastreabilidade /></ProtectedRoute>} />
             <Route path="/materiais/movimentacoes" element={<ProtectedRoute><Movimentacoes /></ProtectedRoute>} />
             <Route path="/materiais/recebimentos" element={<ProtectedRoute><Recebimentos /></ProtectedRoute>} />
+            <Route path="/materiais/devolucoes" element={<ProtectedRoute><Devolucoes /></ProtectedRoute>} />
             <Route path="/materiais/aplicacoes" element={<ProtectedRoute><AplicacoesOS /></ProtectedRoute>} />
             <Route path="/materiais/relatorios" element={<ProtectedRoute><RelatoriosMateriais /></ProtectedRoute>} />
 
@@ -128,6 +131,7 @@ const App = () => (
               <Route path="ordens/:id/apr" element={<AppAPR />} />
               <Route path="ordens/:id/materiais" element={<AppMateriaisOS />} />
               <Route path="estoque" element={<AppEstoque />} />
+              <Route path="estoque/devolucoes" element={<AppDevolucoes />} />
               <Route path="perfil" element={<AppPerfil />} />
             </Route>
 

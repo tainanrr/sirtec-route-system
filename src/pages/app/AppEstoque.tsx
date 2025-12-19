@@ -1078,6 +1078,26 @@ export default function AppEstoque() {
           </TabsList>
 
           <TabsContent value="estoque" className="mt-4 space-y-4">
+            {/* Ações rápidas */}
+            <Card className="border-violet-200 bg-violet-50">
+              <CardContent className="p-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-violet-800">Devolução ao Almoxarifado</p>
+                  <p className="text-xs text-violet-700/80 line-clamp-1">
+                    Envie materiais para o almoxarifado confirmar
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => navigate("/app/estoque/devolucoes")}
+                >
+                  <Package className="h-4 w-4 mr-2" />
+                  Devolver
+                </Button>
+              </CardContent>
+            </Card>
+
             {/* Busca */}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
