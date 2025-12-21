@@ -109,11 +109,12 @@ plan_id AS (
   RETURNING id
 ),
 plan_pick AS (
-  SELECT id
-  FROM public.planejamentos
-  WHERE data_planejamento = current_date
-  ORDER BY created_at DESC
-  LIMIT 1
+  -- IMPORTANTE:
+  -- Referenciar plan_id aqui garante que a inserção acima execute quando necessário.
+  SELECT COALESCE(
+    (SELECT id FROM plan_id LIMIT 1),
+    (SELECT id FROM public.planejamentos WHERE data_planejamento = current_date ORDER BY created_at DESC LIMIT 1)
+  ) AS id
 ),
 alloc AS (
   -- distribuição de 16 OSs em 4 equipes (4 por equipe)
