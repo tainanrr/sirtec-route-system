@@ -6,3 +6,4 @@ CREATE INDEX IF NOT EXISTS idx_materiais_movimentacoes_recebimento_id
   ON public.materiais_movimentacoes (recebimento_id);
 
 
+

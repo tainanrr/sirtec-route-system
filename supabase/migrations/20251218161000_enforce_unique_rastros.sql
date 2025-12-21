@@ -8,3 +8,4 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_materiais_recebimentos_rastros_numero_serie
   ON public.materiais_recebimentos_itens_rastros (numero_serie);
 
 
+

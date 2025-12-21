@@ -117,3 +117,4 @@ WHERE ri.valor_unitario IS NULL
   AND ri.material_id = m.id;
 
 
+

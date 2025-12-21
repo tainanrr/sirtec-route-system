@@ -168,3 +168,4 @@ WHERE tablename IN ('planejamentos', 'planejamento_ordens', 'planejamento_logs')
 
 
 
+

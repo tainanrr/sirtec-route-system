@@ -46,6 +46,8 @@ export default defineConfig(({ mode }) => ({
         ],
       },
       workbox: {
+        // O bundle principal pode passar de 2MiB; aumentamos o limite para evitar falha no build do PWA.
+        maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
         runtimeCaching: [
           {

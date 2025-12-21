@@ -48,24 +48,29 @@ import { format } from "date-fns";
 import {
   ArrowLeft,
   Package,
+  Plus,
   Search,
   Eye,
   CheckCircle,
   XCircle,
   ClipboardCheck,
   QrCode,
+  FileSignature,
 } from "lucide-react";
 
-type DevolucaoStatus = "pendente" | "conferida" | "cancelada";
+type DevolucaoStatus = "pendente" | "pendente_confirmacao_equipe" | "conferida" | "cancelada";
 
 interface Devolucao {
   id: string;
   equipe_id: string;
   status: DevolucaoStatus;
+  origem?: "equipe" | "almoxarifado" | string;
   observacao: string | null;
   data_solicitacao: string;
   data_conferencia: string | null;
+  data_confirmacao_equipe?: string | null;
   recebido_por: string | null;
+  assinatura_confirmacao_equipe?: string | null;
   created_at: string;
   tecnicos?: { codigo: string; nome: string } | null;
 }
@@ -90,12 +95,29 @@ function statusBadge(status: DevolucaoStatus) {
   switch (status) {
     case "pendente":
       return <Badge className="bg-amber-100 text-amber-700 border-0">Pendente</Badge>;
+    case "pendente_confirmacao_equipe":
+      return <Badge className="bg-blue-100 text-blue-700 border-0">Aguardando equipe</Badge>;
     case "conferida":
       return <Badge className="bg-green-100 text-green-700 border-0">Conferida</Badge>;
     case "cancelada":
       return <Badge className="bg-gray-100 text-gray-700 border-0">Cancelada</Badge>;
   }
 }
+
+type EquipeOption = { id: string; codigo: string; nome: string };
+
+type SolicitacaoItemDraft = {
+  material_id: string;
+  quantidade: number;
+  serials: string[];
+  material?: { codigo: string; nome: string; unidade: string; requer_serial?: boolean } | null;
+};
+
+type NovaSolicitacaoForm = {
+  equipe_id: string;
+  observacao: string;
+  itens: SolicitacaoItemDraft[];
+};
 
 function safeUpperList(text: string) {
   return text
@@ -116,6 +138,18 @@ export default function Devolucoes() {
   const [selected, setSelected] = useState<Devolucao | null>(null);
   const [cancelDialog, setCancelDialog] = useState(false);
 
+  const [dialogSolicitar, setDialogSolicitar] = useState(false);
+  const [novaSolicitacao, setNovaSolicitacao] = useState<NovaSolicitacaoForm>({
+    equipe_id: "",
+    observacao: "",
+    itens: [],
+  });
+  const [buscaMaterialSolicitacao, setBuscaMaterialSolicitacao] = useState("");
+  const [itemTemp, setItemTemp] = useState<{ material_id: string; quantidade: number }>({ material_id: "", quantidade: 1 });
+  const [dialogSeriais, setDialogSeriais] = useState(false);
+  const [seriaisSelecionados, setSeriaisSelecionados] = useState<string[]>([]);
+  const [buscaSerial, setBuscaSerial] = useState("");
+
   const [recebidoPor, setRecebidoPor] = useState("");
   const [itensConferencia, setItensConferencia] = useState<Record<string, number>>({});
   const [rastrosTexto, setRastrosTexto] = useState<Record<string, string>>({}); // key material_id -> textarea
@@ -134,10 +168,13 @@ export default function Devolucoes() {
           id,
           equipe_id,
           status,
+          origem,
           observacao,
           data_solicitacao,
           data_conferencia,
+          data_confirmacao_equipe,
           recebido_por,
+          assinatura_confirmacao_equipe,
           created_at,
           tecnicos:equipe_id (codigo, nome)
         `)
@@ -239,6 +276,190 @@ export default function Devolucoes() {
       if (r.conferido) rMap[r.material_id] += `${String(r.numero_serie).toUpperCase()}\n`;
     });
     setRastrosTexto(rMap);
+  };
+
+  const { data: equipes } = useQuery({
+    queryKey: ["materiais-equipes-opcoes"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("tecnicos")
+        .select("id, codigo, nome")
+        .order("codigo");
+      if (error) throw error;
+      return (data || []) as EquipeOption[];
+    },
+  });
+
+  const { data: estoqueEquipeSolicitacao } = useQuery({
+    queryKey: ["materiais-estoque-equipe-solicitacao", novaSolicitacao.equipe_id],
+    enabled: !!novaSolicitacao.equipe_id && dialogSolicitar,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("materiais_estoque")
+        .select(`
+          material_id,
+          quantidade,
+          materiais!inner (codigo, nome, unidade, requer_serial)
+        `)
+        .eq("local_tipo", "equipe")
+        .eq("local_id", novaSolicitacao.equipe_id)
+        .gt("quantidade", 0)
+        .order("materiais(codigo)");
+      if (error) throw error;
+      return (data || []) as any[];
+    },
+  });
+
+  const materialTempSelecionado = useMemo(() => {
+    if (!itemTemp.material_id) return null;
+    return (estoqueEquipeSolicitacao || []).find((e: any) => e.material_id === itemTemp.material_id) || null;
+  }, [estoqueEquipeSolicitacao, itemTemp.material_id]);
+
+  const { data: seriaisDisponiveisEquipe } = useQuery({
+    queryKey: ["materiais-seriais-equipe-solicitacao", novaSolicitacao.equipe_id, itemTemp.material_id],
+    enabled: !!novaSolicitacao.equipe_id && !!itemTemp.material_id && Boolean(materialTempSelecionado?.materiais?.requer_serial) && dialogSolicitar,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("materiais_serializados")
+        .select("numero_serie, material_id, status, localizacao_tipo, localizacao_id")
+        .eq("localizacao_tipo", "equipe")
+        .eq("localizacao_id", novaSolicitacao.equipe_id)
+        .eq("material_id", itemTemp.material_id)
+        .in("status", ["com_equipe", "em_estoque"])
+        .order("numero_serie")
+        .limit(1000);
+      if (error) throw error;
+      return (data || []) as { numero_serie: string }[];
+    },
+  });
+
+  const criarSolicitacaoMutation = useMutation({
+    mutationFn: async (form: NovaSolicitacaoForm) => {
+      if (!form.equipe_id) throw new Error("Selecione uma equipe");
+      if (!form.itens.length) throw new Error("Adicione ao menos um item");
+
+      // validações básicas
+      for (const it of form.itens) {
+        const requerSerial = Boolean(it.material?.requer_serial);
+        if (requerSerial) {
+          const unique = Array.from(new Set((it.serials || []).map((s) => String(s).toUpperCase())));
+          if (!unique.length) throw new Error(`Informe os seriais para ${it.material?.codigo || "material"}`);
+          if (it.quantidade !== unique.length) throw new Error(`Quantidade divergente em ${it.material?.codigo || "material"}`);
+        } else {
+          if (it.quantidade <= 0) throw new Error(`Quantidade inválida em ${it.material?.codigo || "material"}`);
+        }
+      }
+
+      const { data: dev, error: devErr } = await (supabase as any)
+        .from("materiais_devolucoes")
+        .insert({
+          equipe_id: form.equipe_id,
+          status: "pendente_confirmacao_equipe",
+          origem: "almoxarifado",
+          observacao: form.observacao || null,
+        })
+        .select()
+        .single();
+      if (devErr) throw devErr;
+
+      const itensPayload = form.itens.map((i) => ({
+        devolucao_id: dev.id,
+        material_id: i.material_id,
+        quantidade_solicitada: i.quantidade,
+        quantidade_conferida: null,
+        observacao: null,
+      }));
+      const { error: itensErr } = await (supabase as any).from("materiais_devolucoes_itens").insert(itensPayload);
+      if (itensErr) throw itensErr;
+
+      const rastrosPayload = form.itens
+        .filter((i) => Boolean(i.material?.requer_serial))
+        .flatMap((i) =>
+          (i.serials || []).map((ns) => ({
+            devolucao_id: dev.id,
+            material_id: i.material_id,
+            numero_serie: String(ns).toUpperCase(),
+            conferido: true,
+          }))
+        );
+      if (rastrosPayload.length) {
+        const { error: rastrosErr } = await (supabase as any)
+          .from("materiais_devolucoes_itens_rastros")
+          .insert(rastrosPayload);
+        if (rastrosErr) throw rastrosErr;
+      }
+
+      return dev as Devolucao;
+    },
+    onSuccess: () => {
+      toast.success("Solicitação registrada. Aguardando confirmação da equipe.");
+      queryClient.invalidateQueries({ queryKey: ["materiais-devolucoes"] });
+      setDialogSolicitar(false);
+      setNovaSolicitacao({ equipe_id: "", observacao: "", itens: [] });
+      setBuscaMaterialSolicitacao("");
+      setItemTemp({ material_id: "", quantidade: 1 });
+      setSeriaisSelecionados([]);
+      setBuscaSerial("");
+    },
+    onError: (e: any) => {
+      console.error(e);
+      toast.error(e?.message || "Erro ao criar solicitação");
+    },
+  });
+
+  const addItemSolicitacao = () => {
+    if (!itemTemp.material_id) {
+      toast.error("Selecione um material");
+      return;
+    }
+    const row = materialTempSelecionado;
+    if (!row?.materiais) {
+      toast.error("Material inválido");
+      return;
+    }
+
+    const requerSerial = Boolean(row.materiais.requer_serial);
+    if (requerSerial) {
+      const unique = Array.from(new Set(seriaisSelecionados.map((s) => String(s).toUpperCase())));
+      if (!unique.length) {
+        toast.error("Selecione ao menos um serial");
+        return;
+      }
+      setNovaSolicitacao((prev) => {
+        const existente = prev.itens.find((i) => i.material_id === row.material_id);
+        const mergedSerials = Array.from(new Set([...(existente?.serials || []), ...unique]));
+        const nextItens = prev.itens.filter((i) => i.material_id !== row.material_id);
+        nextItens.push({
+          material_id: row.material_id,
+          quantidade: mergedSerials.length,
+          serials: mergedSerials,
+          material: row.materiais,
+        });
+        return { ...prev, itens: nextItens };
+      });
+    } else {
+      const disponivel = Number(row.quantidade || 0);
+      const qtd = Math.max(1, Math.min(Number(itemTemp.quantidade || 1), disponivel));
+      setNovaSolicitacao((prev) => {
+        const nextItens = prev.itens.filter((i) => i.material_id !== row.material_id);
+        nextItens.push({
+          material_id: row.material_id,
+          quantidade: qtd,
+          serials: [],
+          material: row.materiais,
+        });
+        return { ...prev, itens: nextItens };
+      });
+    }
+
+    setItemTemp({ material_id: "", quantidade: 1 });
+    setBuscaMaterialSolicitacao("");
+    setSeriaisSelecionados([]);
+    setBuscaSerial("");
+  };
+
+  const removeItemSolicitacao = (materialId: string) => {
+    setNovaSolicitacao((prev) => ({ ...prev, itens: prev.itens.filter((i) => i.material_id !== materialId) }));
   };
 
   const cancelarMutation = useMutation({
@@ -363,6 +584,10 @@ export default function Devolucoes() {
               </p>
             </div>
           </div>
+          <Button onClick={() => setDialogSolicitar(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Solicitar devolução
+          </Button>
         </div>
 
         {/* Filtros */}
@@ -387,6 +612,7 @@ export default function Devolucoes() {
                 <SelectContent>
                   <SelectItem value="todos">Todos</SelectItem>
                   <SelectItem value="pendente">Pendente</SelectItem>
+                  <SelectItem value="pendente_confirmacao_equipe">Aguardando equipe</SelectItem>
                   <SelectItem value="conferida">Conferida</SelectItem>
                   <SelectItem value="cancelada">Cancelada</SelectItem>
                 </SelectContent>
@@ -505,7 +731,7 @@ export default function Devolucoes() {
                               Conferir
                             </Button>
                           )}
-                          {d.status === "pendente" && (
+                          {(d.status === "pendente" || d.status === "pendente_confirmacao_equipe") && (
                             <Button
                               variant="outline"
                               size="sm"
@@ -583,6 +809,38 @@ export default function Devolucoes() {
                     <div className="p-3 bg-muted rounded-md text-sm text-muted-foreground">
                       {selected.observacao || "-"}
                     </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Assinatura (equipe)</Label>
+                    {selected.assinatura_confirmacao_equipe ? (
+                      <div className="border rounded-lg p-3 bg-white">
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <FileSignature className="h-4 w-4" />
+                            Assinatura registrada no app
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => window.open(selected.assinatura_confirmacao_equipe!, "_blank")}
+                          >
+                            <Eye className="h-4 w-4 mr-1" />
+                            Abrir
+                          </Button>
+                        </div>
+                        <img
+                          src={selected.assinatura_confirmacao_equipe}
+                          alt="Assinatura da equipe"
+                          className="w-full max-h-44 object-contain border rounded bg-white"
+                        />
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-muted rounded-md text-sm text-muted-foreground">
+                        Nenhuma assinatura registrada.
+                      </div>
+                    )}
                   </div>
 
                   <div className="border rounded-lg overflow-hidden">
@@ -867,6 +1125,323 @@ export default function Devolucoes() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Solicitar devolução (almoxarifado) */}
+        <Dialog
+          open={dialogSolicitar}
+          onOpenChange={(open) => {
+            setDialogSolicitar(open);
+            if (!open) {
+              setNovaSolicitacao({ equipe_id: "", observacao: "", itens: [] });
+              setBuscaMaterialSolicitacao("");
+              setItemTemp({ material_id: "", quantidade: 1 });
+              setSeriaisSelecionados([]);
+              setBuscaSerial("");
+              setDialogSeriais(false);
+            }
+          }}
+        >
+          <DialogContent className="w-[98vw] max-w-5xl max-h-[90vh] flex flex-col">
+            <DialogHeader>
+              <DialogTitle>Solicitar devolução (almoxarifado → equipe confirma)</DialogTitle>
+            </DialogHeader>
+
+            <div className="flex-1 overflow-y-auto pr-1 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label>Equipe *</Label>
+                  <Select
+                    value={novaSolicitacao.equipe_id}
+                    onValueChange={(value) => {
+                      setNovaSolicitacao((p) => ({ ...p, equipe_id: value, itens: [] }));
+                      setBuscaMaterialSolicitacao("");
+                      setItemTemp({ material_id: "", quantidade: 1 });
+                      setSeriaisSelecionados([]);
+                      setBuscaSerial("");
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione a equipe..." />
+                    </SelectTrigger>
+                    <SelectContent className="z-[9999]">
+                      {(equipes || []).map((eq) => (
+                        <SelectItem key={eq.id} value={eq.id}>
+                          {eq.codigo} - {eq.nome}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Observação</Label>
+                  <Textarea
+                    value={novaSolicitacao.observacao}
+                    onChange={(e) => setNovaSolicitacao((p) => ({ ...p, observacao: e.target.value }))}
+                    placeholder="Ex: equipe entregou sem registro no app"
+                    rows={2}
+                  />
+                </div>
+              </div>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">Adicionar itens</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {!novaSolicitacao.equipe_id ? (
+                    <div className="text-sm text-muted-foreground">Selecione uma equipe para carregar o estoque.</div>
+                  ) : (
+                    <>
+                      <div className="space-y-2">
+                        <Label>Buscar material</Label>
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            value={buscaMaterialSolicitacao}
+                            onChange={(e) => setBuscaMaterialSolicitacao(e.target.value)}
+                            placeholder="Digite código ou nome..."
+                            className="pl-10"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="border rounded-lg overflow-hidden">
+                        <div className="max-h-56 overflow-y-auto">
+                          {(estoqueEquipeSolicitacao || [])
+                            .filter((row: any) => {
+                              const term = buscaMaterialSolicitacao.trim().toLowerCase();
+                              if (!term) return true;
+                              return (
+                                String(row.materiais?.codigo || "").toLowerCase().includes(term) ||
+                                String(row.materiais?.nome || "").toLowerCase().includes(term)
+                              );
+                            })
+                            .map((row: any) => {
+                              const selectedRow = itemTemp.material_id === row.material_id;
+                              const isSerial = Boolean(row.materiais?.requer_serial);
+                              return (
+                                <button
+                                  key={row.material_id}
+                                  type="button"
+                                  className={`w-full p-3 text-left hover:bg-muted/50 transition-all border-b last:border-b-0 ${
+                                    selectedRow ? "bg-violet-100 border-l-4 border-l-violet-500" : ""
+                                  }`}
+                                  onClick={() => {
+                                    setItemTemp({ material_id: row.material_id, quantidade: 1 });
+                                    setSeriaisSelecionados([]);
+                                    setBuscaSerial("");
+                                  }}
+                                >
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-medium">
+                                        {row.materiais?.codigo}
+                                        {isSerial && (
+                                          <Badge variant="outline" className="ml-2 text-xs">
+                                            <QrCode className="h-3 w-3 mr-1" />
+                                            SR
+                                          </Badge>
+                                        )}
+                                      </p>
+                                      <p className="text-xs text-muted-foreground line-clamp-1">{row.materiais?.nome}</p>
+                                    </div>
+                                    <Badge variant="outline" className="text-xs shrink-0">
+                                      Disp: {row.quantidade} {row.materiais?.unidade || ""}
+                                    </Badge>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          {!(estoqueEquipeSolicitacao || []).length && (
+                            <div className="p-3 text-sm text-muted-foreground">Nenhum item em estoque para esta equipe.</div>
+                          )}
+                        </div>
+                      </div>
+
+                      {materialTempSelecionado?.materiais && (
+                        <div className="flex flex-col md:flex-row gap-2 md:items-center">
+                          {materialTempSelecionado.materiais.requer_serial ? (
+                            <>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="flex-1 justify-between"
+                                onClick={() => setDialogSeriais(true)}
+                              >
+                                <span className="flex items-center gap-2">
+                                  <QrCode className="h-4 w-4" />
+                                  Seriais selecionados: {seriaisSelecionados.length}
+                                </span>
+                                <Search className="h-4 w-4" />
+                              </Button>
+                              <Button type="button" onClick={addItemSolicitacao}>
+                                <Plus className="h-4 w-4" />
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <Input
+                                type="number"
+                                min={1}
+                                max={Number(materialTempSelecionado.quantidade || 0)}
+                                className="w-28"
+                                value={itemTemp.quantidade}
+                                onChange={(e) => setItemTemp((p) => ({ ...p, quantidade: Number(e.target.value || 1) }))}
+                              />
+                              <Button type="button" onClick={addItemSolicitacao}>
+                                <Plus className="h-4 w-4 mr-2" />
+                                Adicionar
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      )}
+
+                      {novaSolicitacao.itens.length > 0 && (
+                        <div className="border rounded-lg overflow-hidden">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Material</TableHead>
+                                <TableHead className="text-center">Qtd</TableHead>
+                                <TableHead className="text-center">Seriais</TableHead>
+                                <TableHead className="w-[80px] text-right">Ações</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {novaSolicitacao.itens.map((it) => (
+                                <TableRow key={it.material_id}>
+                                  <TableCell>
+                                    <p className="font-medium">{it.material?.codigo || "-"}</p>
+                                    <p className="text-xs text-muted-foreground">{it.material?.nome || ""}</p>
+                                  </TableCell>
+                                  <TableCell className="text-center">
+                                    {it.quantidade} {it.material?.unidade || ""}
+                                  </TableCell>
+                                  <TableCell className="text-center">
+                                    {it.material?.requer_serial ? (
+                                      <Badge variant="outline" className="text-xs">
+                                        <QrCode className="h-3 w-3 mr-1" /> {(it.serials || []).length}
+                                      </Badge>
+                                    ) : (
+                                      "-"
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="text-destructive"
+                                      onClick={() => removeItemSolicitacao(it.material_id)}
+                                    >
+                                      Remover
+                                    </Button>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
+              <Button variant="outline" onClick={() => setDialogSolicitar(false)} disabled={criarSolicitacaoMutation.isPending}>
+                Voltar
+              </Button>
+              <Button
+                onClick={() => criarSolicitacaoMutation.mutate(novaSolicitacao)}
+                disabled={!novaSolicitacao.equipe_id || criarSolicitacaoMutation.isPending}
+              >
+                {criarSolicitacaoMutation.isPending ? "Salvando..." : "Criar solicitação"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Selecionar seriais (da equipe) */}
+        <Dialog
+          open={dialogSeriais}
+          onOpenChange={(open) => {
+            setDialogSeriais(open);
+            if (!open) setBuscaSerial("");
+          }}
+        >
+          <DialogContent className="w-[95vw] max-w-2xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <QrCode className="h-5 w-5" />
+                Selecionar seriais
+              </DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  value={buscaSerial}
+                  onChange={(e) => setBuscaSerial(e.target.value)}
+                  placeholder="Buscar serial..."
+                  className="pl-10"
+                />
+              </div>
+
+              <div className="border rounded-lg overflow-hidden">
+                <div className="max-h-72 overflow-y-auto divide-y">
+                  {(seriaisDisponiveisEquipe || [])
+                    .filter((s: any) => {
+                      const term = buscaSerial.trim().toLowerCase();
+                      if (!term) return true;
+                      return String(s.numero_serie || "").toLowerCase().includes(term);
+                    })
+                    .map((s: any) => {
+                      const ns = String(s.numero_serie).toUpperCase();
+                      const checked = seriaisSelecionados.includes(ns);
+                      return (
+                        <button
+                          key={ns}
+                          type="button"
+                          className={`w-full p-3 text-left hover:bg-muted/50 transition-all ${
+                            checked ? "bg-violet-100 border-l-4 border-l-violet-500" : ""
+                          }`}
+                          onClick={() =>
+                            setSeriaisSelecionados((prev) => (prev.includes(ns) ? prev.filter((x) => x !== ns) : [...prev, ns]))
+                          }
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-mono text-sm">{ns}</span>
+                            {checked ? <CheckCircle className="h-4 w-4 text-violet-600" /> : <span className="h-4 w-4" />}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  {!seriaisDisponiveisEquipe?.length && (
+                    <div className="p-3 text-sm text-muted-foreground">Nenhum serial encontrado para este material/equipe.</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <Badge variant="outline" className="text-xs">
+                  Selecionados: {seriaisSelecionados.length}
+                </Badge>
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" onClick={() => setSeriaisSelecionados([])}>
+                    Limpar
+                  </Button>
+                  <Button type="button" onClick={() => setDialogSeriais(false)}>
+                    Concluir
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </MainLayout>
   );

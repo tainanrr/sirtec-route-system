@@ -88,3 +88,4 @@ WHERE t.usuario = 'equipe1';
 
 
 
+

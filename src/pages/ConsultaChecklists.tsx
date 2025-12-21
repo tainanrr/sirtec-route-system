@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -45,6 +46,20 @@ import { toast } from "sonner";
 import jsPDF from "jspdf";
 
 const ITEMS_PER_PAGE = 20;
+
+type DevolucaoStatus = "pendente" | "pendente_confirmacao_equipe" | "conferida" | "cancelada";
+
+interface DevolucaoConsulta {
+  id: string;
+  equipe_id: string;
+  status: DevolucaoStatus;
+  origem?: string | null;
+  observacao: string | null;
+  created_at: string;
+  data_confirmacao_equipe?: string | null;
+  assinatura_confirmacao_equipe?: string | null;
+  tecnicos?: { codigo: string; nome: string } | null;
+}
 
 interface ChecklistRespostaSimples {
   id: string;
@@ -766,29 +781,54 @@ export default function ConsultaChecklists() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [generatingPdfId, setGeneratingPdfId] = useState<string | null>(null);
+  const [viewDevOpen, setViewDevOpen] = useState(false);
+  const [selectedDev, setSelectedDev] = useState<DevolucaoConsulta | null>(null);
 
   // Buscar contagem total de registros
   const { data: totalCount } = useQuery({
-    queryKey: ["checklist-respostas-count", filtroStatus],
+    queryKey: ["consulta-count", filtroTipo, filtroStatus, searchTerm],
     queryFn: async () => {
-      let query = (supabase as any)
-        .from("checklist_respostas")
-        .select("id", { count: "exact", head: true });
+      // Devoluções só entram automaticamente quando não há filtro de status “checklist”
+      const incluirDevolucoes = filtroTipo === "devolucoes" || (filtroTipo === "todos" && filtroStatus === "todos" && !searchTerm.startsWith("#"));
 
-      if (filtroStatus !== "todos") {
-        query = query.eq("status", filtroStatus);
+      if (filtroTipo === "devolucoes") {
+        let query = (supabase as any)
+          .from("materiais_devolucoes")
+          .select("id", { count: "exact", head: true });
+        if (filtroStatus !== "todos") query = query.eq("status", filtroStatus);
+        const { count, error } = await query;
+        if (error) throw error;
+        return count || 0;
+      } else if (incluirDevolucoes) {
+        // total = checklists + devoluções (apenas no cenário default “tudo”)
+        const { count: c1, error: e1 } = await (supabase as any)
+          .from("checklist_respostas")
+          .select("id", { count: "exact", head: true });
+        if (e1) throw e1;
+        const { count: c2, error: e2 } = await (supabase as any)
+          .from("materiais_devolucoes")
+          .select("id", { count: "exact", head: true });
+        if (e2) throw e2;
+        return (c1 || 0) + (c2 || 0);
+      } else {
+        let query = (supabase as any)
+          .from("checklist_respostas")
+          .select("id", { count: "exact", head: true });
+        if (filtroStatus !== "todos") query = query.eq("status", filtroStatus);
+        const { count, error } = await query;
+        if (error) throw error;
+        return count || 0;
       }
-
-      const { count, error } = await query;
-      if (error) throw error;
-      return count || 0;
     },
   });
 
   // Buscar respostas de checklists com paginação - QUERY LEVE
   const { data: respostas, isLoading } = useQuery({
     queryKey: ["checklist-respostas", filtroTipo, filtroStatus, currentPage, searchTerm],
+    enabled: filtroTipo !== "devolucoes",
     queryFn: async () => {
+      const limiteAtePagina = (currentPage + 1) * ITEMS_PER_PAGE;
+
       // Se a busca começa com #, buscar por código único
       if (searchTerm.startsWith('#')) {
         const codigoNumero = parseInt(searchTerm.slice(1), 10);
@@ -824,7 +864,7 @@ export default function ConsultaChecklists() {
           tecnicos:equipe_id (codigo, nome)
         `)
         .order("created_at", { ascending: false })
-        .range(currentPage * ITEMS_PER_PAGE, (currentPage + 1) * ITEMS_PER_PAGE - 1);
+        .range(0, limiteAtePagina - 1);
 
       if (filtroStatus !== "todos") {
         query = query.eq("status", filtroStatus);
@@ -873,6 +913,49 @@ export default function ConsultaChecklists() {
     );
   });
 
+  const {
+    data: devolucoes,
+    isLoading: loadingDevolucoes,
+    error: errorDevolucoes,
+  } = useQuery({
+    queryKey: ["consulta-devolucoes", filtroStatus, currentPage, searchTerm],
+    enabled: filtroTipo === "devolucoes" || (filtroTipo === "todos" && filtroStatus === "todos" && !searchTerm.startsWith("#")),
+    retry: false,
+    queryFn: async () => {
+      const limiteAtePagina = (currentPage + 1) * ITEMS_PER_PAGE;
+      let query = (supabase as any)
+        .from("materiais_devolucoes")
+        .select(`
+          id,
+          equipe_id,
+          status,
+          origem,
+          observacao,
+          created_at,
+          data_confirmacao_equipe,
+          assinatura_confirmacao_equipe,
+          tecnicos:equipe_id (codigo, nome)
+        `)
+        .order("created_at", { ascending: false })
+        .range(0, limiteAtePagina - 1);
+
+      if (filtroStatus !== "todos") query = query.eq("status", filtroStatus);
+      const { data, error } = await query;
+      if (error) throw error;
+
+      const term = searchTerm.trim().replace(/^#/, "").toLowerCase();
+      if (!term) return (data || []) as DevolucaoConsulta[];
+
+      return ((data || []) as DevolucaoConsulta[]).filter((d) =>
+        d.id.toLowerCase().includes(term) ||
+        d.tecnicos?.codigo?.toLowerCase().includes(term) ||
+        d.tecnicos?.nome?.toLowerCase().includes(term) ||
+        (d.observacao || "").toLowerCase().includes(term)
+      );
+    },
+    onError: (e: any) => toast.error(e?.message || "Erro ao carregar devoluções"),
+  });
+
   // Abrir detalhes em nova guia
   const abrirNovaGuia = (id: string) => {
     window.open(`/consulta-checklists/${id}`, '_blank');
@@ -907,8 +990,10 @@ export default function ConsultaChecklists() {
     setCurrentPage(0);
     if (tipo === "tipo") {
       setFiltroTipo(valor);
+      setSelectedIds(new Set());
     } else {
       setFiltroStatus(valor);
+      setSelectedIds(new Set());
     }
   };
 
@@ -927,21 +1012,24 @@ export default function ConsultaChecklists() {
 
   // Selecionar todos da página
   const toggleSelectAll = () => {
-    if (!respostasFiltradas) return;
-    
-    const todosIds = respostasFiltradas.map(r => r.id);
-    const todosSelecionados = todosIds.every(id => selectedIds.has(id));
+    const idsChecklistPagina = linhasPagina
+      .filter((l) => l.kind === "checklist")
+      .map((l) => (l.row as ChecklistRespostaSimples).id);
+
+    if (idsChecklistPagina.length === 0) return;
+
+    const todosSelecionados = idsChecklistPagina.every((id) => selectedIds.has(id));
     
     if (todosSelecionados) {
       setSelectedIds(prev => {
         const newSet = new Set(prev);
-        todosIds.forEach(id => newSet.delete(id));
+        idsChecklistPagina.forEach(id => newSet.delete(id));
         return newSet;
       });
     } else {
       setSelectedIds(prev => {
         const newSet = new Set(prev);
-        todosIds.forEach(id => newSet.add(id));
+        idsChecklistPagina.forEach(id => newSet.add(id));
         return newSet;
       });
     }
@@ -996,9 +1084,76 @@ export default function ConsultaChecklists() {
     setDownloadingPdf(false);
   };
 
-  const todosNaPaginaSelecionados = respostasFiltradas?.length 
-    ? respostasFiltradas.every(r => selectedIds.has(r.id))
-    : false;
+  const { data: devItens, isLoading: loadingDevItens } = useQuery({
+    queryKey: ["consulta-devolucao-itens", selectedDev?.id],
+    enabled: !!selectedDev?.id && viewDevOpen,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("materiais_devolucoes_itens")
+        .select(`
+          devolucao_id,
+          material_id,
+          quantidade_solicitada,
+          quantidade_conferida,
+          materiais (codigo, nome, unidade, requer_serial)
+        `)
+        .eq("devolucao_id", selectedDev!.id);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const { data: devRastros } = useQuery({
+    queryKey: ["consulta-devolucao-rastros", selectedDev?.id],
+    enabled: !!selectedDev?.id && viewDevOpen,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("materiais_devolucoes_itens_rastros")
+        .select("devolucao_id, material_id, numero_serie, conferido")
+        .eq("devolucao_id", selectedDev!.id);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const isDevolucoes = filtroTipo === "devolucoes";
+  const incluirDevolucoesAutomaticamente = filtroTipo === "todos" && filtroStatus === "todos" && !searchTerm.startsWith("#");
+  const loadingLista = (!isDevolucoes && isLoading) || ((isDevolucoes || incluirDevolucoesAutomaticamente) && loadingDevolucoes);
+  const hasChecklistNaPagina = linhasPagina.some((l) => l.kind === "checklist");
+
+  type LinhaConsulta =
+    | { kind: "checklist"; row: ChecklistRespostaSimples; created_at: string }
+    | { kind: "devolucao"; row: DevolucaoConsulta; created_at: string };
+
+  const linhasOrdenadas = useMemo(() => {
+    const linhas: LinhaConsulta[] = [];
+
+    if (filtroTipo !== "devolucoes") {
+      (respostasFiltradas || []).forEach((r) => {
+        linhas.push({ kind: "checklist", row: r, created_at: r.created_at });
+      });
+    }
+
+    if (isDevolucoes || incluirDevolucoesAutomaticamente) {
+      (devolucoes || []).forEach((d) => {
+        linhas.push({ kind: "devolucao", row: d, created_at: d.created_at });
+      });
+    }
+
+    linhas.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    return linhas;
+  }, [devolucoes, incluirDevolucoesAutomaticamente, isDevolucoes, respostasFiltradas, filtroTipo]);
+
+  const linhasPagina = useMemo(() => {
+    const start = currentPage * ITEMS_PER_PAGE;
+    const end = start + ITEMS_PER_PAGE;
+    return linhasOrdenadas.slice(start, end);
+  }, [linhasOrdenadas, currentPage]);
+
+  const todosNaPaginaSelecionados = useMemo(() => {
+    const ids = linhasPagina.filter((l) => l.kind === "checklist").map((l) => (l.row as ChecklistRespostaSimples).id);
+    return ids.length > 0 ? ids.every((id) => selectedIds.has(id)) : false;
+  }, [linhasPagina, selectedIds]);
 
   return (
     <MainLayout title="Consulta de Checklists">
@@ -1014,31 +1169,33 @@ export default function ConsultaChecklists() {
             Visualize e analise os checklists preenchidos pelas equipes
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={handleAbrirMassa}
-            disabled={selectedIds.size === 0}
-          >
-            <ExternalLink className="h-4 w-4 mr-2" />
-            Abrir {selectedIds.size > 0 ? `(${selectedIds.size})` : ''}
-          </Button>
-          <Button
-            onClick={handleGerarPdfMassa}
-            disabled={downloadingPdf || selectedIds.size === 0}
-            className="bg-violet-600 hover:bg-violet-700"
-          >
-            {downloadingPdf ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <FileDown className="h-4 w-4 mr-2" />
-            )}
-            Baixar PDF {selectedIds.size > 0 ? `(${selectedIds.size})` : ''}
-          </Button>
-        </div>
+        {!isDevolucoes && (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={handleAbrirMassa}
+              disabled={selectedIds.size === 0}
+            >
+              <ExternalLink className="h-4 w-4 mr-2" />
+              Abrir {selectedIds.size > 0 ? `(${selectedIds.size})` : ''}
+            </Button>
+            <Button
+              onClick={handleGerarPdfMassa}
+              disabled={downloadingPdf || selectedIds.size === 0}
+              className="bg-violet-600 hover:bg-violet-700"
+            >
+              {downloadingPdf ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <FileDown className="h-4 w-4 mr-2" />
+              )}
+              Baixar PDF {selectedIds.size > 0 ? `(${selectedIds.size})` : ''}
+            </Button>
+          </div>
+        )}
       </div>
 
-      {/* Filtros */}
+      {/* Filtros (mesma tela): checklists + devoluções via Tipo */}
       <Card>
         <CardContent className="pt-6">
           <div className="flex flex-col md:flex-row gap-4">
@@ -1046,25 +1203,32 @@ export default function ConsultaChecklists() {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Buscar... (use #número para buscar por código)"
+                  placeholder={
+                    isDevolucoes
+                      ? "Buscar devolução por equipe, observação ou ID..."
+                      : filtroTipo === "todos"
+                      ? "Buscar... (checklists e devoluções)"
+                      : "Buscar... (use #número para buscar por código)"
+                  }
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10"
                 />
               </div>
-              {searchTerm.startsWith('#') && (
+              {!isDevolucoes && searchTerm.startsWith('#') && (
                 <p className="text-xs text-violet-600 mt-1 ml-1">
                   🔍 Buscando exclusivamente pelo código único #{searchTerm.slice(1)}
                 </p>
               )}
             </div>
             <Select value={filtroTipo} onValueChange={(v) => handleFiltroChange("tipo", v)}>
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger className="w-[220px]">
                 <Filter className="h-4 w-4 mr-2" />
                 <SelectValue placeholder="Tipo" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="todos">Todos os tipos</SelectItem>
+                <SelectItem value="devolucoes">DEVOLUÇÕES</SelectItem>
                 {tiposChecklists?.map((tipo: string) => (
                   <SelectItem key={tipo} value={tipo}>
                     {tipo.toUpperCase()}
@@ -1073,32 +1237,43 @@ export default function ConsultaChecklists() {
               </SelectContent>
             </Select>
             <Select value={filtroStatus} onValueChange={(v) => handleFiltroChange("status", v)}>
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger className="w-[200px]">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="todos">Todos os status</SelectItem>
-                <SelectItem value="completo">Completo</SelectItem>
-                <SelectItem value="rascunho">Rascunho</SelectItem>
+                <SelectItem value="todos">Todos</SelectItem>
+                {isDevolucoes ? (
+                  <>
+                    <SelectItem value="pendente">Pendente</SelectItem>
+                    <SelectItem value="pendente_confirmacao_equipe">Aguardando equipe</SelectItem>
+                    <SelectItem value="conferida">Conferida</SelectItem>
+                    <SelectItem value="cancelada">Cancelada</SelectItem>
+                  </>
+                ) : (
+                  <>
+                    <SelectItem value="completo">Completo</SelectItem>
+                    <SelectItem value="rascunho">Rascunho</SelectItem>
+                  </>
+                )}
               </SelectContent>
             </Select>
           </div>
         </CardContent>
       </Card>
 
-      {/* Tabela de Respostas */}
+      {/* Tabela (mesma tabela, muda pela seleção de tipo) */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg">
-              Checklists Preenchidos
-              {totalCount !== undefined && !searchTerm.startsWith('#') && (
+              {isDevolucoes ? "Devoluções" : incluirDevolucoesAutomaticamente ? "Checklists (inclui devoluções)" : "Checklists Preenchidos"}
+              {totalCount !== undefined && !(searchTerm.startsWith('#') && !isDevolucoes) && (
                 <Badge variant="secondary" className="ml-2">
                   {totalCount}
                 </Badge>
               )}
             </CardTitle>
-            {totalPages > 1 && !searchTerm.startsWith('#') && (
+            {totalPages > 1 && !(searchTerm.startsWith('#') && !isDevolucoes) && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 Página {currentPage + 1} de {totalPages}
               </div>
@@ -1106,13 +1281,13 @@ export default function ConsultaChecklists() {
           </div>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
-            <div className="space-y-3">
-              {[1, 2, 3, 4, 5].map(i => (
-                <Skeleton key={i} className="h-16 w-full" />
-              ))}
-            </div>
-          ) : respostasFiltradas && respostasFiltradas.length > 0 ? (
+          {loadingLista ? (
+              <div className="space-y-3">
+                {[1, 2, 3, 4, 5].map(i => (
+                  <Skeleton key={i} className="h-16 w-full" />
+                ))}
+              </div>
+          ) : linhasPagina.length > 0 ? (
             <>
               <Table>
                 <TableHeader>
@@ -1121,6 +1296,7 @@ export default function ConsultaChecklists() {
                       <Checkbox
                         checked={todosNaPaginaSelecionados}
                         onCheckedChange={toggleSelectAll}
+                        disabled={!hasChecklistNaPagina}
                       />
                     </TableHead>
                     <TableHead className="w-20">Código</TableHead>
@@ -1133,81 +1309,154 @@ export default function ConsultaChecklists() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {respostasFiltradas.map((resposta) => (
-                    <TableRow 
-                      key={resposta.id}
-                      className={selectedIds.has(resposta.id) ? "bg-violet-50" : ""}
-                    >
-                      <TableCell>
-                        <Checkbox
-                          checked={selectedIds.has(resposta.id)}
-                          onCheckedChange={() => toggleSelection(resposta.id)}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        {resposta.codigo_unico ? (
-                          <Badge variant="outline" className="font-mono bg-violet-50 text-violet-700 border-violet-200">
-                            <Hash className="h-3 w-3 mr-0.5" />
-                            {resposta.codigo_unico}
-                          </Badge>
-                        ) : (
-                          <span className="text-muted-foreground text-xs">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <ClipboardCheck className="h-4 w-4 text-violet-600" />
-                          <div>
-                            <p className="font-medium">{resposta.checklists?.nome || "Checklist"}</p>
-                            <p className="text-xs text-muted-foreground uppercase">
-                              {resposta.checklists?.tipo}
-                            </p>
+                  {linhasPagina.map((linha) => {
+                    if (linha.kind === "devolucao") {
+                      const d = linha.row as DevolucaoConsulta;
+                      const statusLabel =
+                        d.status === "pendente"
+                          ? "Pendente"
+                          : d.status === "pendente_confirmacao_equipe"
+                          ? "Aguardando equipe"
+                          : d.status === "conferida"
+                          ? "Conferida"
+                          : d.status === "cancelada"
+                          ? "Cancelada"
+                          : d.status;
+
+                      return (
+                        <TableRow key={`dev-${d.id}`}>
+                          <TableCell>
+                            <Checkbox checked={false} disabled />
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="font-mono">
+                              {String(d.id).slice(0, 8).toUpperCase()}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <ClipboardCheck className="h-4 w-4 text-violet-600" />
+                              <div>
+                                <p className="font-medium">Devoluções</p>
+                                <p className="text-xs text-muted-foreground uppercase">devolucoes</p>
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-muted-foreground">-</span>
+                          </TableCell>
+                          <TableCell>
+                            <div>
+                              <p className="font-medium">{d.tecnicos?.codigo || "-"}</p>
+                              <p className="text-xs text-muted-foreground truncate max-w-[120px]">
+                                {d.tecnicos?.nome || ""}
+                              </p>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1 text-sm">
+                              <Calendar className="h-3 w-3" />
+                              {format(new Date(d.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-xs">
+                              {statusLabel}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedDev(d);
+                                setViewDevOpen(true);
+                              }}
+                              title="Ver devolução"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    }
+
+                    const resposta = linha.row as ChecklistRespostaSimples;
+                    return (
+                      <TableRow
+                        key={`chk-${resposta.id}`}
+                        className={selectedIds.has(resposta.id) ? "bg-violet-50" : ""}
+                      >
+                        <TableCell>
+                          <Checkbox
+                            checked={selectedIds.has(resposta.id)}
+                            onCheckedChange={() => toggleSelection(resposta.id)}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          {resposta.codigo_unico ? (
+                            <Badge variant="outline" className="font-mono bg-violet-50 text-violet-700 border-violet-200">
+                              <Hash className="h-3 w-3 mr-0.5" />
+                              {resposta.codigo_unico}
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <ClipboardCheck className="h-4 w-4 text-violet-600" />
+                            <div>
+                              <p className="font-medium">{resposta.checklists?.nome || "Checklist"}</p>
+                              <p className="text-xs text-muted-foreground uppercase">
+                                {resposta.checklists?.tipo}
+                              </p>
+                            </div>
                           </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {resposta.ordens_servico ? (
-                          <div>
-                            <p className="font-medium">#{resposta.ordens_servico.numero}</p>
-                            <p className="text-xs text-muted-foreground truncate max-w-[150px]">
-                              {resposta.ordens_servico.tipo}
-                            </p>
+                        </TableCell>
+                        <TableCell>
+                          {resposta.ordens_servico ? (
+                            <div>
+                              <p className="font-medium">#{resposta.ordens_servico.numero}</p>
+                              <p className="text-xs text-muted-foreground truncate max-w-[150px]">
+                                {resposta.ordens_servico.tipo}
+                              </p>
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {resposta.tecnicos ? (
+                            <div>
+                              <p className="font-medium">{resposta.tecnicos.codigo}</p>
+                              <p className="text-xs text-muted-foreground truncate max-w-[120px]">
+                                {resposta.tecnicos.nome}
+                              </p>
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1 text-sm">
+                            <Calendar className="h-3 w-3" />
+                            {format(new Date(resposta.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}
                           </div>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {resposta.tecnicos ? (
-                          <div>
-                            <p className="font-medium">{resposta.tecnicos.codigo}</p>
-                            <p className="text-xs text-muted-foreground truncate max-w-[120px]">
-                              {resposta.tecnicos.nome}
-                            </p>
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1 text-sm">
-                          <Calendar className="h-3 w-3" />
-                          {format(new Date(resposta.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {resposta.status === "completo" ? (
-                          <Badge className="bg-green-600">
-                            <CheckCircle className="h-3 w-3 mr-1" />
-                            Completo
-                          </Badge>
-                        ) : (
-                          <Badge variant="secondary">
-                            <Clock className="h-3 w-3 mr-1" />
-                            Rascunho
-                          </Badge>
-                        )}
-                      </TableCell>
+                        </TableCell>
+                        <TableCell>
+                          {resposta.status === "completo" ? (
+                            <Badge className="bg-green-600">
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Completo
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary">
+                              <Clock className="h-3 w-3 mr-1" />
+                              Rascunho
+                            </Badge>
+                          )}
+                        </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1">
                             <Button
@@ -1241,78 +1490,206 @@ export default function ConsultaChecklists() {
                             </Button>
                           </div>
                         </TableCell>
-                    </TableRow>
-                  ))}
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
 
-              {/* Paginação */}
-              {totalPages > 1 && !searchTerm.startsWith('#') && (
-                <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                  <div className="text-sm text-muted-foreground">
-                    Mostrando {currentPage * ITEMS_PER_PAGE + 1} - {Math.min((currentPage + 1) * ITEMS_PER_PAGE, totalCount || 0)} de {totalCount} registros
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
-                      disabled={currentPage === 0}
-                    >
-                      <ChevronLeft className="h-4 w-4 mr-1" />
-                      Anterior
-                    </Button>
-                    <div className="flex items-center gap-1">
-                      {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                        let pageNum: number;
-                        if (totalPages <= 5) {
-                          pageNum = i;
-                        } else if (currentPage < 3) {
-                          pageNum = i;
-                        } else if (currentPage > totalPages - 4) {
-                          pageNum = totalPages - 5 + i;
-                        } else {
-                          pageNum = currentPage - 2 + i;
-                        }
-                        return (
-                          <Button
-                            key={pageNum}
-                            variant={currentPage === pageNum ? "default" : "outline"}
-                            size="sm"
-                            className="w-8 h-8 p-0"
-                            onClick={() => setCurrentPage(pageNum)}
-                          >
-                            {pageNum + 1}
-                          </Button>
-                        );
-                      })}
+                {/* Paginação */}
+                {totalPages > 1 && !searchTerm.startsWith('#') && (
+                  <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                    <div className="text-sm text-muted-foreground">
+                      Mostrando {currentPage * ITEMS_PER_PAGE + 1} - {Math.min((currentPage + 1) * ITEMS_PER_PAGE, totalCount || 0)} de {totalCount} registros
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}
-                      disabled={currentPage >= totalPages - 1}
-                    >
-                      Próximo
-                      <ChevronRight className="h-4 w-4 ml-1" />
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+                        disabled={currentPage === 0}
+                      >
+                        <ChevronLeft className="h-4 w-4 mr-1" />
+                        Anterior
+                      </Button>
+                      <div className="flex items-center gap-1">
+                        {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                          let pageNum: number;
+                          if (totalPages <= 5) {
+                            pageNum = i;
+                          } else if (currentPage < 3) {
+                            pageNum = i;
+                          } else if (currentPage > totalPages - 4) {
+                            pageNum = totalPages - 5 + i;
+                          } else {
+                            pageNum = currentPage - 2 + i;
+                          }
+                          return (
+                            <Button
+                              key={pageNum}
+                              variant={currentPage === pageNum ? "default" : "outline"}
+                              size="sm"
+                              className="w-8 h-8 p-0"
+                              onClick={() => setCurrentPage(pageNum)}
+                            >
+                              {pageNum + 1}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}
+                        disabled={currentPage >= totalPages - 1}
+                      >
+                        Próximo
+                        <ChevronRight className="h-4 w-4 ml-1" />
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="text-center py-12">
-              <ClipboardCheck className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <p className="text-muted-foreground">
-                {searchTerm.startsWith('#') 
-                  ? `Nenhum checklist encontrado com o código ${searchTerm}`
-                  : "Nenhum checklist encontrado"
-                }
-              </p>
-            </div>
-          )}
+                )}
+              </>
+            ) : (
+              <div className="text-center py-12">
+                <ClipboardCheck className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <p className="text-muted-foreground">
+                  {searchTerm.startsWith('#')
+                    ? `Nenhum checklist encontrado com o código ${searchTerm}`
+                    : "Nenhum checklist encontrado"
+                  }
+                </p>
+              </div>
+            )}
         </CardContent>
       </Card>
+
+      <Dialog
+        open={viewDevOpen}
+        onOpenChange={(open) => {
+          setViewDevOpen(open);
+          if (!open) setSelectedDev(null);
+        }}
+      >
+        <DialogContent className="w-[98vw] max-w-5xl max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Detalhes da devolução</DialogTitle>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto pr-1 space-y-4">
+            {!selectedDev ? (
+              <Skeleton className="h-24 w-full" />
+            ) : (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm text-muted-foreground">Equipe</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="font-semibold">{selectedDev.tecnicos?.codigo || "-"}</p>
+                      <p className="text-xs text-muted-foreground">{selectedDev.tecnicos?.nome || ""}</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm text-muted-foreground">Status</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <Badge variant="outline" className="uppercase text-xs">{selectedDev.status}</Badge>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm text-muted-foreground">Criada em</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="font-medium">{format(new Date(selectedDev.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}</p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Observação</p>
+                  <div className="p-3 bg-muted rounded-md text-sm text-muted-foreground">
+                    {selectedDev.observacao || "-"}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Assinatura (equipe)</p>
+                  {selectedDev.assinatura_confirmacao_equipe ? (
+                    <div className="border rounded-lg p-3 bg-white">
+                      <img
+                        src={selectedDev.assinatura_confirmacao_equipe}
+                        alt="Assinatura da equipe"
+                        className="w-full max-h-44 object-contain border rounded bg-white"
+                      />
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-muted rounded-md text-sm text-muted-foreground">
+                      Nenhuma assinatura registrada.
+                    </div>
+                  )}
+                </div>
+
+                <div className="border rounded-lg overflow-hidden">
+                  <div className="w-full overflow-x-auto">
+                    <Table className="min-w-[900px]">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Material</TableHead>
+                          <TableHead className="text-center">Solicitado</TableHead>
+                          <TableHead className="text-center">Conferido</TableHead>
+                          <TableHead className="text-center">Rastros</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {loadingDevItens ? (
+                          <TableRow>
+                            <TableCell colSpan={4}>
+                              <Skeleton className="h-10 w-full" />
+                            </TableCell>
+                          </TableRow>
+                        ) : (devItens || []).map((i: any) => {
+                          const rs = (devRastros || []).filter((r: any) => r.material_id === i.material_id && r.conferido);
+                          return (
+                            <TableRow key={i.material_id}>
+                              <TableCell>
+                                <p className="font-medium">{i.materiais?.codigo || "-"}</p>
+                                <p className="text-xs text-muted-foreground">{i.materiais?.nome || ""}</p>
+                              </TableCell>
+                              <TableCell className="text-center">
+                                {i.quantidade_solicitada} {i.materiais?.unidade || ""}
+                              </TableCell>
+                              <TableCell className="text-center">
+                                {i.quantidade_conferida ?? "-"}
+                              </TableCell>
+                              <TableCell className="text-center">
+                                {i.materiais?.requer_serial ? (
+                                  <Badge variant="outline" className="text-xs">
+                                    {rs.length}
+                                  </Badge>
+                                ) : (
+                                  "-"
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewDevOpen(false)}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
     </MainLayout>
   );

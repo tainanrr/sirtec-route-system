@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
@@ -35,15 +35,18 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { ArrowLeft, Package, Plus, QrCode, Trash2, CheckCircle, Clock, XCircle, Search, ChevronDown, ChevronUp } from "lucide-react";
+import { SignatureFullScreen } from "@/components/app/SignatureFullScreen";
 
-type DevolucaoStatus = "pendente" | "conferida" | "cancelada";
+type DevolucaoStatus = "pendente" | "pendente_confirmacao_equipe" | "conferida" | "cancelada";
 
 interface Devolucao {
   id: string;
   status: DevolucaoStatus;
+  origem?: "equipe" | "almoxarifado" | string;
   observacao: string | null;
   created_at: string;
   data_conferencia: string | null;
+  data_confirmacao_equipe?: string | null;
 }
 
 interface EstoqueItem {
@@ -88,6 +91,12 @@ function statusBadge(status: DevolucaoStatus) {
           <Clock className="h-3 w-3 mr-1" /> Pendente
         </Badge>
       );
+    case "pendente_confirmacao_equipe":
+      return (
+        <Badge className="bg-blue-100 text-blue-700 border-0">
+          <Clock className="h-3 w-3 mr-1" /> Confirmar no app
+        </Badge>
+      );
     case "conferida":
       return (
         <Badge className="bg-green-100 text-green-700 border-0">
@@ -124,6 +133,8 @@ export default function AppDevolucoes() {
     serialsSelecionados?: string[];
     cancelDialog?: boolean;
     devolucaoCancelando?: Devolucao | null;
+    confirmDialog?: boolean;
+    devolucaoConfirmando?: Devolucao | null;
   }>(pageKey);
 
   const initial = getState();
@@ -139,6 +150,29 @@ export default function AppDevolucoes() {
   const [mostrarTodosMateriais, setMostrarTodosMateriais] = useState(false);
   const [cancelDialog, setCancelDialog] = useState(Boolean(initial?.cancelDialog));
   const [devolucaoCancelando, setDevolucaoCancelando] = useState<Devolucao | null>(initial?.devolucaoCancelando || null);
+  const [confirmDialog, setConfirmDialog] = useState(Boolean(initial?.confirmDialog));
+  const [devolucaoConfirmando, setDevolucaoConfirmando] = useState<Devolucao | null>(initial?.devolucaoConfirmando || null);
+  const [showSignatureScreen, setShowSignatureScreen] = useState(false);
+  const [assinaturaDataUrl, setAssinaturaDataUrl] = useState<string | null>(null);
+  const closingForSignatureRef = useRef(false);
+
+  const fecharConfirmacao = () => {
+    setConfirmDialog(false);
+    setDevolucaoConfirmando(null);
+    setAssinaturaDataUrl(null);
+    setShowSignatureScreen(false);
+    closingForSignatureRef.current = false;
+  };
+
+  const abrirAssinatura = () => {
+    // Mesmo padrão do recebimento (AppEstoque): fechar o dialog e abrir a tela full-screen
+    closingForSignatureRef.current = true;
+    setConfirmDialog(false);
+    setTimeout(() => {
+      closingForSignatureRef.current = false;
+      setShowSignatureScreen(true);
+    }, 100);
+  };
 
   useEffect(() => {
     const t = window.setTimeout(() => {
@@ -155,6 +189,8 @@ export default function AppDevolucoes() {
         // não persistir mostrarTodosMateriais para evitar “explodir” a UI ao voltar
         cancelDialog,
         devolucaoCancelando,
+        confirmDialog,
+        devolucaoConfirmando,
       });
     }, 250);
     return () => window.clearTimeout(t);
@@ -170,6 +206,8 @@ export default function AppDevolucoes() {
     serialsSelecionados,
     cancelDialog,
     devolucaoCancelando,
+    confirmDialog,
+    devolucaoConfirmando,
     saveState,
   ]);
 
@@ -184,7 +222,7 @@ export default function AppDevolucoes() {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("materiais_devolucoes")
-        .select("id, status, observacao, created_at, data_conferencia")
+        .select("id, status, origem, observacao, created_at, data_conferencia, data_confirmacao_equipe")
         .eq("equipe_id", equipeId)
         .order("created_at", { ascending: false })
         .limit(100);
@@ -199,6 +237,38 @@ export default function AppDevolucoes() {
     const term = searchTerm.toLowerCase();
     return devolucoes.filter((d) => d.id.toLowerCase().includes(term) || d.observacao?.toLowerCase().includes(term));
   }, [devolucoes, searchTerm]);
+
+  const { data: itensConfirmacao, isLoading: loadingItensConfirmacao } = useQuery({
+    queryKey: ["app-devolucoes-itens", devolucaoConfirmando?.id],
+    enabled: !!devolucaoConfirmando?.id && confirmDialog,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("materiais_devolucoes_itens")
+        .select(`
+          devolucao_id,
+          material_id,
+          quantidade_solicitada,
+          quantidade_conferida,
+          materiais (codigo, nome, unidade, requer_serial)
+        `)
+        .eq("devolucao_id", devolucaoConfirmando!.id);
+      if (error) throw error;
+      return (data || []) as any[];
+    },
+  });
+
+  const { data: rastrosConfirmacao } = useQuery({
+    queryKey: ["app-devolucoes-rastros", devolucaoConfirmando?.id],
+    enabled: !!devolucaoConfirmando?.id && confirmDialog,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("materiais_devolucoes_itens_rastros")
+        .select("devolucao_id, material_id, numero_serie, conferido")
+        .eq("devolucao_id", devolucaoConfirmando!.id);
+      if (error) throw error;
+      return (data || []) as any[];
+    },
+  });
 
   const { data: estoqueEquipe } = useQuery({
     queryKey: ["app-estoque-equipe", equipeId],
@@ -478,7 +548,9 @@ export default function AppDevolucoes() {
 
   const cancelarDevolucaoMutation = useMutation({
     mutationFn: async (dev: Devolucao) => {
-      if (dev.status !== "pendente") throw new Error("Apenas devoluções pendentes podem ser canceladas");
+      if (dev.status !== "pendente" && dev.status !== "pendente_confirmacao_equipe") {
+        throw new Error("Apenas devoluções pendentes podem ser canceladas");
+      }
       const { error } = await (supabase as any)
         .from("materiais_devolucoes")
         .update({ status: "cancelada" })
@@ -495,6 +567,43 @@ export default function AppDevolucoes() {
     onError: (e: any) => toast.error(e?.message || "Erro ao cancelar"),
   });
 
+  const confirmarSolicitacaoMutation = useMutation({
+    mutationFn: async () => {
+      if (!devolucaoConfirmando?.id) throw new Error("Selecione uma solicitação");
+      if (devolucaoConfirmando.status !== "pendente_confirmacao_equipe") {
+        throw new Error("Esta devolução não está aguardando confirmação");
+      }
+      if (!assinaturaDataUrl) {
+        throw new Error("Assinatura obrigatória para confirmar a devolução");
+      }
+
+      // Persistir assinatura antes de confirmar (a RPC finaliza status/estoque)
+      const { error: signErr } = await (supabase as any)
+        .from("materiais_devolucoes")
+        .update({ assinatura_confirmacao_equipe: assinaturaDataUrl })
+        .eq("id", devolucaoConfirmando.id)
+        .eq("equipe_id", equipeId);
+      if (signErr) throw signErr;
+
+      const { error } = await (supabase as any).rpc("confirmar_solicitacao_devolucao_equipe", {
+        p_devolucao_id: devolucaoConfirmando.id,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Devolução confirmada!");
+      queryClient.invalidateQueries({ queryKey: ["app-devolucoes", equipeId] });
+      queryClient.invalidateQueries({ queryKey: ["app-estoque-equipe", equipeId] });
+      setConfirmDialog(false);
+      setDevolucaoConfirmando(null);
+      setAssinaturaDataUrl(null);
+    },
+    onError: (e: any) => {
+      console.error(e);
+      toast.error(e?.message || "Erro ao confirmar devolução");
+    },
+  });
+
   return (
     <div className="p-4 space-y-4">
       {/* Header */}
@@ -505,7 +614,7 @@ export default function AppDevolucoes() {
           </Button>
           <div>
             <h1 className="text-lg font-bold">Devoluções</h1>
-            <p className="text-xs text-muted-foreground">Envie materiais para o almoxarifado confirmar</p>
+            <p className="text-xs text-muted-foreground">Envie devoluções ou confirme solicitações do almoxarifado</p>
           </div>
         </div>
         <Button onClick={() => setDialogNova(true)}>
@@ -547,26 +656,44 @@ export default function AppDevolucoes() {
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
                       {format(new Date(d.created_at), "dd/MM/yyyy HH:mm")}
-                      {d.data_conferencia ? ` • Conferida em ${format(new Date(d.data_conferencia), "dd/MM/yyyy HH:mm")}` : ""}
+                      {d.data_confirmacao_equipe
+                        ? ` • Confirmada por você em ${format(new Date(d.data_confirmacao_equipe), "dd/MM/yyyy HH:mm")}`
+                        : d.data_conferencia
+                        ? ` • Conferida em ${format(new Date(d.data_conferencia), "dd/MM/yyyy HH:mm")}`
+                        : ""}
                     </p>
                     <p className="text-sm text-muted-foreground line-clamp-2 mt-2">
                       {d.observacao || "Sem observação"}
                     </p>
                   </div>
-                  {d.status === "pendente" && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-destructive"
-                      onClick={() => {
-                        setDevolucaoCancelando(d);
-                        setCancelDialog(true);
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4 mr-1" />
-                      Cancelar
-                    </Button>
-                  )}
+                  <div className="flex flex-col gap-2 shrink-0">
+                    {d.status === "pendente_confirmacao_equipe" && (
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          setDevolucaoConfirmando(d);
+                          setConfirmDialog(true);
+                        }}
+                      >
+                        <CheckCircle className="h-4 w-4 mr-1" />
+                        Confirmar
+                      </Button>
+                    )}
+                    {(d.status === "pendente" || d.status === "pendente_confirmacao_equipe") && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-destructive"
+                        onClick={() => {
+                          setDevolucaoCancelando(d);
+                          setCancelDialog(true);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4 mr-1" />
+                        Cancelar
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -828,6 +955,151 @@ export default function AppDevolucoes() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Confirmar solicitação do almoxarifado */}
+      <Dialog
+        open={confirmDialog}
+        onOpenChange={(open) => {
+          // Se estamos fechando apenas para abrir a assinatura, não limpar estado.
+          if (!open && closingForSignatureRef.current) {
+            setConfirmDialog(false);
+            return;
+          }
+          if (open) {
+            setConfirmDialog(true);
+            return;
+          }
+          fecharConfirmacao();
+        }}
+      >
+        <DialogContent className="max-w-[95vw] max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Confirmar devolução</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              {devolucaoConfirmando?.status ? statusBadge(devolucaoConfirmando.status) : null}
+              {devolucaoConfirmando?.id ? (
+                <Badge variant="outline" className="text-xs font-mono">
+                  {devolucaoConfirmando.id.slice(0, 8).toUpperCase()}
+                </Badge>
+              ) : null}
+            </div>
+
+            <div className="text-sm text-muted-foreground">
+              Confira os itens abaixo. Ao confirmar, o estoque será atualizado e a devolução ficará finalizada.
+            </div>
+
+            <div className="border rounded-lg p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-medium">Assinatura da equipe (obrigatória)</p>
+                  <p className="text-xs text-muted-foreground">
+                    A equipe confirma que está devolvendo os materiais listados.
+                  </p>
+                </div>
+                <Button type="button" variant={assinaturaDataUrl ? "outline" : "default"} onClick={abrirAssinatura}>
+                  {assinaturaDataUrl ? "Refazer assinatura" : "Assinar"}
+                </Button>
+              </div>
+
+              {assinaturaDataUrl ? (
+                <div className="border rounded-md bg-white p-2">
+                  <img
+                    src={assinaturaDataUrl}
+                    alt="Assinatura"
+                    className="w-full max-h-40 object-contain"
+                  />
+                </div>
+              ) : (
+                <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-2">
+                  Assinatura pendente. Toque em “Assinar” para continuar.
+                </div>
+              )}
+            </div>
+
+            <div className="border rounded-lg overflow-hidden">
+              <div className="w-full overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/40">
+                    <tr>
+                      <th className="text-left p-3">Material</th>
+                      <th className="text-center p-3">Qtd</th>
+                      <th className="text-center p-3">Seriais</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loadingItensConfirmacao ? (
+                      <tr>
+                        <td className="p-3" colSpan={3}>
+                          <Skeleton className="h-10 w-full" />
+                        </td>
+                      </tr>
+                    ) : (itensConfirmacao || []).map((it: any) => {
+                      const isSerial = Boolean(it.materiais?.requer_serial);
+                      const rs = (rastrosConfirmacao || []).filter((r: any) => r.material_id === it.material_id && r.conferido);
+                      return (
+                        <tr key={it.material_id} className="border-t">
+                          <td className="p-3">
+                            <div className="min-w-0">
+                              <div className="font-medium">{it.materiais?.codigo || "-"}</div>
+                              <div className="text-xs text-muted-foreground line-clamp-1">{it.materiais?.nome || ""}</div>
+                            </div>
+                          </td>
+                          <td className="p-3 text-center">
+                            {it.quantidade_solicitada} {it.materiais?.unidade || ""}
+                          </td>
+                          <td className="p-3 text-center">
+                            {isSerial ? (
+                              <Badge variant="outline" className="text-xs">
+                                <QrCode className="h-3 w-3 mr-1" /> {rs.length}
+                              </Badge>
+                            ) : (
+                              "-"
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="flex-col-reverse gap-2">
+            <Button type="button" variant="outline" onClick={fecharConfirmacao} disabled={confirmarSolicitacaoMutation.isPending}>
+              Voltar
+            </Button>
+            <Button
+              onClick={() => confirmarSolicitacaoMutation.mutate()}
+              disabled={!devolucaoConfirmando || !assinaturaDataUrl || confirmarSolicitacaoMutation.isPending}
+            >
+              {confirmarSolicitacaoMutation.isPending ? "Confirmando..." : "Confirmar devolução"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Tela de assinatura */}
+      <SignatureFullScreen
+        open={showSignatureScreen}
+        onClose={() => {
+          setShowSignatureScreen(false);
+          if (devolucaoConfirmando) {
+            setTimeout(() => setConfirmDialog(true), 100);
+          }
+        }}
+        onSave={(dataUrl) => {
+          setAssinaturaDataUrl(dataUrl);
+          setShowSignatureScreen(false);
+          if (devolucaoConfirmando) {
+            setTimeout(() => setConfirmDialog(true), 100);
+          }
+        }}
+        titulo="Assinatura - Confirmação de Devolução"
+      />
     </div>
   );
 }

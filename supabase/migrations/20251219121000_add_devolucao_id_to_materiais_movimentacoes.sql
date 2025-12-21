@@ -5,3 +5,4 @@ REFERENCES public.materiais_devolucoes(id)
 ON DELETE SET NULL;
 
 
+
