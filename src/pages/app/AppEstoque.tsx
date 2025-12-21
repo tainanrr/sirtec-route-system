@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
@@ -13,6 +13,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Separator } from "@/components/ui/separator";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Dialog,
   DialogContent,
@@ -167,6 +169,8 @@ export default function AppEstoque() {
   );
   const [searchTerm, setSearchTerm] = useState(initialState?.searchTerm || "");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [showOnlyLowStock, setShowOnlyLowStock] = useState(false);
+  const [pendentesOpen, setPendentesOpen] = useState(false);
 
   const handleBack = () => {
     const parent = getAppParentRoute(location.pathname);
@@ -345,6 +349,24 @@ export default function AppEstoque() {
       );
 
       return entregasComItens as EntregaPendente[];
+    },
+    enabled: !!equipeId,
+  });
+
+  // Query para devoluções pendentes de confirmação (solicitadas pelo almoxarifado)
+  const { data: devolucoesPendentesConfirmacao } = useQuery({
+    queryKey: ["devolucoes-pendentes-confirmacao-equipe", equipeId, refreshKey],
+    queryFn: async () => {
+      if (!equipeId) return [];
+      const { data, error } = await (supabase as any)
+        .from("materiais_devolucoes")
+        .select("id, status, created_at, observacao")
+        .eq("equipe_id", equipeId)
+        .eq("status", "pendente_confirmacao_equipe")
+        .order("created_at", { ascending: false })
+        .limit(10);
+      if (error) throw error;
+      return data || [];
     },
     enabled: !!equipeId,
   });
@@ -929,6 +951,8 @@ export default function AppEstoque() {
 
   // Filtrar estoque por busca
   const estoqueFiltrado = estoqueEquipe?.filter((item) => {
+    const isBaixo = item.quantidade <= item.materiais.estoque_minimo;
+    if (showOnlyLowStock && !isBaixo) return false;
     if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
     return (
@@ -936,6 +960,24 @@ export default function AppEstoque() {
       item.materiais.nome.toLowerCase().includes(term)
     );
   });
+
+  const estoqueAgrupado = useMemo(() => {
+    const map = new Map<string, EstoqueItem[]>();
+    (estoqueFiltrado || []).forEach((item) => {
+      const cat = item.materiais.categoria?.trim() || "Sem categoria";
+      const list = map.get(cat) || [];
+      list.push(item);
+      map.set(cat, list);
+    });
+
+    const categorias = Array.from(map.keys()).sort((a, b) => a.localeCompare(b, "pt-BR"));
+    return categorias.map((categoria) => {
+      const itens = (map.get(categoria) || []).sort((a, b) =>
+        a.materiais.codigo.localeCompare(b.materiais.codigo, "pt-BR", { numeric: true })
+      );
+      return { categoria, itens };
+    });
+  }, [estoqueFiltrado]);
 
   // Calcular estatísticas
   const totalItens = estoqueEquipe?.length || 0;
@@ -974,90 +1016,199 @@ export default function AppEstoque() {
               Materiais disponíveis para uso
             </p>
           </div>
-          <Button variant="ghost" size="icon" onClick={() => setRefreshKey((k) => k + 1)}>
-            <RefreshCw className="h-5 w-5" />
-          </Button>
         </div>
       </div>
 
       <div className="p-4 space-y-4">
-        {/* Alertas de Entregas Pendentes */}
-        {entregasPendentes && entregasPendentes.length > 0 && (
-          <div className="space-y-2">
-            {entregasPendentes.map((entrega) => (
-              <Card 
-                key={entrega.id}
-                className="bg-amber-50 border-amber-200 cursor-pointer hover:bg-amber-100 transition-colors"
-                onClick={() => handleAbrirConfirmacao(entrega)}
-              >
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-amber-100 rounded-full">
-                      <Package className="h-5 w-5 text-amber-600" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="font-medium text-amber-800">
-                        Entrega de {entrega.itens?.length || 0} material(is)
-                      </p>
-                      <p className="text-sm text-amber-700">
-                        {format(new Date(entrega.data_entrega), "dd/MM/yyyy")} - Toque para confirmar
-                      </p>
-                    </div>
-                    <ChevronRight className="h-5 w-5 text-amber-600" />
+        {/* Devoluções pendentes (almoxarifado → equipe confirma) */}
+        {devolucoesPendentesConfirmacao && devolucoesPendentesConfirmacao.length > 0 && (
+          <Card className="border-violet-200 bg-violet-50">
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3 min-w-0">
+                  <div className="p-2 bg-violet-100 rounded-lg shrink-0">
+                    <Package className="h-5 w-5 text-violet-700" />
                   </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-
-        {/* KPIs */}
-        <div className="grid grid-cols-2 gap-3">
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-muted-foreground">Itens em Estoque</p>
-                  <p className="text-2xl font-bold">{totalItens}</p>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-violet-900">Devolução pendente</p>
+                    <p className="text-xs text-violet-800/80">
+                      {devolucoesPendentesConfirmacao.length} solicitação(ões) aguardando sua confirmação
+                    </p>
+                  </div>
                 </div>
-                <Package className="h-8 w-8 text-emerald-500 opacity-60" />
+                <Button
+                  size="sm"
+                  className="shrink-0 bg-violet-600 hover:bg-violet-700"
+                  onClick={() => navigate("/app/estoque/devolucoes")}
+                >
+                  Confirmar
+                </Button>
               </div>
+
+              <Collapsible open={pendentesOpen} onOpenChange={setPendentesOpen}>
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" size="sm" className="px-0 h-auto text-violet-800 hover:bg-transparent">
+                    {pendentesOpen ? "Ocultar detalhes" : "Ver detalhes"}
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="space-y-2">
+                  <div className="rounded-lg border border-violet-200 bg-white overflow-hidden">
+                    {devolucoesPendentesConfirmacao.map((dev: any, idx: number) => (
+                      <div key={dev.id}>
+                        <button
+                          type="button"
+                          className="w-full text-left p-3 hover:bg-violet-50 transition-colors"
+                          onClick={() => navigate("/app/estoque/devolucoes")}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-violet-900">
+                                Solicitação {String(dev.id).slice(0, 8).toUpperCase()}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {format(new Date(dev.created_at), "dd/MM/yyyy HH:mm")}
+                                {dev.observacao ? ` • ${dev.observacao}` : ""}
+                              </p>
+                            </div>
+                            <ChevronRight className="h-4 w-4 text-violet-700" />
+                          </div>
+                        </button>
+                        {idx < devolucoesPendentesConfirmacao.length - 1 && <Separator />}
+                      </div>
+                    ))}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
             </CardContent>
           </Card>
+        )}
 
-          <Card className={itensBaixos > 0 ? "border-amber-300 bg-amber-50" : ""}>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-muted-foreground">Estoque Baixo</p>
-                  <p className={`text-2xl font-bold ${itensBaixos > 0 ? "text-amber-600" : ""}`}>
-                    {itensBaixos}
+        {/* Entregas pendentes (resumo) */}
+        {entregasPendentes && entregasPendentes.length > 0 && (
+          <Card className="border-amber-200 bg-amber-50">
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3 min-w-0">
+                  <div className="p-2 bg-amber-100 rounded-lg shrink-0">
+                    <Package className="h-5 w-5 text-amber-700" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-amber-900">Recebimento pendente</p>
+                    <p className="text-xs text-amber-800/80">
+                      {entregasPendentes.length} entrega(s) aguardando sua assinatura
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  className="shrink-0 bg-amber-600 hover:bg-amber-700"
+                  onClick={() => handleAbrirConfirmacao(entregasPendentes[0])}
+                >
+                  Confirmar
+                </Button>
+              </div>
+
+              <Collapsible open={pendentesOpen} onOpenChange={setPendentesOpen}>
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" size="sm" className="px-0 h-auto text-amber-800 hover:bg-transparent">
+                    {pendentesOpen ? "Ocultar detalhes" : "Ver detalhes"}
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="space-y-2">
+                  <div className="rounded-lg border border-amber-200 bg-white overflow-hidden">
+                    {entregasPendentes.map((entrega, idx) => (
+                      <div key={entrega.id}>
+                        <button
+                          type="button"
+                          className="w-full text-left p-3 hover:bg-amber-50 transition-colors"
+                          onClick={() => handleAbrirConfirmacao(entrega)}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-amber-900">
+                                {entrega.itens?.length || 0} item(ns)
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {format(new Date(entrega.data_entrega), "dd/MM/yyyy")}
+                                {entrega.observacao ? ` • ${entrega.observacao}` : ""}
+                              </p>
+                            </div>
+                            <ChevronRight className="h-4 w-4 text-amber-700" />
+                          </div>
+                        </button>
+                        {idx < entregasPendentes.length - 1 && <Separator />}
+                      </div>
+                    ))}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Resumo compacto */}
+        <Card>
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold">Resumo</p>
+                <p className="text-xs text-muted-foreground">Visão rápida do seu estoque</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-lg border p-3">
+                <p className="text-xs text-muted-foreground">Itens diferentes</p>
+                <p className="text-xl font-semibold">{totalItens}</p>
+              </div>
+              <button
+                type="button"
+                className={`rounded-lg border p-3 text-left transition-colors ${
+                  itensBaixos > 0 ? "border-amber-300 bg-amber-50 hover:bg-amber-100/50" : "hover:bg-muted/30"
+                }`}
+                onClick={() => {
+                  setActiveTab("estoque");
+                  setShowOnlyLowStock(true);
+                }}
+              >
+                <p className="text-xs text-muted-foreground">Estoque baixo</p>
+                <div className="flex items-center justify-between">
+                  <p className={`text-xl font-semibold ${itensBaixos > 0 ? "text-amber-700" : ""}`}>{itensBaixos}</p>
+                  <AlertTriangle className={`h-4 w-4 ${itensBaixos > 0 ? "text-amber-600" : "text-muted-foreground/40"}`} />
+                </div>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                className="rounded-lg border p-3 text-left hover:bg-muted/30 transition-colors"
+                onClick={() => setActiveTab("serializados")}
+              >
+                <p className="text-xs text-muted-foreground">Rastros</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-xl font-semibold">{materiaisSerializados?.length || 0}</p>
+                  <Zap className="h-4 w-4 text-violet-600" />
+                </div>
+              </button>
+              <button
+                type="button"
+                className={`rounded-lg border p-3 text-left transition-colors ${
+                  materiaisEmAlerta.length > 0 ? "border-orange-300 bg-orange-50 hover:bg-orange-100/50" : "hover:bg-muted/30"
+                }`}
+                onClick={() => setActiveTab("serializados")}
+              >
+                <p className="text-xs text-muted-foreground">Alertas de rastro</p>
+                <div className="flex items-center justify-between">
+                  <p className={`text-xl font-semibold ${materiaisEmAlerta.length > 0 ? "text-orange-700" : ""}`}>
+                    {materiaisEmAlerta.length}
                   </p>
+                  <AlertTriangle className={`h-4 w-4 ${materiaisEmAlerta.length > 0 ? "text-orange-600" : "text-muted-foreground/40"}`} />
                 </div>
-                <AlertTriangle className={`h-8 w-8 ${itensBaixos > 0 ? "text-amber-500" : "text-gray-300"}`} />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Alerta compacto de Materiais com Rastro */}
-        {materiaisEmAlerta.length > 0 && (
-          <Card className="border-orange-300 bg-orange-50">
-            <CardContent className="p-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-orange-600" />
-                  <span className="text-sm font-medium text-orange-700">
-                    {materiaisEmAlerta.length} material(is) com rastro em alerta
-                  </span>
-                </div>
-                <Badge variant="outline" className="bg-orange-100 text-orange-700 border-orange-300 text-xs">
-                  Ver em Rastro
-                </Badge>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+              </button>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Tabs */}
         <Tabs
@@ -1072,107 +1223,152 @@ export default function AppEstoque() {
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="estoque">Estoque</TabsTrigger>
             <TabsTrigger value="serializados">
-              Rastro {materiaisSerializados?.length ? `(${materiaisSerializados.length})` : ""}
+              Rastro{materiaisSerializados?.length ? ` (${materiaisSerializados.length})` : ""}
+              {materiaisEmAlerta.length > 0 ? (
+                <span className="ml-2 inline-flex items-center rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-medium text-orange-700">
+                  {materiaisEmAlerta.length}
+                </span>
+              ) : null}
             </TabsTrigger>
             <TabsTrigger value="historico">Histórico</TabsTrigger>
           </TabsList>
 
           <TabsContent value="estoque" className="mt-4 space-y-4">
-            {/* Ações rápidas */}
-            <Card className="border-violet-200 bg-violet-50">
-              <CardContent className="p-3 flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-violet-800">Devolução ao Almoxarifado</p>
-                  <p className="text-xs text-violet-700/80 line-clamp-1">
-                    Envie materiais para o almoxarifado confirmar
-                  </p>
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between gap-3">
+                  <CardTitle className="text-base">Materiais</CardTitle>
+                  <Button size="sm" onClick={() => navigate("/app/estoque/devolucoes")}>
+                    <Package className="h-4 w-4 mr-2" />
+                    Devolver
+                  </Button>
                 </div>
-                <Button
-                  size="sm"
-                  className="shrink-0"
-                  onClick={() => navigate("/app/estoque/devolucoes")}
-                >
-                  <Package className="h-4 w-4 mr-2" />
-                  Devolver
-                </Button>
+                <p className="text-xs text-muted-foreground">
+                  Busque por código/nome e use “Baixo” para focar no que precisa de reposição.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Buscar material..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant={showOnlyLowStock ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setShowOnlyLowStock((v) => !v)}
+                    className={showOnlyLowStock ? "bg-amber-600 hover:bg-amber-700" : ""}
+                  >
+                    <AlertTriangle className="h-4 w-4 mr-2" />
+                    Baixo
+                  </Button>
+                </div>
+
+                {showOnlyLowStock && (
+                  <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-2">
+                    Mostrando apenas itens com estoque abaixo do mínimo.
+                  </div>
+                )}
+
+                {/* Lista agrupada */}
+                {isLoading ? (
+                  <div className="space-y-3">
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <Skeleton key={i} className="h-16 w-full" />
+                    ))}
+                  </div>
+                ) : estoqueAgrupado.length > 0 ? (
+                  <div className="space-y-4">
+                    {estoqueAgrupado.map((grupo) => (
+                      <div key={grupo.categoria} className="space-y-2">
+                        <div className="flex items-center justify-between px-1">
+                          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                            {grupo.categoria}
+                          </p>
+                          <Badge variant="secondary" className="text-xs">
+                            {grupo.itens.length}
+                          </Badge>
+                        </div>
+
+                        <div className="rounded-lg border overflow-hidden bg-background">
+                          {grupo.itens.map((item, idx) => {
+                            const isBaixo = item.quantidade <= item.materiais.estoque_minimo;
+                            return (
+                              <div key={item.id}>
+                                <div className="p-3">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="font-mono text-sm font-semibold">
+                                          {item.materiais.codigo}
+                                        </span>
+                                        {item.materiais.requer_serial && (
+                                          <Badge variant="outline" className="text-[10px]">
+                                            SR
+                                          </Badge>
+                                        )}
+                                        {isBaixo && (
+                                          <Badge className="bg-amber-100 text-amber-800 border-0 text-[10px]">
+                                            Baixo
+                                          </Badge>
+                                        )}
+                                      </div>
+                                      <p className="text-xs text-muted-foreground line-clamp-1">
+                                        {item.materiais.nome}
+                                      </p>
+                                      {isBaixo && (
+                                        <p className="text-[11px] text-amber-700 mt-1">
+                                          Mínimo: {item.materiais.estoque_minimo}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                      <p className={`text-lg font-semibold leading-none ${isBaixo ? "text-amber-700" : ""}`}>
+                                        {item.quantidade}
+                                      </p>
+                                      <p className="text-[10px] text-muted-foreground mt-1">
+                                        {item.materiais.unidade}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                                {idx < grupo.itens.length - 1 && <Separator />}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-8 text-center">
+                    <Package className="h-12 w-12 mx-auto text-muted-foreground/30 mb-3" />
+                    <p className="text-muted-foreground">
+                      {searchTerm || showOnlyLowStock ? "Nenhum material encontrado" : "Seu estoque está vazio"}
+                    </p>
+                    {(searchTerm || showOnlyLowStock) && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="mt-3"
+                        onClick={() => {
+                          setSearchTerm("");
+                          setShowOnlyLowStock(false);
+                        }}
+                      >
+                        Limpar filtros
+                      </Button>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
-
-            {/* Busca */}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Buscar material..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-
-            {/* Lista de Materiais */}
-            {isLoading ? (
-              <div className="space-y-3">
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <Skeleton key={i} className="h-20 w-full" />
-                ))}
-              </div>
-            ) : estoqueFiltrado && estoqueFiltrado.length > 0 ? (
-              <div className="space-y-2">
-                {estoqueFiltrado.map((item) => {
-                  const isBaixo = item.quantidade <= item.materiais.estoque_minimo;
-
-                  return (
-                    <Card
-                      key={item.id}
-                      className={isBaixo ? "border-amber-300 bg-amber-50/50" : ""}
-                    >
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className={`p-2 rounded-lg ${isBaixo ? "bg-amber-100" : "bg-emerald-100"}`}>
-                              {item.materiais.requer_serial ? (
-                                <Zap className={`h-5 w-5 ${isBaixo ? "text-amber-600" : "text-emerald-600"}`} />
-                              ) : (
-                                <Package className={`h-5 w-5 ${isBaixo ? "text-amber-600" : "text-emerald-600"}`} />
-                              )}
-                            </div>
-                            <div>
-                              <p className="font-medium text-sm">{item.materiais.codigo}</p>
-                              <p className="text-xs text-muted-foreground line-clamp-1">
-                                {item.materiais.nome}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className={`text-xl font-bold ${isBaixo ? "text-amber-600" : ""}`}>
-                              {item.quantidade}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {item.materiais.unidade}
-                            </p>
-                          </div>
-                        </div>
-                        {isBaixo && (
-                          <div className="mt-2 flex items-center gap-1 text-amber-600">
-                            <AlertTriangle className="h-3 w-3" />
-                            <span className="text-xs">Estoque baixo (mín: {item.materiais.estoque_minimo})</span>
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            ) : (
-              <Card>
-                <CardContent className="p-8 text-center">
-                  <Package className="h-12 w-12 mx-auto text-muted-foreground/30 mb-3" />
-                  <p className="text-muted-foreground">
-                    {searchTerm ? "Nenhum material encontrado" : "Seu estoque está vazio"}
-                  </p>
-                </CardContent>
-              </Card>
-            )}
           </TabsContent>
 
           <TabsContent value="serializados" className="mt-4">

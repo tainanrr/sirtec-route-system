@@ -1118,8 +1118,6 @@ export default function ConsultaChecklists() {
 
   const isDevolucoes = filtroTipo === "devolucoes";
   const incluirDevolucoesAutomaticamente = filtroTipo === "todos" && filtroStatus === "todos" && !searchTerm.startsWith("#");
-  const loadingLista = (!isDevolucoes && isLoading) || ((isDevolucoes || incluirDevolucoesAutomaticamente) && loadingDevolucoes);
-  const hasChecklistNaPagina = linhasPagina.some((l) => l.kind === "checklist");
 
   type LinhaConsulta =
     | { kind: "checklist"; row: ChecklistRespostaSimples; created_at: string }
@@ -1149,6 +1147,13 @@ export default function ConsultaChecklists() {
     const end = start + ITEMS_PER_PAGE;
     return linhasOrdenadas.slice(start, end);
   }, [linhasOrdenadas, currentPage]);
+
+  const loadingLista =
+    (!isDevolucoes && isLoading) || ((isDevolucoes || incluirDevolucoesAutomaticamente) && loadingDevolucoes);
+
+  const hasChecklistNaPagina = useMemo(() => {
+    return linhasPagina.some((l) => l.kind === "checklist");
+  }, [linhasPagina]);
 
   const todosNaPaginaSelecionados = useMemo(() => {
     const ids = linhasPagina.filter((l) => l.kind === "checklist").map((l) => (l.row as ChecklistRespostaSimples).id);

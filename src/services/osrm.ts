@@ -1,5 +1,5 @@
 // Serviço para comunicação com a API OSRM (Open Source Routing Machine)
-// API pública: http://router.project-osrm.org
+// API pública: https://router.project-osrm.org
 
 export interface OSRMRouteResponse {
   code: string;
@@ -39,6 +39,9 @@ export interface OSRMTableResponse {
 // Cache em memória: chave é uma string concatenada das coordenadas
 const routeCache = new Map<string, RouteGeometry>();
 const matrixCache = new Map<string, number[][]>();
+
+// Base URL (HTTPS evita problemas de mixed-content em produção)
+const OSRM_BASE_URL = "https://router.project-osrm.org";
 
 /**
  * Gera uma chave única para o cache baseada nas coordenadas
@@ -87,7 +90,7 @@ export async function buscarRotaOSRM(
     
     // Construir URL da API
     const coordsString = osrmCoords.map(([lon, lat]) => `${lon},${lat}`).join(';');
-    const url = `http://router.project-osrm.org/route/v1/driving/${coordsString}?overview=full&geometries=geojson`;
+    const url = `${OSRM_BASE_URL}/route/v1/driving/${coordsString}?overview=full&geometries=geojson`;
 
     console.log('[OSRM] Buscando rota:', url);
 
@@ -183,7 +186,7 @@ export async function getTravelTimeMatrix(
     
     // Construir URL da API Table
     const coordsString = osrmCoords.map(([lon, lat]) => `${lon},${lat}`).join(';');
-    const url = `http://router.project-osrm.org/table/v1/driving/${coordsString}?annotations=duration`;
+    const url = `${OSRM_BASE_URL}/table/v1/driving/${coordsString}?annotations=duration`;
 
     console.log('[OSRM] Buscando matriz de tempos:', url);
 
