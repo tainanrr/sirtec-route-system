@@ -32,6 +32,7 @@ import {
   Trash,
   Globe,
   Loader2,
+  X,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -137,56 +138,55 @@ const OrdensServico = () => {
     setOrdemToDelete(null);
   };
 
-  const handleClearAll = async () => {
+  const handleCancelAll = async () => {
     try {
-      // Buscar todos os IDs primeiro
-      const { data: ordensData, error: fetchError } = await supabase
+      // Contar quantas ordens não estão canceladas
+      const { count, error: countError } = await supabase
         .from("ordens_servico")
-        .select("id");
+        .select("*", { count: "exact", head: true })
+        .neq("status", "cancelada");
 
-      if (fetchError) {
+      if (countError) {
         toast.error("Erro ao buscar ordens de serviço");
         setClearAllDialogOpen(false);
         return;
       }
 
-      if (!ordensData || ordensData.length === 0) {
-        toast.info("Não há ordens de serviço para excluir");
+      if (!count || count === 0) {
+        toast.info("Não há ordens de serviço para cancelar (todas já estão canceladas)");
         setClearAllDialogOpen(false);
         return;
       }
 
-      // Deletar em lotes para evitar problemas com muitas linhas
-      const batchSize = 100;
-      const ids = ordensData.map(os => os.id);
-      let deleted = 0;
-      let errors = 0;
+      toast.info(`Cancelando ${count} ordens de serviço...`);
 
-      for (let i = 0; i < ids.length; i += batchSize) {
-        const batch = ids.slice(i, i + batchSize);
-        const { error } = await supabase
-          .from("ordens_servico")
-          .delete()
-          .in("id", batch);
+      // Atualizar todas as ordens não canceladas de uma vez (sem filtro por ID)
+      const { error: updateError } = await supabase
+        .from("ordens_servico")
+        .update({ 
+          status: "cancelada",
+          equipe_planejada_id: null,
+          data_planejada: null
+        })
+        .neq("status", "cancelada");
 
-        if (error) {
-          console.error("Erro ao excluir lote:", error);
-          errors += batch.length;
-        } else {
-          deleted += batch.length;
-        }
-      }
-
-      if (errors > 0) {
-        toast.error(`Erro ao excluir ${errors} ordem(ns) de serviço`);
+      if (updateError) {
+        console.error("Erro ao cancelar ordens:", updateError);
+        toast.error(`Erro ao cancelar ordens de serviço: ${updateError.message}`);
       } else {
-        toast.success(`${deleted} ordem(ns) de serviço excluída(s) com sucesso!`);
+        // Limpar todos os planejamentos de ordens
+        await supabase
+          .from("planejamento_ordens")
+          .delete()
+          .not("ordem_servico_id", "is", null);
+
+        toast.success(`${count} ordem(ns) de serviço cancelada(s) com sucesso!`);
       }
 
       fetchOrdens();
     } catch (error: any) {
-      console.error("Erro ao excluir ordens:", error);
-      toast.error(`Erro ao excluir ordens de serviço: ${error.message}`);
+      console.error("Erro ao cancelar ordens:", error);
+      toast.error(`Erro ao cancelar ordens de serviço: ${error.message}`);
     }
     
     setClearAllDialogOpen(false);
@@ -761,9 +761,9 @@ const OrdensServico = () => {
                 Geocodificar ({ordensSemCoordenadas.length})
               </Button>
             )}
-            <Button variant="destructive" className="gap-2" onClick={() => setClearAllDialogOpen(true)}>
-              <Trash className="h-4 w-4" />
-              Limpar Tudo
+            <Button variant="outline" className="gap-2 border-orange-500 text-orange-600 hover:bg-orange-50 hover:text-orange-700" onClick={() => setClearAllDialogOpen(true)}>
+              <X className="h-4 w-4" />
+              Cancelar Todas
             </Button>
             <Button className="gap-2" onClick={() => { setSelectedOrdem(null); setFormOpen(true); }}>
               <Plus className="h-4 w-4" />
@@ -937,15 +937,19 @@ const OrdensServico = () => {
       <AlertDialog open={clearAllDialogOpen} onOpenChange={setClearAllDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Limpar todas as ordens de serviço</AlertDialogTitle>
+            <AlertDialogTitle>Cancelar todas as ordens de serviço</AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja excluir TODAS as {ordens.length} ordem(ns) de serviço? Esta ação não pode ser desfeita.
+              Tem certeza que deseja cancelar TODAS as {ordens.filter(o => o.status !== "cancelada").length} ordem(ns) de serviço ativas?
+              <br /><br />
+              <span className="text-muted-foreground">
+                As ordens canceladas ficarão no histórico mas não aparecerão para roteirização.
+              </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={handleClearAll} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Limpar Tudo
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleCancelAll} className="bg-orange-600 text-white hover:bg-orange-700">
+              Cancelar Todas
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
