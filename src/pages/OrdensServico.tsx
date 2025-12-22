@@ -38,9 +38,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { OrdemServicoFormDialog } from "@/components/ordens/OrdemServicoFormDialog";
 import { OrdemServicoDetalhesDialog } from "@/components/ordens/OrdemServicoDetalhesDialog";
+import { ImportacaoOSDialog } from "@/components/ordens/ImportacaoOSDialog";
 import type { Tables } from "@/integrations/supabase/types";
 import * as XLSX from "xlsx";
-import { getDadosSkill, fetchSkills } from "@/lib/skillsUtils";
+import { fetchSkills } from "@/lib/skillsUtils";
 import { geocodeAddress } from "@/lib/geocodingUtils";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -367,239 +368,6 @@ const OrdensServico = () => {
     
     // Tentar converter diretamente
     return tipo.toUpperCase();
-  };
-
-  const handleImportExcel = async (file: File) => {
-    try {
-      // Buscar skills disponíveis do banco
-      const skillsDisponiveis = await fetchSkills();
-      const codigosSkillsValidos = new Set(skillsDisponiveis.map(s => s.codigo.toUpperCase()));
-      const tiposValidos = new Set(skillsDisponiveis.map(s => skillCodigoParaTipo(s.codigo)));
-
-      // Ler arquivo Excel
-      const arrayBuffer = await file.arrayBuffer();
-      const workbook = XLSX.read(arrayBuffer, { type: "array" });
-      
-      // Pegar primeira planilha
-      const firstSheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[firstSheetName];
-      
-      // Converter para JSON com raw: false para obter datas como strings formatadas
-      // Isso evita problemas de timezone ao processar datas
-      const rows = XLSX.utils.sheet_to_json(worksheet, { 
-        raw: false,
-        defval: ""
-      }) as Record<string, any>[];
-
-      if (rows.length === 0) {
-        toast.error("Nenhuma linha válida encontrada no arquivo Excel.");
-        return;
-      }
-
-      // Validar tipos antes de processar
-      const tiposInvalidos: string[] = [];
-      const tiposEncontrados = new Set<string>();
-      
-      rows.forEach((row, index) => {
-        const tipo = (row.tipo || "").toString().toLowerCase().trim();
-        if (!tipo) {
-          tiposInvalidos.push(`Linha ${index + 2}: Tipo vazio`);
-          return;
-        }
-        
-        tiposEncontrados.add(tipo);
-        
-        // Verificar se o tipo existe no cadastro de Skills
-        if (!tiposValidos.has(tipo)) {
-          tiposInvalidos.push(`Linha ${index + 2}: Tipo "${tipo}" não encontrado no cadastro de Skills`);
-        }
-      });
-
-      if (tiposInvalidos.length > 0) {
-        toast.error(
-          `Erro de validação: ${tiposInvalidos.length} tipo(s) inválido(s). ` +
-          `Tipos válidos: ${Array.from(tiposValidos).join(", ")}`,
-          { duration: 10000 }
-        );
-        console.error("Tipos inválidos:", tiposInvalidos);
-        return;
-      }
-
-      // Buscar todos os tipos únicos para obter dados das Skills em lote
-      const tiposUnicos = new Set<string>();
-      rows.forEach(row => {
-        const tipo = (row.tipo || "").toString().toLowerCase().trim();
-        const skillCodigo = tipoParaSkillCodigo(tipo);
-        tiposUnicos.add(skillCodigo);
-      });
-
-      // Buscar dados das Skills
-      const skillsData = new Map<string, { tempoExecucao: number; valor: number; regulada: boolean }>();
-      for (const tipoSkill of tiposUnicos) {
-        try {
-          const dados = await getDadosSkill(tipoSkill);
-          skillsData.set(tipoSkill, dados);
-        } catch (error) {
-          console.warn(`[IMPORT] Skill "${tipoSkill}" não encontrada, usando valores padrão`);
-          skillsData.set(tipoSkill, { tempoExecucao: 15, valor: 0, regulada: false });
-        }
-      }
-
-      // Converter para formato do banco
-      const ordensToInsert = rows.map(row => {
-        const tipo = (row.tipo || "corte").toString().toLowerCase().trim();
-        const skillCodigo = tipoParaSkillCodigo[tipo] || tipo.toUpperCase();
-        const skillDados = skillsData.get(skillCodigo) || { tempoExecucao: 15, valor: 0, regulada: false };
-
-        // Processar prazo - IMPORTANTE: Preservar exatamente a data/hora digitada
-        // O Excel retorna como string formatada quando raw: false
-        let prazo: string | null = null;
-        if (row.prazo) {
-          const prazoValue = row.prazo;
-          
-          // Se for string (formato brasileiro ou outro), processar diretamente
-          if (typeof prazoValue === "string" && prazoValue.trim()) {
-            const prazoStr = prazoValue.trim();
-            // Tentar parsear formato brasileiro DD/MM/YYYY HH:mm ou DD/MM/YYYY HH:MM
-            const brasileiroMatch = prazoStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{1,2}))?/);
-            if (brasileiroMatch) {
-              const [, dia, mes, ano, hora = "0", minuto = "0"] = brasileiroMatch;
-              // Criar data no timezone local com os valores exatos digitados
-              const dateLocal = new Date(
-                parseInt(ano),
-                parseInt(mes) - 1,
-                parseInt(dia),
-                parseInt(hora),
-                parseInt(minuto),
-                0,
-                0
-              );
-              
-              if (!isNaN(dateLocal.getTime())) {
-                // Converter para ISO (UTC) - isso preserva o momento correto
-                prazo = dateLocal.toISOString();
-              }
-            } else {
-              // Tentar parsear outros formatos
-              const date = new Date(prazoStr);
-              if (!isNaN(date.getTime())) {
-                prazo = date.toISOString();
-              }
-            }
-          } else if (prazoValue instanceof Date) {
-            // Se ainda for Date object, extrair componentes locais e recriar
-            const dateLocal = new Date(
-              prazoValue.getFullYear(),
-              prazoValue.getMonth(),
-              prazoValue.getDate(),
-              prazoValue.getHours(),
-              prazoValue.getMinutes(),
-              0,
-              0
-            );
-            if (!isNaN(dateLocal.getTime())) {
-              prazo = dateLocal.toISOString();
-            }
-          } else if (typeof prazoValue === "number") {
-            // Excel serial date - converter para local primeiro
-            const excelEpoch = new Date(1899, 11, 30);
-            const dateLocal = new Date(excelEpoch.getTime() + prazoValue * 86400000);
-            // Recriar com componentes locais para evitar problemas de timezone
-            const dateRecriada = new Date(
-              dateLocal.getFullYear(),
-              dateLocal.getMonth(),
-              dateLocal.getDate(),
-              dateLocal.getHours(),
-              dateLocal.getMinutes(),
-              0,
-              0
-            );
-            if (!isNaN(dateRecriada.getTime())) {
-              prazo = dateRecriada.toISOString();
-            }
-          }
-        }
-
-        // Regulada sempre vem do cadastro de Skills
-        return {
-          numero: (row.numero || "").toString().trim(),
-          tipo: tipo,
-          status: (row.status || "pendente").toString().toLowerCase(),
-          endereco: (row.endereco || "").toString().trim(),
-          cliente_nome: row.cliente_nome ? row.cliente_nome.toString().trim() : null,
-          cliente_cpf: row.cliente_cpf ? row.cliente_cpf.toString().trim() : null,
-          instalacao: row.instalacao ? row.instalacao.toString().trim() : null,
-          medidor: row.medidor ? row.medidor.toString().trim() : null,
-          duracao_estimada: skillDados.tempoExecucao,
-          valor: skillDados.valor,
-          regulada: skillDados.regulada,
-          prazo: prazo,
-          latitude: row.latitude ? (() => {
-            if (typeof row.latitude === "number") return row.latitude;
-            const latStr = row.latitude.toString().trim();
-            // Se contém vírgula, substituir por ponto (formato brasileiro)
-            const latNormalized = latStr.includes(",") ? latStr.replace(",", ".") : latStr;
-            const latNum = parseFloat(latNormalized);
-            return isNaN(latNum) ? null : latNum;
-          })() : null,
-          longitude: row.longitude ? (() => {
-            if (typeof row.longitude === "number") return row.longitude;
-            const lngStr = row.longitude.toString().trim();
-            // Se contém vírgula, substituir por ponto (formato brasileiro)
-            const lngNormalized = lngStr.includes(",") ? lngStr.replace(",", ".") : lngStr;
-            const lngNum = parseFloat(lngNormalized);
-            return isNaN(lngNum) ? null : lngNum;
-          })() : null,
-          observacoes: row.observacoes ? row.observacoes.toString().trim() : null,
-        };
-      });
-
-      // Inserir no banco em lotes
-      const batchSize = 100;
-      let inserted = 0;
-      let errors = 0;
-
-      for (let i = 0; i < ordensToInsert.length; i += batchSize) {
-        const batch = ordensToInsert.slice(i, i + batchSize);
-        const { error } = await supabase
-          .from("ordens_servico")
-          .insert(batch);
-
-        if (error) {
-          console.error("Erro ao inserir lote:", error);
-          errors += batch.length;
-        } else {
-          inserted += batch.length;
-        }
-      }
-
-      if (inserted > 0) {
-        toast.success(`${inserted} ordem(ns) de serviço importada(s) com sucesso!`);
-        fetchOrdens();
-      }
-      
-      if (errors > 0) {
-        toast.error(`${errors} ordem(ns) não puderam ser importadas. Verifique o console para detalhes.`);
-      }
-
-      setImportDialogOpen(false);
-    } catch (error: any) {
-      console.error("Erro ao processar Excel:", error);
-      toast.error(`Erro ao importar Excel: ${error.message}`);
-    }
-  };
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (!file.name.endsWith(".xlsx") && !file.name.endsWith(".xls")) {
-        toast.error("Por favor, selecione um arquivo Excel (.xlsx ou .xls).");
-        return;
-      }
-      handleImportExcel(file);
-    }
-    // Resetar o input para permitir selecionar o mesmo arquivo novamente
-    e.target.value = "";
   };
 
   // Contar OSs sem coordenadas
@@ -955,30 +723,11 @@ const OrdensServico = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Importar Ordens de Serviço</AlertDialogTitle>
-            <AlertDialogDescription>
-              Selecione um arquivo Excel (.xlsx) com as ordens de serviço para importação em massa.
-              Use o botão "Modelo de Importação" para baixar um exemplo do formato esperado.
-              <br />
-              <strong>Nota:</strong> Os campos "duracao_estimada", "valor" e "regulada" serão preenchidos automaticamente com base no cadastro de Skills.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="py-4">
-            <Input
-              type="file"
-              accept=".xlsx,.xls"
-              onChange={handleFileSelect}
-              className="cursor-pointer"
-            />
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ImportacaoOSDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
+        onSuccess={fetchOrdens}
+      />
 
       {/* Dialog de Detalhes da OS */}
       <OrdemServicoDetalhesDialog
