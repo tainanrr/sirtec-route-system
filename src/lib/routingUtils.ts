@@ -908,7 +908,7 @@ export async function otimizarRotas(
   };
   
   if (usarTerritorios) {
-    const territorios = carregarTerritorios();
+    const territorios = await carregarTerritorios();
     // Filtrar apenas territórios ativos com equipe atribuída
     let territoriosFiltrados = territorios.filter(t => t.ativo && t.equipeIds && t.equipeIds.length > 0);
     

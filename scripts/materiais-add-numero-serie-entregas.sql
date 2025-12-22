@@ -8,3 +8,4 @@ COMMENT ON COLUMN materiais_entregas_itens.numero_serie IS 'Número de série/ra
 
 
 
+

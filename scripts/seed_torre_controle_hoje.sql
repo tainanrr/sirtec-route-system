@@ -348,3 +348,4 @@ COMMIT;
 -- - Linha do Tempo: ver blocos, eventos e exceções
 -- - Mapa: ver rota planejada + trilha executada (EQ-001/EQ-002)
 
+

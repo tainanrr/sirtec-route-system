@@ -214,15 +214,18 @@ const Roteirizacao = () => {
     fetchEquipes();
   }, []);
 
-  // Carregar territórios do localStorage
+  // Carregar territórios do Supabase
   useEffect(() => {
-    const loaded = carregarTerritorios();
-    setTerritorios(loaded);
-    // Marcar todos os territórios ativos por padrão
-    const territoriosAtivos = loaded.filter(t => t.ativo && t.equipeIds && t.equipeIds.length > 0);
-    if (territoriosAtivos.length > 0) {
-      setTerritoriosSelecionados(territoriosAtivos.map(t => t.id));
-    }
+    const loadTerritorios = async () => {
+      const loaded = await carregarTerritorios();
+      setTerritorios(loaded);
+      // Marcar todos os territórios ativos por padrão
+      const territoriosAtivos = loaded.filter(t => t.ativo && t.equipeIds && t.equipeIds.length > 0);
+      if (territoriosAtivos.length > 0) {
+        setTerritoriosSelecionados(territoriosAtivos.map(t => t.id));
+      }
+    };
+    loadTerritorios();
   }, []);
 
   // Carregar ordens de serviço do Supabase
@@ -2249,15 +2252,22 @@ const Roteirizacao = () => {
                       ? territorios.filter(t => territoriosSelecionados.includes(t.id))
                       : territorios)
                   : []}
-                onTerritorioEditado={(territorioId, novoPoligono) => {
-                  const territoriosAtualizados = territorios.map((t) =>
-                    t.id === territorioId
-                      ? { ...t, poligono: novoPoligono, atualizadoEm: new Date() }
-                      : t
-                  );
-                  setTerritorios(territoriosAtualizados);
-                  salvarTerritorios(territoriosAtualizados);
-                  toast.success("Polígono atualizado com sucesso!");
+                onTerritorioEditado={async (territorioId, novoPoligono) => {
+                  const territorio = territorios.find(t => t.id === territorioId);
+                  if (territorio) {
+                    const territorioAtualizado = { 
+                      ...territorio, 
+                      poligono: novoPoligono, 
+                      atualizadoEm: new Date() 
+                    };
+                    const { salvarTerritorio } = await import("@/types/territorios");
+                    const saved = await salvarTerritorio(territorioAtualizado);
+                    if (saved) {
+                      const updated = await carregarTerritorios();
+                      setTerritorios(updated);
+                      toast.success("Polígono atualizado com sucesso!");
+                    }
+                  }
                 }}
               />
 

@@ -33,41 +33,119 @@ export function pontoNoPoligono(ponto: Coordenada, poligono: Coordenada[]): bool
   return dentro;
 }
 
-export function carregarTerritorios(): Territorio[] {
-  try {
-    const saved = localStorage.getItem('territorios');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      // Converter strings de data para objetos Date e migrar equipeId para equipeIds
-      return parsed.map((t: any) => {
-        // Migração: se tiver equipeId antigo, converter para equipeIds
-        let equipeIds: string[] = [];
-        if (t.equipeIds && Array.isArray(t.equipeIds)) {
-          equipeIds = t.equipeIds;
-        } else if (t.equipeId) {
-          // Migrar de equipeId único para array
-          equipeIds = [t.equipeId];
-        }
-        
-        return {
-          ...t,
-          equipeIds,
-          criadoEm: new Date(t.criadoEm),
-          atualizadoEm: new Date(t.atualizadoEm),
-        };
-      });
-    }
-  } catch (e) {
-    console.error('Erro ao carregar territórios:', e);
-  }
-  return [];
+import { supabase } from "@/integrations/supabase/client";
+
+// Converter do formato do banco para o formato da interface
+function dbToTerritorio(db: any): Territorio {
+  return {
+    id: db.id,
+    nome: db.nome,
+    cor: db.cor,
+    poligono: db.poligono || [],
+    equipeIds: db.equipe_ids || [],
+    ativo: db.ativo ?? true,
+    criadoEm: new Date(db.created_at),
+    atualizadoEm: new Date(db.updated_at),
+  };
 }
 
-export function salvarTerritorios(territorios: Territorio[]): void {
+// Converter do formato da interface para o formato do banco
+function territorioToDb(territorio: Territorio): any {
+  return {
+    nome: territorio.nome,
+    cor: territorio.cor,
+    poligono: territorio.poligono,
+    equipe_ids: territorio.equipeIds || [],
+    ativo: territorio.ativo ?? true,
+  };
+}
+
+export async function carregarTerritorios(): Promise<Territorio[]> {
   try {
-    localStorage.setItem('territorios', JSON.stringify(territorios));
+    const { data, error } = await supabase
+      .from("territorios")
+      .select("*")
+      .order("nome");
+
+    if (error) {
+      console.error("Erro ao carregar territórios:", error);
+      return [];
+    }
+
+    return (data || []).map(dbToTerritorio);
   } catch (e) {
-    console.error('Erro ao salvar territórios:', e);
+    console.error("Erro ao carregar territórios:", e);
+    return [];
+  }
+}
+
+export async function salvarTerritorio(territorio: Territorio): Promise<Territorio | null> {
+  try {
+    const dbData = territorioToDb(territorio);
+
+    if (territorio.id && territorio.id.startsWith("territorio-")) {
+      // Novo território (ID temporário do localStorage)
+      const { data, error } = await supabase
+        .from("territorios")
+        .insert(dbData)
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Erro ao criar território:", error);
+        return null;
+      }
+
+      return dbToTerritorio(data);
+    } else {
+      // Atualizar território existente
+      const { data, error } = await supabase
+        .from("territorios")
+        .update(dbData)
+        .eq("id", territorio.id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Erro ao atualizar território:", error);
+        return null;
+      }
+
+      return dbToTerritorio(data);
+    }
+  } catch (e) {
+    console.error("Erro ao salvar território:", e);
+    return null;
+  }
+}
+
+export async function salvarTerritorios(territorios: Territorio[]): Promise<void> {
+  try {
+    // Salvar todos os territórios (criar ou atualizar)
+    for (const territorio of territorios) {
+      await salvarTerritorio(territorio);
+    }
+  } catch (e) {
+    console.error("Erro ao salvar territórios:", e);
+  }
+}
+
+export async function deletarTerritorio(id: string): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from("territorios")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error("Erro ao deletar território:", error);
+      return false;
+    }
+
+    return true;
+  } catch (e) {
+    console.error("Erro ao deletar território:", e);
+    return false;
   }
 }
 

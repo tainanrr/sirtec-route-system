@@ -16,6 +16,9 @@ export default defineConfig(({ mode }) => ({
     VitePWA({
       registerType: "autoUpdate",
       includeAssets: ["favicon.ico", "robots.txt"],
+      devOptions: {
+        enabled: true,
+      },
       manifest: {
         name: "SirtecRoute App",
         short_name: "SirtecRoute",

@@ -84,3 +84,4 @@ COMMENT ON TABLE public.alertas_tratativas IS 'Auditoria de tratativas feitas em
 COMMENT ON COLUMN public.alertas.status IS 'Estado operacional do alerta (open/acknowledged/assigned/snoozed/resolved).';
 COMMENT ON COLUMN public.alertas.snoozed_until IS 'Quando o alerta volta a ficar ativo (se silenciado).';
 
+

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -20,7 +21,8 @@ import {
   Coordenada,
   CORES_TERRITORIOS,
   carregarTerritorios,
-  salvarTerritorios,
+  salvarTerritorio,
+  deletarTerritorio,
 } from "@/types/territorios";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -57,6 +59,7 @@ export default function CadastroTerritorios() {
   });
   const [showForm, setShowForm] = useState(false);
   const [currentPolygon, setCurrentPolygon] = useState<Coordenada[] | null>(null);
+  const [loading, setLoading] = useState(false);
 
   // Carregar equipes do Supabase
   useEffect(() => {
@@ -77,10 +80,21 @@ export default function CadastroTerritorios() {
     fetchEquipes();
   }, []);
 
-  // Carregar territórios do localStorage
+  // Carregar territórios do Supabase
   useEffect(() => {
-    const loaded = carregarTerritorios();
-    setTerritorios(loaded);
+    const loadTerritorios = async () => {
+      setLoading(true);
+      try {
+        const loaded = await carregarTerritorios();
+        setTerritorios(loaded);
+      } catch (error) {
+        console.error("Erro ao carregar territórios:", error);
+        toast.error("Erro ao carregar territórios");
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadTerritorios();
   }, []);
 
   // Inicializar mapa
@@ -181,10 +195,8 @@ export default function CadastroTerritorios() {
       });
 
       map.on(DrawEvents.DELETED, () => {
-        // Atualizar territórios após deletar
-        const updated = carregarTerritorios();
-        setTerritorios(updated);
-        atualizarPoligonosNoMapa(updated);
+        // Evento de deletar do mapa não precisa atualizar territórios
+        // (os territórios são gerenciados pela interface)
       });
     };
 
@@ -237,7 +249,7 @@ export default function CadastroTerritorios() {
     });
   };
 
-  const handleSalvarTerritorio = () => {
+  const handleSalvarTerritorio = async () => {
     if (!formData.nome.trim()) {
       toast.error("Informe o nome do território");
       return;
@@ -248,39 +260,45 @@ export default function CadastroTerritorios() {
       return;
     }
 
-    const novoTerritorio: Territorio = {
-      id: editingTerritorio?.id || `territorio-${Date.now()}`,
-      nome: formData.nome,
-      cor: formData.cor,
-      poligono: currentPolygon,
-      equipeIds: formData.equipeIds || [],
-      ativo: true,
-      criadoEm: editingTerritorio?.criadoEm || new Date(),
-      atualizadoEm: new Date(),
-    };
+    setLoading(true);
+    try {
+      const novoTerritorio: Territorio = {
+        id: editingTerritorio?.id || `territorio-${Date.now()}`,
+        nome: formData.nome,
+        cor: formData.cor,
+        poligono: currentPolygon,
+        equipeIds: formData.equipeIds || [],
+        ativo: true,
+        criadoEm: editingTerritorio?.criadoEm || new Date(),
+        atualizadoEm: new Date(),
+      };
 
-    let updated: Territorio[];
-    if (editingTerritorio) {
-      updated = territorios.map((t) =>
-        t.id === editingTerritorio.id ? novoTerritorio : t
-      );
-    } else {
-      updated = [...territorios, novoTerritorio];
+      const saved = await salvarTerritorio(novoTerritorio);
+      if (!saved) {
+        toast.error("Erro ao salvar território");
+        return;
+      }
+
+      // Recarregar lista do banco
+      const updated = await carregarTerritorios();
+      setTerritorios(updated);
+      toast.success(editingTerritorio ? "Território atualizado!" : "Território criado!");
+
+      // Limpar formulário
+      setFormData({ nome: "", cor: CORES_TERRITORIOS[0], equipeIds: [] });
+      setShowForm(false);
+      setEditingTerritorio(null);
+      setCurrentPolygon(null);
+
+      // Limpar desenho atual
+      drawnLayersRef.current.clearLayers();
+      atualizarPoligonosNoMapa(updated);
+    } catch (error) {
+      console.error("Erro ao salvar território:", error);
+      toast.error("Erro ao salvar território");
+    } finally {
+      setLoading(false);
     }
-
-    setTerritorios(updated);
-    salvarTerritorios(updated);
-    toast.success(editingTerritorio ? "Território atualizado!" : "Território criado!");
-
-    // Limpar formulário
-    setFormData({ nome: "", cor: CORES_TERRITORIOS[0], equipeIds: [] });
-    setShowForm(false);
-    setEditingTerritorio(null);
-    setCurrentPolygon(null);
-
-    // Limpar desenho atual
-    drawnLayersRef.current.clearLayers();
-    atualizarPoligonosNoMapa(updated);
   };
 
   const handleCancelar = () => {
@@ -310,21 +328,55 @@ export default function CadastroTerritorios() {
     }
   };
 
-  const handleDeleteTerritorio = (id: string) => {
-    const updated = territorios.filter((t) => t.id !== id);
-    setTerritorios(updated);
-    salvarTerritorios(updated);
-    atualizarPoligonosNoMapa(updated);
-    toast.success("Território excluído!");
+  const handleDeleteTerritorio = async (id: string) => {
+    if (!confirm("Tem certeza que deseja excluir este território?")) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const success = await deletarTerritorio(id);
+      if (!success) {
+        toast.error("Erro ao excluir território");
+        return;
+      }
+
+      // Recarregar lista do banco
+      const updated = await carregarTerritorios();
+      setTerritorios(updated);
+      atualizarPoligonosNoMapa(updated);
+      toast.success("Território excluído!");
+    } catch (error) {
+      console.error("Erro ao excluir território:", error);
+      toast.error("Erro ao excluir território");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleToggleAtivo = (id: string) => {
-    const updated = territorios.map((t) =>
-      t.id === id ? { ...t, ativo: !t.ativo, atualizadoEm: new Date() } : t
-    );
-    setTerritorios(updated);
-    salvarTerritorios(updated);
-    atualizarPoligonosNoMapa(updated);
+  const handleToggleAtivo = async (id: string) => {
+    const territorio = territorios.find((t) => t.id === id);
+    if (!territorio) return;
+
+    setLoading(true);
+    try {
+      const updatedTerritorio = { ...territorio, ativo: !territorio.ativo, atualizadoEm: new Date() };
+      const saved = await salvarTerritorio(updatedTerritorio);
+      if (!saved) {
+        toast.error("Erro ao atualizar território");
+        return;
+      }
+
+      // Recarregar lista do banco
+      const updated = await carregarTerritorios();
+      setTerritorios(updated);
+      atualizarPoligonosNoMapa(updated);
+    } catch (error) {
+      console.error("Erro ao atualizar território:", error);
+      toast.error("Erro ao atualizar território");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleExportar = () => {
@@ -343,27 +395,40 @@ export default function CadastroTerritorios() {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "application/json";
-    input.onchange = (e) => {
+    input.onchange = async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
 
       const reader = new FileReader();
-      reader.onload = (event) => {
+      reader.onload = async (event) => {
         try {
+          setLoading(true);
           const imported = JSON.parse(event.target?.result as string);
-          const territoriosImportados: Territorio[] = imported.map((t: any) => ({
-            ...t,
-            criadoEm: new Date(t.criadoEm),
-            atualizadoEm: new Date(t.atualizadoEm),
-          }));
+          const territoriosImportados: Territorio[] = Array.isArray(imported) 
+            ? imported 
+            : imported.territorios || [];
 
-          setTerritorios(territoriosImportados);
-          salvarTerritorios(territoriosImportados);
-          atualizarPoligonosNoMapa(territoriosImportados);
+          // Salvar cada território no Supabase
+          for (const territorio of territoriosImportados) {
+            const territorioParaSalvar: Territorio = {
+              ...territorio,
+              id: `territorio-${Date.now()}-${Math.random()}`, // Novo ID para evitar conflitos
+              criadoEm: new Date(territorio.criadoEm || new Date()),
+              atualizadoEm: new Date(territorio.atualizadoEm || new Date()),
+            };
+            await salvarTerritorio(territorioParaSalvar);
+          }
+
+          // Recarregar lista do banco
+          const updated = await carregarTerritorios();
+          setTerritorios(updated);
+          atualizarPoligonosNoMapa(updated);
           toast.success(`${territoriosImportados.length} territórios importados!`);
         } catch (error) {
           toast.error("Erro ao importar arquivo JSON");
           console.error(error);
+        } finally {
+          setLoading(false);
         }
       };
       reader.readAsText(file);
@@ -386,12 +451,12 @@ export default function CadastroTerritorios() {
     <MainLayout title="Cadastro de Territórios">
       <div className="flex h-[calc(100vh-8rem)] gap-4">
         {/* Sidebar */}
-        <div className="w-[300px] bg-slate-900 rounded-lg p-4 overflow-y-auto flex flex-col gap-4">
-          <h2 className="text-xl font-bold text-white">Cadastro de Territórios</h2>
+        <div className="w-[300px] bg-slate-900 rounded-lg p-4 flex flex-col gap-4 min-h-0">
+          <h2 className="text-xl font-bold text-white flex-shrink-0">Cadastro de Territórios</h2>
 
           {/* Formulário */}
           {showForm && (
-            <div className="bg-slate-800 rounded-lg p-4 space-y-4">
+            <div className="bg-slate-800 rounded-lg p-4 space-y-4 flex-shrink-0 overflow-y-auto max-h-[50vh]">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-white">
                   {editingTerritorio ? "Editar Território" : "Novo Território"}
@@ -430,7 +495,7 @@ export default function CadastroTerritorios() {
                         key={cor}
                         type="button"
                         onClick={() => setFormData({ ...formData, cor })}
-                        className={`w-10 h-10 rounded border-2 ${
+                        className={`w-8 h-8 rounded border-2 ${
                           formData.cor === cor
                             ? "border-white scale-110"
                             : "border-slate-600"
@@ -445,7 +510,7 @@ export default function CadastroTerritorios() {
                   <Label className="text-white mb-2 block">
                     Equipes vinculadas
                   </Label>
-                  <div className="space-y-2 max-h-[200px] overflow-y-auto bg-slate-700 rounded p-2">
+                  <div className="space-y-1 max-h-[120px] overflow-y-auto bg-slate-700 rounded p-2">
                     {equipes.length === 0 ? (
                       <p className="text-slate-400 text-sm text-center py-2">
                         Nenhuma equipe disponível
@@ -456,7 +521,7 @@ export default function CadastroTerritorios() {
                         return (
                           <label
                             key={equipe.id}
-                            className="flex items-center gap-2 p-2 rounded hover:bg-slate-600 cursor-pointer"
+                            className="flex items-center gap-2 p-1.5 rounded hover:bg-slate-600 cursor-pointer"
                           >
                             <Checkbox
                               checked={estaSelecionada}
@@ -476,8 +541,8 @@ export default function CadastroTerritorios() {
                                 }
                               }}
                             />
-                            <span className="text-white text-sm">
-                          {equipe.codigo} - {equipe.nome}
+                            <span className="text-white text-xs">
+                              {equipe.codigo} - {equipe.nome}
                             </span>
                           </label>
                         );
@@ -485,23 +550,24 @@ export default function CadastroTerritorios() {
                     )}
                   </div>
                   {formData.equipeIds.length > 0 && (
-                    <p className="text-slate-400 text-xs mt-2">
+                    <p className="text-slate-400 text-xs mt-1">
                       {formData.equipeIds.length} equipe(s) selecionada(s)
                     </p>
                   )}
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex gap-2 pt-2">
                   <Button
                     onClick={handleSalvarTerritorio}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700"
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                    disabled={loading}
                   >
-                    Salvar
+                    {loading ? "Salvando..." : "Salvar"}
                   </Button>
                   <Button
                     onClick={handleCancelar}
                     variant="outline"
-                    className="flex-1 border-slate-600 text-white hover:bg-slate-700"
+                    className="flex-1 border-slate-500 bg-slate-700 text-white hover:bg-slate-600 hover:text-white"
                   >
                     Cancelar
                   </Button>
@@ -511,29 +577,29 @@ export default function CadastroTerritorios() {
           )}
 
           {/* Lista de territórios */}
-          <div className="flex-1 space-y-2">
-            <div className="flex gap-2">
+          <div className="flex-1 space-y-2 min-h-0 flex flex-col">
+            <div className="flex gap-2 flex-shrink-0 w-full">
               <Button
                 onClick={handleExportar}
                 variant="outline"
                 size="sm"
-                className="flex-1 border-slate-600 text-white hover:bg-slate-700"
+                className="flex-1 border-slate-500 bg-slate-700 text-white hover:bg-slate-600 hover:text-white text-xs px-2"
               >
-                <Download className="h-4 w-4 mr-2" />
-                Exportar JSON
+                <Download className="h-3 w-3 mr-1.5" />
+                Exportar
               </Button>
               <Button
                 onClick={handleImportar}
                 variant="outline"
                 size="sm"
-                className="flex-1 border-slate-600 text-white hover:bg-slate-700"
+                className="flex-1 border-slate-500 bg-slate-700 text-white hover:bg-slate-600 hover:text-white text-xs px-2"
               >
-                <Upload className="h-4 w-4 mr-2" />
-                Importar JSON
+                <Upload className="h-3 w-3 mr-1.5" />
+                Importar
               </Button>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2 overflow-y-auto min-h-0 flex-1">
               {territorios.length === 0 ? (
                 <p className="text-slate-400 text-sm text-center py-4">
                   Nenhum território cadastrado

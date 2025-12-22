@@ -284,3 +284,4 @@ export function BarcodeScanner({ onScan, onClose, open, title = "Ler Código de 
 }
 
 
+

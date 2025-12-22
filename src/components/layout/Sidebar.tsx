@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -7,16 +7,11 @@ import {
   ClipboardList,
   Users,
   FolderOpen,
-  BarChart3,
-  Settings,
   ChevronDown,
   ChevronRight,
   Moon,
   Sun,
   Zap,
-  UserCircle,
-  MapPinned,
-  Pentagon,
   CheckSquare,
   Menu,
   X,
@@ -40,30 +35,32 @@ interface NavItem {
   label: string;
   href?: string;
   children?: { icon: React.ElementType; label: string; href: string }[];
+  type?: "divider";
 }
 
 const navItems: NavItem[] = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/" },
+  { icon: LayoutDashboard, label: "__divider_1__", type: "divider" },
+  { icon: Radio, label: "Torre de Controle", href: "/torre-controle" },
+  { icon: LayoutDashboard, label: "__divider_2__", type: "divider" },
   { icon: MapPin, label: "Roteirização", href: "/roteirizacao" },
   { icon: ListChecks, label: "Acompanhamento de Roteirizações", href: "/acompanhamento-roteirizacoes" },
-  { icon: Radio, label: "Torre de Controle", href: "/torre-controle" },
+  { icon: LayoutDashboard, label: "__divider_3__", type: "divider" },
   { icon: ClipboardList, label: "Ordens de Serviço", href: "/ordens-servico" },
   { icon: CheckSquare, label: "Consulta Checklists", href: "/consulta-checklists" },
-  { icon: Users, label: "Equipes", href: "/equipes" },
+  { icon: LayoutDashboard, label: "__divider_4__", type: "divider" },
   { icon: Package, label: "Materiais", href: "/materiais" },
-  { icon: Map, label: "Territórios", href: "/territorios" },
+  { icon: LayoutDashboard, label: "__divider_5__", type: "divider" },
   {
     icon: FolderOpen,
     label: "Cadastros",
     children: [
+      { icon: Users, label: "Equipes", href: "/equipes" },
       { icon: Wrench, label: "Skills", href: "/cadastros/skills" },
-      { icon: MapPinned, label: "Pontos de Saída", href: "/cadastros/pontos-saida" },
-      { icon: Pentagon, label: "Polígonos", href: "/cadastros/poligonos" },
+      { icon: Map, label: "Territórios", href: "/territorios" },
       { icon: CheckSquare, label: "Checklists", href: "/cadastros/checklists" },
     ],
   },
-  { icon: BarChart3, label: "Relatórios", href: "/relatorios" },
-  { icon: Settings, label: "Configurações", href: "/configuracoes" },
 ];
 
 interface SidebarProps {
@@ -84,6 +81,21 @@ export function Sidebar({ isDark, setIsDark, collapsed = false }: SidebarProps) 
     if (href === "/") return location.pathname === "/";
     return location.pathname.startsWith(href);
   };
+
+  // Manter "Cadastros" aberto se algum item filho estiver ativo
+  useEffect(() => {
+    const cadastrosItem = navItems.find((item) => item.label === "Cadastros");
+    if (cadastrosItem?.children) {
+      const hasActiveChild = cadastrosItem.children.some((child) => {
+        if (!child.href) return false;
+        if (child.href === "/") return location.pathname === "/";
+        return location.pathname.startsWith(child.href);
+      });
+      if (hasActiveChild) {
+        setOpenCadastros(true);
+      }
+    }
+  }, [location.pathname]);
 
   const handleLogout = async () => {
     await signOut();
@@ -121,6 +133,19 @@ export function Sidebar({ isDark, setIsDark, collapsed = false }: SidebarProps) 
       {/* Navigation */}
       <nav className="flex-1 space-y-1 overflow-y-auto p-3">
         {navItems.map((item) => {
+          if (item.type === "divider") {
+            return (
+              <div
+                key={item.label}
+                className={cn(
+                  // Divisória mais visível: linha mais espessa e com mais contraste
+                  "my-4 h-[1px] bg-sidebar-border",
+                  collapsed ? "mx-2" : "mx-3"
+                )}
+              />
+            );
+          }
+
           if (item.children) {
             if (collapsed) {
               return (

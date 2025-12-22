@@ -13,7 +13,7 @@ import { Territorio } from "@/types/territorios";
 import { Equipe } from "@/data/mockData";
 import { MapPin, CheckCircle2, Edit, Users } from "lucide-react";
 import { useState, useEffect } from "react";
-import { salvarTerritorios } from "@/types/territorios";
+import { salvarTerritorio } from "@/types/territorios";
 
 interface SelecaoTerritoriosDialogProps {
   open: boolean;
@@ -75,15 +75,22 @@ export default function SelecaoTerritoriosDialog({
     }
   };
 
-  const handleSalvarEquipes = (territorioId: string) => {
-    const territoriosAtualizados = territorios.map(t => 
-      t.id === territorioId 
-        ? { ...t, equipeIds: equipesEditando, atualizadoEm: new Date() }
-        : t
-    );
-    salvarTerritorios(territoriosAtualizados);
-    if (onTerritoriosUpdate) {
-      onTerritoriosUpdate(territoriosAtualizados);
+  const handleSalvarEquipes = async (territorioId: string) => {
+    const territorio = territorios.find(t => t.id === territorioId);
+    if (!territorio) return;
+
+    const territorioAtualizado = { 
+      ...territorio, 
+      equipeIds: equipesEditando, 
+      atualizadoEm: new Date() 
+    };
+    
+    const saved = await salvarTerritorio(territorioAtualizado);
+    if (saved && onTerritoriosUpdate) {
+      // Recarregar lista completa para atualizar
+      const { carregarTerritorios } = await import("@/types/territorios");
+      const updated = await carregarTerritorios();
+      onTerritoriosUpdate(updated);
     }
     setEditandoEquipes(null);
     setEquipesEditando([]);

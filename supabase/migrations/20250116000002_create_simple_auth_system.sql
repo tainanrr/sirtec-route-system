@@ -363,3 +363,4 @@ COMMENT ON FUNCTION public.atualizar_senha_equipe IS 'Atualiza a senha de uma eq
 
 
 
+
