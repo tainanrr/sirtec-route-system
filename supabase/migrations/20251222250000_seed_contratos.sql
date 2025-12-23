@@ -1,0 +1,36 @@
+-- =====================================================
+-- SEED: Contratos COELBA
+-- =====================================================
+
+INSERT INTO public.contratos (codigo, nome, cliente, data_inicio, data_fim, status) VALUES
+-- Contratos de Novembro 2024
+('4600079966', 'SIGFI_Oeste_2024', 'COELBA - COMPANHIA DE ELETRICIDADE DO ESTADO DA BAHIA', '2024-11-01', NULL, 'ativo'),
+('4600079965', 'SIGFI_Norte_2024', 'COELBA - COMPANHIA DE ELETRICIDADE DO ESTADO DA BAHIA', '2024-11-01', NULL, 'ativo'),
+
+-- Contratos de Agosto 2024 (Sudoeste)
+('4600079170', 'LET_Sudoeste_2024', 'COELBA - COMPANHIA DE ELETRICIDADE DO ESTADO DA BAHIA', '2024-08-01', NULL, 'ativo'),
+('4600079169', 'STC_Sudoeste_2024', 'COELBA - COMPANHIA DE ELETRICIDADE DO ESTADO DA BAHIA', '2024-08-01', NULL, 'ativo'),
+('4600079168', 'CCM-II_Sudoest_2024', 'COELBA - COMPANHIA DE ELETRICIDADE DO ESTADO DA BAHIA', '2024-08-01', NULL, 'ativo'),
+('4600079167', 'CCM-I_Sudoeste_2024', 'COELBA - COMPANHIA DE ELETRICIDADE DO ESTADO DA BAHIA', '2024-08-01', NULL, 'ativo'),
+
+-- Contratos de Dezembro 2023 (LET)
+('4600075649', 'LET_C.Oeste_2024', 'COELBA - COMPANHIA DE ELETRICIDADE DO ESTADO DA BAHIA', '2023-12-25', NULL, 'ativo'),
+('4600075653', 'LET_Oeste_2024', 'COELBA - COMPANHIA DE ELETRICIDADE DO ESTADO DA BAHIA', '2023-12-25', NULL, 'ativo'),
+('4600075651', 'LET_Centro_2024', 'COELBA - COMPANHIA DE ELETRICIDADE DO ESTADO DA BAHIA', '2023-12-25', NULL, 'ativo'),
+
+-- Contratos de Dezembro 2023 (CCM)
+('4600075605', 'CCM_OesteII_2024', 'COELBA - COMPANHIA DE ELETRICIDADE DO ESTADO DA BAHIA', '2023-12-25', NULL, 'ativo'),
+('4600075577', 'CCM_OesteI_2024', 'COELBA - COMPANHIA DE ELETRICIDADE DO ESTADO DA BAHIA', '2023-12-25', NULL, 'ativo'),
+
+-- Contratos de Dezembro 2023 (STC)
+('4600075652', 'STC_Oeste_2024', 'COELBA - COMPANHIA DE ELETRICIDADE DO ESTADO DA BAHIA', '2023-12-25', NULL, 'ativo'),
+('4600075643', 'STC_C.Oeste_2024', 'COELBA - COMPANHIA DE ELETRICIDADE DO ESTADO DA BAHIA', '2023-12-25', NULL, 'ativo'),
+('4600075650', 'STC_Centro_2024', 'COELBA - COMPANHIA DE ELETRICIDADE DO ESTADO DA BAHIA', '2023-12-25', NULL, 'ativo')
+
+ON CONFLICT (codigo) DO UPDATE SET
+  nome = EXCLUDED.nome,
+  cliente = EXCLUDED.cliente,
+  data_inicio = EXCLUDED.data_inicio,
+  data_fim = EXCLUDED.data_fim,
+  status = EXCLUDED.status,
+  updated_at = NOW();

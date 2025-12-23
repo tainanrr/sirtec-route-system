@@ -587,6 +587,8 @@ function MapaRoteiro({ ordens, equipe }: MapaRoteiroProps) {
   const navigate = useNavigate();
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
+  const markersRef = useRef<Map<string, any>>(new Map()); // Ref para armazenar marcadores por ordem_id
+  const highlightCircleRef = useRef<any>(null); // Ref para o círculo de destaque
   const [mapLoaded, setMapLoaded] = useState(false);
   const [skillsIcons, setSkillsIcons] = useState<Map<string, string>>(new Map());
   const [osSelecionada, setOsSelecionada] = useState<OrdemPlanejada | null>(null);
@@ -725,6 +727,55 @@ function MapaRoteiro({ ordens, equipe }: MapaRoteiroProps) {
     }
   }, [ordens, equipe, skillsIcons]);
 
+  // Centralizar e destacar OS selecionada no mapa
+  useEffect(() => {
+    if (!mapInstanceRef.current || !(window as any).L || !osSelecionada) return;
+    
+    const L = (window as any).L;
+    const map = mapInstanceRef.current;
+    const lat = osSelecionada.ordens_servico?.latitude;
+    const lng = osSelecionada.ordens_servico?.longitude;
+    
+    if (!lat || !lng) return;
+    
+    // Remover círculo de destaque anterior
+    if (highlightCircleRef.current) {
+      try { map.removeLayer(highlightCircleRef.current); } catch(e) {}
+      highlightCircleRef.current = null;
+    }
+    
+    // Criar círculo de destaque pulsante
+    const highlightCircle = L.circle([lat, lng], {
+      color: '#3b82f6',
+      fillColor: '#3b82f6',
+      fillOpacity: 0.2,
+      radius: 100,
+      weight: 3,
+      className: 'pulse-animation'
+    }).addTo(map);
+    highlightCircleRef.current = highlightCircle;
+    
+    // Centralizar o mapa na OS com animação
+    map.flyTo([lat, lng], 16, { duration: 0.5 });
+    
+    // Abrir popup do marcador se existir
+    const marker = markersRef.current.get(osSelecionada.id);
+    if (marker) {
+      marker.openPopup();
+    }
+    
+  }, [osSelecionada]);
+
+  // Limpar círculo quando desseleciona OS
+  useEffect(() => {
+    if (!osSelecionada && highlightCircleRef.current && mapInstanceRef.current) {
+      try { 
+        mapInstanceRef.current.removeLayer(highlightCircleRef.current); 
+      } catch(e) {}
+      highlightCircleRef.current = null;
+    }
+  }, [osSelecionada]);
+
   // Funções globais para os botões do popup
   useEffect(() => {
     (window as any).irParaOS = (osId: string) => {
@@ -784,6 +835,9 @@ function MapaRoteiro({ ordens, equipe }: MapaRoteiroProps) {
         map.removeLayer(layer);
       }
     });
+    
+    // Limpar ref de marcadores
+    markersRef.current.clear();
 
     // Re-adicionar tiles se necessário
     let hasTileLayer = false;
@@ -963,6 +1017,9 @@ function MapaRoteiro({ ordens, equipe }: MapaRoteiroProps) {
         </div>
       `;
       marker.bindPopup(popupContent);
+      
+      // Armazenar marcador no ref para acesso posterior
+      markersRef.current.set(ordem.id, marker);
       
       // Ao clicar no marcador, selecionar a OS
       marker.on('click', () => {

@@ -1,9 +1,8 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -13,21 +12,59 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Pencil, Trash2, Search, Clock, DollarSign, CheckCircle, XCircle } from "lucide-react";
+import { Plus, Pencil, Trash2, Clock, DollarSign, CheckCircle, XCircle, Loader2, RefreshCcw, Wrench } from "lucide-react";
 import * as LucideIcons from "lucide-react";
 import { toast } from "sonner";
 import { SkillFormDialog } from "@/components/skills/SkillFormDialog";
 import type { Tables } from "@/integrations/supabase/types";
+import { SortableTableHead, useSortableTable } from "@/components/ui/sortable-table-head";
+import {
+  DataTableFilters,
+  useDataTableFilters,
+  filterData,
+  FilterConfig,
+} from "@/components/ui/data-table-filters";
 
 type Skill = Tables<"skills">;
 
+// Configuração dos filtros
+const filterConfigs: FilterConfig[] = [
+  {
+    id: "search",
+    label: "Buscar",
+    type: "text",
+    placeholder: "Buscar por código, nome ou descrição...",
+  },
+  {
+    id: "status",
+    label: "Status",
+    type: "select",
+    options: [
+      { value: "ativo", label: "Ativas", color: "bg-green-500" },
+      { value: "inativo", label: "Inativas", color: "bg-gray-500" },
+    ],
+  },
+  {
+    id: "regulada",
+    label: "Regulada",
+    type: "select",
+    options: [
+      { value: "sim", label: "Sim", color: "bg-green-500" },
+      { value: "nao", label: "Não", color: "bg-gray-500" },
+    ],
+  },
+];
+
 export default function Skills() {
-  const [searchTerm, setSearchTerm] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
   const queryClient = useQueryClient();
 
-  const { data: skills, isLoading } = useQuery({
+  // Filtros
+  const { filterValues, setFilterValues, clearFilters, hasActiveFilters } =
+    useDataTableFilters(filterConfigs);
+
+  const { data: skills, isLoading, refetch } = useQuery({
     queryKey: ["skills"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -53,11 +90,40 @@ export default function Skills() {
     },
   });
 
-  const filteredSkills = skills?.filter(
-    (s) =>
-      s.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.codigo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.descricao?.toLowerCase().includes(searchTerm.toLowerCase())
+  // Filtrar dados
+  const filteredSkills = useMemo(() => {
+    if (!skills) return [];
+    return filterData(
+      skills,
+      filterValues,
+      filterConfigs,
+      {
+        search: (item, value) => {
+          const searchTerm = value.toLowerCase();
+          return (
+            item.codigo.toLowerCase().includes(searchTerm) ||
+            item.nome.toLowerCase().includes(searchTerm) ||
+            item.descricao?.toLowerCase().includes(searchTerm) || false
+          );
+        },
+        status: (item, value) => {
+          if (value === "ativo") return item.ativo;
+          if (value === "inativo") return !item.ativo;
+          return true;
+        },
+        regulada: (item, value) => {
+          if (value === "sim") return item.regulada === true;
+          if (value === "nao") return item.regulada === false || item.regulada === null;
+          return true;
+        },
+      }
+    );
+  }, [skills, filterValues]);
+
+  // Ordenação
+  const { sortConfig, handleSort, sortedData } = useSortableTable(
+    filteredSkills,
+    { column: "codigo", direction: "asc" }
   );
 
   const handleEdit = (skill: Skill) => {
@@ -75,81 +141,140 @@ export default function Skills() {
   };
 
   return (
-    <MainLayout title="Cadastro de Skills" subtitle="Gerencie as habilidades e tempos de execução">
+    <MainLayout
+      title="Cadastro de Skills"
+      subtitle="Gerencie as habilidades e tempos de execução"
+      breadcrumbs={[
+        { label: "Cadastros", href: "/cadastros" },
+        { label: "Skills" },
+      ]}
+    >
       <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <Button onClick={handleAdd}>
-            <Plus className="mr-2 h-4 w-4" />
-            Nova Skill
-          </Button>
-        </div>
-
-        <div className="flex items-center gap-4">
-          <div className="relative flex-1 max-w-sm">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Buscar por código, nome ou descrição..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9"
-            />
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Badge variant="outline" className="text-sm">
+              {skills?.filter((s) => s.ativo).length || 0} Ativas
+            </Badge>
+            <Badge variant="outline" className="text-sm">
+              {skills?.filter((s) => !s.ativo).length || 0} Inativas
+            </Badge>
+            <Badge variant="outline" className="text-sm">
+              {skills?.filter((s) => s.regulada).length || 0} Reguladas
+            </Badge>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
+              <RefreshCcw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
+              Atualizar
+            </Button>
+            <Button onClick={handleAdd}>
+              <Plus className="h-4 w-4 mr-2" />
+              Nova Skill
+            </Button>
           </div>
         </div>
 
-        <div className="rounded-lg border bg-card">
+        {/* Filtros */}
+        <div className="rounded-xl border border-border bg-card p-4">
+          <DataTableFilters
+            filters={filterConfigs}
+            values={filterValues}
+            onChange={setFilterValues}
+            onClear={clearFilters}
+          />
+        </div>
+
+        {/* Tabela */}
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Código</TableHead>
-                <TableHead>Nome</TableHead>
+                <SortableTableHead
+                  column="codigo"
+                  label="Código"
+                  sortConfig={sortConfig}
+                  onSort={handleSort}
+                />
+                <SortableTableHead
+                  column="nome"
+                  label="Nome"
+                  sortConfig={sortConfig}
+                  onSort={handleSort}
+                />
                 <TableHead>Descrição</TableHead>
-                <TableHead className="text-center">
-                  <div className="flex items-center justify-center gap-1">
-                    <Clock className="h-4 w-4" />
-                    Tempo (min)
-                  </div>
-                </TableHead>
-                <TableHead className="text-center">
-                  <div className="flex items-center justify-center gap-1">
-                    <DollarSign className="h-4 w-4" />
-                    Valor (R$)
-                  </div>
-                </TableHead>
-                <TableHead className="text-center">Regulada</TableHead>
+                <SortableTableHead
+                  column="tempo_execucao_minutos"
+                  label="Tempo (min)"
+                  sortConfig={sortConfig}
+                  onSort={handleSort}
+                  className="text-center"
+                />
+                <SortableTableHead
+                  column="valor"
+                  label="Valor (R$)"
+                  sortConfig={sortConfig}
+                  onSort={handleSort}
+                  className="text-center"
+                />
+                <SortableTableHead
+                  column="regulada"
+                  label="Regulada"
+                  sortConfig={sortConfig}
+                  onSort={handleSort}
+                  className="text-center"
+                />
                 <TableHead className="text-center">Ícone</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-[100px]">Ações</TableHead>
+                <SortableTableHead
+                  column="ativo"
+                  label="Status"
+                  sortConfig={sortConfig}
+                  onSort={handleSort}
+                />
+                <TableHead className="text-right">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
                   <TableCell colSpan={9} className="text-center py-8">
-                    Carregando...
+                    <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
                   </TableCell>
                 </TableRow>
-              ) : filteredSkills?.length === 0 ? (
+              ) : sortedData?.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
-                    Nenhuma skill encontrada
+                  <TableCell colSpan={9} className="text-center py-8">
+                    <Wrench className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                    <p className="text-muted-foreground">
+                      {hasActiveFilters
+                        ? "Nenhuma skill encontrada com os filtros aplicados"
+                        : "Nenhuma skill cadastrada"}
+                    </p>
+                    {hasActiveFilters && (
+                      <Button variant="link" size="sm" onClick={clearFilters} className="mt-2">
+                        Limpar filtros
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredSkills?.map((skill) => (
-                  <TableRow key={skill.id}>
+                sortedData?.map((skill) => (
+                  <TableRow key={skill.id} className="group">
                     <TableCell className="font-mono font-semibold">{skill.codigo}</TableCell>
                     <TableCell className="font-medium">{skill.nome}</TableCell>
-                    <TableCell className="text-muted-foreground">
+                    <TableCell className="text-muted-foreground max-w-xs truncate">
                       {skill.descricao || "-"}
                     </TableCell>
                     <TableCell className="text-center">
                       <Badge variant="outline" className="font-mono">
+                        <Clock className="h-3 w-3 mr-1" />
                         {skill.tempo_execucao_minutos} min
                       </Badge>
                     </TableCell>
                     <TableCell className="text-center">
-                      <Badge variant="outline" className="font-mono">
-                        R$ {Number(skill.valor || 0).toFixed(2)}
+                      <Badge variant="outline" className="font-mono text-green-600">
+                        <DollarSign className="h-3 w-3 mr-0.5" />
+                        {Number(skill.valor || 0).toFixed(2)}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-center">
@@ -184,14 +309,14 @@ export default function Skills() {
                         {skill.ativo ? "Ativa" : "Inativa"}
                       </Badge>
                     </TableCell>
-                    <TableCell>
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => handleEdit(skill)}>
+                    <TableCell className="text-right">
+                      <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button variant="ghost" size="sm" onClick={() => handleEdit(skill)}>
                           <Pencil className="h-4 w-4" />
                         </Button>
                         <Button
                           variant="ghost"
-                          size="icon"
+                          size="sm"
                           onClick={() => deleteMutation.mutate(skill.id)}
                         >
                           <Trash2 className="h-4 w-4 text-destructive" />
@@ -203,6 +328,12 @@ export default function Skills() {
               )}
             </TableBody>
           </Table>
+
+          {sortedData && sortedData.length > 0 && (
+            <div className="px-4 py-3 border-t border-border bg-muted/30 text-sm text-muted-foreground">
+              Mostrando {sortedData.length} de {skills?.length || 0} skills
+            </div>
+          )}
         </div>
       </div>
 
@@ -215,4 +346,3 @@ export default function Skills() {
     </MainLayout>
   );
 }
-

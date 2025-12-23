@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,6 +40,8 @@ import {
   Minimize2,
   X,
   Trash2,
+  FilterX,
+  Loader2,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -89,6 +91,7 @@ const AcompanhamentoRoteirizacoes = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("aberto");
   const [dataInicioFilter, setDataInicioFilter] = useState<string>("");
   const [dataFimFilter, setDataFimFilter] = useState<string>("");
@@ -106,6 +109,33 @@ const AcompanhamentoRoteirizacoes = () => {
   const [cancelarRotaDialogOpen, setCancelarRotaDialogOpen] = useState(false);
   const [detalhesOpen, setDetalhesOpen] = useState(false);
   const [ordemDetalhesId, setOrdemDetalhesId] = useState<string | null>(null);
+
+  // Debounce do termo de busca para evitar muitas requisições
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Verificar se há filtros ativos
+  const hasActiveFilters = useMemo(() => {
+    return searchTerm !== "" || 
+           statusFilter !== "aberto" || 
+           dataInicioFilter !== "" || 
+           dataFimFilter !== "" || 
+           equipeFilter !== "all";
+  }, [searchTerm, statusFilter, dataInicioFilter, dataFimFilter, equipeFilter]);
+
+  // Limpar todos os filtros
+  const clearAllFilters = useCallback(() => {
+    setSearchTerm("");
+    setDebouncedSearchTerm("");
+    setStatusFilter("aberto");
+    setDataInicioFilter("");
+    setDataFimFilter("");
+    setEquipeFilter("all");
+  }, []);
 
   // Carregar equipes e skills
   useEffect(() => {
@@ -144,7 +174,7 @@ const AcompanhamentoRoteirizacoes = () => {
   }, []);
 
   // Carregar planejamentos
-  const fetchPlanejamentos = async () => {
+  const fetchPlanejamentos = useCallback(async () => {
     setLoading(true);
     try {
       let query = supabase
@@ -195,48 +225,22 @@ const AcompanhamentoRoteirizacoes = () => {
 
       if (error) throw error;
 
-      let planejamentosFiltrados = (data || []) as PlanejamentoCompleto[];
-
-      // Filtrar por equipe se necessário
-      if (equipeFilter !== "all") {
-        planejamentosFiltrados = planejamentosFiltrados.filter(p => {
-          const ordens = p.planejamento_ordens || [];
-          return ordens.some((po: any) => po.equipe_id === equipeFilter);
-        });
-      }
-
-      // Filtrar por termo de busca
-      if (searchTerm) {
-        const termoLower = searchTerm.toLowerCase();
-        planejamentosFiltrados = planejamentosFiltrados.filter(p => {
-          const ordens = p.planejamento_ordens || [];
-          return ordens.some((po: any) => {
-            const os = po.ordens_servico;
-            if (!os) return false;
-            return (
-              os.numero?.toLowerCase().includes(termoLower) ||
-              os.endereco?.toLowerCase().includes(termoLower) ||
-              os.cliente_nome?.toLowerCase().includes(termoLower)
-            );
-          });
-        });
-      }
-
-      setPlanejamentos(planejamentosFiltrados);
+      // Os filtros de equipe e busca são aplicados no getGroupedData() para filtrar as OSs individualmente
+      setPlanejamentos((data || []) as PlanejamentoCompleto[]);
     } catch (error: any) {
       console.error("Erro ao carregar planejamentos:", error);
       toast.error("Erro ao carregar planejamentos");
     } finally {
       setLoading(false);
     }
-  };
+  }, [statusFilter, dataInicioFilter, dataFimFilter]);
 
   useEffect(() => {
     fetchPlanejamentos();
-  }, [statusFilter, dataInicioFilter, dataFimFilter, equipeFilter]);
+  }, [fetchPlanejamentos]);
 
-  // Função para agrupar dados por equipe e data
-  const getGroupedData = () => {
+  // Função para agrupar dados por equipe e data (aplicando filtros de equipe e busca)
+  const getGroupedData = useCallback(() => {
     const grouped = new Map<string, {
       dataPlanejamento: string;
       equipeId: string;
@@ -246,6 +250,8 @@ const AcompanhamentoRoteirizacoes = () => {
       ordens: any[];
     }>();
 
+    const termoLower = debouncedSearchTerm?.toLowerCase() || "";
+
     planejamentos.forEach((planejamento) => {
       if (!planejamento.planejamento_ordens) return;
 
@@ -253,6 +259,30 @@ const AcompanhamentoRoteirizacoes = () => {
       
       planejamento.planejamento_ordens.forEach((po: any) => {
         const equipeId = po.equipe_id;
+        
+        // Filtrar por equipe se necessário
+        if (equipeFilter !== "all" && equipeId !== equipeFilter) {
+          return;
+        }
+        
+        // Filtrar por termo de busca se necessário
+        if (termoLower) {
+          const os = po.ordens_servico;
+          const equipe = po.tecnicos;
+          
+          const matchesSearch = 
+            os?.numero?.toLowerCase().includes(termoLower) ||
+            os?.endereco?.toLowerCase().includes(termoLower) ||
+            os?.cliente_nome?.toLowerCase().includes(termoLower) ||
+            os?.tipo?.toLowerCase().includes(termoLower) ||
+            equipe?.codigo?.toLowerCase().includes(termoLower) ||
+            equipe?.nome?.toLowerCase().includes(termoLower);
+          
+          if (!matchesSearch) {
+            return;
+          }
+        }
+        
         if (!ordensPorEquipe.has(equipeId)) {
           ordensPorEquipe.set(equipeId, []);
         }
@@ -260,6 +290,8 @@ const AcompanhamentoRoteirizacoes = () => {
       });
 
       ordensPorEquipe.forEach((ordens, equipeId) => {
+        if (ordens.length === 0) return;
+        
         const primeiraOrdem = ordens[0];
         const equipe = primeiraOrdem.tecnicos;
         const groupKey = `${planejamento.data_planejamento}-${equipeId}`;
@@ -285,20 +317,13 @@ const AcompanhamentoRoteirizacoes = () => {
       if (dateCompare !== 0) return dateCompare;
       return a.equipeCodigo.localeCompare(b.equipeCodigo);
     });
-  };
+  }, [planejamentos, equipeFilter, debouncedSearchTerm]);
 
-  // Função para obter total de grupos
-  const getTotalGroups = () => {
-    const groups = new Set<string>();
-    planejamentos.forEach((planejamento) => {
-      if (!planejamento.planejamento_ordens) return;
-      const equipesIds = new Set(planejamento.planejamento_ordens.map((po: any) => po.equipe_id));
-      equipesIds.forEach((equipeId) => {
-        groups.add(`${planejamento.data_planejamento}-${equipeId}`);
-      });
-    });
-    return groups;
-  };
+  // Função para obter total de grupos (baseado nos dados já filtrados)
+  const getTotalGroups = useCallback(() => {
+    const groupedData = getGroupedData();
+    return new Set(groupedData.map(g => `${g.dataPlanejamento}-${g.equipeId}`));
+  }, [getGroupedData]);
 
   // Função para cancelar planejamento
   const handleCancelarPlanejamento = async () => {
@@ -638,106 +663,267 @@ const AcompanhamentoRoteirizacoes = () => {
       {/* Filtros */}
       <div className="rounded-xl border border-border bg-card p-4 mb-6">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold">Filtros</h3>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={fetchPlanejamentos}
-          >
-            <RefreshCcw className="h-4 w-4 mr-2" />
-            Atualizar
-          </Button>
+          <div className="flex items-center gap-2">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <h3 className="font-semibold">Filtros</h3>
+            {hasActiveFilters && (
+              <Badge variant="secondary" className="ml-2">
+                Filtros ativos
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {hasActiveFilters && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={clearAllFilters}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <FilterX className="h-4 w-4 mr-2" />
+                Limpar Filtros
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchPlanejamentos}
+              disabled={loading}
+            >
+              {loading ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCcw className="h-4 w-4 mr-2" />
+              )}
+              Atualizar
+            </Button>
+          </div>
         </div>
         
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-          <div>
-            <label className="text-sm font-medium mb-2 block">Buscar</label>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          {/* Busca */}
+          <div className="lg:col-span-1">
+            <label className="text-sm font-medium mb-2 block text-muted-foreground">Buscar</label>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="OS, endereço, cliente..."
+                placeholder="OS, equipe, endereço..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9"
+                className="pl-9 pr-8"
               />
+              {searchTerm && (
+                <button 
+                  onClick={() => setSearchTerm("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-muted rounded-full transition-colors"
+                >
+                  <X className="h-3 w-3 text-muted-foreground" />
+                </button>
+              )}
             </div>
           </div>
 
+          {/* Status */}
           <div>
-            <label className="text-sm font-medium mb-2 block">Status</label>
+            <label className="text-sm font-medium mb-2 block text-muted-foreground">Status</label>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger>
+              <SelectTrigger className={statusFilter !== "aberto" ? "border-primary/50 bg-primary/5" : ""}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Todos</SelectItem>
-                <SelectItem value="aberto">Aberto</SelectItem>
-                <SelectItem value="cancelado">Cancelado</SelectItem>
-                <SelectItem value="executado">Executado</SelectItem>
+                <SelectItem value="all">Todos os Status</SelectItem>
+                <SelectItem value="aberto">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                    Aberto
+                  </div>
+                </SelectItem>
+                <SelectItem value="cancelado">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-red-500"></div>
+                    Cancelado
+                  </div>
+                </SelectItem>
+                <SelectItem value="executado">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                    Executado
+                  </div>
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
 
+          {/* Data Início */}
           <div>
-            <label className="text-sm font-medium mb-2 block">Data Início</label>
-            <Input
-              type="date"
-              value={dataInicioFilter}
-              onChange={(e) => setDataInicioFilter(e.target.value)}
-            />
+            <label className="text-sm font-medium mb-2 block text-muted-foreground">Data Início</label>
+            <div className="relative">
+              <Input
+                type="date"
+                value={dataInicioFilter}
+                onChange={(e) => setDataInicioFilter(e.target.value)}
+                className={dataInicioFilter ? "border-primary/50 bg-primary/5 pr-8" : ""}
+              />
+              {dataInicioFilter && (
+                <button 
+                  onClick={() => setDataInicioFilter("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-muted rounded-full transition-colors"
+                >
+                  <X className="h-3 w-3 text-muted-foreground" />
+                </button>
+              )}
+            </div>
           </div>
 
+          {/* Data Fim */}
           <div>
-            <label className="text-sm font-medium mb-2 block">Data Fim</label>
-            <Input
-              type="date"
-              value={dataFimFilter}
-              onChange={(e) => setDataFimFilter(e.target.value)}
-            />
+            <label className="text-sm font-medium mb-2 block text-muted-foreground">Data Fim</label>
+            <div className="relative">
+              <Input
+                type="date"
+                value={dataFimFilter}
+                onChange={(e) => setDataFimFilter(e.target.value)}
+                className={dataFimFilter ? "border-primary/50 bg-primary/5 pr-8" : ""}
+              />
+              {dataFimFilter && (
+                <button 
+                  onClick={() => setDataFimFilter("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-muted rounded-full transition-colors"
+                >
+                  <X className="h-3 w-3 text-muted-foreground" />
+                </button>
+              )}
+            </div>
           </div>
 
+          {/* Equipe */}
           <div>
-            <label className="text-sm font-medium mb-2 block">Equipe</label>
+            <label className="text-sm font-medium mb-2 block text-muted-foreground">Equipe</label>
             <Select value={equipeFilter} onValueChange={setEquipeFilter}>
-              <SelectTrigger>
-                <SelectValue placeholder="Todas" />
+              <SelectTrigger className={equipeFilter !== "all" ? "border-primary/50 bg-primary/5" : ""}>
+                <SelectValue placeholder="Todas as Equipes" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Todas</SelectItem>
+                <SelectItem value="all">Todas as Equipes</SelectItem>
                 {equipes.map(equipe => (
                   <SelectItem key={equipe.id} value={equipe.id}>
-                    {equipe.codigo}
+                    <div className="flex items-center gap-2">
+                      <div 
+                        className="w-2 h-2 rounded-full" 
+                        style={{ backgroundColor: equipe.color || '#3b82f6' }}
+                      />
+                      {equipe.codigo} - {equipe.nome}
+                    </div>
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
         </div>
+        
+        {/* Atalhos de data */}
+        <div className="flex items-center gap-2 mt-4 pt-4 border-t border-border">
+          <span className="text-xs text-muted-foreground">Atalhos:</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => {
+              const hoje = new Date().toISOString().split('T')[0];
+              setDataInicioFilter(hoje);
+              setDataFimFilter(hoje);
+            }}
+          >
+            Hoje
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => {
+              const hoje = new Date();
+              const ontem = new Date(hoje);
+              ontem.setDate(ontem.getDate() - 1);
+              setDataInicioFilter(ontem.toISOString().split('T')[0]);
+              setDataFimFilter(ontem.toISOString().split('T')[0]);
+            }}
+          >
+            Ontem
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => {
+              const hoje = new Date();
+              const inicioSemana = new Date(hoje);
+              inicioSemana.setDate(hoje.getDate() - hoje.getDay());
+              setDataInicioFilter(inicioSemana.toISOString().split('T')[0]);
+              setDataFimFilter(hoje.toISOString().split('T')[0]);
+            }}
+          >
+            Esta Semana
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => {
+              const hoje = new Date();
+              const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+              setDataInicioFilter(inicioMes.toISOString().split('T')[0]);
+              setDataFimFilter(hoje.toISOString().split('T')[0]);
+            }}
+          >
+            Este Mês
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => {
+              const hoje = new Date();
+              const ultimos7 = new Date(hoje);
+              ultimos7.setDate(ultimos7.getDate() - 7);
+              setDataInicioFilter(ultimos7.toISOString().split('T')[0]);
+              setDataFimFilter(hoje.toISOString().split('T')[0]);
+            }}
+          >
+            Últimos 7 dias
+          </Button>
+        </div>
       </div>
 
       {/* Estatísticas */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <div className="rounded-lg border border-border bg-card p-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div className="rounded-lg border border-border bg-card p-4 hover:shadow-md transition-shadow">
           <div className="flex items-center gap-2 mb-2">
-            <Calendar className="h-4 w-4 text-muted-foreground" />
-            <div className="text-sm text-muted-foreground">Total Planejamentos</div>
+            <div className="p-2 rounded-lg bg-primary/10">
+              <Calendar className="h-4 w-4 text-primary" />
+            </div>
+            <div className="text-sm text-muted-foreground">Planejamentos</div>
           </div>
           <div className="text-2xl font-bold">{planejamentos.length}</div>
+          {loading && <div className="text-xs text-muted-foreground animate-pulse">Carregando...</div>}
         </div>
         
-        <div className="rounded-lg border border-border bg-card p-4">
+        <div className="rounded-lg border border-border bg-card p-4 hover:shadow-md transition-shadow">
           <div className="flex items-center gap-2 mb-2">
-            <Car className="h-4 w-4 text-muted-foreground" />
-            <div className="text-sm text-muted-foreground">Total Equipes</div>
+            <div className="p-2 rounded-lg bg-blue-500/10">
+              <Car className="h-4 w-4 text-blue-500" />
+            </div>
+            <div className="text-sm text-muted-foreground">Rotas/Equipes</div>
           </div>
           <div className="text-2xl font-bold">
-            {planejamentos.reduce((acc, p) => acc + p.total_equipes, 0)}
+            {getGroupedData().length}
           </div>
         </div>
         
-        <div className="rounded-lg border border-border bg-card p-4">
+        <div className="rounded-lg border border-border bg-card p-4 hover:shadow-md transition-shadow">
           <div className="flex items-center gap-2 mb-2">
-            <MapPin className="h-4 w-4 text-muted-foreground" />
+            <div className="p-2 rounded-lg bg-green-500/10">
+              <MapPin className="h-4 w-4 text-green-500" />
+            </div>
             <div className="text-sm text-muted-foreground">Total OSs</div>
           </div>
           <div className="text-2xl font-bold">
@@ -745,13 +931,15 @@ const AcompanhamentoRoteirizacoes = () => {
           </div>
         </div>
         
-        <div className="rounded-lg border border-border bg-card p-4">
+        <div className="rounded-lg border border-border bg-card p-4 hover:shadow-md transition-shadow">
           <div className="flex items-center gap-2 mb-2">
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-            <div className="text-sm text-muted-foreground">Faturamento Total</div>
+            <div className="p-2 rounded-lg bg-amber-500/10">
+              <DollarSign className="h-4 w-4 text-amber-500" />
+            </div>
+            <div className="text-sm text-muted-foreground">Faturamento</div>
           </div>
-          <div className="text-2xl font-bold">
-            R$ {planejamentos.reduce((acc, p) => acc + (p.faturamento_total || 0), 0).toFixed(2)}
+          <div className="text-2xl font-bold text-green-600">
+            R$ {planejamentos.reduce((acc, p) => acc + (p.faturamento_total || 0), 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
         </div>
       </div>
@@ -808,10 +996,30 @@ const AcompanhamentoRoteirizacoes = () => {
             </div>
 
             {loading ? (
-              <div className="p-8 text-center text-muted-foreground">Carregando...</div>
-            ) : planejamentos.length === 0 ? (
-              <div className="p-8 text-center text-muted-foreground">
-                Nenhum planejamento encontrado.
+              <div className="p-12 text-center">
+                <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground mb-3" />
+                <p className="text-muted-foreground">Carregando planejamentos...</p>
+              </div>
+            ) : getGroupedData().length === 0 ? (
+              <div className="p-12 text-center">
+                <Filter className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
+                <p className="text-lg font-medium text-muted-foreground mb-2">
+                  Nenhum resultado encontrado
+                </p>
+                <p className="text-sm text-muted-foreground mb-4">
+                  {(equipeFilter !== "all" || debouncedSearchTerm)
+                    ? `Nenhuma OS corresponde aos filtros aplicados${debouncedSearchTerm ? ` (busca: "${debouncedSearchTerm}")` : ""}${equipeFilter !== "all" ? " para a equipe selecionada" : ""}`
+                    : planejamentos.length === 0 
+                      ? "Não há planejamentos com os critérios de data/status selecionados"
+                      : "Tente ajustar os filtros para ver mais resultados"
+                  }
+                </p>
+                {hasActiveFilters && (
+                  <Button variant="outline" size="sm" onClick={clearAllFilters}>
+                    <FilterX className="h-4 w-4 mr-2" />
+                    Limpar Filtros
+                  </Button>
+                )}
               </div>
             ) : (
               <div className="divide-y divide-border">

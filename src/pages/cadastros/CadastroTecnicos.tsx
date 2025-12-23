@@ -1,9 +1,8 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -13,26 +12,67 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Pencil, Trash2, Search } from "lucide-react";
+import { Plus, Pencil, Trash2, Users, Loader2, RefreshCcw } from "lucide-react";
 import { toast } from "sonner";
 import { TecnicoFormDialog } from "@/components/equipes/TecnicoFormDialog";
 import type { Tables } from "@/integrations/supabase/types";
+import { SortableTableHead, useSortableTable } from "@/components/ui/sortable-table-head";
+import {
+  DataTableFilters,
+  useDataTableFilters,
+  filterData,
+  FilterConfig,
+} from "@/components/ui/data-table-filters";
 
 type Tecnico = Tables<"tecnicos">;
 
+const statusOptions = [
+  { value: "disponivel", label: "Disponível", color: "bg-green-500" },
+  { value: "em_campo", label: "Em Campo", color: "bg-blue-500" },
+  { value: "indisponivel", label: "Indisponível", color: "bg-red-500" },
+];
+
+// Configuração dos filtros
+const filterConfigs: FilterConfig[] = [
+  {
+    id: "search",
+    label: "Buscar",
+    type: "text",
+    placeholder: "Buscar por código, nome ou telefone...",
+  },
+  {
+    id: "status",
+    label: "Status",
+    type: "select",
+    options: statusOptions,
+  },
+  {
+    id: "ativo",
+    label: "Situação",
+    type: "select",
+    options: [
+      { value: "ativo", label: "Ativos", color: "bg-green-500" },
+      { value: "inativo", label: "Inativos", color: "bg-gray-500" },
+    ],
+  },
+];
+
 export default function CadastroTecnicos() {
-  const [searchTerm, setSearchTerm] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedTecnico, setSelectedTecnico] = useState<Tecnico | null>(null);
   const queryClient = useQueryClient();
 
-  const { data: tecnicos, isLoading } = useQuery({
+  // Filtros
+  const { filterValues, setFilterValues, clearFilters, hasActiveFilters } =
+    useDataTableFilters(filterConfigs);
+
+  const { data: tecnicos, isLoading, refetch } = useQuery({
     queryKey: ["tecnicos"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("tecnicos")
         .select("*")
-        .order("nome");
+        .order("codigo");
       if (error) throw error;
       return data as Tecnico[];
     },
@@ -52,10 +92,35 @@ export default function CadastroTecnicos() {
     },
   });
 
-  const filteredTecnicos = tecnicos?.filter(
-    (t) =>
-      t.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      t.codigo.toLowerCase().includes(searchTerm.toLowerCase())
+  // Filtrar dados
+  const filteredTecnicos = useMemo(() => {
+    if (!tecnicos) return [];
+    return filterData(
+      tecnicos,
+      filterValues,
+      filterConfigs,
+      {
+        search: (item, value) => {
+          const searchTerm = value.toLowerCase();
+          return (
+            item.codigo.toLowerCase().includes(searchTerm) ||
+            item.nome.toLowerCase().includes(searchTerm) ||
+            item.telefone?.toLowerCase().includes(searchTerm) || false
+          );
+        },
+        ativo: (item, value) => {
+          if (value === "ativo") return item.ativo;
+          if (value === "inativo") return !item.ativo;
+          return true;
+        },
+      }
+    );
+  }, [tecnicos, filterValues]);
+
+  // Ordenação
+  const { sortConfig, handleSort, sortedData } = useSortableTable(
+    filteredTecnicos,
+    { column: "codigo", direction: "asc" }
   );
 
   const handleEdit = (tecnico: Tecnico) => {
@@ -69,17 +134,12 @@ export default function CadastroTecnicos() {
   };
 
   const getStatusBadge = (status: string) => {
-    const variants: Record<string, "default" | "secondary" | "destructive"> = {
-      disponivel: "default",
-      em_campo: "secondary",
-      indisponivel: "destructive",
-    };
-    const labels: Record<string, string> = {
-      disponivel: "Disponível",
-      em_campo: "Em Campo",
-      indisponivel: "Indisponível",
-    };
-    return <Badge variant={variants[status] || "secondary"}>{labels[status] || status}</Badge>;
+    const statusOpt = statusOptions.find((s) => s.value === status);
+    return (
+      <Badge className={`${statusOpt?.color || "bg-gray-500"} text-white`}>
+        {statusOpt?.label || status}
+      </Badge>
+    );
   };
 
   const handleSuccess = () => {
@@ -87,56 +147,127 @@ export default function CadastroTecnicos() {
   };
 
   return (
-    <MainLayout title="Cadastro de Técnicos" subtitle="Gerencie os técnicos da equipe">
+    <MainLayout
+      title="Cadastro de Técnicos"
+      subtitle="Gerencie as equipes e técnicos de campo"
+      breadcrumbs={[
+        { label: "Cadastros", href: "/cadastros" },
+        { label: "Técnicos" },
+      ]}
+    >
       <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <Button onClick={handleAdd}>
-            <Plus className="mr-2 h-4 w-4" />
-            Novo Técnico
-          </Button>
-        </div>
-
-        <div className="flex items-center gap-4">
-          <div className="relative flex-1 max-w-sm">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Buscar por nome ou código..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9"
-            />
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {statusOptions.map((status) => {
+              const count = tecnicos?.filter((t) => t.status === status.value).length || 0;
+              return (
+                <button
+                  key={status.value}
+                  onClick={() => setFilterValues({ ...filterValues, status: status.value })}
+                  className={`px-3 py-1.5 rounded-lg border transition-all text-sm ${
+                    filterValues.status === status.value
+                      ? "border-primary bg-primary/5"
+                      : "border-border hover:border-primary/30"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${status.color}`} />
+                    <span>{status.label}</span>
+                    <Badge variant="secondary" className="ml-1">{count}</Badge>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
+              <RefreshCcw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
+              Atualizar
+            </Button>
+            <Button onClick={handleAdd}>
+              <Plus className="h-4 w-4 mr-2" />
+              Novo Técnico
+            </Button>
           </div>
         </div>
 
-        <div className="rounded-lg border bg-card">
+        {/* Filtros */}
+        <div className="rounded-xl border border-border bg-card p-4">
+          <DataTableFilters
+            filters={filterConfigs}
+            values={filterValues}
+            onChange={setFilterValues}
+            onClear={clearFilters}
+          />
+        </div>
+
+        {/* Tabela */}
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Código</TableHead>
-                <TableHead>Nome</TableHead>
-                <TableHead>Telefone</TableHead>
+                <SortableTableHead
+                  column="codigo"
+                  label="Código"
+                  sortConfig={sortConfig}
+                  onSort={handleSort}
+                />
+                <SortableTableHead
+                  column="nome"
+                  label="Nome"
+                  sortConfig={sortConfig}
+                  onSort={handleSort}
+                />
+                <SortableTableHead
+                  column="telefone"
+                  label="Telefone"
+                  sortConfig={sortConfig}
+                  onSort={handleSort}
+                />
                 <TableHead>Habilidades</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-[100px]">Ações</TableHead>
+                <SortableTableHead
+                  column="status"
+                  label="Status"
+                  sortConfig={sortConfig}
+                  onSort={handleSort}
+                />
+                <SortableTableHead
+                  column="ativo"
+                  label="Ativo"
+                  sortConfig={sortConfig}
+                  onSort={handleSort}
+                />
+                <TableHead className="text-right">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8">
-                    Carregando...
+                  <TableCell colSpan={7} className="text-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
                   </TableCell>
                 </TableRow>
-              ) : filteredTecnicos?.length === 0 ? (
+              ) : sortedData?.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                    Nenhum técnico encontrado
+                  <TableCell colSpan={7} className="text-center py-8">
+                    <Users className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                    <p className="text-muted-foreground">
+                      {hasActiveFilters
+                        ? "Nenhum técnico encontrado com os filtros aplicados"
+                        : "Nenhum técnico cadastrado"}
+                    </p>
+                    {hasActiveFilters && (
+                      <Button variant="link" size="sm" onClick={clearFilters} className="mt-2">
+                        Limpar filtros
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredTecnicos?.map((tecnico) => (
-                  <TableRow key={tecnico.id}>
-                    <TableCell className="font-mono">{tecnico.codigo}</TableCell>
+                sortedData?.map((tecnico) => (
+                  <TableRow key={tecnico.id} className="group">
+                    <TableCell className="font-mono font-medium">{tecnico.codigo}</TableCell>
                     <TableCell className="font-medium">{tecnico.nome}</TableCell>
                     <TableCell>{tecnico.telefone || "-"}</TableCell>
                     <TableCell>
@@ -151,17 +282,25 @@ export default function CadastroTecnicos() {
                             +{(tecnico.habilidades?.length || 0) - 2}
                           </Badge>
                         )}
+                        {(!tecnico.habilidades || tecnico.habilidades.length === 0) && (
+                          <span className="text-muted-foreground text-sm">-</span>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell>{getStatusBadge(tecnico.status)}</TableCell>
                     <TableCell>
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => handleEdit(tecnico)}>
+                      <Badge variant={tecnico.ativo ? "default" : "secondary"}>
+                        {tecnico.ativo ? "Sim" : "Não"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button variant="ghost" size="sm" onClick={() => handleEdit(tecnico)}>
                           <Pencil className="h-4 w-4" />
                         </Button>
                         <Button
                           variant="ghost"
-                          size="icon"
+                          size="sm"
                           onClick={() => deleteMutation.mutate(tecnico.id)}
                         >
                           <Trash2 className="h-4 w-4 text-destructive" />
@@ -173,6 +312,12 @@ export default function CadastroTecnicos() {
               )}
             </TableBody>
           </Table>
+
+          {sortedData && sortedData.length > 0 && (
+            <div className="px-4 py-3 border-t border-border bg-muted/30 text-sm text-muted-foreground">
+              Mostrando {sortedData.length} de {tecnicos?.length || 0} técnicos
+            </div>
+          )}
         </div>
       </div>
 

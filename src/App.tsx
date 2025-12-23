@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { WebAuthProvider } from "@/contexts/WebAuthContext";
 import { EquipeAuthProvider, useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { TecnicoProvider } from "@/contexts/TecnicoContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
@@ -20,11 +21,26 @@ import Relatorios from "./pages/Relatorios";
 import NotFound from "./pages/NotFound";
 import CadastroPontosSaida from "./pages/cadastros/CadastroPontosSaida";
 import CadastroPoligonos from "./pages/cadastros/CadastroPoligonos";
+import CadastroCoordenadores from "./pages/cadastros/CadastroCoordenadores";
+import CadastroVeiculos from "./pages/cadastros/CadastroVeiculos";
+import CadastroMetas from "./pages/cadastros/CadastroMetas";
 import ChecklistsAvancado from "./pages/ChecklistsAvancado";
 import Skills from "./pages/cadastros/Skills";
 import CadastroTerritorios from "./pages/CadastroTerritorios";
 import ConsultaChecklists from "./pages/ConsultaChecklists";
 import ChecklistDetalhes from "./pages/ChecklistDetalhes";
+
+// Módulo Admin
+import {
+  AdminLayout,
+  AdminContratos,
+  AdminUsuariosWeb,
+  AdminUsuariosApp,
+  AdminPermissoes,
+  AdminLogs,
+  AdminCadastrosBase,
+  AdminProcedimentos,
+} from "./pages/admin";
 
 // Módulo de Materiais
 import MateriaisDashboard from "./pages/materiais/MateriaisDashboard";
@@ -75,7 +91,8 @@ const App = () => (
   <ErrorBoundary>
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <TooltipProvider>
+        <WebAuthProvider>
+          <TooltipProvider>
           <Toaster />
           <Sonner />
           <BrowserRouter>
@@ -95,8 +112,24 @@ const App = () => (
             <Route path="/cadastros/checklists" element={<ProtectedRoute><ChecklistsAvancado /></ProtectedRoute>} />
             <Route path="/cadastros/skills" element={<ProtectedRoute><Skills /></ProtectedRoute>} />
             <Route path="/territorios" element={<ProtectedRoute><CadastroTerritorios /></ProtectedRoute>} />
+            <Route path="/cadastros/coordenadores" element={<ProtectedRoute><CadastroCoordenadores /></ProtectedRoute>} />
+            <Route path="/cadastros/veiculos" element={<ProtectedRoute><CadastroVeiculos /></ProtectedRoute>} />
+            <Route path="/cadastros/metas" element={<ProtectedRoute><CadastroMetas /></ProtectedRoute>} />
             <Route path="/consulta-checklists" element={<ProtectedRoute><ConsultaChecklists /></ProtectedRoute>} />
             <Route path="/consulta-checklists/:id" element={<ProtectedRoute><ChecklistDetalhes /></ProtectedRoute>} />
+
+            {/* Rotas do Módulo Admin */}
+            <Route path="/admin" element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}>
+              <Route index element={null} />
+              <Route path="contratos" element={<AdminContratos />} />
+              <Route path="usuarios-web" element={<AdminUsuariosWeb />} />
+              <Route path="usuarios-app" element={<AdminUsuariosApp />} />
+              <Route path="permissoes" element={<AdminPermissoes />} />
+              <Route path="logs" element={<AdminLogs />} />
+              <Route path="cadastros-base" element={<AdminCadastrosBase />} />
+              <Route path="procedimentos" element={<AdminProcedimentos />} />
+              <Route path="checklists" element={<ChecklistsAvancado />} />
+            </Route>
 
             {/* Rotas do Módulo de Materiais */}
             <Route path="/materiais" element={<ProtectedRoute><MateriaisDashboard /></ProtectedRoute>} />
@@ -139,6 +172,7 @@ const App = () => (
             </Routes>
           </BrowserRouter>
         </TooltipProvider>
+        </WebAuthProvider>
       </AuthProvider>
     </QueryClientProvider>
   </ErrorBoundary>

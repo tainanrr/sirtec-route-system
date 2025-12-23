@@ -7,12 +7,13 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/hooks/use-toast";
+import { useWebAuth } from "@/contexts/WebAuthContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { z } from "zod";
 
 const loginSchema = z.object({
   email: z.string().email("Email inválido"),
-  password: z.string().min(6, "Senha deve ter no mínimo 6 caracteres"),
+  password: z.string().min(1, "Senha é obrigatória"),
 });
 
 const signupSchema = z.object({
@@ -28,7 +29,8 @@ const signupSchema = z.object({
 const Login = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { signIn, signUp, user, loading } = useAuth();
+  const { signIn: webSignIn, usuarioWeb, loading: webLoading } = useWebAuth();
+  const { signIn: authSignIn, signUp, user, loading: authLoading } = useAuth();
   
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -42,13 +44,15 @@ const Login = () => {
   const [signupPassword, setSignupPassword] = useState("");
   const [signupConfirmPassword, setSignupConfirmPassword] = useState("");
 
-  // Redirect if already logged in
+  const loading = webLoading || authLoading;
+
+  // Redirect if already logged in (either web user or auth user)
   useEffect(() => {
-    if (user && !loading) {
+    if ((usuarioWeb || user) && !loading) {
       const from = location.state?.from?.pathname || "/";
       navigate(from, { replace: true });
     }
-  }, [user, loading, navigate, location]);
+  }, [usuarioWeb, user, loading, navigate, location]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,17 +73,29 @@ const Login = () => {
     
     setIsLoading(true);
     
-    console.log("[Login] Chamando signIn...");
-    const { error } = await signIn(loginEmail, loginPassword);
-    console.log("[Login] Resultado signIn:", { error });
+    // Primeiro tenta login com usuários web (tabela usuarios_web)
+    console.log("[Login] Tentando login com usuário web...");
+    const webResult = await webSignIn(loginEmail, loginPassword);
+    
+    if (!webResult.error) {
+      console.log("[Login] Login web bem-sucedido:", webResult.usuario?.nome);
+      toast({
+        title: "Login realizado!",
+        description: `Bem-vindo(a), ${webResult.usuario?.nome}`,
+      });
+      // O redirect acontecerá via useEffect
+      return;
+    }
+    
+    console.log("[Login] Login web falhou, tentando Supabase Auth...");
+    
+    // Se falhar, tenta com Supabase Auth (para manter compatibilidade)
+    const { error } = await authSignIn(loginEmail, loginPassword);
+    console.log("[Login] Resultado Supabase Auth:", { error });
     
     if (error) {
-      let message = "Erro ao fazer login";
-      if (error.message.includes("Invalid login credentials")) {
-        message = "Email ou senha incorretos";
-      } else if (error.message.includes("Email not confirmed")) {
-        message = "Email não confirmado. Verifique sua caixa de entrada.";
-      }
+      // Se ambos falharam, mostra erro do login web (mais relevante)
+      let message = webResult.error?.message || "Email ou senha incorretos";
       
       toast({
         title: "Erro",
@@ -151,7 +167,7 @@ const Login = () => {
   }
 
   return (
-    <div className="min-h-screen flex dark">
+    <div className="min-h-screen flex bg-gray-50">
       {/* Left Side - Branding */}
       <div className="hidden lg:flex lg:w-1/2 gradient-primary relative overflow-hidden">
         <div className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2260%22%20height%3D%2260%22%20viewBox%3D%220%200%2060%2060%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cg%20fill%3D%22none%22%20fill-rule%3D%22evenodd%22%3E%3Cg%20fill%3D%22%23ffffff%22%20fill-opacity%3D%220.05%22%3E%3Cpath%20d%3D%22M36%2034v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6%2034v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6%204V0H4v4H0v2h4v4h2V6h4V4H6z%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E')] opacity-50" />
@@ -204,14 +220,14 @@ const Login = () => {
       </div>
 
       {/* Right Side - Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-background">
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-white">
         <div className="w-full max-w-md space-y-6">
           {/* Mobile Logo */}
           <div className="flex flex-col items-center lg:hidden mb-8">
             <div className="flex h-14 w-14 items-center justify-center rounded-xl gradient-primary mb-4">
-              <Zap className="h-7 w-7 text-primary-foreground" />
+              <Zap className="h-7 w-7 text-white" />
             </div>
-            <h1 className="text-2xl font-bold text-foreground">SirtecRoute</h1>
+            <h1 className="text-2xl font-bold text-gray-900">SirtecRoute</h1>
           </div>
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -222,20 +238,20 @@ const Login = () => {
 
             <TabsContent value="login" className="space-y-6 mt-6">
               <div className="text-center lg:text-left">
-                <h2 className="text-2xl font-bold text-foreground">Bem-vindo de volta</h2>
-                <p className="text-muted-foreground mt-2">Faça login para continuar</p>
+                <h2 className="text-2xl font-bold text-gray-900">Bem-vindo de volta</h2>
+                <p className="text-gray-500 mt-2">Faça login para continuar</p>
               </div>
 
               <form onSubmit={handleLogin} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="login-email">Email</Label>
+                  <Label htmlFor="login-email" className="text-gray-700">Email</Label>
                   <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
                     <Input
                       id="login-email"
                       type="email"
                       placeholder="seu@email.com"
-                      className="pl-10"
+                      className="pl-10 bg-white border-gray-300 text-gray-900 placeholder:text-gray-400"
                       value={loginEmail}
                       onChange={(e) => setLoginEmail(e.target.value)}
                       required
@@ -244,14 +260,14 @@ const Login = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="login-password">Senha</Label>
+                  <Label htmlFor="login-password" className="text-gray-700">Senha</Label>
                   <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
                     <Input
                       id="login-password"
                       type={showPassword ? "text" : "password"}
                       placeholder="••••••••"
-                      className="pl-10 pr-10"
+                      className="pl-10 pr-10 bg-white border-gray-300 text-gray-900 placeholder:text-gray-400"
                       value={loginPassword}
                       onChange={(e) => setLoginPassword(e.target.value)}
                       required
@@ -259,7 +275,7 @@ const Login = () => {
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
                     >
                       {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                     </button>
@@ -269,7 +285,7 @@ const Login = () => {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
                     <Checkbox id="remember" />
-                    <label htmlFor="remember" className="text-sm text-muted-foreground cursor-pointer">
+                    <label htmlFor="remember" className="text-sm text-gray-500 cursor-pointer">
                       Lembrar de mim
                     </label>
                   </div>

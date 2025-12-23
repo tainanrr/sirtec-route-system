@@ -20,6 +20,15 @@ import {
   Map,
   ListChecks,
   Package,
+  Shield,
+  Car,
+  Target,
+  UserCheck,
+  Building2,
+  Lock,
+  Database,
+  ScrollText,
+  History,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -29,6 +38,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { useAuth } from "@/contexts/AuthContext";
+import { useWebAuth } from "@/contexts/WebAuthContext";
 
 interface NavItem {
   icon: React.ElementType;
@@ -58,7 +68,24 @@ const navItems: NavItem[] = [
       { icon: Users, label: "Equipes", href: "/equipes" },
       { icon: Wrench, label: "Skills", href: "/cadastros/skills" },
       { icon: Map, label: "Territórios", href: "/territorios" },
-      { icon: CheckSquare, label: "Checklists", href: "/cadastros/checklists" },
+      { icon: UserCheck, label: "Coordenadores", href: "/cadastros/coordenadores" },
+      { icon: Car, label: "Veículos", href: "/cadastros/veiculos" },
+      { icon: Target, label: "Metas", href: "/cadastros/metas" },
+    ],
+  },
+  { icon: LayoutDashboard, label: "__divider_6__", type: "divider" },
+  {
+    icon: Shield,
+    label: "Admin",
+    children: [
+      { icon: Building2, label: "Contratos", href: "/admin/contratos" },
+      { icon: Users, label: "Usuários Web", href: "/admin/usuarios-web" },
+      { icon: UserCheck, label: "Usuários App", href: "/admin/usuarios-app" },
+      { icon: Lock, label: "Permissões", href: "/admin/permissoes" },
+      { icon: Database, label: "Cadastros Base", href: "/admin/cadastros-base" },
+      { icon: ScrollText, label: "Procedimentos", href: "/admin/procedimentos" },
+      { icon: ClipboardList, label: "Checklists", href: "/admin/checklists" },
+      { icon: History, label: "Logs", href: "/admin/logs" },
     ],
   },
 ];
@@ -72,8 +99,9 @@ interface SidebarProps {
 export function Sidebar({ isDark, setIsDark, collapsed = false }: SidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, signOut } = useAuth();
-  const [openCadastros, setOpenCadastros] = useState(false);
+  const { user, signOut: authSignOut } = useAuth();
+  const { usuarioWeb, signOut: webSignOut } = useWebAuth();
+  const [openMenus, setOpenMenus] = useState<Record<string, boolean>>({});
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
   const isActive = (href?: string) => {
@@ -82,29 +110,42 @@ export function Sidebar({ isDark, setIsDark, collapsed = false }: SidebarProps) 
     return location.pathname.startsWith(href);
   };
 
-  // Manter "Cadastros" aberto se algum item filho estiver ativo
+  // Toggle de menu expansível
+  const toggleMenu = (menuLabel: string) => {
+    setOpenMenus((prev) => ({
+      ...prev,
+      [menuLabel]: !prev[menuLabel],
+    }));
+  };
+
+  // Manter menus abertos se algum item filho estiver ativo
   useEffect(() => {
-    const cadastrosItem = navItems.find((item) => item.label === "Cadastros");
-    if (cadastrosItem?.children) {
-      const hasActiveChild = cadastrosItem.children.some((child) => {
-        if (!child.href) return false;
-        if (child.href === "/") return location.pathname === "/";
-        return location.pathname.startsWith(child.href);
-      });
-      if (hasActiveChild) {
-        setOpenCadastros(true);
+    const menusWithChildren = navItems.filter((item) => item.children);
+    menusWithChildren.forEach((menu) => {
+      if (menu.children) {
+        const hasActiveChild = menu.children.some((child) => {
+          if (!child.href) return false;
+          if (child.href === "/") return location.pathname === "/";
+          return location.pathname.startsWith(child.href);
+        });
+        if (hasActiveChild) {
+          setOpenMenus((prev) => ({ ...prev, [menu.label]: true }));
+        }
       }
-    }
+    });
   }, [location.pathname]);
 
   const handleLogout = async () => {
-    await signOut();
+    // Faz logout de ambos os sistemas
+    webSignOut();
+    await authSignOut();
     navigate("/login");
   };
 
-  // Get user initials and display name
-  const userEmail = user?.email || "";
-  const userName = user?.user_metadata?.nome_completo || userEmail.split("@")[0];
+  // Get user initials and display name - prioriza usuário web
+  const userEmail = usuarioWeb?.email || user?.email || "";
+  const userName = usuarioWeb?.nome || user?.user_metadata?.nome_completo || userEmail.split("@")[0];
+  const userCargo = usuarioWeb?.cargo || "";
   const userInitials = userName
     .split(" ")
     .map((n: string) => n[0])
@@ -147,6 +188,8 @@ export function Sidebar({ isDark, setIsDark, collapsed = false }: SidebarProps) 
           }
 
           if (item.children) {
+            const isOpen = openMenus[item.label] || false;
+            
             if (collapsed) {
               return (
                 <button
@@ -164,8 +207,8 @@ export function Sidebar({ isDark, setIsDark, collapsed = false }: SidebarProps) 
             return (
               <Collapsible
                 key={item.label}
-                open={openCadastros}
-                onOpenChange={setOpenCadastros}
+                open={isOpen}
+                onOpenChange={() => toggleMenu(item.label)}
               >
                 <CollapsibleTrigger asChild>
                   <button
@@ -178,7 +221,7 @@ export function Sidebar({ isDark, setIsDark, collapsed = false }: SidebarProps) 
                       <item.icon className="h-5 w-5" />
                       {item.label}
                     </span>
-                    {openCadastros ? (
+                    {isOpen ? (
                       <ChevronDown className="h-4 w-4" />
                     ) : (
                       <ChevronRight className="h-4 w-4" />
@@ -252,7 +295,7 @@ export function Sidebar({ isDark, setIsDark, collapsed = false }: SidebarProps) 
             <>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-sidebar-foreground truncate">{userName}</p>
-            <p className="text-xs text-muted-foreground truncate">{userEmail}</p>
+            <p className="text-xs text-muted-foreground truncate">{userCargo || userEmail}</p>
           </div>
           <button
             onClick={handleLogout}
