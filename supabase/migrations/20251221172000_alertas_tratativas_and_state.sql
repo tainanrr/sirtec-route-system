@@ -85,3 +85,4 @@ COMMENT ON COLUMN public.alertas.status IS 'Estado operacional do alerta (open/a
 COMMENT ON COLUMN public.alertas.snoozed_until IS 'Quando o alerta volta a ficar ativo (se silenciado).';
 
 
+

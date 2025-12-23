@@ -89,3 +89,4 @@ SELECT codigo, numero, status, created_at
 FROM public.ordens_servico 
 ORDER BY created_at DESC 
 LIMIT 10;
+

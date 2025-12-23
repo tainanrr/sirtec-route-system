@@ -584,10 +584,12 @@ const isOSUrgente = (prazo: string | null | undefined, regulada: boolean | null 
 };
 
 function MapaRoteiro({ ordens, equipe }: MapaRoteiroProps) {
+  const navigate = useNavigate();
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [skillsIcons, setSkillsIcons] = useState<Map<string, string>>(new Map());
+  const [osSelecionada, setOsSelecionada] = useState<OrdemPlanejada | null>(null);
   
   // Separar ordens com e sem coordenadas
   const ordensComCoordenadas = ordens.filter(
@@ -722,6 +724,22 @@ function MapaRoteiro({ ordens, equipe }: MapaRoteiroProps) {
       updateMarkers();
     }
   }, [ordens, equipe, skillsIcons]);
+
+  // Funções globais para os botões do popup
+  useEffect(() => {
+    (window as any).irParaOS = (osId: string) => {
+      navigate(`/app/ordens/${osId}`);
+    };
+    (window as any).navegarOS = (lat: string, lng: string) => {
+      const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
+      window.open(url, "_blank");
+    };
+    
+    return () => {
+      delete (window as any).irParaOS;
+      delete (window as any).navegarOS;
+    };
+  }, [navigate]);
 
   const initMap = () => {
     if (!mapRef.current || !(window as any).L || mapInstanceRef.current) return;
@@ -919,8 +937,9 @@ function MapaRoteiro({ ordens, equipe }: MapaRoteiroProps) {
           })
         : "Sem prazo";
       
+      const osId = ordem.ordens_servico?.id;
       const popupContent = `
-        <div style="min-width: 180px; font-family: system-ui, sans-serif;">
+        <div style="min-width: 200px; font-family: system-ui, sans-serif;">
           <div style="margin-bottom: 6px;">
             <strong style="color: ${corFundo};">#${ordem.ordem_na_rota}</strong> - 
             <span style="font-weight: 600;">${ordem.ordens_servico?.tipo}</span>
@@ -928,14 +947,27 @@ function MapaRoteiro({ ordens, equipe }: MapaRoteiroProps) {
           <div style="font-size: 12px; color: #666; margin-bottom: 4px;">
             ${ordem.ordens_servico?.endereco}
           </div>
-          <div style="font-size: 11px; color: #888;">
+          <div style="font-size: 11px; color: #888; margin-bottom: 8px;">
             <strong>Horário:</strong> ${ordem.hora_inicio_estimada || "-"}<br>
             <strong>Prazo:</strong> ${prazoFormatado}
           </div>
-          ${regulada ? '<div style="margin-top: 6px; padding: 2px 6px; background-color: #fee2e2; border-radius: 4px; display: inline-block;"><span style="color: #dc2626; font-weight: bold; font-size: 10px;">REGULADA</span></div>' : ""}
+          ${regulada ? '<div style="margin-bottom: 8px; padding: 2px 6px; background-color: #fee2e2; border-radius: 4px; display: inline-block;"><span style="color: #dc2626; font-weight: bold; font-size: 10px;">REGULADA</span></div>' : ""}
+          <div style="display: flex; gap: 6px; margin-top: 8px; border-top: 1px solid #eee; padding-top: 8px;">
+            <button onclick="window.irParaOS('${osId}')" style="flex: 1; padding: 6px 10px; background: #3b82f6; color: white; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">
+              Ir para OS
+            </button>
+            <button onclick="window.navegarOS('${lat}', '${lng}')" style="padding: 6px 10px; background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; border-radius: 6px; font-size: 12px; cursor: pointer;" title="Google Maps">
+              📍
+            </button>
+          </div>
         </div>
       `;
       marker.bindPopup(popupContent);
+      
+      // Ao clicar no marcador, selecionar a OS
+      marker.on('click', () => {
+        setOsSelecionada(ordem);
+      });
       
       routePoints.push([lat, lng]);
     });
@@ -957,65 +989,64 @@ function MapaRoteiro({ ordens, equipe }: MapaRoteiroProps) {
     }
   };
   
-  // Criar URL do Google Maps com waypoints
-  const openInGoogleMaps = () => {
-    if (ordensOrdenadas.length === 0) return;
-    
-    // Origem: posição da equipe ou primeira OS
-    const origin = equipe?.latitude && equipe?.longitude
-      ? `${equipe.latitude},${equipe.longitude}`
-      : `${ordensOrdenadas[0].ordens_servico!.latitude},${ordensOrdenadas[0].ordens_servico!.longitude}`;
-    
-    // Destino: última OS
-    const lastOrdem = ordensOrdenadas[ordensOrdenadas.length - 1];
-    const destination = `${lastOrdem.ordens_servico!.latitude},${lastOrdem.ordens_servico!.longitude}`;
-    
-    // Waypoints: todas as OSs intermediárias
-    const waypoints = ordensOrdenadas
-      .slice(equipe?.latitude ? 0 : 1, -1)
-      .map(o => `${o.ordens_servico!.latitude},${o.ordens_servico!.longitude}`)
-      .join("|");
-    
-    const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}${waypoints ? `&waypoints=${waypoints}` : ""}&travelmode=driving`;
+  // Abrir Google Maps para uma OS específica
+  const openOSInGoogleMaps = (ordem: OrdemPlanejada) => {
+    if (!ordem.ordens_servico?.latitude || !ordem.ordens_servico?.longitude) return;
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${ordem.ordens_servico.latitude},${ordem.ordens_servico.longitude}&travelmode=driving`;
     window.open(url, "_blank");
   };
   
-  // Criar URL do Waze
-  const openInWaze = () => {
-    if (ordensOrdenadas.length === 0) return;
-    
-    // Waze só aceita um destino por vez, então abrir a próxima OS pendente
-    const proximaOS = ordensOrdenadas.find(o => 
-      o.ordens_servico?.status !== "concluida" && o.ordens_servico?.status !== "cancelada"
-    ) || ordensOrdenadas[0];
-    
-    const url = `https://waze.com/ul?ll=${proximaOS.ordens_servico!.latitude},${proximaOS.ordens_servico!.longitude}&navigate=yes`;
+  // Abrir Waze para uma OS específica
+  const openOSInWaze = (ordem: OrdemPlanejada) => {
+    if (!ordem.ordens_servico?.latitude || !ordem.ordens_servico?.longitude) return;
+    const url = `https://waze.com/ul?ll=${ordem.ordens_servico.latitude},${ordem.ordens_servico.longitude}&navigate=yes`;
     window.open(url, "_blank");
   };
-  
+
   return (
     <div className="absolute inset-0 flex flex-col">
-      {/* Botões de navegação */}
-      <div className="p-2 bg-muted/50 border-b flex gap-2 flex-wrap shrink-0">
-        <Button 
-          onClick={openInGoogleMaps}
-          className="flex-1 min-w-[120px]"
-          variant="default"
-          size="sm"
-        >
-          <Navigation className="h-4 w-4 mr-2" />
-          Google Maps
-        </Button>
-        <Button 
-          onClick={openInWaze}
-          className="flex-1 min-w-[120px]"
-          variant="secondary"
-          size="sm"
-        >
-          <Navigation className="h-4 w-4 mr-2" />
-          Waze
-        </Button>
-      </div>
+      {/* Barra de OS selecionada */}
+      {osSelecionada && (
+        <div className="p-2 bg-primary/10 border-b flex items-center gap-2 shrink-0">
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-sm truncate">
+              #{osSelecionada.ordem_na_rota} - {osSelecionada.ordens_servico?.tipo}
+            </p>
+            <p className="text-xs text-muted-foreground truncate">{osSelecionada.ordens_servico?.endereco}</p>
+          </div>
+          <Button 
+            onClick={() => navigate(`/app/ordens/${osSelecionada.ordens_servico?.id}`)}
+            size="sm"
+            variant="default"
+          >
+            <ChevronRight className="h-4 w-4 mr-1" />
+            Ir para OS
+          </Button>
+          <Button 
+            onClick={() => openOSInGoogleMaps(osSelecionada)}
+            size="sm"
+            variant="outline"
+            disabled={!osSelecionada.ordens_servico?.latitude}
+          >
+            <Navigation className="h-4 w-4" />
+          </Button>
+          <Button 
+            onClick={() => openOSInWaze(osSelecionada)}
+            size="sm"
+            variant="outline"
+            disabled={!osSelecionada.ordens_servico?.latitude}
+          >
+            <MapIcon className="h-4 w-4" />
+          </Button>
+          <Button 
+            onClick={() => setOsSelecionada(null)}
+            size="sm"
+            variant="ghost"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
       
       {/* Mapa Leaflet */}
       <div className="flex-1 min-h-0 relative">
@@ -1081,7 +1112,8 @@ function MapaRoteiro({ ordens, equipe }: MapaRoteiroProps) {
                 return (
                   <div 
                     key={ordem.id}
-                    className={`flex items-center gap-2 text-xs p-2 rounded border ${bgClass}`}
+                    className={`flex items-center gap-2 text-xs p-2 rounded border cursor-pointer hover:shadow-md transition-shadow ${bgClass} ${osSelecionada?.id === ordem.id ? 'ring-2 ring-primary' : ''}`}
+                    onClick={() => setOsSelecionada(ordem)}
                   >
                     <div 
                       className="h-7 w-7 rounded-full flex items-center justify-center relative shrink-0"
@@ -1108,11 +1140,25 @@ function MapaRoteiro({ ordens, equipe }: MapaRoteiroProps) {
                       </div>
                       <p className="text-muted-foreground truncate">{ordem.ordens_servico?.endereco}</p>
                     </div>
-                    {ordem.hora_inicio_estimada && (
-                      <span className="text-muted-foreground whitespace-nowrap">
-                        {ordem.hora_inicio_estimada}
-                      </span>
-                    )}
+                    <div className="flex items-center gap-1 shrink-0">
+                      {ordem.hora_inicio_estimada && (
+                        <span className="text-muted-foreground whitespace-nowrap mr-1">
+                          {ordem.hora_inicio_estimada}
+                        </span>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 w-6 p-0"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/app/ordens/${ordem.ordens_servico?.id}`);
+                        }}
+                        title="Ir para OS"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 );
               })}

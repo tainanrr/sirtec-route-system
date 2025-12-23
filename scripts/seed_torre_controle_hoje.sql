@@ -349,3 +349,4 @@ COMMIT;
 -- - Mapa: ver rota planejada + trilha executada (EQ-001/EQ-002)
 
 
+

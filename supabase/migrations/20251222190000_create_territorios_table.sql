@@ -38,3 +38,4 @@ CREATE TRIGGER update_territorios_updated_at
 COMMENT ON TABLE public.territorios IS 'Territórios/áreas geográficas para roteirização';
 COMMENT ON COLUMN public.territorios.poligono IS 'Array de coordenadas [{lat, lng}, ...] em JSONB';
 COMMENT ON COLUMN public.territorios.equipe_ids IS 'Array de UUIDs das equipes vinculadas ao território';
+

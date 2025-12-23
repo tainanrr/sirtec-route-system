@@ -87,3 +87,4 @@ CREATE INDEX IF NOT EXISTS idx_ordens_servico_status ON public.ordens_servico(st
 -- Comentários
 COMMENT ON COLUMN public.ordens_servico.codigo IS 'Código único interno do sistema (ex: OS-2024-000001)';
 COMMENT ON COLUMN public.ordens_servico.numero IS 'Número da OS no sistema externo (pode repetir para diferentes períodos)';
+

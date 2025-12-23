@@ -139,3 +139,4 @@ COMMENT ON FUNCTION public.registrar_posicao_equipe IS 'Registra posição de eq
 ALTER PUBLICATION supabase_realtime ADD TABLE public.tecnicos_posicoes;
 
 
+
