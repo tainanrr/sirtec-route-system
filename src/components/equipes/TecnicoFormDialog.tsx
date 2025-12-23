@@ -55,7 +55,7 @@ interface EquipeColaborador {
 const tecnicoSchema = z.object({
   codigo: z.string().min(1, "Código é obrigatório").max(20),
   nome: z.string().max(200).optional(), // Nome será gerado automaticamente dos colaboradores
-  status: z.enum(["disponivel", "em_servico", "pausa", "offline"]),
+  status: z.enum(["disponivel", "offline"]),
   hora_inicio: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Formato inválido (use HH:mm)"),
   jornada_horas: z.number().min(1).max(24),
   max_horas_trabalho: z.number().min(1).max(24),
@@ -307,10 +307,13 @@ export function TecnicoFormDialog({
 
   useEffect(() => {
     if (tecnico) {
+      // Normalizar status antigos (em_servico, pausa) para "disponivel"
+      const normalizedStatus = tecnico.status === "offline" ? "offline" : "disponivel";
+      
       form.reset({
         codigo: tecnico.codigo,
         nome: tecnico.nome || "",
-        status: tecnico.status as TecnicoFormData["status"],
+        status: normalizedStatus as TecnicoFormData["status"],
         hora_inicio: (tecnico as any).hora_inicio || "07:30",
         jornada_horas: (tecnico as any).jornada_horas || 8,
         max_horas_trabalho: (tecnico as any).max_horas_trabalho || 10,
@@ -542,10 +545,8 @@ export function TecnicoFormDialog({
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="disponivel">Disponível</SelectItem>
-                            <SelectItem value="em_servico">Em Serviço</SelectItem>
-                            <SelectItem value="pausa">Pausa</SelectItem>
-                            <SelectItem value="offline">Offline</SelectItem>
+                            <SelectItem value="disponivel">Ativa</SelectItem>
+                            <SelectItem value="offline">Inativa</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />

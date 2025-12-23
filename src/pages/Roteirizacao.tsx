@@ -184,7 +184,7 @@ const Roteirizacao = () => {
   const [planejamentosEncontrados, setPlanejamentosEncontrados] = useState<any[]>([]);
   const [carregandoPlanejamentos, setCarregandoPlanejamentos] = useState(false);
 
-  // Carregar equipes do Supabase
+  // Carregar equipes do Supabase (apenas ativas)
   useEffect(() => {
     const fetchEquipes = async () => {
       setLoadingEquipes(true);
@@ -192,6 +192,7 @@ const Roteirizacao = () => {
         const { data, error } = await supabase
           .from("tecnicos")
           .select("*")
+          .neq("status", "offline") // Apenas equipes ativas
           .order("codigo");
 
         if (error) throw error;
@@ -1927,7 +1928,7 @@ const Roteirizacao = () => {
         </div>
 
         {/* Configurações Compactas */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Configuração de Territórios */}
           <div className="rounded-lg border border-border bg-card p-4">
               <div className="flex items-center justify-between mb-3">
@@ -1946,16 +1947,25 @@ const Roteirizacao = () => {
             {usarTerritorios && (
               <div className="space-y-2">
                 <div className="text-xs text-muted-foreground mb-2">
-                  {territoriosSelecionados.length} de {territorios.filter(t => t.ativo && t.equipeIds && t.equipeIds.length > 0 && t.poligono.length >= 3).length} selecionados
+                  {territoriosSelecionados.length} de {territorios.filter(t => t.ativo && t.poligono.length >= 3).length} selecionados
                 </div>
-                <div className="space-y-2 max-h-[120px] overflow-y-auto">
-                  {territorios.filter(t => t.ativo && t.equipeIds && t.equipeIds.length > 0 && t.poligono.length >= 3).map((territorio) => {
+                <div className="grid grid-cols-3 lg:grid-cols-4 gap-1 max-h-[280px] overflow-y-auto">
+                  {territorios.filter(t => t.ativo && t.poligono.length >= 3).map((territorio) => {
                     const checked = territoriosSelecionados.includes(territorio.id);
-                    const equipesVinculadas = territorio.equipeIds
+                    const equipesVinculadas = (territorio.equipeIds || [])
                       .map(id => equipes.find(e => e.id === id))
                       .filter(e => e !== undefined);
+                    const temEquipes = equipesVinculadas.length > 0;
                     return (
-                      <label key={territorio.id} className="flex items-center gap-2 text-xs text-foreground cursor-pointer hover:bg-muted/50 p-1 rounded">
+                      <label 
+                        key={territorio.id} 
+                        className={`flex items-center gap-1.5 text-xs text-foreground cursor-pointer hover:bg-muted/50 p-1 rounded border ${
+                          temEquipes 
+                            ? 'border-transparent' 
+                            : 'border-dashed border-orange-400/50 bg-orange-50/50 dark:bg-orange-950/20'
+                        }`}
+                        title={temEquipes ? `Equipes: ${equipesVinculadas.map(e => e?.codigo).join(", ")}` : 'Sem equipes vinculadas'}
+                      >
                         <input
                           type="checkbox"
                           checked={checked}
@@ -1966,15 +1976,15 @@ const Roteirizacao = () => {
                               setTerritoriosSelecionados((prev) => prev.filter((id) => id !== territorio.id));
                             }
                           }}
-                          className="h-3 w-3"
+                          className="h-3 w-3 flex-shrink-0"
                         />
                         <div
-                          className="h-3 w-3 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: territorio.cor }}
+                          className={`h-2.5 w-2.5 rounded-full flex-shrink-0 ${!temEquipes ? 'border border-dashed border-orange-400' : ''}`}
+                          style={{ backgroundColor: temEquipes ? territorio.cor : 'transparent' }}
                         />
-                        <span className="font-medium truncate">{territorio.nome}</span>
-                        {equipesVinculadas.length > 0 && (
-                          <span className="text-muted-foreground text-[10px] truncate">
+                        <span className="font-medium truncate text-[11px]">{territorio.nome}</span>
+                        {temEquipes && (
+                          <span className="text-muted-foreground text-[9px] truncate">
                             {equipesVinculadas.map(e => e?.codigo).join(", ")}
                           </span>
                         )}
@@ -1987,7 +1997,7 @@ const Roteirizacao = () => {
                     variant="ghost"
                     size="sm"
                     onClick={() => {
-                      const ativos = territorios.filter(t => t.ativo && t.equipeIds && t.equipeIds.length > 0 && t.poligono.length >= 3);
+                      const ativos = territorios.filter(t => t.ativo && t.poligono.length >= 3);
                       if (territoriosSelecionados.length === ativos.length) {
                         setTerritoriosSelecionados([]);
                       } else {
@@ -1996,7 +2006,7 @@ const Roteirizacao = () => {
                     }}
                     className="flex-1 text-xs h-7"
                   >
-                    {territoriosSelecionados.length === territorios.filter(t => t.ativo && t.equipeIds && t.equipeIds.length > 0 && t.poligono.length >= 3).length ? "Desselecionar Todos" : "Selecionar Todos"}
+                    {territoriosSelecionados.length === territorios.filter(t => t.ativo && t.poligono.length >= 3).length ? "Desselecionar Todos" : "Selecionar Todos"}
                   </Button>
                 <Button
                   variant="outline"
@@ -2027,19 +2037,34 @@ const Roteirizacao = () => {
 
           {/* Seleção de Equipes */}
           <div className="rounded-lg border border-border bg-card p-4">
-            <div className="text-sm font-medium mb-3 text-foreground">Equipes</div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-sm font-medium text-foreground">Equipes</div>
+              <span className="text-xs text-muted-foreground">{equipesSelecionadas.length} de {equipes.length} selecionadas</span>
+            </div>
             {loadingEquipes ? (
               <div className="text-xs text-muted-foreground">Carregando...</div>
             ) : equipes.length === 0 ? (
               <div className="text-xs text-muted-foreground">
-                Nenhuma equipe cadastrada
+                Nenhuma equipe ativa cadastrada
               </div>
             ) : (
-              <div className="space-y-2 max-h-[120px] overflow-y-auto">
+              <div className="grid grid-cols-3 lg:grid-cols-4 gap-1 max-h-[280px] overflow-y-auto">
                 {equipes.map((eq) => {
                   const checked = equipesSelecionadas.includes(eq.id);
+                  // Verificar se equipe está vinculada a algum território ativo
+                  const territorioVinculado = territorios.find(t => 
+                    t.ativo && t.equipeIds && t.equipeIds.includes(eq.id)
+                  );
                   return (
-                    <label key={eq.id} className="flex items-center gap-2 text-xs text-foreground cursor-pointer hover:bg-muted/50 p-1 rounded">
+                    <label 
+                      key={eq.id} 
+                      className={`flex items-center gap-1.5 text-xs text-foreground cursor-pointer hover:bg-muted/50 p-1 rounded border ${
+                        territorioVinculado 
+                          ? 'border-transparent' 
+                          : 'border-dashed border-orange-400/50 bg-orange-50/50 dark:bg-orange-950/20'
+                      }`}
+                      title={territorioVinculado ? `Vinculada a: ${territorioVinculado.nome}` : 'Sem território vinculado'}
+                    >
                       <input
                         type="checkbox"
                         checked={checked}
@@ -2050,10 +2075,19 @@ const Roteirizacao = () => {
                             setEquipesSelecionadas((prev) => prev.filter((id) => id !== eq.id));
                           }
                         }}
-                        className="h-3 w-3"
+                        className="h-3 w-3 flex-shrink-0"
                       />
-                      <span className="font-medium">{eq.codigo}</span>
-                      <span className="text-muted-foreground truncate">{eq.tecnico}</span>
+                      {territorioVinculado && (
+                        <div 
+                          className="h-2.5 w-2.5 rounded-full flex-shrink-0" 
+                          style={{ backgroundColor: territorioVinculado.cor }}
+                          title={territorioVinculado.nome}
+                        />
+                      )}
+                      {!territorioVinculado && (
+                        <div className="h-2.5 w-2.5 rounded-full flex-shrink-0 border border-dashed border-orange-400" title="Sem território" />
+                      )}
+                      <span className="font-medium truncate text-[11px]">{eq.codigo}</span>
                     </label>
                   );
                 })}
@@ -2074,35 +2108,10 @@ const Roteirizacao = () => {
               >
                 {equipesSelecionadas.length === equipes.length ? "Desselecionar Todas" : "Selecionar Todas"}
               </Button>
+            </div>
+          </div>
         </div>
       </div>
-
-          {/* Estatísticas Rápidas */}
-          <div className="rounded-lg border border-border bg-card p-4">
-            <div className="text-sm font-medium mb-3 text-foreground">Resumo</div>
-            <div className="space-y-2 text-xs">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">OSs Pendentes:</span>
-                <span className="font-medium">{osPendentes.length}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Equipes Selecionadas:</span>
-                <span className="font-medium">{equipesSelecionadas.length}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Rotas Geradas:</span>
-                <span className="font-medium">{rotas.filter(r => r.servicos.length > 0).length}</span>
-              </div>
-              {usarTerritorios && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Territórios:</span>
-                  <span className="font-medium">{territoriosSelecionados.length}</span>
-            </div>
-              )}
-                    </div>
-                                  </div>
-                                </div>
-          </div>
 
       {/* V19.6: Alerta de OSs Urgentes fora dos Territórios */}
       {usarTerritorios && osUrgentesForaTerritorios.length > 0 && (
