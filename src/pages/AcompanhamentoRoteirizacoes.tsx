@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { useTelaPermissao } from "@/hooks/usePermissoes";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -88,6 +89,9 @@ interface PlanejamentoCompleto {
 }
 
 const AcompanhamentoRoteirizacoes = () => {
+  // Permissões da tela
+  const { podeEditar } = useTelaPermissao("acompanhamento_rotas");
+
   const navigate = useNavigate();
   const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
@@ -1204,7 +1208,7 @@ const AcompanhamentoRoteirizacoes = () => {
                           </div>
                         </div>
                       </CollapsibleTrigger>
-                      {planejamento && planejamento.status === "aberto" && (
+                      {planejamento && planejamento.status === "aberto" && podeEditar && (
                         <div className="absolute right-4 top-1/2 -translate-y-1/2 z-20">
                           <Button
                             variant="ghost"
@@ -1349,7 +1353,7 @@ const AcompanhamentoRoteirizacoes = () => {
                                           >
                                             <Eye className="h-4 w-4" />
                                           </Button>
-                                          {planejamento && planejamento.status === "aberto" && (
+                                          {planejamento && planejamento.status === "aberto" && podeEditar && (
                                             <Button
                                               variant="ghost"
                                               size="sm"

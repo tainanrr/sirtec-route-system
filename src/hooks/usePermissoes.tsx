@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, createContext, useContext, ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
+const STORAGE_KEY = "usuario_web_session";
+
 interface Permissao {
   editar: boolean;
   consultar: boolean;
@@ -26,47 +28,65 @@ export function PermissoesProvider({ children }: { children: ReactNode }) {
     try {
       setLoading(true);
       
-      // Buscar usuário logado
-      const usuarioStr = localStorage.getItem("usuario_web");
-      if (!usuarioStr) {
-        console.log("[Permissoes] Nenhum usuário logado");
+      // Buscar sessão do localStorage
+      const sessionStr = localStorage.getItem(STORAGE_KEY);
+      if (!sessionStr) {
+        console.log("[Permissoes] Nenhuma sessão encontrada");
         setPermissoes({});
         setIsAdmin(false);
         return;
       }
 
-      const usuario = JSON.parse(usuarioStr);
-      const perfilId = usuario.perfil_id;
+      const session = JSON.parse(sessionStr);
+      const usuarioId = session.id;
+      
+      console.log("[Permissoes] Sessão encontrada, buscando usuário ID:", usuarioId);
 
-      if (!perfilId) {
+      if (!usuarioId) {
+        console.log("[Permissoes] ID do usuário não encontrado na sessão");
+        setPermissoes({});
+        setIsAdmin(false);
+        return;
+      }
+
+      // Buscar usuário do banco de dados
+      const { data: usuario, error: usuarioError } = await supabase
+        .from("usuarios_web")
+        .select(`
+          id,
+          nome,
+          email,
+          perfil_id,
+          perfis_permissao (
+            id,
+            nome,
+            is_admin,
+            permissoes_json
+          )
+        `)
+        .eq("id", usuarioId)
+        .single();
+
+      if (usuarioError || !usuario) {
+        console.error("[Permissoes] Erro ao buscar usuário:", usuarioError);
+        setPermissoes({});
+        setIsAdmin(false);
+        return;
+      }
+
+      console.log("[Permissoes] Usuário encontrado:", usuario.nome, usuario.email);
+      console.log("[Permissoes] Perfil:", usuario.perfis_permissao?.nome);
+
+      if (!usuario.perfil_id || !usuario.perfis_permissao) {
         console.log("[Permissoes] Usuário sem perfil definido");
         setPermissoes({});
         setIsAdmin(false);
         return;
       }
 
-      // Buscar perfil e permissões
-      const { data: perfil, error } = await supabase
-        .from("perfis_permissao")
-        .select("*")
-        .eq("id", perfilId)
-        .single();
-
-      if (error) {
-        console.error("[Permissoes] Erro ao carregar perfil:", error);
-        setPermissoes({});
-        setIsAdmin(false);
-        return;
-      }
-
-      if (!perfil) {
-        console.log("[Permissoes] Perfil não encontrado");
-        setPermissoes({});
-        setIsAdmin(false);
-        return;
-      }
-
-      const permissoesJson = (perfil as any).permissoes_json || {};
+      const perfil = usuario.perfis_permissao as any;
+      const permissoesJson = perfil.permissoes_json || {};
+      
       console.log("[Permissoes] Perfil carregado:", perfil.nome, "Admin:", perfil.is_admin);
       console.log("[Permissoes] Permissões do perfil:", JSON.stringify(permissoesJson));
       
@@ -129,9 +149,9 @@ export function usePermissoes() {
 
 // Hook simplificado para usar em componentes
 export function useTelaPermissao(telaId: string) {
-  const { podeEditar, podeConsultar, isAdmin, loading } = usePermissoes();
+  const { podeEditar, podeConsultar, isAdmin, loading, permissoes } = usePermissoes();
   
-  return {
+  const resultado = {
     podeEditar: podeEditar(telaId),
     podeConsultar: podeConsultar(telaId),
     apenasLeitura: !podeEditar(telaId) && podeConsultar(telaId),
@@ -139,5 +159,15 @@ export function useTelaPermissao(telaId: string) {
     isAdmin,
     loading,
   };
+  
+  // Debug detalhado
+  console.log(`[useTelaPermissao] Tela: ${telaId}`, {
+    loading,
+    isAdmin,
+    permissaoTela: permissoes[telaId],
+    resultado: resultado.podeEditar ? "PODE EDITAR" : "NÃO PODE EDITAR"
+  });
+  
+  return resultado;
 }
 

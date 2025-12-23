@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
+import { useTelaPermissao } from "@/hooks/usePermissoes";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -89,6 +90,9 @@ const filterConfigs: FilterConfig[] = [
 ];
 
 export default function AdminContratos() {
+  // Permissões da tela
+  const { podeEditar } = useTelaPermissao("contratos");
+
   const [contratos, setContratos] = useState<Contrato[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -295,7 +299,11 @@ export default function AdminContratos() {
             <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
             Atualizar
           </Button>
-          <Button onClick={handleCreate}>
+          <Button 
+            onClick={handleCreate}
+            disabled={!podeEditar}
+            title={!podeEditar ? "Você não tem permissão para criar" : undefined}
+          >
             <Plus className="h-4 w-4 mr-2" />
             Novo Contrato
           </Button>
@@ -462,6 +470,8 @@ export default function AdminContratos() {
                           variant="ghost"
                           size="sm"
                           onClick={() => handleEdit(contrato)}
+                          disabled={!podeEditar}
+                          title={!podeEditar ? "Você não tem permissão para editar" : "Editar"}
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -472,6 +482,8 @@ export default function AdminContratos() {
                             setContratoToDelete(contrato);
                             setDeleteDialogOpen(true);
                           }}
+                          disabled={!podeEditar}
+                          title={!podeEditar ? "Você não tem permissão para excluir" : "Excluir"}
                         >
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>

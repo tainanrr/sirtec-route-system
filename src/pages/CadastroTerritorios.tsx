@@ -16,6 +16,7 @@ import { Download, Upload, Trash2, Edit, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
+import { useTelaPermissao } from "@/hooks/usePermissoes";
 import {
   Territorio,
   Coordenada,
@@ -42,6 +43,9 @@ if (typeof window !== "undefined") {
 }
 
 export default function CadastroTerritorios() {
+  // Permissões da tela
+  const { podeEditar, loading: loadingPermissoes } = useTelaPermissao("territorios");
+  
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   // @ts-ignore - leaflet-draw não tem tipos completos
@@ -116,50 +120,6 @@ export default function CadastroTerritorios() {
       // Adicionar feature group para desenho
       drawnLayersRef.current.addTo(map);
 
-      // Verificar se leaflet-draw está disponível
-      if (typeof (L as any).Control?.Draw === 'undefined') {
-        toast.error("leaflet-draw não está disponível. Reinicie o servidor.");
-        console.error("leaflet-draw não está disponível");
-        mapInstanceRef.current = map;
-        return;
-      }
-
-      // Configurar controles de desenho
-      const DrawControl = (L.Control as any).Draw;
-      const drawControl = new DrawControl({
-        draw: {
-          polygon: {
-            allowIntersection: true, // Permitir interseções
-            showArea: true,
-            shapeOptions: {
-              color: '#3388ff',
-              fillColor: '#3388ff',
-              fillOpacity: 0.2
-            },
-            // Remover limite mínimo de pontos (padrão é 3)
-            // O leaflet-draw permite quantos pontos quiser por padrão
-          },
-          rectangle: {
-            shapeOptions: {
-              color: '#3388ff',
-              fillColor: '#3388ff',
-              fillOpacity: 0.2
-            }
-          },
-          circle: false,
-          marker: false,
-          circlemarker: false,
-          polyline: false,
-        },
-        edit: {
-          featureGroup: drawnLayersRef.current,
-          remove: true,
-        },
-      });
-
-      drawControl.addTo(map);
-      drawControlRef.current = drawControl;
-
       mapInstanceRef.current = map;
 
       // Event listeners para desenho
@@ -210,6 +170,62 @@ export default function CadastroTerritorios() {
     };
   }, []);
 
+  // Gerenciar controle de desenho baseado nas permissões
+  useEffect(() => {
+    // Aguardar permissões carregarem e mapa estar disponível
+    if (loadingPermissoes || !mapInstanceRef.current) return;
+
+    const map = mapInstanceRef.current;
+
+    // Remover controle existente se houver
+    if (drawControlRef.current) {
+      map.removeControl(drawControlRef.current);
+      drawControlRef.current = null;
+    }
+
+    // Adicionar controle apenas se tiver permissão de edição
+    if (podeEditar) {
+      // Verificar se leaflet-draw está disponível
+      if (typeof (L as any).Control?.Draw === 'undefined') {
+        console.error("leaflet-draw não está disponível");
+        return;
+      }
+
+      const DrawControl = (L.Control as any).Draw;
+      const drawControl = new DrawControl({
+        draw: {
+          polygon: {
+            allowIntersection: true,
+            showArea: true,
+            shapeOptions: {
+              color: '#3388ff',
+              fillColor: '#3388ff',
+              fillOpacity: 0.2
+            },
+          },
+          rectangle: {
+            shapeOptions: {
+              color: '#3388ff',
+              fillColor: '#3388ff',
+              fillOpacity: 0.2
+            }
+          },
+          circle: false,
+          marker: false,
+          circlemarker: false,
+          polyline: false,
+        },
+        edit: {
+          featureGroup: drawnLayersRef.current,
+          remove: true,
+        },
+      });
+
+      drawControl.addTo(map);
+      drawControlRef.current = drawControl;
+    }
+  }, [podeEditar, loadingPermissoes]);
+
   // Atualizar polígonos no mapa quando territórios mudarem
   useEffect(() => {
     if (mapInstanceRef.current) {
@@ -250,6 +266,12 @@ export default function CadastroTerritorios() {
   };
 
   const handleSalvarTerritorio = async () => {
+    // Verificar permissão
+    if (!podeEditar) {
+      toast.error("Você não tem permissão para salvar territórios");
+      return;
+    }
+    
     if (!formData.nome.trim()) {
       toast.error("Informe o nome do território");
       return;
@@ -311,6 +333,7 @@ export default function CadastroTerritorios() {
   };
 
   const handleEditTerritorio = (territorio: Territorio) => {
+    // Permitir visualização mesmo sem permissão de edição
     setEditingTerritorio(territorio);
     setFormData({
       nome: territorio.nome,
@@ -329,6 +352,12 @@ export default function CadastroTerritorios() {
   };
 
   const handleDeleteTerritorio = async (id: string) => {
+    // Verificar permissão
+    if (!podeEditar) {
+      toast.error("Você não tem permissão para excluir territórios");
+      return;
+    }
+    
     if (!confirm("Tem certeza que deseja excluir este território?")) {
       return;
     }
@@ -355,6 +384,12 @@ export default function CadastroTerritorios() {
   };
 
   const handleToggleAtivo = async (id: string) => {
+    // Verificar permissão
+    if (!podeEditar) {
+      toast.error("Você não tem permissão para alterar territórios");
+      return;
+    }
+    
     const territorio = territorios.find((t) => t.id === id);
     if (!territorio) return;
 
@@ -556,22 +591,38 @@ export default function CadastroTerritorios() {
                   )}
                 </div>
 
-                <div className="flex gap-2 pt-2">
-                  <Button
-                    onClick={handleSalvarTerritorio}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
-                    disabled={loading}
-                  >
-                    {loading ? "Salvando..." : "Salvar"}
-                  </Button>
-                  <Button
-                    onClick={handleCancelar}
-                    variant="outline"
-                    className="flex-1 border-slate-500 bg-slate-700 text-white hover:bg-slate-600 hover:text-white"
-                  >
-                    Cancelar
-                  </Button>
-                </div>
+                {podeEditar && (
+                  <div className="flex gap-2 pt-2">
+                    <Button
+                      onClick={handleSalvarTerritorio}
+                      className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                      disabled={loading}
+                    >
+                      {loading ? "Salvando..." : "Salvar"}
+                    </Button>
+                    <Button
+                      onClick={handleCancelar}
+                      variant="outline"
+                      className="flex-1 border-slate-500 bg-slate-700 text-white hover:bg-slate-600 hover:text-white"
+                    >
+                      Cancelar
+                    </Button>
+                  </div>
+                )}
+                {!podeEditar && (
+                  <div className="flex gap-2 pt-2">
+                    <div className="flex-1 text-center py-2 text-yellow-400 text-sm bg-yellow-900/20 rounded border border-yellow-600/30">
+                      🔒 Modo somente leitura
+                    </div>
+                    <Button
+                      onClick={handleCancelar}
+                      variant="outline"
+                      className="border-slate-500 bg-slate-700 text-white hover:bg-slate-600 hover:text-white"
+                    >
+                      Fechar
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -588,15 +639,17 @@ export default function CadastroTerritorios() {
                 <Download className="h-3 w-3 mr-1.5" />
                 Exportar
               </Button>
-              <Button
-                onClick={handleImportar}
-                variant="outline"
-                size="sm"
-                className="flex-1 border-slate-500 bg-slate-700 text-white hover:bg-slate-600 hover:text-white text-xs px-2"
-              >
-                <Upload className="h-3 w-3 mr-1.5" />
-                Importar
-              </Button>
+              {podeEditar && (
+                <Button
+                  onClick={handleImportar}
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 border-slate-500 bg-slate-700 text-white hover:bg-slate-600 hover:text-white text-xs px-2"
+                >
+                  <Upload className="h-3 w-3 mr-1.5" />
+                  Importar
+                </Button>
+              )}
             </div>
 
             <div className="space-y-2 overflow-y-auto min-h-0 flex-1">
@@ -633,30 +686,32 @@ export default function CadastroTerritorios() {
                           {equipesNomes(territorio.equipeIds)}
                         </p>
                       </div>
-                      <div className="flex gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 text-white hover:bg-slate-600"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleToggleAtivo(territorio.id);
-                          }}
-                        >
-                          {territorio.ativo ? "✓" : "○"}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 text-red-400 hover:bg-slate-600"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteTerritorio(territorio.id);
-                          }}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </div>
+                      {podeEditar && (
+                        <div className="flex gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 text-white hover:bg-slate-600"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleAtivo(territorio.id);
+                            }}
+                          >
+                            {territorio.ativo ? "✓" : "○"}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 text-red-400 hover:bg-slate-600"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteTerritorio(territorio.id);
+                            }}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))

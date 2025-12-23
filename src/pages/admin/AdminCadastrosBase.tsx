@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -41,7 +42,13 @@ import {
   DollarSign,
   Building,
   Tag,
+  Settings2,
+  Ruler,
+  Wrench,
+  CheckCircle,
+  XCircle,
 } from "lucide-react";
+import * as LucideIcons from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { SortableTableHead, useSortableTable } from "@/components/ui/sortable-table-head";
@@ -52,18 +59,22 @@ import {
   FilterConfig,
 } from "@/components/ui/data-table-filters";
 import { ExportButton } from "@/components/ui/export-button";
+import PrecificacaoServicos from "@/components/cadastros-base/PrecificacaoServicos";
+import UnidadesGruposFeriados from "@/components/cadastros-base/UnidadesGruposFeriados";
 
+// Usando tabela skills como Tipos de Serviço
 interface TipoServico {
   id: string;
   codigo: string;
   nome: string;
   descricao: string | null;
-  contrato_id: string | null;
-  valor_unitario: number | null;
-  tempo_medio_minutos: number | null;
+  tempo_execucao_minutos: number;
+  valor: number | null;
+  regulada: boolean;
+  icone: string | null;
+  cor: string | null;
   ativo: boolean;
   created_at: string;
-  contratos?: { codigo: string; nome: string } | null;
 }
 
 interface RetornoCampo {
@@ -94,14 +105,26 @@ interface CentroCusto {
   nome: string;
   descricao: string | null;
   contrato_id: string | null;
+  responsavel_id: string | null;
+  orcamento_previsto: number | null;
+  orcamento_utilizado: number | null;
+  centro_pai_id: string | null;
+  nivel: number;
   ativo: boolean;
   created_at: string;
   contratos?: { codigo: string; nome: string } | null;
+  usuarios_web?: { nome: string } | null;
+  centro_pai?: { codigo: string; nome: string } | null;
 }
 
 interface Contrato {
   id: string;
   codigo: string;
+  nome: string;
+}
+
+interface UsuarioWeb {
+  id: string;
   nome: string;
 }
 
@@ -118,8 +141,18 @@ export default function AdminCadastrosBase() {
   const [tiposIntervalo, setTiposIntervalo] = useState<TipoIntervalo[]>([]);
   const [centrosCusto, setCentrosCusto] = useState<CentroCusto[]>([]);
   const [contratos, setContratos] = useState<Contrato[]>([]);
+  const [usuarios, setUsuarios] = useState<UsuarioWeb[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("tipos-servico");
+  const [searchParams] = useSearchParams();
+  const tabFromUrl = searchParams.get("tab");
+  const [activeTab, setActiveTab] = useState(tabFromUrl || "precificacao");
+  
+  // Atualizar tab quando URL mudar
+  useEffect(() => {
+    if (tabFromUrl) {
+      setActiveTab(tabFromUrl);
+    }
+  }, [tabFromUrl]);
   
   // Estados de dialog e form para cada tipo
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -134,9 +167,11 @@ export default function AdminCadastrosBase() {
     codigo: "",
     nome: "",
     descricao: "",
-    contrato_id: "",
-    valor_unitario: "",
-    tempo_medio_minutos: "",
+    tempo_execucao_minutos: "30",
+    valor: "0",
+    regulada: false,
+    icone: "",
+    cor: "#3b82f6",
     ativo: true,
   });
 
@@ -162,23 +197,20 @@ export default function AdminCadastrosBase() {
     codigo: "",
     nome: "",
     descricao: "",
-    contrato_id: "",
+    contrato_id: "todos",
+    responsavel_id: "nenhum",
+    orcamento_previsto: "",
+    centro_pai_id: "raiz",
     ativo: true,
   });
 
-  // Configuração de filtros para tipos de serviço
+  // Configuração de filtros para tipos de serviço (skills)
   const tipoServicoFilterConfigs: FilterConfig[] = useMemo(() => [
     {
       id: "search",
       label: "Buscar",
       type: "text",
       placeholder: "Buscar por código ou nome...",
-    },
-    {
-      id: "contrato_id",
-      label: "Contrato",
-      type: "select",
-      options: contratos.map((c) => ({ value: c.id, label: `${c.codigo} - ${c.nome}` })),
     },
     {
       id: "status",
@@ -189,7 +221,16 @@ export default function AdminCadastrosBase() {
         { value: "inativo", label: "Inativos", color: "bg-gray-500" },
       ],
     },
-  ], [contratos]);
+    {
+      id: "regulada",
+      label: "Regulada",
+      type: "select",
+      options: [
+        { value: "sim", label: "Sim", color: "bg-green-500" },
+        { value: "nao", label: "Não", color: "bg-gray-500" },
+      ],
+    },
+  ], []);
 
   // Configuração de filtros genérica
   const genericFilterConfigs: FilterConfig[] = useMemo(() => [
@@ -217,12 +258,13 @@ export default function AdminCadastrosBase() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [tiposRes, retornosRes, intervalosRes, centrosRes, contratosRes] = await Promise.all([
-        supabase.from("tipos_servico_contrato").select("*, contratos(codigo, nome)").order("codigo"),
+      const [tiposRes, retornosRes, intervalosRes, centrosRes, contratosRes, usuariosRes] = await Promise.all([
+        supabase.from("skills").select("*").order("codigo"),
         supabase.from("retornos_campo").select("*").order("codigo"),
         supabase.from("tipos_intervalo").select("*").order("codigo"),
-        supabase.from("centros_custo").select("*, contratos(codigo, nome)").order("codigo"),
+        supabase.from("centros_custo").select("*, contratos(codigo, nome), usuarios_web:responsavel_id(nome)").order("codigo"),
         supabase.from("contratos").select("id, codigo, nome").eq("status", "ativo").order("codigo"),
+        supabase.from("usuarios_web").select("id, nome").eq("ativo", true).order("nome"),
       ]);
 
       if (tiposRes.error) throw tiposRes.error;
@@ -236,6 +278,7 @@ export default function AdminCadastrosBase() {
       setTiposIntervalo(intervalosRes.data || []);
       setCentrosCusto(centrosRes.data || []);
       setContratos(contratosRes.data || []);
+      setUsuarios(usuariosRes.data || []);
     } catch (error: any) {
       console.error("Erro ao carregar dados:", error);
       toast.error("Erro ao carregar dados");
@@ -248,7 +291,7 @@ export default function AdminCadastrosBase() {
     fetchData();
   }, []);
 
-  // Filtrar e ordenar dados para tipos de serviço
+  // Filtrar e ordenar dados para tipos de serviço (skills)
   const filteredTiposServico = useMemo(() => {
     return filterData(
       tiposServico,
@@ -259,12 +302,18 @@ export default function AdminCadastrosBase() {
           const searchTerm = value.toLowerCase();
           return (
             item.codigo.toLowerCase().includes(searchTerm) ||
-            item.nome.toLowerCase().includes(searchTerm)
+            item.nome.toLowerCase().includes(searchTerm) ||
+            item.descricao?.toLowerCase().includes(searchTerm) || false
           );
         },
         status: (item, value) => {
           if (value === "ativo") return item.ativo;
           if (value === "inativo") return !item.ativo;
+          return true;
+        },
+        regulada: (item, value) => {
+          if (value === "sim") return item.regulada === true;
+          if (value === "nao") return item.regulada === false || item.regulada === null;
           return true;
         },
       }
@@ -362,9 +411,11 @@ export default function AdminCadastrosBase() {
         codigo: "",
         nome: "",
         descricao: "",
-        contrato_id: "",
-        valor_unitario: "",
-        tempo_medio_minutos: "",
+        tempo_execucao_minutos: "30",
+        valor: "0",
+        regulada: false,
+        icone: "",
+        cor: "#3b82f6",
         ativo: true,
       });
     } else if (type === "retorno-campo") {
@@ -390,7 +441,10 @@ export default function AdminCadastrosBase() {
         codigo: "",
         nome: "",
         descricao: "",
-        contrato_id: "",
+        contrato_id: "todos",
+        responsavel_id: "nenhum",
+        orcamento_previsto: "",
+        centro_pai_id: "raiz",
         ativo: true,
       });
     }
@@ -408,9 +462,11 @@ export default function AdminCadastrosBase() {
         codigo: item.codigo,
         nome: item.nome,
         descricao: item.descricao || "",
-        contrato_id: item.contrato_id || "",
-        valor_unitario: item.valor_unitario?.toString() || "",
-        tempo_medio_minutos: item.tempo_medio_minutos?.toString() || "",
+        tempo_execucao_minutos: item.tempo_execucao_minutos?.toString() || "30",
+        valor: item.valor?.toString() || "0",
+        regulada: item.regulada || false,
+        icone: item.icone || "",
+        cor: item.cor || "#3b82f6",
         ativo: item.ativo,
       });
     } else if (type === "retorno-campo") {
@@ -436,7 +492,10 @@ export default function AdminCadastrosBase() {
         codigo: item.codigo,
         nome: item.nome,
         descricao: item.descricao || "",
-        contrato_id: item.contrato_id || "",
+        contrato_id: item.contrato_id || "todos",
+        responsavel_id: item.responsavel_id || "nenhum",
+        orcamento_previsto: item.orcamento_previsto?.toString() || "",
+        centro_pai_id: item.centro_pai_id || "raiz",
         ativo: item.ativo,
       });
     }
@@ -457,14 +516,16 @@ export default function AdminCadastrosBase() {
           setSaving(false);
           return;
         }
-        table = "tipos_servico_contrato";
+        table = "skills";
         payload = {
-          codigo: tipoServicoForm.codigo,
+          codigo: tipoServicoForm.codigo.toUpperCase(),
           nome: tipoServicoForm.nome,
           descricao: tipoServicoForm.descricao || null,
-          contrato_id: tipoServicoForm.contrato_id || null,
-          valor_unitario: tipoServicoForm.valor_unitario ? parseFloat(tipoServicoForm.valor_unitario) : null,
-          tempo_medio_minutos: tipoServicoForm.tempo_medio_minutos ? parseInt(tipoServicoForm.tempo_medio_minutos) : null,
+          tempo_execucao_minutos: parseInt(tipoServicoForm.tempo_execucao_minutos) || 30,
+          valor: parseFloat(tipoServicoForm.valor) || 0,
+          regulada: tipoServicoForm.regulada,
+          icone: tipoServicoForm.icone || null,
+          cor: tipoServicoForm.cor || "#3b82f6",
           ativo: tipoServicoForm.ativo,
         };
       } else if (currentFormType === "retorno-campo") {
@@ -508,7 +569,10 @@ export default function AdminCadastrosBase() {
           codigo: centroCustoForm.codigo,
           nome: centroCustoForm.nome,
           descricao: centroCustoForm.descricao || null,
-          contrato_id: centroCustoForm.contrato_id || null,
+          contrato_id: centroCustoForm.contrato_id && centroCustoForm.contrato_id !== "todos" ? centroCustoForm.contrato_id : null,
+          responsavel_id: centroCustoForm.responsavel_id && centroCustoForm.responsavel_id !== "nenhum" ? centroCustoForm.responsavel_id : null,
+          orcamento_previsto: centroCustoForm.orcamento_previsto ? parseFloat(centroCustoForm.orcamento_previsto) : null,
+          centro_pai_id: centroCustoForm.centro_pai_id && centroCustoForm.centro_pai_id !== "raiz" ? centroCustoForm.centro_pai_id : null,
           ativo: centroCustoForm.ativo,
         };
       }
@@ -544,7 +608,7 @@ export default function AdminCadastrosBase() {
 
     try {
       let table = "";
-      if (currentFormType === "tipo-servico") table = "tipos_servico_contrato";
+      if (currentFormType === "tipo-servico") table = "skills";
       else if (currentFormType === "retorno-campo") table = "retornos_campo";
       else if (currentFormType === "tipo-intervalo") table = "tipos_intervalo";
       else if (currentFormType === "centro-custo") table = "centros_custo";
@@ -569,6 +633,11 @@ export default function AdminCadastrosBase() {
     setDeleteDialogOpen(true);
   };
 
+  const formatCurrency = (value: number | null) => {
+    if (value == null) return "-";
+    return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -576,56 +645,10 @@ export default function AdminCadastrosBase() {
         <div>
           <h2 className="text-2xl font-bold">Cadastros Base</h2>
           <p className="text-muted-foreground">
-            Configurações base do sistema: tipos de serviço, retornos, intervalos e centros de custo
+            Configurações base do sistema: precificação, centros de custo, unidades, feriados e mais
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <ExportButton
-            data={
-              activeTab === "tipos-servico" ? tiposServico :
-              activeTab === "retornos-campo" ? retornosCampo :
-              activeTab === "tipos-intervalo" ? tiposIntervalo :
-              centrosCusto
-            }
-            filename={
-              activeTab === "tipos-servico" ? "tipos_servico" :
-              activeTab === "retornos-campo" ? "retornos_campo" :
-              activeTab === "tipos-intervalo" ? "tipos_intervalo" :
-              "centros_custo"
-            }
-            columns={
-              activeTab === "tipos-servico" ? [
-                { key: "codigo", label: "Código" },
-                { key: "nome", label: "Nome" },
-                { key: "descricao", label: "Descrição" },
-                { key: "tempo_medio_minutos", label: "Tempo Médio (min)" },
-                { key: "valor_base", label: "Valor Base", format: (v: any) => v ? `R$ ${Number(v).toFixed(2)}` : "" },
-                { key: "ativo", label: "Ativo", format: (v: any) => v ? "Sim" : "Não" },
-              ] :
-              activeTab === "retornos-campo" ? [
-                { key: "codigo", label: "Código" },
-                { key: "nome", label: "Nome" },
-                { key: "descricao", label: "Descrição" },
-                { key: "requer_foto", label: "Requer Foto", format: (v: any) => v ? "Sim" : "Não" },
-                { key: "requer_assinatura", label: "Requer Assinatura", format: (v: any) => v ? "Sim" : "Não" },
-                { key: "ativo", label: "Ativo", format: (v: any) => v ? "Sim" : "Não" },
-              ] :
-              activeTab === "tipos-intervalo" ? [
-                { key: "codigo", label: "Código" },
-                { key: "nome", label: "Nome" },
-                { key: "descricao", label: "Descrição" },
-                { key: "duracao_padrao_minutos", label: "Duração Padrão (min)" },
-                { key: "remunerado", label: "Remunerado", format: (v: any) => v ? "Sim" : "Não" },
-                { key: "ativo", label: "Ativo", format: (v: any) => v ? "Sim" : "Não" },
-              ] : [
-                { key: "codigo", label: "Código" },
-                { key: "nome", label: "Nome" },
-                { key: "descricao", label: "Descrição" },
-                { key: "ativo", label: "Ativo", format: (v: any) => v ? "Sim" : "Não" },
-              ]
-            }
-            disabled={loading}
-          />
           <Button variant="outline" onClick={fetchData} disabled={loading}>
             <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
             Atualizar
@@ -634,7 +657,15 @@ export default function AdminCadastrosBase() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-6">
+          <TabsTrigger value="precificacao" className="flex items-center gap-2">
+            <DollarSign className="h-4 w-4" />
+            Precificação
+          </TabsTrigger>
+          <TabsTrigger value="centros-custo" className="flex items-center gap-2">
+            <Building className="h-4 w-4" />
+            Centros de Custo
+          </TabsTrigger>
           <TabsTrigger value="tipos-servico" className="flex items-center gap-2">
             <Tag className="h-4 w-4" />
             Tipos de Serviço
@@ -647,14 +678,19 @@ export default function AdminCadastrosBase() {
             <Clock className="h-4 w-4" />
             Intervalos
           </TabsTrigger>
-          <TabsTrigger value="centros-custo" className="flex items-center gap-2">
-            <Building className="h-4 w-4" />
-            Centros de Custo
+          <TabsTrigger value="auxiliares" className="flex items-center gap-2">
+            <Settings2 className="h-4 w-4" />
+            Auxiliares
           </TabsTrigger>
         </TabsList>
 
-        {/* Tab de Tipos de Serviço */}
-        <TabsContent value="tipos-servico" className="space-y-4 mt-6">
+        {/* Tab de Precificação */}
+        <TabsContent value="precificacao" className="mt-6">
+          <PrecificacaoServicos />
+        </TabsContent>
+
+        {/* Tab de Centros de Custo */}
+        <TabsContent value="centros-custo" className="space-y-4 mt-6">
           <div className="flex justify-between items-center">
             <div className="rounded-xl border border-border bg-card p-4 flex-1 mr-4">
               <DataTableFilters
@@ -664,46 +700,64 @@ export default function AdminCadastrosBase() {
                 onClear={clearFilters}
               />
             </div>
-            <Button onClick={() => handleCreate("tipo-servico")}>
-              <Plus className="h-4 w-4 mr-2" />
-              Novo Tipo
-            </Button>
+            <div className="flex gap-2">
+              <ExportButton
+                data={centrosCusto}
+                filename="centros_custo"
+                columns={[
+                  { key: "codigo", label: "Código" },
+                  { key: "nome", label: "Nome" },
+                  { key: "descricao", label: "Descrição" },
+                  { key: "orcamento_previsto", label: "Orçamento Previsto", format: (v: any) => v ? `R$ ${Number(v).toFixed(2)}` : "" },
+                  { key: "orcamento_utilizado", label: "Orçamento Utilizado", format: (v: any) => v ? `R$ ${Number(v).toFixed(2)}` : "" },
+                  { key: "ativo", label: "Ativo", format: (v: any) => v ? "Sim" : "Não" },
+                ]}
+              />
+              <Button onClick={() => handleCreate("centro-custo")}>
+                <Plus className="h-4 w-4 mr-2" />
+                Novo Centro
+              </Button>
+            </div>
           </div>
 
           <div className="rounded-xl border border-border bg-card overflow-hidden">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <SortableTableHead column="codigo" label="Código" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} />
-                  <SortableTableHead column="nome" label="Nome" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} />
-                  <SortableTableHead column="contratos.codigo" label="Contrato" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} />
-                  <SortableTableHead column="valor_unitario" label="Valor" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} />
-                  <SortableTableHead column="tempo_medio_minutos" label="Tempo" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} />
-                  <SortableTableHead column="ativo" label="Status" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} />
+                  <SortableTableHead column="codigo" label="Código" sortConfig={centroSortConfig} onSort={handleCentroSort} />
+                  <SortableTableHead column="nome" label="Nome" sortConfig={centroSortConfig} onSort={handleCentroSort} />
+                  <TableHead>Responsável</TableHead>
+                  <SortableTableHead column="contratos.codigo" label="Contrato" sortConfig={centroSortConfig} onSort={handleCentroSort} />
+                  <TableHead>Orçamento Prev.</TableHead>
+                  <TableHead>Orçamento Util.</TableHead>
+                  <SortableTableHead column="ativo" label="Status" sortConfig={centroSortConfig} onSort={handleCentroSort} />
                   <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8">
+                    <TableCell colSpan={8} className="text-center py-8">
                       <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
                     </TableCell>
                   </TableRow>
-                ) : sortedTiposServico?.length === 0 ? (
+                ) : sortedCentrosCusto?.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8">
-                      <Tag className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                    <TableCell colSpan={8} className="text-center py-8">
+                      <Building className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                       <p className="text-muted-foreground">
-                        {hasActiveFilters ? "Nenhum resultado" : "Nenhum tipo cadastrado"}
+                        {hasActiveFilters ? "Nenhum resultado" : "Nenhum centro cadastrado"}
                       </p>
                     </TableCell>
                   </TableRow>
                 ) : (
-                  sortedTiposServico?.map((item) => (
+                  sortedCentrosCusto?.map((item) => (
                     <TableRow key={item.id} className="group">
                       <TableCell className="font-mono">{item.codigo}</TableCell>
                       <TableCell className="font-medium">{item.nome}</TableCell>
+                      <TableCell className="text-sm">
+                        {(item as any).usuarios_web?.nome || "-"}
+                      </TableCell>
                       <TableCell>
                         {item.contratos ? (
                           <Badge variant="secondary">{item.contratos.codigo}</Badge>
@@ -711,25 +765,16 @@ export default function AdminCadastrosBase() {
                           <span className="text-muted-foreground">-</span>
                         )}
                       </TableCell>
+                      <TableCell>{formatCurrency(item.orcamento_previsto)}</TableCell>
                       <TableCell>
-                        {item.valor_unitario ? (
-                          <span className="text-green-600 font-medium flex items-center gap-1">
-                            <DollarSign className="h-3 w-3" />
-                            {item.valor_unitario.toFixed(2)}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {item.tempo_medio_minutos ? (
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-3 w-3 text-muted-foreground" />
-                            {item.tempo_medio_minutos} min
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
+                        {item.orcamento_utilizado != null && item.orcamento_previsto ? (
+                          <div className="flex items-center gap-2">
+                            <span>{formatCurrency(item.orcamento_utilizado)}</span>
+                            <Badge variant={item.orcamento_utilizado > item.orcamento_previsto ? "destructive" : "outline"} className="text-xs">
+                              {((item.orcamento_utilizado / item.orcamento_previsto) * 100).toFixed(0)}%
+                            </Badge>
+                          </div>
+                        ) : "-"}
                       </TableCell>
                       <TableCell>
                         <Badge variant={item.ativo ? "default" : "secondary"}>
@@ -738,16 +783,163 @@ export default function AdminCadastrosBase() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Button variant="ghost" size="sm" onClick={() => handleEdit("tipo-servico", item)}>
+                          <Button variant="ghost" size="sm" onClick={() => handleEdit("centro-custo", item)}>
                             <Pencil className="h-4 w-4" />
                           </Button>
-                          <Button variant="ghost" size="sm" onClick={() => confirmDelete("tipo-servico", item)}>
+                          <Button variant="ghost" size="sm" onClick={() => confirmDelete("centro-custo", item)}>
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
                         </div>
                       </TableCell>
                     </TableRow>
                   ))
+                )}
+              </TableBody>
+            </Table>
+            {sortedCentrosCusto && sortedCentrosCusto.length > 0 && (
+              <div className="px-4 py-3 border-t border-border bg-muted/30 text-sm text-muted-foreground">
+                Mostrando {sortedCentrosCusto.length} de {centrosCusto.length} registros
+              </div>
+            )}
+          </div>
+        </TabsContent>
+
+        {/* Tab de Tipos de Serviço */}
+        {/* Tab de Tipos de Serviço / Skills */}
+        <TabsContent value="tipos-servico" className="space-y-4 mt-6">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-4">
+              <Badge variant="outline" className="text-sm">
+                {tiposServico?.filter((s) => s.ativo).length || 0} Ativos
+              </Badge>
+              <Badge variant="outline" className="text-sm">
+                {tiposServico?.filter((s) => !s.ativo).length || 0} Inativos
+              </Badge>
+              <Badge variant="outline" className="text-sm">
+                {tiposServico?.filter((s) => s.regulada).length || 0} Regulados
+              </Badge>
+            </div>
+            <div className="flex gap-2">
+              <ExportButton
+                data={tiposServico}
+                filename="tipos_servico"
+                columns={[
+                  { key: "codigo", label: "Código" },
+                  { key: "nome", label: "Nome" },
+                  { key: "descricao", label: "Descrição" },
+                  { key: "tempo_execucao_minutos", label: "Tempo (min)" },
+                  { key: "valor", label: "Valor", format: (v: any) => v ? `R$ ${Number(v).toFixed(2)}` : "" },
+                  { key: "regulada", label: "Regulada", format: (v: any) => v ? "Sim" : "Não" },
+                  { key: "ativo", label: "Ativo", format: (v: any) => v ? "Sim" : "Não" },
+                ]}
+              />
+              <Button onClick={() => handleCreate("tipo-servico")}>
+                <Plus className="h-4 w-4 mr-2" />
+                Novo Tipo
+              </Button>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-border bg-card p-4">
+            <DataTableFilters
+              filters={tipoServicoFilterConfigs}
+              values={filterValues}
+              onChange={setFilterValues}
+              onClear={clearFilters}
+            />
+          </div>
+
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <SortableTableHead column="codigo" label="Código" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} />
+                  <SortableTableHead column="nome" label="Nome" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} />
+                  <TableHead>Descrição</TableHead>
+                  <SortableTableHead column="tempo_execucao_minutos" label="Tempo" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} className="text-center" />
+                  <SortableTableHead column="valor" label="Valor" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} className="text-center" />
+                  <SortableTableHead column="regulada" label="Regulada" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} className="text-center" />
+                  <TableHead className="text-center">Ícone</TableHead>
+                  <SortableTableHead column="ativo" label="Status" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} />
+                  <TableHead className="text-right">Ações</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
+                    </TableCell>
+                  </TableRow>
+                ) : sortedTiposServico?.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-8">
+                      <Wrench className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                      <p className="text-muted-foreground">
+                        {hasActiveFilters ? "Nenhum resultado" : "Nenhum tipo cadastrado"}
+                      </p>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  sortedTiposServico?.map((item) => {
+                    const IconComponent = item.icone ? (LucideIcons as any)[item.icone] : null;
+                    return (
+                      <TableRow key={item.id} className="group">
+                        <TableCell className="font-mono font-semibold">{item.codigo}</TableCell>
+                        <TableCell className="font-medium">{item.nome}</TableCell>
+                        <TableCell className="text-muted-foreground max-w-xs truncate">
+                          {item.descricao || "-"}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Badge variant="outline" className="font-mono">
+                            <Clock className="h-3 w-3 mr-1" />
+                            {item.tempo_execucao_minutos} min
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Badge variant="outline" className="font-mono text-green-600">
+                            <DollarSign className="h-3 w-3 mr-0.5" />
+                            {Number(item.valor || 0).toFixed(2)}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {item.regulada ? (
+                            <Badge variant="default" className="bg-green-600">
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Sim
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary">
+                              <XCircle className="h-3 w-3 mr-1" />
+                              Não
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {IconComponent ? (
+                            <IconComponent className="h-5 w-5 mx-auto" style={{ color: item.cor || undefined }} />
+                          ) : (
+                            <span className="text-muted-foreground text-xs">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={item.ativo ? "default" : "secondary"}>
+                            {item.ativo ? "Ativo" : "Inativo"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Button variant="ghost" size="sm" onClick={() => handleEdit("tipo-servico", item)}>
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => confirmDelete("tipo-servico", item)}>
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
                 )}
               </TableBody>
             </Table>
@@ -770,10 +962,24 @@ export default function AdminCadastrosBase() {
                 onClear={clearFilters}
               />
             </div>
-            <Button onClick={() => handleCreate("retorno-campo")}>
-              <Plus className="h-4 w-4 mr-2" />
-              Novo Retorno
-            </Button>
+            <div className="flex gap-2">
+              <ExportButton
+                data={retornosCampo}
+                filename="retornos_campo"
+                columns={[
+                  { key: "codigo", label: "Código" },
+                  { key: "nome", label: "Nome" },
+                  { key: "tipo", label: "Tipo" },
+                  { key: "requer_foto", label: "Requer Foto", format: (v: any) => v ? "Sim" : "Não" },
+                  { key: "requer_assinatura", label: "Requer Assinatura", format: (v: any) => v ? "Sim" : "Não" },
+                  { key: "ativo", label: "Ativo", format: (v: any) => v ? "Sim" : "Não" },
+                ]}
+              />
+              <Button onClick={() => handleCreate("retorno-campo")}>
+                <Plus className="h-4 w-4 mr-2" />
+                Novo Retorno
+              </Button>
+            </div>
           </div>
 
           <div className="rounded-xl border border-border bg-card overflow-hidden">
@@ -865,10 +1071,22 @@ export default function AdminCadastrosBase() {
                 onClear={clearFilters}
               />
             </div>
-            <Button onClick={() => handleCreate("tipo-intervalo")}>
-              <Plus className="h-4 w-4 mr-2" />
-              Novo Intervalo
-            </Button>
+            <div className="flex gap-2">
+              <ExportButton
+                data={tiposIntervalo}
+                filename="tipos_intervalo"
+                columns={[
+                  { key: "codigo", label: "Código" },
+                  { key: "nome", label: "Nome" },
+                  { key: "tempo_minutos", label: "Tempo (min)" },
+                  { key: "ativo", label: "Ativo", format: (v: any) => v ? "Sim" : "Não" },
+                ]}
+              />
+              <Button onClick={() => handleCreate("tipo-intervalo")}>
+                <Plus className="h-4 w-4 mr-2" />
+                Novo Intervalo
+              </Button>
+            </div>
           </div>
 
           <div className="rounded-xl border border-border bg-card overflow-hidden">
@@ -946,98 +1164,15 @@ export default function AdminCadastrosBase() {
           </div>
         </TabsContent>
 
-        {/* Tab de Centros de Custo */}
-        <TabsContent value="centros-custo" className="space-y-4 mt-6">
-          <div className="flex justify-between items-center">
-            <div className="rounded-xl border border-border bg-card p-4 flex-1 mr-4">
-              <DataTableFilters
-                filters={tipoServicoFilterConfigs}
-                values={filterValues}
-                onChange={setFilterValues}
-                onClear={clearFilters}
-              />
-            </div>
-            <Button onClick={() => handleCreate("centro-custo")}>
-              <Plus className="h-4 w-4 mr-2" />
-              Novo Centro
-            </Button>
-          </div>
-
-          <div className="rounded-xl border border-border bg-card overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <SortableTableHead column="codigo" label="Código" sortConfig={centroSortConfig} onSort={handleCentroSort} />
-                  <SortableTableHead column="nome" label="Nome" sortConfig={centroSortConfig} onSort={handleCentroSort} />
-                  <TableHead>Descrição</TableHead>
-                  <SortableTableHead column="contratos.codigo" label="Contrato" sortConfig={centroSortConfig} onSort={handleCentroSort} />
-                  <SortableTableHead column="ativo" label="Status" sortConfig={centroSortConfig} onSort={handleCentroSort} />
-                  <TableHead className="text-right">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8">
-                      <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
-                    </TableCell>
-                  </TableRow>
-                ) : sortedCentrosCusto?.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8">
-                      <Building className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                      <p className="text-muted-foreground">
-                        {hasActiveFilters ? "Nenhum resultado" : "Nenhum centro cadastrado"}
-                      </p>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  sortedCentrosCusto?.map((item) => (
-                    <TableRow key={item.id} className="group">
-                      <TableCell className="font-mono">{item.codigo}</TableCell>
-                      <TableCell className="font-medium">{item.nome}</TableCell>
-                      <TableCell className="max-w-xs truncate text-muted-foreground">
-                        {item.descricao || "-"}
-                      </TableCell>
-                      <TableCell>
-                        {item.contratos ? (
-                          <Badge variant="secondary">{item.contratos.codigo}</Badge>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={item.ativo ? "default" : "secondary"}>
-                          {item.ativo ? "Ativo" : "Inativo"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Button variant="ghost" size="sm" onClick={() => handleEdit("centro-custo", item)}>
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={() => confirmDelete("centro-custo", item)}>
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-            {sortedCentrosCusto && sortedCentrosCusto.length > 0 && (
-              <div className="px-4 py-3 border-t border-border bg-muted/30 text-sm text-muted-foreground">
-                Mostrando {sortedCentrosCusto.length} de {centrosCusto.length} registros
-              </div>
-            )}
-          </div>
+        {/* Tab de Auxiliares */}
+        <TabsContent value="auxiliares" className="mt-6">
+          <UnidadesGruposFeriados />
         </TabsContent>
       </Tabs>
 
       {/* Dialog de Criar/Editar */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>
               {editingItem ? "Editar" : "Novo"}{" "}
@@ -1049,7 +1184,7 @@ export default function AdminCadastrosBase() {
           </DialogHeader>
 
           <div className="space-y-4">
-            {/* Form para Tipo de Serviço */}
+            {/* Form para Tipo de Serviço (Skills) */}
             {currentFormType === "tipo-servico" && (
               <>
                 <div className="grid grid-cols-2 gap-4">
@@ -1058,55 +1193,118 @@ export default function AdminCadastrosBase() {
                     <Input
                       value={tipoServicoForm.codigo}
                       onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, codigo: e.target.value.toUpperCase() })}
-                      placeholder="Ex: SVC001"
+                      placeholder="Ex: CORTE, RELIGA"
+                      className="font-mono"
+                      disabled={!!editingItem}
                     />
+                    <p className="text-xs text-muted-foreground">Código único (não pode ser alterado após criação)</p>
                   </div>
                   <div className="space-y-2">
-                    <Label>Contrato</Label>
-                    <Select
-                      value={tipoServicoForm.contrato_id}
-                      onValueChange={(v) => setTipoServicoForm({ ...tipoServicoForm, contrato_id: v })}
-                    >
-                      <SelectTrigger><SelectValue placeholder="Todos" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="">Todos</SelectItem>
-                        {contratos.map((c) => (<SelectItem key={c.id} value={c.id}>{c.codigo}</SelectItem>))}
-                      </SelectContent>
-                    </Select>
+                    <Label>Nome *</Label>
+                    <Input
+                      value={tipoServicoForm.nome}
+                      onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, nome: e.target.value })}
+                      placeholder="Ex: Corte de Energia"
+                    />
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>Nome *</Label>
-                  <Input
-                    value={tipoServicoForm.nome}
-                    onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, nome: e.target.value })}
-                    placeholder="Nome do tipo"
+                  <Label>Descrição</Label>
+                  <Textarea
+                    value={tipoServicoForm.descricao}
+                    onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, descricao: e.target.value })}
+                    placeholder="Descrição do tipo de serviço..."
+                    rows={2}
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label>Valor Unitário</Label>
+                    <Label>Tempo de Execução (min) *</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={1440}
+                      value={tipoServicoForm.tempo_execucao_minutos}
+                      onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, tempo_execucao_minutos: e.target.value })}
+                      placeholder="30"
+                    />
+                    <p className="text-xs text-muted-foreground">Usado na roteirização</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Valor (R$)</Label>
                     <Input
                       type="number"
                       step="0.01"
-                      value={tipoServicoForm.valor_unitario}
-                      onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, valor_unitario: e.target.value })}
+                      min={0}
+                      value={tipoServicoForm.valor}
+                      onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, valor: e.target.value })}
                       placeholder="0.00"
                     />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Tempo Médio (min)</Label>
-                    <Input
-                      type="number"
-                      value={tipoServicoForm.tempo_medio_minutos}
-                      onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, tempo_medio_minutos: e.target.value })}
-                      placeholder="30"
-                    />
+                    <p className="text-xs text-muted-foreground">Valor de referência</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Switch checked={tipoServicoForm.ativo} onCheckedChange={(v) => setTipoServicoForm({ ...tipoServicoForm, ativo: v })} />
-                  <Label>Ativo</Label>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Ícone</Label>
+                    <Select
+                      value={tipoServicoForm.icone || "none"}
+                      onValueChange={(v) => setTipoServicoForm({ ...tipoServicoForm, icone: v === "none" ? "" : v })}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Nenhum" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Nenhum</SelectItem>
+                        <SelectItem value="Zap">⚡ Zap (Raio)</SelectItem>
+                        <SelectItem value="Power">🔌 Power (Energia)</SelectItem>
+                        <SelectItem value="AlertCircle">⚠️ AlertCircle (Alerta)</SelectItem>
+                        <SelectItem value="CheckCircle">✅ CheckCircle (Concluído)</SelectItem>
+                        <SelectItem value="Wrench">🔧 Wrench (Ferramenta)</SelectItem>
+                        <SelectItem value="Settings">⚙️ Settings (Configurações)</SelectItem>
+                        <SelectItem value="Search">🔍 Search (Busca/Inspeção)</SelectItem>
+                        <SelectItem value="Clipboard">📋 Clipboard (Checklist)</SelectItem>
+                        <SelectItem value="FileText">📄 FileText (Documento)</SelectItem>
+                        <SelectItem value="MapPin">📍 MapPin (Localização)</SelectItem>
+                        <SelectItem value="Home">🏠 Home (Casa)</SelectItem>
+                        <SelectItem value="Building">🏢 Building (Prédio)</SelectItem>
+                        <SelectItem value="Tool">🛠️ Tool (Ferramenta)</SelectItem>
+                        <SelectItem value="Plug">🔌 Plug (Tomada)</SelectItem>
+                        <SelectItem value="Shield">🛡️ Shield (Proteção)</SelectItem>
+                        <SelectItem value="AlertTriangle">⚠️ AlertTriangle (Atenção)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Cor</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="color"
+                        value={tipoServicoForm.cor}
+                        onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, cor: e.target.value })}
+                        className="w-14 h-10 p-1"
+                      />
+                      <Input
+                        value={tipoServicoForm.cor}
+                        onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, cor: e.target.value })}
+                        placeholder="#3b82f6"
+                        className="font-mono"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-6 pt-2">
+                  <div className="flex items-center justify-between rounded-lg border p-3 flex-1">
+                    <div className="space-y-0.5">
+                      <Label>Nota Regulada</Label>
+                      <p className="text-xs text-muted-foreground">Marque se é uma nota regulada</p>
+                    </div>
+                    <Switch checked={tipoServicoForm.regulada} onCheckedChange={(v) => setTipoServicoForm({ ...tipoServicoForm, regulada: v })} />
+                  </div>
+                  <div className="flex items-center justify-between rounded-lg border p-3 flex-1">
+                    <div className="space-y-0.5">
+                      <Label>Ativo</Label>
+                      <p className="text-xs text-muted-foreground">Tipos inativos não aparecem</p>
+                    </div>
+                    <Switch checked={tipoServicoForm.ativo} onCheckedChange={(v) => setTipoServicoForm({ ...tipoServicoForm, ativo: v })} />
+                  </div>
                 </div>
               </>
             )}
@@ -1226,7 +1424,7 @@ export default function AdminCadastrosBase() {
                     >
                       <SelectTrigger><SelectValue placeholder="Todos" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">Todos</SelectItem>
+                        <SelectItem value="todos">Todos</SelectItem>
                         {contratos.map((c) => (<SelectItem key={c.id} value={c.id}>{c.codigo}</SelectItem>))}
                       </SelectContent>
                     </Select>
@@ -1239,6 +1437,44 @@ export default function AdminCadastrosBase() {
                     onChange={(e) => setCentroCustoForm({ ...centroCustoForm, nome: e.target.value })}
                     placeholder="Nome do centro"
                   />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Responsável</Label>
+                    <Select
+                      value={centroCustoForm.responsavel_id}
+                      onValueChange={(v) => setCentroCustoForm({ ...centroCustoForm, responsavel_id: v })}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="nenhum">Nenhum</SelectItem>
+                        {usuarios.map((u) => (<SelectItem key={u.id} value={u.id}>{u.nome}</SelectItem>))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Orçamento Previsto</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={centroCustoForm.orcamento_previsto}
+                      onChange={(e) => setCentroCustoForm({ ...centroCustoForm, orcamento_previsto: e.target.value })}
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Centro de Custo Pai</Label>
+                  <Select
+                    value={centroCustoForm.centro_pai_id}
+                    onValueChange={(v) => setCentroCustoForm({ ...centroCustoForm, centro_pai_id: v })}
+                  >
+                    <SelectTrigger><SelectValue placeholder="Nenhum (raiz)" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="raiz">Nenhum (raiz)</SelectItem>
+                      {centrosCusto.filter(c => c.id !== editingItem?.id).map((c) => (<SelectItem key={c.id} value={c.id}>{c.codigo} - {c.nome}</SelectItem>))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label>Descrição</Label>
@@ -1288,4 +1524,3 @@ export default function AdminCadastrosBase() {
     </div>
   );
 }
-

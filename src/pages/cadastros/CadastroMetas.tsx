@@ -152,7 +152,7 @@ export default function CadastroMetas() {
   // Form state para meta individual
   const [formData, setFormData] = useState({
     equipe_id: "",
-    contrato_id: "",
+    contrato_id: "nenhum",
     data: new Date().toISOString().split("T")[0],
     meta_quantidade: "",
     meta_valor: "",
@@ -162,7 +162,7 @@ export default function CadastroMetas() {
   // Form state para criação em massa
   const [bulkData, setBulkData] = useState({
     equipes_ids: [] as string[],
-    contrato_id: "",
+    contrato_id: "nenhum",
     data_inicio: "",
     data_fim: "",
     dias_semana: [1, 2, 3, 4, 5] as number[],
@@ -256,7 +256,7 @@ export default function CadastroMetas() {
     setEditingMeta(null);
     setFormData({
       equipe_id: "",
-      contrato_id: "",
+      contrato_id: "nenhum",
       data: new Date().toISOString().split("T")[0],
       meta_quantidade: "",
       meta_valor: "",
@@ -269,7 +269,7 @@ export default function CadastroMetas() {
     setEditingMeta(meta);
     setFormData({
       equipe_id: meta.equipe_id,
-      contrato_id: meta.contrato_id || "",
+      contrato_id: meta.contrato_id || "nenhum",
       data: meta.data,
       meta_quantidade: meta.meta_quantidade.toString(),
       meta_valor: meta.meta_valor?.toString() || "",
@@ -288,7 +288,7 @@ export default function CadastroMetas() {
     try {
       const payload = {
         equipe_id: formData.equipe_id,
-        contrato_id: formData.contrato_id || null,
+        contrato_id: formData.contrato_id && formData.contrato_id !== "nenhum" ? formData.contrato_id : null,
         data: formData.data,
         meta_quantidade: parseInt(formData.meta_quantidade),
         meta_valor: formData.meta_valor ? parseFloat(formData.meta_valor) : null,
@@ -347,7 +347,7 @@ export default function CadastroMetas() {
         for (const dia of diasFiltrados) {
           metasToInsert.push({
             equipe_id: equipeId,
-            contrato_id: bulkData.contrato_id || null,
+            contrato_id: bulkData.contrato_id && bulkData.contrato_id !== "nenhum" ? bulkData.contrato_id : null,
             data: format(dia, "yyyy-MM-dd"),
             meta_quantidade: parseInt(bulkData.meta_quantidade),
             meta_valor: bulkData.meta_valor
@@ -487,7 +487,7 @@ export default function CadastroMetas() {
             <Button variant="outline" onClick={() => {
               setBulkData({
                 equipes_ids: [],
-                contrato_id: "",
+                contrato_id: "nenhum",
                 data_inicio: format(startOfMonth(currentMonth), "yyyy-MM-dd"),
                 data_fim: format(endOfMonth(currentMonth), "yyyy-MM-dd"),
                 dias_semana: [1, 2, 3, 4, 5],
@@ -796,7 +796,7 @@ export default function CadastroMetas() {
                     <SelectValue placeholder="Selecione (opcional)" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Nenhum</SelectItem>
+                    <SelectItem value="nenhum">Nenhum</SelectItem>
                     {contratos.map((c) => (
                       <SelectItem key={c.id} value={c.id}>
                         {c.codigo} - {c.nome}
@@ -979,7 +979,7 @@ export default function CadastroMetas() {
                         <SelectValue placeholder="Opcional" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">Nenhum</SelectItem>
+                        <SelectItem value="nenhum">Nenhum</SelectItem>
                         {contratos.map((c) => (
                           <SelectItem key={c.id} value={c.id}>
                             {c.codigo} - {c.nome}

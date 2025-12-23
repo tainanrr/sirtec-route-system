@@ -149,7 +149,7 @@ export default function AdminProcedimentos() {
     conteudo: "",
     categoria: "operacional",
     arquivo_url: "",
-    contrato_id: "",
+    contrato_id: "todos",
     visivel_app: true,
     ativo: true,
     ordem: 0,
@@ -232,7 +232,7 @@ export default function AdminProcedimentos() {
       conteudo: "",
       categoria: "operacional",
       arquivo_url: "",
-      contrato_id: "",
+      contrato_id: "todos",
       visivel_app: true,
       ativo: true,
       ordem: maxOrdem + 1,
@@ -248,7 +248,7 @@ export default function AdminProcedimentos() {
       conteudo: procedimento.conteudo || "",
       categoria: procedimento.categoria,
       arquivo_url: procedimento.arquivo_url || "",
-      contrato_id: procedimento.contrato_id || "",
+      contrato_id: procedimento.contrato_id || "todos",
       visivel_app: procedimento.visivel_app,
       ativo: procedimento.ativo,
       ordem: procedimento.ordem,
@@ -275,7 +275,7 @@ export default function AdminProcedimentos() {
         conteudo: formData.conteudo || null,
         categoria: formData.categoria,
         arquivo_url: formData.arquivo_url || null,
-        contrato_id: formData.contrato_id || null,
+        contrato_id: formData.contrato_id && formData.contrato_id !== "todos" ? formData.contrato_id : null,
         visivel_app: formData.visivel_app,
         ativo: formData.ativo,
         ordem: formData.ordem,
@@ -661,7 +661,7 @@ export default function AdminProcedimentos() {
                     <SelectValue placeholder="Todos os contratos" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Todos</SelectItem>
+                    <SelectItem value="todos">Todos</SelectItem>
                     {contratos.map((c) => (
                       <SelectItem key={c.id} value={c.id}>
                         {c.codigo} - {c.nome}

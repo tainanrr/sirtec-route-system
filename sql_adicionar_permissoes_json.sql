@@ -27,44 +27,37 @@ BEGIN
   LIMIT 1;
 
   -- Criar estrutura de permissões padrão com todas as telas liberadas para edição
+  -- Lista de telas utilizadas no sistema:
+  -- Dashboard: dashboard
+  -- Operacional: torre_controle, roteirizacao, acompanhamento_rotas
+  -- Ordens de Serviço: ordens_servico, consulta_checklists
+  -- Materiais: materiais
+  -- Cadastros: equipes, skills, territorios, coordenadores, veiculos, metas
+  -- Admin: contratos, usuarios_web, colaboradores, permissoes, cadastros_base, procedimentos, checklists, logs
+  -- Cadastros Base: precificacao, centros_custo, unidades_medida, grupos_servico, feriados, motivos_cancelamento
   v_permissoes := '{
     "dashboard": {"editar": true, "consultar": true},
+    "torre_controle": {"editar": true, "consultar": true},
     "roteirizacao": {"editar": true, "consultar": true},
     "acompanhamento_rotas": {"editar": true, "consultar": true},
-    "torre_controle": {"editar": true, "consultar": true},
     "ordens_servico": {"editar": true, "consultar": true},
-    "importar_os": {"editar": true, "consultar": true},
+    "consulta_checklists": {"editar": true, "consultar": true},
+    "materiais": {"editar": true, "consultar": true},
     "equipes": {"editar": true, "consultar": true},
-    "colaboradores": {"editar": true, "consultar": true},
-    "coordenadores": {"editar": true, "consultar": true},
     "skills": {"editar": true, "consultar": true},
-    "veiculos": {"editar": true, "consultar": true},
     "territorios": {"editar": true, "consultar": true},
-    "pontos_saida": {"editar": true, "consultar": true},
-    "poligonos": {"editar": true, "consultar": true},
-    "checklists": {"editar": true, "consultar": true},
+    "coordenadores": {"editar": true, "consultar": true},
+    "veiculos": {"editar": true, "consultar": true},
     "metas": {"editar": true, "consultar": true},
-    "materiais_dashboard": {"editar": true, "consultar": true},
-    "catalogo_materiais": {"editar": true, "consultar": true},
-    "estoque_central": {"editar": true, "consultar": true},
-    "movimentacoes": {"editar": true, "consultar": true},
-    "recebimentos": {"editar": true, "consultar": true},
-    "entregas_equipes": {"editar": true, "consultar": true},
-    "devolucoes": {"editar": true, "consultar": true},
-    "aplicacoes_os": {"editar": true, "consultar": true},
-    "rastreabilidade": {"editar": true, "consultar": true},
-    "planejamento_diario": {"editar": true, "consultar": true},
-    "agenda": {"editar": true, "consultar": true},
-    "relatorios_produtividade": {"editar": true, "consultar": true},
-    "relatorios_materiais": {"editar": true, "consultar": true},
-    "relatorios_financeiro": {"editar": true, "consultar": true},
-    "relatorios_kpis": {"editar": true, "consultar": true},
-    "usuarios_web": {"editar": true, "consultar": true},
-    "usuarios_app": {"editar": true, "consultar": true},
     "contratos": {"editar": true, "consultar": true},
+    "usuarios_web": {"editar": true, "consultar": true},
+    "colaboradores": {"editar": true, "consultar": true},
     "permissoes": {"editar": true, "consultar": true},
     "cadastros_base": {"editar": true, "consultar": true},
+    "precificacao": {"editar": true, "consultar": true},
+    "centros_custo": {"editar": true, "consultar": true},
     "procedimentos": {"editar": true, "consultar": true},
+    "checklists": {"editar": true, "consultar": true},
     "logs": {"editar": true, "consultar": true}
   }'::JSONB;
 
@@ -86,6 +79,7 @@ BEGIN
     INSERT INTO public.perfis_permissao (nome, descricao, is_admin, ativo, permissoes_json)
     VALUES ('Operador', 'Acesso básico para operações de campo', false, true, '{
       "dashboard": {"editar": false, "consultar": true},
+      "torre_controle": {"editar": false, "consultar": true},
       "roteirizacao": {"editar": false, "consultar": true},
       "acompanhamento_rotas": {"editar": false, "consultar": true},
       "ordens_servico": {"editar": false, "consultar": true},
@@ -99,14 +93,13 @@ BEGIN
     INSERT INTO public.perfis_permissao (nome, descricao, is_admin, ativo, permissoes_json)
     VALUES ('Supervisor', 'Acesso para supervisão de equipes', false, true, '{
       "dashboard": {"editar": false, "consultar": true},
+      "torre_controle": {"editar": false, "consultar": true},
       "roteirizacao": {"editar": true, "consultar": true},
       "acompanhamento_rotas": {"editar": true, "consultar": true},
-      "torre_controle": {"editar": false, "consultar": true},
       "ordens_servico": {"editar": true, "consultar": true},
       "equipes": {"editar": true, "consultar": true},
       "colaboradores": {"editar": true, "consultar": true},
-      "metas": {"editar": true, "consultar": true},
-      "relatorios_produtividade": {"editar": false, "consultar": true}
+      "metas": {"editar": true, "consultar": true}
     }'::JSONB);
     RAISE NOTICE 'Perfil Supervisor criado';
   END IF;
@@ -116,48 +109,66 @@ BEGIN
     INSERT INTO public.perfis_permissao (nome, descricao, is_admin, ativo, permissoes_json)
     VALUES ('Visualizador', 'Acesso somente leitura a todas as telas', false, true, '{
       "dashboard": {"editar": false, "consultar": true},
+      "torre_controle": {"editar": false, "consultar": true},
       "roteirizacao": {"editar": false, "consultar": true},
       "acompanhamento_rotas": {"editar": false, "consultar": true},
-      "torre_controle": {"editar": false, "consultar": true},
       "ordens_servico": {"editar": false, "consultar": true},
-      "importar_os": {"editar": false, "consultar": true},
+      "consulta_checklists": {"editar": false, "consultar": true},
+      "materiais": {"editar": false, "consultar": true},
       "equipes": {"editar": false, "consultar": true},
-      "colaboradores": {"editar": false, "consultar": true},
-      "coordenadores": {"editar": false, "consultar": true},
       "skills": {"editar": false, "consultar": true},
-      "veiculos": {"editar": false, "consultar": true},
       "territorios": {"editar": false, "consultar": true},
-      "pontos_saida": {"editar": false, "consultar": true},
-      "poligonos": {"editar": false, "consultar": true},
-      "checklists": {"editar": false, "consultar": true},
+      "coordenadores": {"editar": false, "consultar": true},
+      "veiculos": {"editar": false, "consultar": true},
       "metas": {"editar": false, "consultar": true},
-      "materiais_dashboard": {"editar": false, "consultar": true},
-      "catalogo_materiais": {"editar": false, "consultar": true},
-      "estoque_central": {"editar": false, "consultar": true},
-      "movimentacoes": {"editar": false, "consultar": true},
-      "recebimentos": {"editar": false, "consultar": true},
-      "entregas_equipes": {"editar": false, "consultar": true},
-      "devolucoes": {"editar": false, "consultar": true},
-      "aplicacoes_os": {"editar": false, "consultar": true},
-      "rastreabilidade": {"editar": false, "consultar": true},
-      "planejamento_diario": {"editar": false, "consultar": true},
-      "agenda": {"editar": false, "consultar": true},
-      "relatorios_produtividade": {"editar": false, "consultar": true},
-      "relatorios_materiais": {"editar": false, "consultar": true},
-      "relatorios_financeiro": {"editar": false, "consultar": true},
-      "relatorios_kpis": {"editar": false, "consultar": true},
-      "usuarios_web": {"editar": false, "consultar": true},
-      "usuarios_app": {"editar": false, "consultar": true},
       "contratos": {"editar": false, "consultar": true},
+      "usuarios_web": {"editar": false, "consultar": true},
+      "colaboradores": {"editar": false, "consultar": true},
       "permissoes": {"editar": false, "consultar": true},
       "cadastros_base": {"editar": false, "consultar": true},
+      "precificacao": {"editar": false, "consultar": true},
+      "centros_custo": {"editar": false, "consultar": true},
       "procedimentos": {"editar": false, "consultar": true},
+      "checklists": {"editar": false, "consultar": true},
       "logs": {"editar": false, "consultar": true}
     }'::JSONB);
     RAISE NOTICE 'Perfil Visualizador criado';
   END IF;
 
 END $$;
+
+-- =============================================
+-- Comando para atualizar perfil existente
+-- Use este comando se você já tem um perfil "Visualizador" 
+-- e precisa configurar as permissões corretamente
+-- =============================================
+
+-- Para atualizar um perfil específico com permissões de apenas visualização:
+-- UPDATE public.perfis_permissao 
+-- SET permissoes_json = '{
+--   "dashboard": {"editar": false, "consultar": true},
+--   "torre_controle": {"editar": false, "consultar": true},
+--   "roteirizacao": {"editar": false, "consultar": true},
+--   "acompanhamento_rotas": {"editar": false, "consultar": true},
+--   "ordens_servico": {"editar": false, "consultar": true},
+--   "consulta_checklists": {"editar": false, "consultar": true},
+--   "materiais": {"editar": false, "consultar": true},
+--   "equipes": {"editar": false, "consultar": true},
+--   "skills": {"editar": false, "consultar": true},
+--   "territorios": {"editar": false, "consultar": true},
+--   "coordenadores": {"editar": false, "consultar": true},
+--   "veiculos": {"editar": false, "consultar": true},
+--   "metas": {"editar": false, "consultar": true},
+--   "contratos": {"editar": false, "consultar": true},
+--   "usuarios_web": {"editar": false, "consultar": true},
+--   "colaboradores": {"editar": false, "consultar": true},
+--   "permissoes": {"editar": false, "consultar": true},
+--   "cadastros_base": {"editar": false, "consultar": true},
+--   "procedimentos": {"editar": false, "consultar": true},
+--   "checklists": {"editar": false, "consultar": true},
+--   "logs": {"editar": false, "consultar": true}
+-- }'::JSONB
+-- WHERE nome = 'NOME_DO_SEU_PERFIL';
 
 -- Verificar resultado
 SELECT 
@@ -166,14 +177,7 @@ SELECT
   descricao,
   is_admin,
   ativo,
-  jsonb_object_keys(permissoes_json) as telas_com_permissao
-FROM public.perfis_permissao
-ORDER BY nome;
-
--- Mostrar estrutura de uma permissão
-SELECT 
-  nome,
   permissoes_json
 FROM public.perfis_permissao
-WHERE nome = 'Administrador';
+ORDER BY nome;
 

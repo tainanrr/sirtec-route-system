@@ -1,10 +1,17 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useMemo, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 interface Permissao {
   codigo: string;
   nome: string;
   modulo: string;
+}
+
+// Permissões no novo formato JSON
+interface PermissaoJson {
+  editar: boolean;
+  consultar: boolean;
 }
 
 interface UsuarioWeb {
@@ -22,8 +29,10 @@ interface UsuarioWeb {
     id: string;
     nome: string;
     is_admin: boolean;
+    permissoes_json?: Record<string, PermissaoJson>;
   } | null;
   permissoes?: Permissao[];
+  permissoesJson?: Record<string, PermissaoJson>;
 }
 
 interface WebAuthContextType {
@@ -116,20 +125,38 @@ export function WebAuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    // Se for admin, não precisa carregar permissões específicas
-    if (usuarioWeb.perfil?.is_admin) {
-      console.log("[WebAuth] Usuário é admin, não precisa recarregar permissões");
+    console.log("[WebAuth] Recarregando permissões...");
+    
+    // Recarregar perfil do banco para obter permissoes_json atualizado
+    const { data: perfilAtualizado, error: perfilError } = await supabase
+      .from("perfis_permissao")
+      .select("id, nome, is_admin, permissoes_json")
+      .eq("id", usuarioWeb.perfil_id)
+      .single();
+    
+    if (perfilError) {
+      console.error("[WebAuth] Erro ao recarregar perfil:", perfilError);
       return;
     }
-
-    console.log("[WebAuth] Recarregando permissões...");
-    const permissoes = await loadPermissoes(usuarioWeb.perfil_id);
+    
+    const permissoesJson = (perfilAtualizado as any)?.permissoes_json || {};
+    console.log("[WebAuth] permissoesJson recarregado:", JSON.stringify(permissoesJson));
+    
+    // Também recarregar permissões do formato antigo
+    let permissoes: Permissao[] = [];
+    if (!perfilAtualizado?.is_admin) {
+      permissoes = await loadPermissoes(usuarioWeb.perfil_id);
+    }
     
     setUsuarioWeb(prev => prev ? {
       ...prev,
+      perfil: perfilAtualizado,
       permissoes,
+      permissoesJson,
     } : null);
-  }, [usuarioWeb?.perfil_id, usuarioWeb?.perfil?.is_admin, loadPermissoes]);
+    
+    toast.success("Permissões atualizadas!", { duration: 2000 });
+  }, [usuarioWeb?.perfil_id, loadPermissoes]);
 
   // Carregar sessão do localStorage ao iniciar
   useEffect(() => {
@@ -146,7 +173,8 @@ export function WebAuthProvider({ children }: { children: ReactNode }) {
               perfis_permissao (
                 id,
                 nome,
-                is_admin
+                is_admin,
+                permissoes_json
               )
             `)
             .eq("id", sessionData.id)
@@ -160,10 +188,14 @@ export function WebAuthProvider({ children }: { children: ReactNode }) {
               permissoes = await loadPermissoes(usuario.perfil_id);
             }
 
+            // Extrair permissões JSON do perfil
+            const permissoesJson = (usuario.perfis_permissao as any)?.permissoes_json || {};
+
             setUsuarioWeb({
               ...usuario,
               perfil: usuario.perfis_permissao,
               permissoes,
+              permissoesJson,
             });
           } else {
             // Sessão inválida, limpar
@@ -206,7 +238,8 @@ export function WebAuthProvider({ children }: { children: ReactNode }) {
           perfis_permissao (
             id,
             nome,
-            is_admin
+            is_admin,
+            permissoes_json
           )
         `)
         .eq("email", email.toLowerCase().trim())
@@ -243,10 +276,15 @@ export function WebAuthProvider({ children }: { children: ReactNode }) {
         permissoes = await loadPermissoes(usuario.perfil_id);
       }
 
+      // Extrair permissões JSON do perfil
+      const permissoesJson = (usuario.perfis_permissao as any)?.permissoes_json || {};
+      console.log("[WebAuth] Login - permissoesJson carregado:", JSON.stringify(permissoesJson));
+
       const usuarioLogado: UsuarioWeb = {
         ...usuario,
         perfil: usuario.perfis_permissao,
         permissoes,
+        permissoesJson,
       };
 
       // Salvar sessão no localStorage
@@ -271,35 +309,94 @@ export function WebAuthProvider({ children }: { children: ReactNode }) {
     return usuarioWeb?.perfil?.is_admin === true;
   }, [usuarioWeb]);
 
+  // Mapeamento de códigos antigos para IDs de tela no novo formato
+  const mapCodigoParaTela = useCallback((codigo: string): string => {
+    // Mapear códigos no formato antigo (cadastros.equipes) para novo (equipes)
+    const mapeamento: Record<string, string> = {
+      // Cadastros
+      "cadastros.equipes": "equipes",
+      "cadastros.skills": "skills",
+      "cadastros.territorios": "territorios",
+      "cadastros.coordenadores": "coordenadores",
+      "cadastros.veiculos": "veiculos",
+      "cadastros.metas": "metas",
+      // Admin
+      "admin.contratos": "contratos",
+      "admin.usuarios_web": "usuarios_web",
+      "admin.usuarios_app": "usuarios_app",
+      "admin.permissoes": "permissoes",
+      "admin.cadastros_base": "cadastros_base",
+      "admin.procedimentos": "procedimentos",
+      "admin.checklists": "checklists",
+      "admin.logs": "logs",
+      // Roteirização
+      "roteirizacao.torre_controle": "torre_controle",
+      "roteirizacao.visualizar": "roteirizacao",
+      "roteirizacao.acompanhar": "acompanhamento_rotas",
+      // OS
+      "os.visualizar": "ordens_servico",
+      "os.checklists": "checklists",
+    };
+    return mapeamento[codigo] || codigo;
+  }, []);
+
   // Verificar se tem permissão específica
   const hasPermission = useCallback((codigo: string): boolean => {
     // Admin tem todas as permissões
     if (usuarioWeb?.perfil?.is_admin) return true;
     
-    // Verificar nas permissões do usuário
-    const has = usuarioWeb?.permissoes?.some(p => p.codigo === codigo) ?? false;
-    return has;
-  }, [usuarioWeb?.perfil?.is_admin, usuarioWeb?.permissoes]);
+    // PRIORIDADE: Verificar primeiro no formato JSON (novo)
+    const telaId = mapCodigoParaTela(codigo);
+    const permJson = usuarioWeb?.permissoesJson?.[telaId];
+    if (permJson) {
+      // Se tem consultar ou editar, tem acesso
+      const temAcesso = permJson.consultar === true || permJson.editar === true;
+      console.log(`[WebAuth] hasPermission("${codigo}") -> tela "${telaId}" = ${temAcesso}`);
+      return temAcesso;
+    }
+
+    // Fallback: verificar no formato antigo (para compatibilidade)
+    const hasOld = usuarioWeb?.permissoes?.some(p => p.codigo === codigo) ?? false;
+    if (hasOld) {
+      console.log(`[WebAuth] hasPermission("${codigo}") -> formato antigo = true`);
+      return true;
+    }
+
+    console.log(`[WebAuth] hasPermission("${codigo}") -> NÃO TEM ACESSO`);
+    return false;
+  }, [usuarioWeb?.perfil?.is_admin, usuarioWeb?.permissoes, usuarioWeb?.permissoesJson, mapCodigoParaTela]);
 
   // Verificar se tem alguma das permissões
   const hasAnyPermission = useCallback((codigos: string[]): boolean => {
     // Admin tem todas as permissões
     if (usuarioWeb?.perfil?.is_admin) return true;
     
-    return codigos.some(codigo => 
-      usuarioWeb?.permissoes?.some(p => p.codigo === codigo) ?? false
-    );
-  }, [usuarioWeb?.perfil?.is_admin, usuarioWeb?.permissoes]);
+    return codigos.some(codigo => hasPermission(codigo));
+  }, [usuarioWeb?.perfil?.is_admin, hasPermission]);
 
   // Verificar se tem acesso a um módulo
   const hasModuleAccess = useCallback((modulo: string): boolean => {
     // Admin tem acesso a tudo
     if (usuarioWeb?.perfil?.is_admin) return true;
     
-    // Verificar se tem alguma permissão do módulo
-    const has = usuarioWeb?.permissoes?.some(p => p.modulo === modulo) ?? false;
-    return has;
-  }, [usuarioWeb?.perfil?.is_admin, usuarioWeb?.permissoes]);
+    // Verificar no formato antigo
+    const hasOld = usuarioWeb?.permissoes?.some(p => p.modulo === modulo) ?? false;
+    if (hasOld) return true;
+
+    // Verificar no novo formato JSON - procurar qualquer tela do módulo com acesso
+    const telasDoModulo: Record<string, string[]> = {
+      "materiais": ["materiais_dashboard", "catalogo_materiais", "estoque_central", "movimentacoes", "recebimentos", "entregas_equipes", "devolucoes", "aplicacoes_os", "rastreabilidade"],
+      "cadastros": ["equipes", "colaboradores", "coordenadores", "skills", "veiculos", "territorios", "pontos_saida", "poligonos", "checklists", "metas"],
+      "admin": ["usuarios_web", "usuarios_app", "contratos", "permissoes", "cadastros_base", "procedimentos", "logs"],
+      "relatorios": ["relatorios_produtividade", "relatorios_materiais", "relatorios_financeiro", "relatorios_kpis"],
+    };
+
+    const telas = telasDoModulo[modulo] || [];
+    return telas.some(telaId => {
+      const permJson = usuarioWeb?.permissoesJson?.[telaId];
+      return permJson?.consultar === true || permJson?.editar === true;
+    });
+  }, [usuarioWeb?.perfil?.is_admin, usuarioWeb?.permissoes, usuarioWeb?.permissoesJson]);
 
   return (
     <WebAuthContext.Provider

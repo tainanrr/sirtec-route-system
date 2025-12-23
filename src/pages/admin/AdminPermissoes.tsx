@@ -73,21 +73,22 @@ interface PerfilPermissao {
 }
 
 // Estrutura de módulos e telas do sistema
+// Estas são as telas usadas para controle de permissões
 const sistemaTelas = [
   {
     modulo: "Dashboard",
     icon: LayoutDashboard,
     telas: [
-      { id: "dashboard", nome: "Dashboard Principal", descricao: "Visão geral do sistema" },
+      { id: "dashboard", nome: "Dashboard", descricao: "Visão geral do sistema" },
     ],
   },
   {
-    modulo: "Roteirização",
+    modulo: "Operacional",
     icon: Map,
     telas: [
-      { id: "roteirizacao", nome: "Roteirização", descricao: "Criar e gerenciar rotas" },
-      { id: "acompanhamento_rotas", nome: "Acompanhamento de Rotas", descricao: "Monitorar rotas em tempo real" },
       { id: "torre_controle", nome: "Torre de Controle", descricao: "Central de monitoramento" },
+      { id: "roteirizacao", nome: "Roteirização", descricao: "Criar e gerenciar rotas" },
+      { id: "acompanhamento_rotas", nome: "Acompanhamento de Roteirizações", descricao: "Monitorar rotas em tempo real" },
     ],
   },
   {
@@ -95,7 +96,14 @@ const sistemaTelas = [
     icon: ClipboardList,
     telas: [
       { id: "ordens_servico", nome: "Ordens de Serviço", descricao: "Gerenciar OS" },
-      { id: "importar_os", nome: "Importar OS", descricao: "Importar planilhas de OS" },
+      { id: "consulta_checklists", nome: "Consulta Checklists", descricao: "Visualizar checklists preenchidos" },
+    ],
+  },
+  {
+    modulo: "Materiais",
+    icon: Package,
+    telas: [
+      { id: "materiais", nome: "Materiais", descricao: "Gestão de materiais e estoque" },
     ],
   },
   {
@@ -103,61 +111,25 @@ const sistemaTelas = [
     icon: Database,
     telas: [
       { id: "equipes", nome: "Equipes", descricao: "Cadastro de equipes de campo" },
-      { id: "colaboradores", nome: "Colaboradores", descricao: "Cadastro de colaboradores" },
-      { id: "coordenadores", nome: "Coordenadores e Supervisores", descricao: "Gestão de supervisão" },
-      { id: "skills", nome: "Skills/Habilidades", descricao: "Tipos de habilidades" },
-      { id: "veiculos", nome: "Veículos", descricao: "Frota de veículos" },
+      { id: "skills", nome: "Skills", descricao: "Habilidades das equipes" },
       { id: "territorios", nome: "Territórios", descricao: "Zonas de atuação" },
-      { id: "pontos_saida", nome: "Pontos de Saída", descricao: "Locais de partida" },
-      { id: "poligonos", nome: "Polígonos", descricao: "Áreas geográficas" },
-      { id: "checklists", nome: "Checklists", descricao: "Listas de verificação" },
+      { id: "coordenadores", nome: "Coordenadores e Supervisores", descricao: "Gestão de supervisão" },
+      { id: "veiculos", nome: "Veículos", descricao: "Frota de veículos" },
       { id: "metas", nome: "Metas", descricao: "Metas de equipes" },
-    ],
-  },
-  {
-    modulo: "Materiais",
-    icon: Package,
-    telas: [
-      { id: "materiais_dashboard", nome: "Dashboard Materiais", descricao: "Visão geral de materiais" },
-      { id: "catalogo_materiais", nome: "Catálogo de Materiais", descricao: "Produtos cadastrados" },
-      { id: "estoque_central", nome: "Estoque Central", descricao: "Almoxarifado principal" },
-      { id: "movimentacoes", nome: "Movimentações", descricao: "Entradas e saídas" },
-      { id: "recebimentos", nome: "Recebimentos", descricao: "Recebimento de materiais" },
-      { id: "entregas_equipes", nome: "Entregas às Equipes", descricao: "Distribuição para campo" },
-      { id: "devolucoes", nome: "Devoluções", descricao: "Retorno de materiais" },
-      { id: "aplicacoes_os", nome: "Aplicações em OS", descricao: "Materiais usados em OS" },
-      { id: "rastreabilidade", nome: "Rastreabilidade", descricao: "Histórico de materiais" },
-    ],
-  },
-  {
-    modulo: "Planejamento",
-    icon: Calendar,
-    telas: [
-      { id: "planejamento_diario", nome: "Planejamento Diário", descricao: "Planejar dia de trabalho" },
-      { id: "agenda", nome: "Agenda", descricao: "Calendário de atividades" },
-    ],
-  },
-  {
-    modulo: "Relatórios",
-    icon: BarChart3,
-    telas: [
-      { id: "relatorios_produtividade", nome: "Produtividade", descricao: "Relatórios de produção" },
-      { id: "relatorios_materiais", nome: "Relatórios de Materiais", descricao: "Consumo e estoque" },
-      { id: "relatorios_financeiro", nome: "Financeiro", descricao: "Faturamento e custos" },
-      { id: "relatorios_kpis", nome: "KPIs", descricao: "Indicadores de desempenho" },
     ],
   },
   {
     modulo: "Administração",
     icon: Settings,
     telas: [
-      { id: "usuarios_web", nome: "Usuários Web", descricao: "Usuários do sistema web" },
-      { id: "usuarios_app", nome: "Usuários App", descricao: "Usuários do aplicativo" },
       { id: "contratos", nome: "Contratos", descricao: "Contratos de clientes" },
-      { id: "permissoes", nome: "Permissões e Perfis", descricao: "Controle de acesso" },
+      { id: "usuarios_web", nome: "Usuários Web", descricao: "Usuários do sistema web" },
+      { id: "colaboradores", nome: "Colaboradores", descricao: "Colaboradores/Usuários do App" },
+      { id: "permissoes", nome: "Permissões", descricao: "Controle de acesso" },
       { id: "cadastros_base", nome: "Cadastros Base", descricao: "Configurações do sistema" },
       { id: "procedimentos", nome: "Procedimentos", descricao: "Documentos e procedimentos" },
-      { id: "logs", nome: "Logs do Sistema", descricao: "Histórico de ações" },
+      { id: "checklists", nome: "Checklists", descricao: "Modelos de checklists" },
+      { id: "logs", nome: "Logs", descricao: "Histórico de ações" },
     ],
   },
 ];

@@ -105,7 +105,7 @@ export default function AdminUsuariosApp() {
   const [formData, setFormData] = useState({
     usuario: "",
     senha: "",
-    contrato_id: "",
+    contrato_id: "nenhum",
     ativo: true,
   });
 
@@ -179,7 +179,7 @@ export default function AdminUsuariosApp() {
     setFormData({
       usuario: equipe.usuario || "",
       senha: "",
-      contrato_id: equipe.contrato_id || "",
+      contrato_id: equipe.contrato_id || "nenhum",
       ativo: equipe.ativo,
     });
     setShowPassword(false);
@@ -193,7 +193,7 @@ export default function AdminUsuariosApp() {
     try {
       const payload: any = {
         usuario: formData.usuario || null,
-        contrato_id: formData.contrato_id || null,
+        contrato_id: formData.contrato_id && formData.contrato_id !== "nenhum" ? formData.contrato_id : null,
         ativo: formData.ativo,
       };
 
@@ -498,7 +498,7 @@ export default function AdminUsuariosApp() {
                   <SelectValue placeholder="Selecione o contrato" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Nenhum</SelectItem>
+                  <SelectItem value="nenhum">Nenhum</SelectItem>
                   {contratos.map((contrato) => (
                     <SelectItem key={contrato.id} value={contrato.id}>
                       {contrato.codigo} - {contrato.nome}

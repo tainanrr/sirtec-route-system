@@ -69,6 +69,7 @@ import * as XLSX from "xlsx";
 import { SortableTableHead, useSortableTable } from "@/components/ui/sortable-table-head";
 import { ExportButton } from "@/components/ui/export-button";
 import { useAuth } from "@/contexts/AuthContext";
+import { useTelaPermissao } from "@/hooks/usePermissoes";
 
 interface RecebimentoItem {
   material_id: string;
@@ -364,6 +365,7 @@ async function getMovimentacoesEntradaRecebimento(params: {
 }
 
 export default function Recebimentos() {
+  const { podeEditar } = useTelaPermissao("materiais");
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
@@ -1771,16 +1773,16 @@ Regras:
               <Download className="h-4 w-4 mr-2" />
               Template Excel
             </Button>
-            <Button variant="outline" onClick={() => setImportDialogOpen(true)}>
+            <Button variant="outline" onClick={() => setImportDialogOpen(true)} disabled={!podeEditar}>
               <Upload className="h-4 w-4 mr-2" />
               Importar
             </Button>
-            <Button variant="outline" onClick={() => setNfDialogOpen(true)}>
+            <Button variant="outline" onClick={() => setNfDialogOpen(true)} disabled={!podeEditar}>
               <Sparkles className="h-4 w-4 mr-2" />
               Ler NF (IA/XML)
             </Button>
             <ExportButton
-              data={filteredRecebimentos}
+              data={recebimentos || []}
               filename="recebimentos"
               columns={[
                 { key: "numero_documento", label: "Nº Documento" },
@@ -1794,7 +1796,7 @@ Regras:
               ]}
               disabled={isLoading}
             />
-            <Button onClick={() => setDialogOpen(true)}>
+            <Button onClick={() => setDialogOpen(true)} disabled={!podeEditar}>
               <Plus className="h-4 w-4 mr-2" />
               Novo
             </Button>
@@ -1958,6 +1960,7 @@ Regras:
                               size="icon"
                               className="text-green-600"
                               onClick={() => handleOpenConferir(rec)}
+                              disabled={!podeEditar}
                             >
                               <ClipboardCheck className="h-4 w-4" />
                             </Button>
@@ -1970,6 +1973,7 @@ Regras:
                               setRecebimentoParaExcluir(rec);
                               setDeleteDialog(true);
                             }}
+                            disabled={!podeEditar}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>

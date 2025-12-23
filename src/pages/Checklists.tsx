@@ -65,6 +65,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
+import { useTelaPermissao } from "@/hooks/usePermissoes";
 
 // Tipos de pergunta disponíveis
 const tipoPerguntaConfig = {
@@ -111,6 +112,7 @@ const tiposChecklist = [
 ];
 
 export default function Checklists() {
+  const { podeEditar } = useTelaPermissao("checklists");
   const [searchTerm, setSearchTerm] = useState("");
   const [tipoFilter, setTipoFilter] = useState<string>("all");
   const [checklists, setChecklists] = useState<Checklist[]>([]);
@@ -406,6 +408,7 @@ export default function Checklists() {
                 resetForm();
                 setFormOpen(true);
               }}
+              disabled={!podeEditar}
             >
               <Plus className="h-4 w-4" />
               Novo Checklist
@@ -474,6 +477,7 @@ export default function Checklists() {
                         variant="outline"
                         size="sm"
                         onClick={() => handleEdit(checklist)}
+                        disabled={!podeEditar}
                       >
                         <Edit className="h-4 w-4" />
                       </Button>
@@ -481,6 +485,7 @@ export default function Checklists() {
                         variant="outline"
                         size="sm"
                         onClick={() => handleDuplicate(checklist)}
+                        disabled={!podeEditar}
                       >
                         <Copy className="h-4 w-4" />
                       </Button>
@@ -492,6 +497,7 @@ export default function Checklists() {
                           setChecklistToDelete(checklist);
                           setDeleteDialogOpen(true);
                         }}
+                        disabled={!podeEditar}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>

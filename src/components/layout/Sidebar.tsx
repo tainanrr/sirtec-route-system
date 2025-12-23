@@ -85,7 +85,7 @@ const navItemsConfig: NavItem[] = [
     // Sem module aqui - a visibilidade é controlada pelos children
     children: [
       { icon: Users, label: "Equipes", href: "/equipes", permission: "cadastros.equipes" },
-      { icon: Wrench, label: "Skills", href: "/cadastros/skills", permission: "cadastros.skills" },
+      { icon: Wrench, label: "Tipos de Serviço", href: "/admin/cadastros-base?tab=tipos-servico", permission: "cadastros.skills" },
       { icon: Map, label: "Territórios", href: "/territorios", permission: "cadastros.territorios" },
       { icon: UserCheck, label: "Coordenadores e Supervisores", href: "/cadastros/coordenadores", permission: "cadastros.coordenadores" },
       { icon: Car, label: "Veículos", href: "/cadastros/veiculos", permission: "cadastros.veiculos" },

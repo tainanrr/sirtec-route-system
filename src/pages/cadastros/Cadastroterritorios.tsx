@@ -3,6 +3,7 @@
 // ============================================================================
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useTelaPermissao } from "@/hooks/usePermissoes";
 
 // Tipos
 interface Coordenada {
@@ -54,10 +55,17 @@ const equipesMock: Equipe[] = [
 ];
 
 export default function CadastroTerritorios() {
+  // Permissões da tela
+  const { podeEditar, loading: loadingPermissoes, isAdmin } = useTelaPermissao("territorios");
+  
+  // Debug de permissões
+  console.log("[Territorios] podeEditar:", podeEditar, "loading:", loadingPermissoes, "isAdmin:", isAdmin);
+
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const drawLayerRef = useRef<any>(null);
   const territoriosLayerRef = useRef<any>(null);
+  const drawControlRef = useRef<any>(null);
   
   const [territorios, setTerritorios] = useState<Territorio[]>([]);
   const [territorioSelecionado, setTerritorioSelecionado] = useState<Territorio | null>(null);
@@ -162,32 +170,8 @@ export default function CadastroTerritorios() {
       map.addLayer(territoriosLayer);
       territoriosLayerRef.current = territoriosLayer;
 
-      // Controle de desenho
-      const drawControl = new L.Control.Draw({
-        position: 'topright',
-        draw: {
-          polygon: {
-            allowIntersection: false,
-            showArea: true,
-            shapeOptions: {
-              color: formData.cor
-            }
-          },
-          polyline: false,
-          circle: false,
-          circlemarker: false,
-          marker: false,
-          rectangle: {
-            shapeOptions: {
-              color: formData.cor
-            }
-          }
-        },
-        edit: {
-          featureGroup: drawnItems
-        }
-      });
-      map.addControl(drawControl);
+      // Controle de desenho - será adicionado/removido baseado nas permissões
+      // O controle é gerenciado pelo useEffect abaixo
 
       // Evento quando desenha
       map.on(L.Draw.Event.CREATED, (e: any) => {
@@ -235,6 +219,65 @@ export default function CadastroTerritorios() {
       }
     };
   }, []);
+
+  // Gerenciar controle de desenho baseado nas permissões
+  useEffect(() => {
+    console.log("[Territorios] useEffect drawControl - loading:", loadingPermissoes, "podeEditar:", podeEditar);
+    
+    // Aguardar permissões carregarem
+    if (loadingPermissoes) {
+      console.log("[Territorios] Aguardando permissões carregarem...");
+      return;
+    }
+    
+    const L = (window as any).L;
+    if (!L || !mapInstanceRef.current || !drawLayerRef.current) {
+      console.log("[Territorios] Leaflet ou mapa não inicializado ainda");
+      return;
+    }
+
+    const map = mapInstanceRef.current;
+
+    // Remover controle existente se houver
+    if (drawControlRef.current) {
+      console.log("[Territorios] Removendo controle de desenho existente");
+      map.removeControl(drawControlRef.current);
+      drawControlRef.current = null;
+    }
+
+    // Adicionar controle apenas se tiver permissão de edição
+    if (podeEditar) {
+      console.log("[Territorios] Adicionando controle de desenho (tem permissão)");
+      const drawControl = new L.Control.Draw({
+        position: 'topright',
+        draw: {
+          polygon: {
+            allowIntersection: false,
+            showArea: true,
+            shapeOptions: {
+              color: formData.cor
+            }
+          },
+          polyline: false,
+          circle: false,
+          circlemarker: false,
+          marker: false,
+          rectangle: {
+            shapeOptions: {
+              color: formData.cor
+            }
+          }
+        },
+        edit: {
+          featureGroup: drawLayerRef.current
+        }
+      });
+      map.addControl(drawControl);
+      drawControlRef.current = drawControl;
+    } else {
+      console.log("[Territorios] NÃO adicionando controle de desenho (sem permissão)");
+    }
+  }, [podeEditar, loadingPermissoes, formData.cor]);
 
   // Atualizar territórios no mapa
   useEffect(() => {
@@ -298,6 +341,12 @@ export default function CadastroTerritorios() {
 
   // Salvar território
   const salvarTerritorio = () => {
+    // Verificar permissão
+    if (!podeEditar) {
+      setMensagem({ tipo: 'erro', texto: 'Você não tem permissão para criar territórios' });
+      return;
+    }
+    
     if (!formData.nome.trim()) {
       setMensagem({ tipo: 'erro', texto: 'Nome é obrigatório' });
       return;
@@ -335,6 +384,12 @@ export default function CadastroTerritorios() {
 
   // Atualizar território
   const atualizarTerritorio = () => {
+    // Verificar permissão
+    if (!podeEditar) {
+      setMensagem({ tipo: 'erro', texto: 'Você não tem permissão para editar territórios' });
+      return;
+    }
+    
     if (!territorioSelecionado) return;
 
     setTerritorios(prev => prev.map(t => {
@@ -358,6 +413,12 @@ export default function CadastroTerritorios() {
 
   // Excluir território
   const excluirTerritorio = (id: string) => {
+    // Verificar permissão
+    if (!podeEditar) {
+      setMensagem({ tipo: 'erro', texto: 'Você não tem permissão para excluir territórios' });
+      return;
+    }
+    
     if (!confirm('Tem certeza que deseja excluir este território?')) return;
     
     setTerritorios(prev => prev.filter(t => t.id !== id));
@@ -395,6 +456,12 @@ export default function CadastroTerritorios() {
 
   // Importar configuração
   const importarConfig = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Verificar permissão
+    if (!podeEditar) {
+      setMensagem({ tipo: 'erro', texto: 'Você não tem permissão para importar territórios' });
+      return;
+    }
+    
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -425,11 +492,22 @@ export default function CadastroTerritorios() {
       <header className="bg-slate-800 border-b border-slate-700 px-6 py-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-white">
+            <h1 className="text-2xl font-bold text-white flex items-center gap-3">
               🗺️ Cadastro de Territórios
+              {/* Badge de permissão para debug */}
+              {loadingPermissoes ? (
+                <span className="text-xs px-2 py-1 bg-yellow-600 rounded">Carregando...</span>
+              ) : podeEditar ? (
+                <span className="text-xs px-2 py-1 bg-green-600 rounded">✏️ Pode Editar</span>
+              ) : (
+                <span className="text-xs px-2 py-1 bg-red-600 rounded">👁️ Somente Leitura</span>
+              )}
+              {isAdmin && <span className="text-xs px-2 py-1 bg-purple-600 rounded">Admin</span>}
             </h1>
             <p className="text-slate-400 text-sm mt-1">
-              Desenhe polígonos para definir as áreas de atuação das equipes
+              {podeEditar 
+                ? "Desenhe polígonos para definir as áreas de atuação das equipes"
+                : "Visualize as áreas de atuação das equipes (modo somente leitura)"}
             </p>
           </div>
           <div className="flex gap-2">
@@ -439,15 +517,17 @@ export default function CadastroTerritorios() {
             >
               📤 Exportar
             </button>
-            <label className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm cursor-pointer transition-colors">
-              📥 Importar
-              <input
-                type="file"
-                accept=".json"
-                onChange={importarConfig}
-                className="hidden"
-              />
-            </label>
+            {podeEditar && (
+              <label className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm cursor-pointer transition-colors">
+                📥 Importar
+                <input
+                  type="file"
+                  accept=".json"
+                  onChange={importarConfig}
+                  className="hidden"
+                />
+              </label>
+            )}
           </div>
         </div>
       </header>
@@ -469,9 +549,15 @@ export default function CadastroTerritorios() {
           <div className="mb-6">
             <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
               {modoEdicao === 'criar' ? '➕ Novo Território' : 
-               territorioSelecionado ? '✏️ Editar Território' : 
+               territorioSelecionado ? (podeEditar ? '✏️ Editar Território' : '👁️ Visualizar Território') : 
                '📋 Territórios'}
             </h2>
+
+            {!podeEditar && (modoEdicao === 'criar' || territorioSelecionado) && (
+              <div className="mb-4 p-2 bg-yellow-900/30 border border-yellow-600/50 rounded-lg text-yellow-400 text-sm">
+                🔒 Modo somente leitura
+              </div>
+            )}
 
             {(modoEdicao === 'criar' || territorioSelecionado) && (
               <div className="space-y-4">
@@ -482,7 +568,8 @@ export default function CadastroTerritorios() {
                     value={formData.nome}
                     onChange={(e) => setFormData({ ...formData, nome: e.target.value })}
                     placeholder="Ex: Zona Norte"
-                    className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={!podeEditar}
                   />
                 </div>
 
@@ -492,12 +579,13 @@ export default function CadastroTerritorios() {
                     {CORES.map(cor => (
                       <button
                         key={cor.valor}
-                        onClick={() => setFormData({ ...formData, cor: cor.valor })}
+                        onClick={() => podeEditar && setFormData({ ...formData, cor: cor.valor })}
                         className={`w-8 h-8 rounded-full border-2 transition-transform ${
                           formData.cor === cor.valor ? 'border-white scale-110' : 'border-transparent'
-                        }`}
+                        } ${!podeEditar ? 'opacity-50 cursor-not-allowed' : ''}`}
                         style={{ backgroundColor: cor.valor }}
                         title={cor.nome}
+                        disabled={!podeEditar}
                       />
                     ))}
                   </div>
@@ -508,7 +596,8 @@ export default function CadastroTerritorios() {
                   <select
                     value={formData.equipeId || ''}
                     onChange={(e) => setFormData({ ...formData, equipeId: e.target.value || null })}
-                    className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={!podeEditar}
                   >
                     <option value="">Sem vínculo</option>
                     {equipesMock.map(eq => (
@@ -526,29 +615,39 @@ export default function CadastroTerritorios() {
                   </div>
                 )}
 
-                <div className="flex gap-2">
-                  {modoEdicao === 'criar' ? (
+                {podeEditar && (
+                  <div className="flex gap-2">
+                    {modoEdicao === 'criar' ? (
+                      <button
+                        onClick={salvarTerritorio}
+                        className="flex-1 py-2 rounded-lg font-medium transition-colors bg-green-600 hover:bg-green-500"
+                      >
+                        💾 Salvar
+                      </button>
+                    ) : (
+                      <button
+                        onClick={atualizarTerritorio}
+                        className="flex-1 py-2 rounded-lg font-medium transition-colors bg-blue-600 hover:bg-blue-500"
+                      >
+                        ✅ Atualizar
+                      </button>
+                    )}
                     <button
-                      onClick={salvarTerritorio}
-                      className="flex-1 py-2 bg-green-600 hover:bg-green-500 rounded-lg font-medium transition-colors"
+                      onClick={cancelar}
+                      className="px-4 py-2 bg-slate-600 hover:bg-slate-500 rounded-lg transition-colors"
                     >
-                      💾 Salvar
+                      ✖️
                     </button>
-                  ) : (
-                    <button
-                      onClick={atualizarTerritorio}
-                      className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-medium transition-colors"
-                    >
-                      ✅ Atualizar
-                    </button>
-                  )}
+                  </div>
+                )}
+                {!podeEditar && territorioSelecionado && (
                   <button
-                    onClick={cancelar}
-                    className="px-4 py-2 bg-slate-600 hover:bg-slate-500 rounded-lg transition-colors"
+                    onClick={() => setTerritorioSelecionado(null)}
+                    className="w-full py-2 bg-slate-600 hover:bg-slate-500 rounded-lg transition-colors"
                   >
-                    ✖️
+                    ✖️ Fechar
                   </button>
-                </div>
+                )}
               </div>
             )}
           </div>
@@ -596,7 +695,7 @@ export default function CadastroTerritorios() {
                         <span className="mx-2">•</span>
                         {calcularArea(t.poligono).toFixed(1)} km²
                       </div>
-                      {territorioSelecionado?.id === t.id && (
+                      {territorioSelecionado?.id === t.id && podeEditar && (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -615,16 +714,25 @@ export default function CadastroTerritorios() {
           </div>
 
           {/* Instruções */}
-          <div className="mt-6 p-4 bg-slate-700/50 rounded-lg">
-            <h3 className="font-medium text-sm mb-2">📖 Como usar</h3>
-            <ol className="text-xs text-slate-400 space-y-1">
-              <li>1. Use os botões no canto superior direito do mapa</li>
-              <li>2. Clique no ícone de polígono ou retângulo</li>
-              <li>3. Desenhe a área clicando nos pontos</li>
-              <li>4. Preencha nome, cor e vincule à equipe</li>
-              <li>5. Clique em Salvar</li>
-            </ol>
-          </div>
+          {podeEditar ? (
+            <div className="mt-6 p-4 bg-slate-700/50 rounded-lg">
+              <h3 className="font-medium text-sm mb-2">📖 Como usar</h3>
+              <ol className="text-xs text-slate-400 space-y-1">
+                <li>1. Use os botões no canto superior direito do mapa</li>
+                <li>2. Clique no ícone de polígono ou retângulo</li>
+                <li>3. Desenhe a área clicando nos pontos</li>
+                <li>4. Preencha nome, cor e vincule à equipe</li>
+                <li>5. Clique em Salvar</li>
+              </ol>
+            </div>
+          ) : (
+            <div className="mt-6 p-4 bg-slate-700/50 rounded-lg">
+              <h3 className="font-medium text-sm mb-2">👁️ Modo Visualização</h3>
+              <p className="text-xs text-slate-400">
+                Você está em modo somente leitura. Clique nos territórios para visualizar seus detalhes.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Mapa */}

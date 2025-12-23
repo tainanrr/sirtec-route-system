@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { useTelaPermissao } from "@/hooks/usePermissoes";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -184,6 +185,9 @@ const initialFormData: FormData = {
 };
 
 export default function CatalogoMateriais() {
+  // Permissões da tela
+  const { podeEditar } = useTelaPermissao("materiais");
+
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState("");
   const [filtroCategoria, setFiltroCategoria] = useState("todos");
@@ -638,12 +642,16 @@ export default function CatalogoMateriais() {
               <Download className="h-4 w-4 mr-2" />
               Exportar
             </Button>
-            <Button variant="outline">
+            <Button 
+              variant="outline"
+              disabled={!podeEditar}
+              title={!podeEditar ? "Você não tem permissão para importar" : undefined}
+            >
               <Upload className="h-4 w-4 mr-2" />
               Importar
             </Button>
             <ExportButton
-              data={filteredMateriais}
+              data={materiaisOrdenados || []}
               filename="catalogo_materiais"
               columns={[
                 { key: "codigo_sap", label: "Código SAP" },
@@ -660,7 +668,11 @@ export default function CatalogoMateriais() {
               ]}
               disabled={isLoading}
             />
-            <Button onClick={() => handleOpenDialog()}>
+            <Button 
+              onClick={() => handleOpenDialog()}
+              disabled={!podeEditar}
+              title={!podeEditar ? "Você não tem permissão para criar" : undefined}
+            >
               <Plus className="h-4 w-4 mr-2" />
               Novo Material
             </Button>
@@ -826,7 +838,8 @@ export default function CatalogoMateriais() {
                               size="icon"
                               className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                               onClick={() => handleOpenDialog(material)}
-                              title="Editar"
+                              title={podeEditar ? "Editar" : "Você não tem permissão para editar"}
+                              disabled={!podeEditar}
                             >
                               <Pencil className="h-4 w-4" />
                             </Button>
@@ -847,7 +860,8 @@ export default function CatalogoMateriais() {
                               size="icon"
                               className={`h-8 w-8 ${material.ativo ? "text-amber-600 hover:text-amber-700 hover:bg-amber-50" : "text-green-600 hover:text-green-700 hover:bg-green-50"}`}
                               onClick={() => toggleStatusMutation.mutate({ id: material.id, ativo: !material.ativo })}
-                              title={material.ativo ? "Desativar" : "Ativar"}
+                              title={podeEditar ? (material.ativo ? "Desativar" : "Ativar") : "Você não tem permissão para alterar"}
+                              disabled={!podeEditar}
                             >
                               <Archive className="h-4 w-4" />
                             </Button>
@@ -859,7 +873,8 @@ export default function CatalogoMateriais() {
                                 setSelectedMaterial(material);
                                 setDeleteDialogOpen(true);
                               }}
-                              title="Excluir"
+                              title={podeEditar ? "Excluir" : "Você não tem permissão para excluir"}
+                              disabled={!podeEditar}
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>

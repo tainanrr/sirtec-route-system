@@ -26,7 +26,7 @@ import CadastroCoordenadores from "./pages/cadastros/CadastroCoordenadores";
 import CadastroVeiculos from "./pages/cadastros/CadastroVeiculos";
 import CadastroMetas from "./pages/cadastros/CadastroMetas";
 import ChecklistsAvancado from "./pages/ChecklistsAvancado";
-import Skills from "./pages/cadastros/Skills";
+// Skills foi migrado para Cadastros Base - Tipos de Serviço
 import CadastroTerritorios from "./pages/CadastroTerritorios";
 import ConsultaChecklists from "./pages/ConsultaChecklists";
 import ChecklistDetalhes from "./pages/ChecklistDetalhes";
@@ -114,7 +114,7 @@ const App = () => (
             <Route path="/cadastros/pontos-saida" element={<ProtectedRoute><CadastroPontosSaida /></ProtectedRoute>} />
             <Route path="/cadastros/poligonos" element={<ProtectedRoute><CadastroPoligonos /></ProtectedRoute>} />
             <Route path="/cadastros/checklists" element={<ProtectedRoute><ChecklistsAvancado /></ProtectedRoute>} />
-            <Route path="/cadastros/skills" element={<ProtectedRoute><Skills /></ProtectedRoute>} />
+            <Route path="/cadastros/skills" element={<Navigate to="/admin/cadastros-base?tab=tipos-servico" replace />} />
             <Route path="/territorios" element={<ProtectedRoute><CadastroTerritorios /></ProtectedRoute>} />
             <Route path="/cadastros/coordenadores" element={<ProtectedRoute><CadastroCoordenadores /></ProtectedRoute>} />
             <Route path="/cadastros/veiculos" element={<ProtectedRoute><CadastroVeiculos /></ProtectedRoute>} />

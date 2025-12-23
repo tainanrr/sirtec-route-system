@@ -147,7 +147,7 @@ export default function CadastroVeiculos() {
     tipo: "carro",
     quilometragem: "",
     status: "disponivel",
-    contrato_id: "",
+    contrato_id: "nenhum",
   });
 
   // Carregar dados
@@ -219,7 +219,7 @@ export default function CadastroVeiculos() {
       tipo: "carro",
       quilometragem: "",
       status: "disponivel",
-      contrato_id: "",
+      contrato_id: "nenhum",
     });
     setDialogOpen(true);
   };
@@ -235,7 +235,7 @@ export default function CadastroVeiculos() {
       tipo: veiculo.tipo,
       quilometragem: veiculo.quilometragem?.toString() || "",
       status: veiculo.status,
-      contrato_id: veiculo.contrato_id || "",
+      contrato_id: veiculo.contrato_id || "nenhum",
     });
     setDialogOpen(true);
   };
@@ -257,7 +257,7 @@ export default function CadastroVeiculos() {
         tipo: formData.tipo,
         quilometragem: formData.quilometragem ? parseFloat(formData.quilometragem) : null,
         status: formData.status,
-        contrato_id: formData.contrato_id || null,
+        contrato_id: formData.contrato_id && formData.contrato_id !== "nenhum" ? formData.contrato_id : null,
       };
 
       if (editingVeiculo) {
@@ -684,7 +684,7 @@ export default function CadastroVeiculos() {
                     <SelectValue placeholder="Selecione (opcional)" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Nenhum</SelectItem>
+                    <SelectItem value="nenhum">Nenhum</SelectItem>
                     {contratos.map((c) => (
                       <SelectItem key={c.id} value={c.id}>
                         {c.codigo} - {c.nome}

@@ -55,6 +55,7 @@ import { toast } from "sonner";
 import { ExportButton } from "@/components/ui/export-button";
 import { format } from "date-fns";
 import { Textarea } from "@/components/ui/textarea";
+import { useTelaPermissao } from "@/hooks/usePermissoes";
 
 interface EstoqueItem {
   id: string;
@@ -86,6 +87,7 @@ interface MovimentacaoForm {
 }
 
 export default function EstoqueCentral() {
+  const { podeEditar } = useTelaPermissao("materiais");
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState("");
   const [filtroStatus, setFiltroStatus] = useState("todos");
@@ -460,7 +462,7 @@ export default function EstoqueCentral() {
           </div>
           <div className="flex gap-2">
             <ExportButton
-              data={filteredItens}
+              data={estoque || []}
               filename="estoque_central"
               columns={[
                 { key: "materiais.codigo_sap", label: "Código SAP" },
@@ -480,7 +482,7 @@ export default function EstoqueCentral() {
                 Histórico
               </Link>
             </Button>
-            <Button onClick={handleNovaMovimentacao}>
+            <Button onClick={handleNovaMovimentacao} disabled={!podeEditar}>
               <Plus className="h-4 w-4 mr-2" />
               Nova Movimentação
             </Button>
@@ -707,6 +709,7 @@ export default function EstoqueCentral() {
                               size="sm"
                               className="h-8 px-2"
                               onClick={() => handleMovimentacao(item, "entrada")}
+                              disabled={!podeEditar}
                             >
                               <ArrowUpRight className="h-4 w-4 text-green-600" />
                             </Button>
@@ -715,7 +718,7 @@ export default function EstoqueCentral() {
                               size="sm"
                               className="h-8 px-2"
                               onClick={() => handleMovimentacao(item, "saida")}
-                              disabled={item.quantidade <= 0}
+                              disabled={item.quantidade <= 0 || !podeEditar}
                             >
                               <ArrowDownRight className="h-4 w-4 text-red-600" />
                             </Button>

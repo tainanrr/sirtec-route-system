@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { useTelaPermissao } from "@/hooks/usePermissoes";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -56,6 +57,9 @@ const TIPOS_SERVICO = [
 ];
 
 export default function CadastroChecklists() {
+  // Permissões da tela
+  const { podeEditar } = useTelaPermissao("checklists");
+
   const [searchTerm, setSearchTerm] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedChecklist, setSelectedChecklist] = useState<Checklist | null>(null);
@@ -196,7 +200,11 @@ export default function CadastroChecklists() {
               ]}
               disabled={isLoading}
             />
-            <Button onClick={handleAdd}>
+            <Button 
+              onClick={handleAdd}
+              disabled={!podeEditar}
+              title={!podeEditar ? "Você não tem permissão para criar" : undefined}
+            >
               <Plus className="mr-2 h-4 w-4" />
               Novo Checklist
             </Button>
@@ -260,13 +268,21 @@ export default function CadastroChecklists() {
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => handleEdit(checklist)}>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={() => handleEdit(checklist)}
+                          disabled={!podeEditar}
+                          title={!podeEditar ? "Você não tem permissão para editar" : "Editar"}
+                        >
                           <Pencil className="h-4 w-4" />
                         </Button>
                         <Button
                           variant="ghost"
                           size="icon"
                           onClick={() => deleteMutation.mutate(checklist.id)}
+                          disabled={!podeEditar}
+                          title={!podeEditar ? "Você não tem permissão para excluir" : "Excluir"}
                         >
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>

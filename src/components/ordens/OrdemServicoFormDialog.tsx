@@ -356,7 +356,7 @@ export function OrdemServicoFormDialog({
                       </FormControl>
                       <SelectContent>
                         {!skills || skills.length === 0 ? (
-                          <SelectItem value="" disabled>
+                          <SelectItem value="_loading" disabled>
                             Carregando tipos...
                           </SelectItem>
                         ) : (
