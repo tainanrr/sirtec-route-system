@@ -512,6 +512,55 @@ const Roteirizacao = () => {
     return Array.from(tipos).sort();
   }, [ordensServico]);
 
+  // V19.6/V19.7: Calcular OSs URGENTES que NÃO estão em nenhum território selecionado
+  // Urgente = RELIGA OU (Regulada com prazo vencido ou vencendo hoje)
+  const osUrgentesForaTerritorios = useMemo(() => {
+    if (!usarTerritorios || territoriosSelecionados.length === 0) {
+      return [];
+    }
+
+    const agora = new Date();
+    const fimDoDia = new Date();
+    fimDoDia.setHours(23, 59, 59, 999);
+
+    const territoriosSelecionadosObjs = territorios.filter(t => territoriosSelecionados.includes(t.id));
+
+    return osPendentesTodas.filter(os => {
+      // RELIGA é sempre urgente
+      const ehReliga = os.tipo.toUpperCase() === 'RELIGA';
+      if (ehReliga) {
+        // Verificar se está FORA de todos os territórios selecionados
+        const estaEmAlgumTerritorio = territoriosSelecionadosObjs.some(t =>
+          t.ativo && t.poligono.length >= 3 && pontoNoPoligono({ lat: os.latitude, lng: os.longitude }, t.poligono)
+        );
+        return !estaEmAlgumTerritorio;
+      }
+
+      // Para reguladas: só é urgente se o prazo está vencido ou vence hoje
+      const ehRegulada = os.regulada === true;
+      if (ehRegulada && os.prazo) {
+        const prazoDate = new Date(os.prazo);
+        // Prazo vencido (passou) ou vence até o fim de hoje
+        const prazoVencidoOuHoje = prazoDate <= fimDoDia;
+        
+        if (prazoVencidoOuHoje) {
+          const estaEmAlgumTerritorio = territoriosSelecionadosObjs.some(t =>
+            t.ativo && t.poligono.length >= 3 && pontoNoPoligono({ lat: os.latitude, lng: os.longitude }, t.poligono)
+          );
+          return !estaEmAlgumTerritorio;
+        }
+      }
+
+      // Não é urgente
+      return false;
+    });
+  }, [osPendentesTodas, usarTerritorios, territoriosSelecionados, territorios]);
+  
+  // Estado para controlar exibição do dialog de OSs urgentes fora de territórios
+  const [mostrarOsUrgentesForaDialog, setMostrarOsUrgentesForaDialog] = useState(false);
+  const [osUrgenteSelecionadaNoMapa, setOsUrgenteSelecionadaNoMapa] = useState<OrdemServico | null>(null);
+  const [osUrgentesTodasNoMapa, setOsUrgentesTodasNoMapa] = useState<OrdemServico[]>([]); // V19.7: Para destacar todas as OSs urgentes de uma vez
+
   // Obter tipos únicos das OSs pendentes para o filtro
   const tiposDisponiveis = useMemo(() => {
     const tipos = new Set(osPendentes.map(os => os.tipo.toLowerCase()));
@@ -2055,6 +2104,173 @@ const Roteirizacao = () => {
                                 </div>
           </div>
 
+      {/* V19.6: Alerta de OSs Urgentes fora dos Territórios */}
+      {usarTerritorios && osUrgentesForaTerritorios.length > 0 && (
+        <div className="mb-4 rounded-xl border-2 border-red-500 bg-red-50 dark:bg-red-950/30 p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-full bg-red-100 dark:bg-red-900/50">
+                <AlertTriangle className="h-6 w-6 text-red-600 dark:text-red-400" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-red-900 dark:text-red-100 flex items-center gap-2">
+                  ⚠️ {osUrgentesForaTerritorios.length} OS(s) Urgente(s) Fora dos Territórios Selecionados
+                </h3>
+                <p className="text-sm text-red-800 dark:text-red-200 mt-1">
+                  Existem ordens de serviço com prazo urgente (RELIGA, Reguladas, ou prazo para hoje) que estão localizadas 
+                  <strong> fora </strong> dos territórios selecionados e <strong>não serão roteirizadas</strong>.
+                </p>
+                <div className="flex flex-wrap gap-2 mt-3">
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    className="gap-2"
+                    onClick={() => setMostrarOsUrgentesForaDialog(true)}
+                  >
+                    <Eye className="h-4 w-4" />
+                    Ver Lista ({osUrgentesForaTerritorios.length})
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-2 border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/50"
+                    onClick={() => {
+                      // V19.7: Destacar TODAS as OSs urgentes fora do território no mapa
+                      if (osUrgentesForaTerritorios.length > 0) {
+                        setOsUrgenteSelecionadaNoMapa(null); // Limpar seleção única
+                        setOsUrgentesTodasNoMapa([...osUrgentesForaTerritorios]); // Passar cópia do array
+                      }
+                    }}
+                  >
+                    <MapPin className="h-4 w-4" />
+                    Ver Todas no Mapa
+                  </Button>
+                </div>
+              </div>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-red-600 hover:text-red-800 hover:bg-red-100 dark:hover:bg-red-900/50"
+              onClick={() => {
+                // Esconder o alerta temporariamente (pode ser persistido em localStorage se desejado)
+                // Por enquanto apenas fecha
+              }}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Dialog para listar OSs Urgentes fora dos Territórios */}
+      <Dialog open={mostrarOsUrgentesForaDialog} onOpenChange={setMostrarOsUrgentesForaDialog}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" />
+              OSs Urgentes Fora dos Territórios ({osUrgentesForaTerritorios.length})
+            </DialogTitle>
+            <DialogDescription>
+              Estas ordens de serviço são urgentes (<strong>RELIGA</strong> ou <strong>Reguladas vencidas/vencendo hoje</strong>) mas estão localizadas
+              fora dos territórios selecionados para roteirização. Considere adicionar novos territórios ou expandir os existentes.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="flex-1 overflow-auto">
+            <div className="space-y-2">
+              {osUrgentesForaTerritorios.map((os) => {
+                const ehReliga = os.tipo.toUpperCase() === 'RELIGA';
+                const ehRegulada = os.regulada === true;
+                const prazoDate = os.prazo ? new Date(os.prazo) : null;
+                
+                return (
+                  <div
+                    key={os.id}
+                    className={cn(
+                      "p-3 rounded-lg border cursor-pointer hover:shadow-md transition-all",
+                      ehReliga ? "border-purple-300 bg-purple-50 dark:bg-purple-950/30" :
+                      ehRegulada ? "border-orange-300 bg-orange-50 dark:bg-orange-950/30" :
+                      "border-red-300 bg-red-50 dark:bg-red-950/30"
+                    )}
+                    onClick={() => {
+                      setOsUrgentesTodasNoMapa([]); // V19.7: Limpar visualização de todas
+                      setOsUrgenteSelecionadaNoMapa(os);
+                      setMostrarOsUrgentesForaDialog(false);
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-foreground">{os.numero}</span>
+                          <Badge variant={ehReliga ? "default" : ehRegulada ? "regulada" : "destructive"} className="text-xs">
+                            {obterLabelTipo(os.tipo)}
+                          </Badge>
+                          {ehReliga && (
+                            <Badge variant="default" className="text-xs bg-purple-600">
+                              <Zap className="h-3 w-3 mr-1" />
+                              RELIGA
+                            </Badge>
+                          )}
+                          {ehRegulada && (
+                            <Badge variant="regulada" className="text-xs">
+                              <Zap className="h-3 w-3 mr-1" />
+                              REGULADA
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="text-sm text-muted-foreground mt-1 flex items-center gap-1">
+                          <MapPin className="h-3 w-3" />
+                          {os.endereco}
+                        </div>
+                        {prazoDate && (
+                          <div className="text-sm mt-1 flex items-center gap-1 text-red-600 dark:text-red-400">
+                            <Clock className="h-3 w-3" />
+                            Prazo: {prazoDate.toLocaleString("pt-BR")}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <div className="text-xs text-muted-foreground">
+                          {os.latitude.toFixed(5)}, {os.longitude.toFixed(5)}
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOsUrgentesTodasNoMapa([]); // V19.7: Limpar visualização de todas
+                            setOsUrgenteSelecionadaNoMapa(os);
+                            setMostrarOsUrgentesForaDialog(false);
+                          }}
+                        >
+                          <MapIcon className="h-3 w-3" />
+                          Mapa
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          
+          <DialogFooter className="border-t pt-4">
+            <Button variant="outline" onClick={() => setMostrarOsUrgentesForaDialog(false)}>
+              Fechar
+            </Button>
+            <Button 
+              onClick={() => navigate("/cadastro-territorios")}
+              className="gap-2"
+            >
+              <MapIcon className="h-4 w-4" />
+              Gerenciar Territórios
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Main Content - Layout com Mapa Maior */}
       <DragDropContext onDragEnd={handleDragEnd}>
         {/* Cabeçalho do Editor de Rotas - Acima do Mapa */}
@@ -2237,17 +2453,23 @@ const Roteirizacao = () => {
               <h3 className="font-semibold text-foreground">Mapa Interativo</h3>
             </div>
             <div className="relative h-[700px]">
-              <MapaLeaflet 
-                rotas={rotas} 
-                osPendentes={osPendentesTodas} 
+              <MapaLeaflet
+                rotas={rotas}
+                osPendentes={osPendentesTodas}
                 equipesMock={equipesAtivas}
                 equipeHovered={equipeHovered}
                 equipeEditando={equipeEditando}
                 osSelecionada={osSelecionadaNoMapa}
                 osSelecionadaNoEditor={osSelecionadaNoEditor}
                 onOSSelecionada={setOsSelecionadaNoMapa}
+                osUrgenteDestaque={osUrgenteSelecionadaNoMapa}
+                osUrgentesDestaque={osUrgentesTodasNoMapa}
+                onOsUrgenteDestaqueClear={() => {
+                  setOsUrgenteSelecionadaNoMapa(null);
+                  setOsUrgentesTodasNoMapa([]);
+                }}
                 key={`mapa-${rotas.length}-${equipeEditando || 'none'}`}
-                territorios={mostrarTerritoriosNoMapa 
+                territorios={mostrarTerritoriosNoMapa
                   ? (usarTerritorios && territoriosSelecionados.length > 0
                       ? territorios.filter(t => territoriosSelecionados.includes(t.id))
                       : territorios)

@@ -44,6 +44,7 @@ export default function SelecaoOpcoesRoteiroDialog({
   };
   
   // Calcular ranking por métrica individual
+  // IMPORTANTE: Valores iguais recebem a mesma cor
   const calcularRankingMetrica = (getValue: (opcao: OpcaoRoteiro) => number, maiorMelhor: boolean = true) => {
     if (opcoes.length !== 3) return {};
     
@@ -53,9 +54,28 @@ export default function SelecaoOpcoesRoteiroDialog({
     valores.sort((a, b) => maiorMelhor ? b.valor - a.valor : a.valor - b.valor);
     
     const ranking: Record<string, 'verde' | 'amarelo' | 'vermelho'> = {};
-    ranking[valores[0].opcaoId] = 'verde'; // Melhor
-    ranking[valores[1].opcaoId] = 'amarelo'; // Médio
-    ranking[valores[2].opcaoId] = 'vermelho'; // Pior
+    
+    // Atribuir cores considerando empates
+    // Primeiro é sempre verde (ou empata com o primeiro)
+    ranking[valores[0].opcaoId] = 'verde';
+    
+    // Segundo: verde se igual ao primeiro, senão amarelo (ou vermelho se igual ao terceiro)
+    if (valores[1].valor === valores[0].valor) {
+      ranking[valores[1].opcaoId] = 'verde'; // Empate com o melhor
+    } else if (valores[1].valor === valores[2].valor) {
+      ranking[valores[1].opcaoId] = 'vermelho'; // Empate com o pior
+    } else {
+      ranking[valores[1].opcaoId] = 'amarelo'; // Valor intermediário único
+    }
+    
+    // Terceiro: herda a cor do segundo se igual, senão vermelho
+    if (valores[2].valor === valores[1].valor) {
+      ranking[valores[2].opcaoId] = ranking[valores[1].opcaoId]; // Mesmo valor = mesma cor
+    } else if (valores[2].valor === valores[0].valor) {
+      ranking[valores[2].opcaoId] = 'verde'; // Empate com o melhor (raro mas possível)
+    } else {
+      ranking[valores[2].opcaoId] = 'vermelho'; // Pior
+    }
     
     return ranking;
   };
@@ -139,14 +159,43 @@ export default function SelecaoOpcoesRoteiroDialog({
                   )}
                   onClick={() => handleSelecionar(opcao.id)}
                 >
-                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-start justify-between mb-3">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <h3 className="font-semibold text-lg">{opcao.nome}</h3>
-                        {isDestaque && (
-                          <Badge variant="default" className="text-xs">
+                        {/* Mostrar badge se esta opção é a melhor em seu critério principal (baseado no ID) */}
+                        {rankingFaturamento[opcao.id] === 'verde' && opcao.id === 'financeiro' && (
+                          <Badge variant="default" className="text-xs bg-green-600">
                             <TrendingUp className="h-3 w-3 mr-1" />
-                            Melhor em {opcao.criterioDestaque === 'financeiro' ? 'Faturamento' : opcao.criterioDestaque === 'quantidade' ? 'Quantidade' : 'Distância'}
+                            Melhor em Faturamento
+                          </Badge>
+                        )}
+                        {rankingOSs[opcao.id] === 'verde' && opcao.id === 'quantidade' && (
+                          <Badge variant="default" className="text-xs bg-blue-600">
+                            <TrendingUp className="h-3 w-3 mr-1" />
+                            Melhor em Quantidade
+                          </Badge>
+                        )}
+                        {rankingDistancia[opcao.id] === 'verde' && opcao.id === 'distancia' && (
+                          <Badge variant="default" className="text-xs bg-purple-600">
+                            <TrendingUp className="h-3 w-3 mr-1" />
+                            Melhor em Distância
+                          </Badge>
+                        )}
+                        {/* Mostrar alerta se a opção não é a melhor no seu critério */}
+                        {rankingFaturamento[opcao.id] !== 'verde' && opcao.id === 'financeiro' && (
+                          <Badge variant="outline" className="text-xs text-yellow-600 border-yellow-600">
+                            ⚠️ Não é o melhor em Faturamento
+                          </Badge>
+                        )}
+                        {rankingOSs[opcao.id] !== 'verde' && opcao.id === 'quantidade' && (
+                          <Badge variant="outline" className="text-xs text-yellow-600 border-yellow-600">
+                            ⚠️ Não é o melhor em Quantidade
+                          </Badge>
+                        )}
+                        {rankingDistancia[opcao.id] !== 'verde' && opcao.id === 'distancia' && (
+                          <Badge variant="outline" className="text-xs text-yellow-600 border-yellow-600">
+                            ⚠️ Não é o melhor em Distância
                           </Badge>
                         )}
                       </div>

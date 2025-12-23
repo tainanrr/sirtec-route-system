@@ -439,6 +439,7 @@ const OrdensServico = () => {
   const filteredOrdens = ordens.filter((os) => {
     const matchesSearch =
       os.numero.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      ((os as any).codigo || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
       os.endereco.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (os.cliente_nome || "").toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === "all" || os.status === statusFilter;
@@ -584,7 +585,8 @@ const OrdensServico = () => {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/50">
-                <TableHead className="w-[120px]">OS</TableHead>
+                <TableHead className="w-[150px]">Código</TableHead>
+                <TableHead className="w-[120px]">Número OS</TableHead>
                 <TableHead>Tipo</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="hidden md:table-cell">Endereço</TableHead>
@@ -597,6 +599,9 @@ const OrdensServico = () => {
             <TableBody>
               {filteredOrdens.map((os) => (
                 <TableRow key={os.id} className="hover:bg-muted/50 transition-colors">
+                  <TableCell className="font-mono text-xs text-muted-foreground">
+                    {(os as any).codigo || "-"}
+                  </TableCell>
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-2">
                       {os.regulada && <Zap className="h-4 w-4 text-danger" />}

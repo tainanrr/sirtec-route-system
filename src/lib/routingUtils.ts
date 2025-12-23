@@ -1592,6 +1592,268 @@ export async function otimizarRotas(
   };
 
   /**
+   * V19.6: Calcula inserção NO INÍCIO da rota (para OSs com prazo crítico)
+   * Reorganiza toda a rota para que a OS urgente seja atendida primeiro
+   */
+  const calcularInsercaoNoInicio = (
+    rota: RotaEquipe,
+    os: OrdemServico,
+    distanciaMaximaKm: number = DISTANCIA_MAXIMA_NORMAL_KM,
+    permitirForaDoPrazo: boolean = false
+  ): { 
+    valido: boolean; 
+    eta: number; 
+    fimServico: number; 
+    tempoDesloc: number;
+    distanciaKm: number;
+    almocoInserido: boolean;
+    motivo?: string;
+    atrasoMinutos?: number;
+  } => {
+    // Verificar skill
+    if (!rota.equipe.skills.includes(os.tipo)) {
+      return { valido: false, eta: 0, fimServico: 0, tempoDesloc: 0, distanciaKm: 0, almocoInserido: false, motivo: "Sem skill" };
+    }
+    
+    // Verificar se a OS pertence ao território/zona da equipe
+    if (usarTerritorios && territoriosAtivos.length > 0) {
+      if (!equipeEstaNoTerritorioDaOS(os.id, rota.equipe.id)) {
+        return { 
+          valido: false, eta: 0, fimServico: 0, tempoDesloc: 0, distanciaKm: 0,
+          almocoInserido: false, motivo: "OS não pertence ao território da equipe" 
+        };
+      }
+    }
+    
+    const equipeLocIdx = equipeIdx.get(rota.equipe.id);
+    const osLocIdx = osIdx.get(os.id);
+    
+    if (equipeLocIdx === undefined || osLocIdx === undefined) {
+      return { 
+        valido: false, eta: 0, fimServico: 0, tempoDesloc: 0, distanciaKm: 0, 
+        almocoInserido: false, 
+        motivo: "Índices não encontrados" 
+      };
+    }
+    
+    const fimJornada = getFimJornada(rota.equipe);
+    const inicioJornada = horaParaMinutos(rota.equipe.horaInicio);
+    
+    // Calcular deslocamento da BASE até a OS
+    const tempoDesloc = getTempo(equipeLocIdx, osLocIdx);
+    const distanciaKm = getDistanciaKm(equipeLocIdx, osLocIdx);
+    
+    // Verificar distância máxima
+    if (distanciaKm > distanciaMaximaKm) {
+      return { 
+        valido: false, eta: 0, fimServico: 0, tempoDesloc, distanciaKm, 
+        almocoInserido: false, 
+        motivo: `Distância ${distanciaKm.toFixed(1)}km > ${distanciaMaximaKm}km` 
+      };
+    }
+    
+    // ETA é início da jornada + deslocamento
+    const eta = inicioJornada + tempoDesloc;
+    const fimServico = eta + os.tempoExecucao;
+    
+    // Verificar jornada
+    if (fimServico > fimJornada) {
+      return { 
+        valido: false, eta, fimServico, tempoDesloc, distanciaKm,
+        almocoInserido: false,
+        motivo: "Estoura jornada" 
+      };
+    }
+    
+    // Verificar prazo
+    let atrasoMinutos = 0;
+    if (os.prazo) {
+      const prazoMin = os.prazo.getHours() * 60 + os.prazo.getMinutes();
+      
+      if (fimServico > prazoMin) {
+        atrasoMinutos = Math.round(fimServico - prazoMin);
+        
+        if (!permitirForaDoPrazo) {
+          return { 
+            valido: false, eta, fimServico, tempoDesloc, distanciaKm,
+            almocoInserido: false,
+            motivo: `Fora do prazo: ${minutosParaHora(fimServico)} > ${minutosParaHora(prazoMin)}`,
+            atrasoMinutos
+          };
+        }
+      }
+    }
+    
+    return { 
+      valido: true, 
+      eta, 
+      fimServico, 
+      tempoDesloc, 
+      distanciaKm,
+      almocoInserido: false,
+      atrasoMinutos
+    };
+  };
+  
+  /**
+   * V19.6: Aplica inserção NO INÍCIO da rota
+   * Reorganiza toda a rota inserindo a OS no começo e recalculando todos os tempos
+   */
+  const aplicarInsercaoNoInicio = (
+    rota: RotaEquipe, 
+    os: OrdemServico, 
+    calc: ReturnType<typeof calcularInsercaoNoInicio>
+  ) => {
+    // Verificação de segurança
+    if (usarTerritorios && territoriosAtivos.length > 0) {
+      if (!equipeEstaNoTerritorioDaOS(os.id, rota.equipe.id)) {
+        console.error(`[ROUTING] ⚠️ ERRO: Tentativa de inserir OS ${os.numero} no início da rota da equipe ${rota.equipe.codigo} - território incorreto`);
+        return;
+      }
+    }
+    
+    // Salvar serviços existentes
+    const servicosExistentes = [...rota.servicos];
+    
+    // Limpar rota
+    rota.servicos = [];
+    
+    // Criar novo serviço para a OS prioritária
+    const atrasado = calc.atrasoMinutos && calc.atrasoMinutos > 0;
+    const alerta = atrasado ? `FORA DO PRAZO: Atraso ${calc.atrasoMinutos}min (mas atendida no dia)` : undefined;
+    
+    const novoServico: RotaServico = {
+      tipo: "SERVICO",
+      ordemServico: os,
+      ordemNaRota: 1,
+      tempoDeslocamento: calc.tempoDesloc,
+      distancia: calc.distanciaKm,
+      tempoTotal: calc.fimServico,
+      horaInicio: minutosParaHora(calc.eta),
+      horaFim: minutosParaHora(calc.fimServico),
+      eta: minutosParaHora(calc.eta),
+      atrasado: atrasado || undefined,
+      alerta
+    };
+    
+    rota.servicos.push(novoServico);
+    osAlocadas.add(os.id);
+    
+    // Recalcular e reinserir os serviços existentes
+    let tempoAtual = calc.fimServico;
+    let distanciaTotal = calc.distanciaKm;
+    let faturamentoTotal = os.valor;
+    let ultimaLocIdx = osIdx.get(os.id)!;
+    let ordemNaRota = 2;
+    
+    // Primeiro verificar se precisa de almoço antes de continuar
+    const jaAlmocouNaRota = servicosExistentes.some(s => s.tipo === "ALMOCO");
+    
+    for (const servicoAntigo of servicosExistentes) {
+      if (servicoAntigo.tipo === "ALMOCO") {
+        // Manter almoço mas recalcular horário
+        const config = obterConfigAlmoco(rota.equipe);
+        if (tempoAtual >= config.inicio && tempoAtual < config.fim) {
+          // Precisa almoçar agora
+          const almocoServico: RotaServico = {
+            tipo: "ALMOCO",
+            ordemNaRota: 0,
+            tempoDeslocamento: 0,
+            distancia: 0,
+            tempoTotal: tempoAtual + config.duracao,
+            horaInicio: minutosParaHora(tempoAtual),
+            horaFim: minutosParaHora(tempoAtual + config.duracao),
+            eta: minutosParaHora(tempoAtual)
+          };
+          rota.servicos.push(almocoServico);
+          tempoAtual += config.duracao;
+        }
+      } else if (servicoAntigo.ordemServico) {
+        const osAntiga = servicoAntigo.ordemServico;
+        const osAntigaLocIdx = osIdx.get(osAntiga.id);
+        
+        if (osAntigaLocIdx !== undefined) {
+          // Verificar se precisa de almoço antes desta OS
+          if (!jaAlmocouNaRota || !rota.servicos.some(s => s.tipo === "ALMOCO")) {
+            const config = obterConfigAlmoco(rota.equipe);
+            const fimProximoServico = tempoAtual + getTempo(ultimaLocIdx, osAntigaLocIdx) + osAntiga.tempoExecucao;
+            
+            if (fimProximoServico > config.inicio && tempoAtual < config.fim) {
+              // Inserir almoço
+              const almocoServico: RotaServico = {
+                tipo: "ALMOCO",
+                ordemNaRota: 0,
+                tempoDeslocamento: 0,
+                distancia: 0,
+                tempoTotal: Math.max(tempoAtual, config.inicio) + config.duracao,
+                horaInicio: minutosParaHora(Math.max(tempoAtual, config.inicio)),
+                horaFim: minutosParaHora(Math.max(tempoAtual, config.inicio) + config.duracao),
+                eta: minutosParaHora(Math.max(tempoAtual, config.inicio))
+              };
+              rota.servicos.push(almocoServico);
+              tempoAtual = Math.max(tempoAtual, config.inicio) + config.duracao;
+            }
+          }
+          
+          const tempoDesloc = getTempo(ultimaLocIdx, osAntigaLocIdx);
+          const distDesloc = getDistanciaKm(ultimaLocIdx, osAntigaLocIdx);
+          
+          tempoAtual += tempoDesloc;
+          
+          const fimJornada = getFimJornada(rota.equipe);
+          const fimServico = tempoAtual + osAntiga.tempoExecucao;
+          
+          // Verificar se ainda cabe na jornada
+          if (fimServico <= fimJornada) {
+            // Verificar atraso
+            let atrasadoOS = false;
+            let alertaOS: string | undefined;
+            if (osAntiga.prazo) {
+              const prazoMin = osAntiga.prazo.getHours() * 60 + osAntiga.prazo.getMinutes();
+              if (fimServico > prazoMin) {
+                atrasadoOS = true;
+                alertaOS = `Atraso ${Math.round(fimServico - prazoMin)}min (reagendamento)`;
+              }
+            }
+            
+            const servicoRecalculado: RotaServico = {
+              tipo: "SERVICO",
+              ordemServico: osAntiga,
+              ordemNaRota: ordemNaRota++,
+              tempoDeslocamento: tempoDesloc,
+              distancia: distDesloc,
+              tempoTotal: fimServico,
+              horaInicio: minutosParaHora(tempoAtual),
+              horaFim: minutosParaHora(fimServico),
+              eta: minutosParaHora(tempoAtual),
+              atrasado: atrasadoOS || undefined,
+              alerta: alertaOS
+            };
+            
+            rota.servicos.push(servicoRecalculado);
+            tempoAtual = fimServico;
+            distanciaTotal += distDesloc;
+            faturamentoTotal += osAntiga.valor;
+            ultimaLocIdx = osAntigaLocIdx;
+          } else {
+            // Não cabe mais na jornada - marcar como não alocada para tentar depois
+            osAlocadas.delete(osAntiga.id);
+            console.log(`[ROUTING]     ⚠️ OS ${osAntiga.numero} removida da rota (não cabe após reorganização)`);
+          }
+        }
+      }
+    }
+    
+    // Atualizar métricas da rota
+    const inicioJornada = horaParaMinutos(rota.equipe.horaInicio);
+    const duracaoJornada = (rota.equipe.maxHorasTrabalho || 10) * 60;
+    rota.tempoTotal = tempoAtual - inicioJornada;
+    rota.distanciaTotal = distanciaTotal;
+    rota.faturamentoTotal = faturamentoTotal;
+    rota.progresso = ((tempoAtual - inicioJornada) / duracaoJornada) * 100;
+  };
+
+  /**
    * V17.1: Remove OS normal da rota para liberar espaço para regulada
    * Recalcula completamente todos os tempos da rota
    * Retorna a OS removida ou null
@@ -1849,24 +2111,49 @@ export async function otimizarRotas(
     }
     
     // ═══════════════════════════════════════════════════════════════════════
-    // PASSADA 4: Tentar outras equipes (ignorar território para emergências)
-    // V18: Só permitir se realmente for emergência e não houver outra opção
+    // V19.6: PASSADA 4 REMOVIDA - NÃO permite mais equipes de outras zonas/territórios
+    // A solução deve SEMPRE ser dentro da zona/território
     // ═══════════════════════════════════════════════════════════════════════
-    if (!melhorRota && ehEmergencia(os)) {
-      // Só tentar outras equipes se for realmente uma emergência
-    for (const rota of rotas) {
-        // Verificar se a equipe tem a skill necessária
-        if (!rota.equipe.skills.includes(os.tipo)) continue;
-        
-        const calc = calcularInsercao(rota, os, false, DISTANCIA_MAXIMA_EMERGENCIA_KM, true, 0);
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // PASSADA 4: Tentar inserir NO INÍCIO DA ROTA (para emergências com prazo crítico)
+    // ═══════════════════════════════════════════════════════════════════════
+    if (!melhorRota && rotaResponsavel && os.prazo) {
+      const prazoMin = os.prazo.getHours() * 60 + os.prazo.getMinutes();
+      const inicioJornada = horaParaMinutos(rotaResponsavel.equipe.horaInicio);
       
-      if (calc.valido) {
-        if (!melhorCalc || calc.fimServico < melhorCalc.fimServico) {
-          melhorRota = rota;
-          melhorCalc = calc;
-            passadaUsada = 4;
-          }
+      // Se o prazo é antes do horário atual da equipe, tentar inserir no início
+      if (prazoMin < inicioJornada + 120) { // Prazo é nas primeiras 2 horas
+        console.log(`[ROUTING]     P4: Prazo crítico ${minutosParaHora(prazoMin)}, tentando inserir no INÍCIO da rota...`);
+        
+        const calcInicio = calcularInsercaoNoInicio(rotaResponsavel, os, DISTANCIA_MAXIMA_EMERGENCIA_KM);
+        if (calcInicio.valido) {
+          // Aplicar inserção no início
+          aplicarInsercaoNoInicio(rotaResponsavel, os, calcInicio);
+          melhorRota = rotaResponsavel;
+          melhorCalc = calcInicio;
+          passadaUsada = 4;
+          console.log(`[ROUTING]     P4 sucesso: Inserida no início da rota!`);
+        } else {
+          console.log(`[ROUTING]     P4 falhou: ${calcInicio.motivo}`);
         }
+      }
+    }
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // PASSADA 5: Último recurso - alocar mesmo fora do prazo mas NO DIA (com alerta)
+    // ═══════════════════════════════════════════════════════════════════════
+    if (!melhorRota && rotaResponsavel && os.prazo) {
+      console.log(`[ROUTING]     P5: Tentando alocar FORA DO PRAZO mas no dia (alerta)...`);
+      
+      // Tentar inserir no início mesmo que fora do prazo
+      const calcInicio = calcularInsercaoNoInicio(rotaResponsavel, os, DISTANCIA_MAXIMA_EMERGENCIA_KM, true);
+      if (calcInicio.valido) {
+        aplicarInsercaoNoInicio(rotaResponsavel, os, calcInicio);
+        melhorRota = rotaResponsavel;
+        melhorCalc = calcInicio;
+        passadaUsada = 5;
+        console.log(`[ROUTING]     P5: Alocada FORA DO PRAZO - será atendida mas com atraso!`);
       }
     }
     
@@ -1874,33 +2161,22 @@ export async function otimizarRotas(
     // RESULTADO
     // ═══════════════════════════════════════════════════════════════════════
     if (melhorRota && melhorCalc) {
-      inserirOS(melhorRota, os, melhorCalc);
-      const atrasoStr = melhorCalc.atrasoMinutos ? ` [atraso ${melhorCalc.atrasoMinutos}min]` : "";
+      // Se não foi inserção no início (passada 4 ou 5), usar inserção normal
+      if (passadaUsada !== 4 && passadaUsada !== 5) {
+        inserirOS(melhorRota, os, melhorCalc);
+      }
+      const atrasoStr = melhorCalc.atrasoMinutos ? ` [atraso ${melhorCalc.atrasoMinutos}min - FORA DO PRAZO]` : "";
       const passadaStr = ` [P${passadaUsada}]`;
       
-      // Verificar se a emergência foi alocada em uma equipe do território
-      const territorioIdDaOS = usarTerritorios && territoriosAtivos.length > 0 
-        ? osParaTerritorio.get(os.id) 
-        : null;
-      const alocadaNoTerritorioCorreto = !territorioIdDaOS || equipeEstaNoTerritorioDaOS(os.id, melhorRota.equipe.id);
-      
       console.log(`[ROUTING] ✓ ${os.numero} → ${melhorRota.equipe.codigo} (${melhorCalc.distanciaKm.toFixed(1)}km)${atrasoStr}${passadaStr}`);
-      if (!alocadaNoTerritorioCorreto) {
-        console.log(`[ROUTING]   ⚠️ ATENÇÃO: Emergência alocada fora do território`);
-      }
       
       osAlocadas.add(os.id);
       
-      // V18: Consolidar vizinhas APENAS se a emergência foi alocada na equipe do território
-      // Se foi alocada em outra equipe (PASSADA 4), NÃO consolidar para evitar invadir territórios
-      if (alocadaNoTerritorioCorreto) {
+      // Consolidar vizinhas
       const consolidadas = consolidarVizinhas(melhorRota, os, [...osProximoDia, ...osNormais, ...osUrgentes, ...osReguladasHoje]);
       if (consolidadas > 0) {
         console.log(`[ROUTING]   +${consolidadas} vizinhas consolidadas`);
         totalConsolidadas += consolidadas;
-        }
-      } else {
-        console.log(`[ROUTING]   ⚠️ Não consolidando vizinhas - emergência fora do território`);
       }
     } else {
       const zonaInfo = usarTerritorios 
@@ -1933,32 +2209,40 @@ export async function otimizarRotas(
     let melhorCalc: ReturnType<typeof calcularInsercao> | null = null;
     let passadaUsada = 0;
     
-    // V17: Identificar a equipe responsável pelo território/zona
+    // V21: Identificar TODAS as equipes do território que podem atender (têm a skill)
     let rotaResponsavel: RotaEquipe | null = null;
+    let rotasAlternativas: RotaEquipe[] = [];
     
     if (usarTerritorios && territoriosAtivos.length > 0) {
       const territorioIdDaOS = osParaTerritorio.get(os.id);
       if (territorioIdDaOS) {
         const equipesDoTerritorio = equipesPorTerritorio.get(territorioIdDaOS) || [];
-        const rotasDoTerritorio = rotas.filter(r => equipesDoTerritorio.includes(r.equipe.id));
+        // Filtrar apenas rotas de equipes que têm a skill necessária
+        const rotasDoTerritorioComSkill = rotas.filter(r => 
+          equipesDoTerritorio.includes(r.equipe.id) && r.equipe.skills.includes(os.tipo)
+        );
         
-        // Se há múltiplas equipes e zonas foram criadas, encontrar a rota da zona correta
+        // Se há múltiplas equipes e zonas foram criadas, priorizar a da zona correta
         if (equipesDoTerritorio.length > 1 && zonas.length > 0) {
           const zonaOS = zonasPorOS.get(os.id);
           if (zonaOS !== undefined) {
-            rotaResponsavel = rotasDoTerritorio.find(r => r.zonaId === zonaOS) || null;
+            rotaResponsavel = rotasDoTerritorioComSkill.find(r => r.zonaId === zonaOS) || null;
           }
         }
         
-        // Se não encontrou por zona, usar qualquer rota do território (fallback)
-        if (!rotaResponsavel && rotasDoTerritorio.length > 0) {
-          rotaResponsavel = rotasDoTerritorio[0];
+        // Se não encontrou por zona, usar a primeira com skill
+        if (!rotaResponsavel && rotasDoTerritorioComSkill.length > 0) {
+          rotaResponsavel = rotasDoTerritorioComSkill[0];
         }
+        
+        // V21: Guardar as outras rotas do território como alternativas
+        rotasAlternativas = rotasDoTerritorioComSkill.filter(r => r !== rotaResponsavel);
       }
-      } else {
+    } else {
       const zonaOS = zonasPorOS.get(os.id);
       if (zonaOS !== undefined) {
-        rotaResponsavel = rotas.find(r => r.zonaId === zonaOS) || null;
+        // Também verificar skill no modo sem território
+        rotaResponsavel = rotas.find(r => r.zonaId === zonaOS && r.equipe.skills.includes(os.tipo)) || null;
       }
     }
     
@@ -1999,55 +2283,158 @@ export async function otimizarRotas(
         }
       }
       
-      // V17.1 PASSADA 4: Remover OSs normais para dar espaço
+      // V21 PASSADA 4: Remover OSs não-críticas para dar espaço a REGULADA URGENTE
+      // REGULADAS SÃO PRIORIDADE MÁXIMA - remover quantas OSs forem necessárias
       if (!melhorRota) {
-        console.log(`[ROUTING]     Tentando remover OSs normais (OS precisa ${os.tempoExecucao}min)...`);
+        console.log(`[ROUTING]     P4: Removendo OSs não-críticas para garantir regulada urgente...`);
         
-        // Calcular quanto tempo precisamos liberar
-        const fimJornada = getFimJornada(rotaResponsavel.equipe);
-        const tempoAtual = getTempoAtual(rotaResponsavel);
-        const tempoNecessario = os.tempoExecucao + 15; // +15 para deslocamento
-        const tempoDisponivel = fimJornada - tempoAtual;
+        // Contar quantas OSs não-críticas existem na rota
+        const ossNaoCriticasNaRota = rotaResponsavel.servicos.filter(s => 
+          s.tipo === 'SERVICO' && s.ordemServico && 
+          !ehOSRegulada(s.ordemServico) && !ehEmergencia(s.ordemServico)
+        ).length;
         
-        console.log(`[ROUTING]     Tempo disponível: ${tempoDisponivel.toFixed(0)}min, precisa: ${tempoNecessario}min`);
+        console.log(`[ROUTING]     OSs não-críticas na rota: ${ossNaoCriticasNaRota}`);
         
         let tentativas = 0;
-        // V17.1: Calcular máximo de tentativas baseado no tempo que precisa liberar
-        const maxTentativas = Math.ceil(tempoNecessario / 15) + 5; // +5 de margem
+        // V21: Remover ATÉ TODAS as OSs não-críticas se necessário
+        const maxTentativas = ossNaoCriticasNaRota;
         
         while (!melhorRota && tentativas < maxTentativas) {
           const osRemovida = removerOSNormalParaRegulada(rotaResponsavel);
           if (!osRemovida) {
-            console.log(`[ROUTING]     Não há mais OSs normais para remover`);
+            console.log(`[ROUTING]     Não há mais OSs não-críticas para remover`);
             break;
           }
           
           ossNormaisRemovidas.push(osRemovida);
           tentativas++;
           
-          // Tentar novamente
+          // Tentar novamente com limites mais generosos
           calc = calcularInsercao(rotaResponsavel, os, true, DISTANCIA_MAXIMA_REGULADA_URGENTE_KM, false, ATRASO_MAXIMO_REGULADA_HOJE_MIN);
           if (calc.valido) {
             melhorRota = rotaResponsavel;
             melhorCalc = calc;
             passadaUsada = 4;
             console.log(`[ROUTING]     P4 sucesso após remover ${tentativas} OSs!`);
+          }
+        }
+        
+        if (!melhorRota) {
+          console.log(`[ROUTING]     P4 falhou após remover ${tentativas} OSs`);
+        }
+      }
+      
+      // V21 PASSADA 5: Tentar OUTRAS equipes DO MESMO TERRITÓRIO
+      // Se há múltiplas equipes no território, tentar todas
+      if (!melhorRota && rotasAlternativas.length > 0) {
+        console.log(`[ROUTING]     P5: Tentando ${rotasAlternativas.length} equipes alternativas do território...`);
+        
+        for (const rotaAlt of rotasAlternativas) {
+          // Primeiro tentar inserir normalmente
+          let calcAlt = calcularInsercao(rotaAlt, os, true, DISTANCIA_MAXIMA_REGULADA_URGENTE_KM, false, ATRASO_MAXIMO_REGULADA_HOJE_MIN);
+          
+          if (calcAlt.valido) {
+            melhorRota = rotaAlt;
+            melhorCalc = calcAlt;
+            passadaUsada = 5;
+            console.log(`[ROUTING]     P5 sucesso: ${rotaAlt.equipe.codigo} pode atender!`);
+            break;
+          }
+          
+          // Se não conseguiu, tentar removendo OSs não-críticas desta rota alternativa
+          const ossNaoCriticasAlt = rotaAlt.servicos.filter(s => 
+            s.tipo === 'SERVICO' && s.ordemServico && 
+            !ehOSRegulada(s.ordemServico) && !ehEmergencia(s.ordemServico)
+          ).length;
+          
+          if (ossNaoCriticasAlt > 0) {
+            console.log(`[ROUTING]     P5: Tentando remover OSs de ${rotaAlt.equipe.codigo} (${ossNaoCriticasAlt} não-críticas)...`);
+            
+            let tentAlt = 0;
+            while (!melhorRota && tentAlt < ossNaoCriticasAlt) {
+              const osRemovida = removerOSNormalParaRegulada(rotaAlt);
+              if (!osRemovida) break;
+              
+              ossNormaisRemovidas.push(osRemovida);
+              tentAlt++;
+              
+              calcAlt = calcularInsercao(rotaAlt, os, true, DISTANCIA_MAXIMA_REGULADA_URGENTE_KM, false, ATRASO_MAXIMO_REGULADA_HOJE_MIN);
+              if (calcAlt.valido) {
+                melhorRota = rotaAlt;
+                melhorCalc = calcAlt;
+                passadaUsada = 5;
+                console.log(`[ROUTING]     P5 sucesso em ${rotaAlt.equipe.codigo} após remover ${tentAlt} OSs!`);
+                break;
+              }
+            }
+          }
+          
+          if (melhorRota) break;
+        }
+      }
+      
+      // ═══════════════════════════════════════════════════════════════════════
+      // V19.6 PASSADA 6: Tentar inserir NO INÍCIO DA ROTA (para reguladas com prazo crítico)
+      // ═══════════════════════════════════════════════════════════════════════
+      if (!melhorRota && os.prazo) {
+        const prazoMin = os.prazo.getHours() * 60 + os.prazo.getMinutes();
+        const inicioJornada = horaParaMinutos(rotaResponsavel.equipe.horaInicio);
+        
+        // Se o prazo é apertado (nas primeiras 3 horas da jornada), tentar inserir no início
+        if (prazoMin < inicioJornada + 180) {
+          console.log(`[ROUTING]     P6: Prazo crítico ${minutosParaHora(prazoMin)}, tentando inserir no INÍCIO da rota...`);
+          
+          const calcInicio = calcularInsercaoNoInicio(rotaResponsavel, os, DISTANCIA_MAXIMA_REGULADA_URGENTE_KM);
+          if (calcInicio.valido) {
+            aplicarInsercaoNoInicio(rotaResponsavel, os, calcInicio);
+            melhorRota = rotaResponsavel;
+            melhorCalc = calcInicio;
+            passadaUsada = 6;
+            console.log(`[ROUTING]     P6 sucesso: Inserida no início da rota!`);
           } else {
-            console.log(`[ROUTING]     P4 tentativa ${tentativas}: ${calc.motivo}`);
+            console.log(`[ROUTING]     P6 falhou: ${calcInicio.motivo}`);
           }
         }
       }
+      
+      // ═══════════════════════════════════════════════════════════════════════
+      // V19.6 PASSADA 7: Último recurso - alocar mesmo fora do prazo mas NO DIA (com alerta)
+      // ═══════════════════════════════════════════════════════════════════════
+      if (!melhorRota && os.prazo) {
+        console.log(`[ROUTING]     P7: Tentando alocar FORA DO PRAZO mas no dia (alerta)...`);
+        
+        const calcInicio = calcularInsercaoNoInicio(rotaResponsavel, os, DISTANCIA_MAXIMA_REGULADA_URGENTE_KM, true);
+        if (calcInicio.valido) {
+          aplicarInsercaoNoInicio(rotaResponsavel, os, calcInicio);
+          melhorRota = rotaResponsavel;
+          melhorCalc = calcInicio;
+          passadaUsada = 7;
+          console.log(`[ROUTING]     P7: Alocada FORA DO PRAZO - será atendida mas com atraso!`);
+        }
+      }
     } else {
-      console.log(`[ROUTING]   ⚠️ ${os.numero}: Nenhuma equipe responsável encontrada!`);
+      // V19.6: Se a OS regulada não tem território mapeado, NÃO procurar em outras equipes
+      // A regra é: só equipes do território atendem OSs do território
+      console.log(`[ROUTING]   ⚠️ ${os.numero}: Sem território mapeado ou sem equipe com skill. NÃO tentando outras equipes.`);
     }
     
-    // V17: NÃO tentar outras equipes - a OS fica na sua zona/território ou não é alocada
-    
     if (melhorRota && melhorCalc) {
-      inserirOS(melhorRota, os, melhorCalc);
-      const atrasoStr = melhorCalc.atrasoMinutos ? ` [atraso ${melhorCalc.atrasoMinutos}min]` : "";
-      const passadaStr = passadaUsada === 4 ? " [REMOVEU OSs NORMAIS]" : ` [P${passadaUsada}]`;
-      console.log(`[ROUTING] ✓ ${os.numero} → ${melhorRota.equipe.codigo} (${melhorCalc.distanciaKm.toFixed(1)}km)${atrasoStr}${passadaStr}`);
+      // Se foi inserção no início (passada 6 ou 7), não usar inserirOS pois já foi inserido
+      if (passadaUsada !== 6 && passadaUsada !== 7) {
+        inserirOS(melhorRota, os, melhorCalc);
+      }
+      const atrasoStr = melhorCalc.atrasoMinutos ? ` [atraso ${melhorCalc.atrasoMinutos}min - FORA DO PRAZO]` : "";
+      const passadaDescricao = {
+        1: 'inserção normal',
+        2: 'com atraso 60min',
+        3: 'com atraso 120min',
+        4: 'removeu OSs',
+        5: 'equipe alternativa do território',
+        6: 'inserida no INÍCIO da rota (prazo crítico)',
+        7: 'inserida no INÍCIO (FORA DO PRAZO mas no dia)'
+      }[passadaUsada] || `P${passadaUsada}`;
+      console.log(`[ROUTING] ✓ ${os.numero} → ${melhorRota.equipe.codigo} (${melhorCalc.distanciaKm.toFixed(1)}km)${atrasoStr} [${passadaDescricao}]`);
       
       const consolidadas = consolidarVizinhas(melhorRota, os, [...osProximoDia, ...osNormais, ...osUrgentes]);
       if (consolidadas > 0) {
@@ -2056,11 +2443,34 @@ export async function otimizarRotas(
       }
     } else {
       const bairro = extrairBairro(os.endereco);
-      const motivo = `Regulada HOJE: equipe do território sem capacidade`;
+      const territorioIdDaOS = osParaTerritorio.get(os.id);
+      let motivo = '';
+      if (territorioIdDaOS) {
+        const equipesDoTerritorio = equipesPorTerritorio.get(territorioIdDaOS) || [];
+        const rotasComSkill = rotas.filter(r => 
+          equipesDoTerritorio.includes(r.equipe.id) && r.equipe.skills.includes(os.tipo)
+        );
+        if (rotasComSkill.length === 0) {
+          motivo = `Regulada HOJE: Equipe do território ${territorioIdDaOS} sem skill ${os.tipo}`;
+        } else {
+          motivo = `Regulada HOJE: Nenhuma equipe do território (${rotasComSkill.map(r => r.equipe.codigo).join(', ')}) conseguiu alocar`;
+        }
+      } else {
+        motivo = `Regulada HOJE: OS fora de qualquer território definido`;
+      }
       naoAlocadas.push({ os, motivo });
-    osAlocadas.add(os.id);
-      console.log(`[ROUTING] ✗ ${os.numero} - ${motivo} (${bairro})`);
+      osAlocadas.add(os.id);
+      console.log(`[ROUTING] ✗ ${os.numero} - ${motivo} (${bairro}) - CRÍTICO!`);
     }
+  }
+  
+  // Contabilizar reguladas alocadas
+  const reguladasAlocadas = osReguladasHoje.filter(os => 
+    rotas.some(r => r.servicos.some(s => s.ordemServico?.id === os.id))
+  ).length;
+  console.log(`[ROUTING] ⚡ REGULADAS HOJE: ${reguladasAlocadas}/${osReguladasHoje.length} alocadas`);
+  if (reguladasAlocadas < osReguladasHoje.length) {
+    console.log(`[ROUTING] ⚠️ ATENÇÃO: ${osReguladasHoje.length - reguladasAlocadas} reguladas críticas NÃO foram alocadas!`);
   }
   
   // Log das OSs normais removidas
@@ -2212,27 +2622,31 @@ export async function otimizarRotas(
           const calc = calcularInsercao(rota, os, true, limiteDistancia, false, 120);
       
       if (calc.valido) {
-            // V20: Calcular score baseado na estratégia
+            // V19.6: Calcular score baseado na estratégia de forma mais agressiva
             let score: number;
+            let melhorou = false;
+            
             if (estrategia === 'financeiro') {
-              score = os.valor || 0; // Maior valor é melhor
+              // Para financeiro: maior valor/hora é melhor
+              const valorHora = (os.valor || 0) / Math.max(os.tempoExecucao || 15, 1);
+              score = valorHora * 100 + (os.valor || 0); // Combina valor/hora com valor absoluto
+              melhorou = score > melhorScore;
             } else if (estrategia === 'quantidade') {
-              score = 1000 - (os.tempoExecucao || 0); // Menor tempo é melhor (invertido)
+              // Para quantidade: menor tempo de execução é melhor (para caber mais OSs)
+              // Penaliza OSs que demoram muito
+              score = 1000 - (os.tempoExecucao || 15) - (distancia * 2); // Menor tempo + menor deslocamento
+              melhorou = score > melhorScore;
             } else {
-              // distancia: menor distância é melhor
-              score = -distancia; // Negativo para que menor distância tenha maior score
+              // Para distancia ou undefined: menor distância é melhor (nearest neighbor)
+              score = -distancia;
+              melhorou = distancia < menorDistancia;
             }
             
-            // Comparar com melhor score atual
-            const melhorou = estrategia === 'distancia' 
-              ? distancia < menorDistancia
-              : score > melhorScore;
-            
             if (melhorou) {
-            menorDistancia = distancia;
+              menorDistancia = distancia;
               melhorScore = score;
-            osProxima = os;
-            calcProxima = calc;
+              osProxima = os;
+              calcProxima = calc;
             }
           }
         }
@@ -4007,7 +4421,7 @@ async function gerarOpcoesRoteiros(
     criterioDestaque: 'distancia'
   });
   
-  // Identificar qual é melhor em cada critério
+  // V19.6: Identificar qual é REALMENTE melhor em cada critério (não necessariamente a opção com esse nome)
   const melhorFinanceiro = opcoes.reduce((melhor, atual) => 
     atual.metricas.totalFaturamento > melhor.metricas.totalFaturamento ? atual : melhor
   );
@@ -4018,31 +4432,41 @@ async function gerarOpcoesRoteiros(
     atual.metricas.totalDistanciaKm < melhor.metricas.totalDistanciaKm ? atual : melhor
   );
   
-  // Atualizar flags de destaque
+  // V19.6: Limpar destaques anteriores e atribuir corretamente
   opcoes.forEach(opcao => {
-    if (opcao.id === melhorFinanceiro.id) {
-      opcao.destacado = true;
-      opcao.criterioDestaque = 'financeiro';
-    } else if (opcao.id === melhorQuantidade.id && opcao.id !== melhorFinanceiro.id) {
-      opcao.destacado = true;
-      opcao.criterioDestaque = 'quantidade';
-    } else if (opcao.id === melhorDistancia.id && opcao.id !== melhorFinanceiro.id && opcao.id !== melhorQuantidade.id) {
-      opcao.destacado = true;
-      opcao.criterioDestaque = 'distancia';
-    }
+    opcao.destacado = false;
+    opcao.criterioDestaque = undefined;
   });
   
+  // Atribuir destaque ao que REALMENTE é melhor em cada critério
+  melhorFinanceiro.destacado = true;
+  melhorFinanceiro.criterioDestaque = 'financeiro';
+  
+  if (melhorQuantidade.id !== melhorFinanceiro.id) {
+    melhorQuantidade.destacado = true;
+    melhorQuantidade.criterioDestaque = 'quantidade';
+  }
+  
+  if (melhorDistancia.id !== melhorFinanceiro.id && melhorDistancia.id !== melhorQuantidade.id) {
+    melhorDistancia.destacado = true;
+    melhorDistancia.criterioDestaque = 'distancia';
+  }
+  
   console.log(`[ROUTING] ✅ ${opcoes.length} opções geradas`);
-  console.log(`[ROUTING]   Melhor Faturamento: ${melhorFinanceiro.metricas.totalFaturamento.toFixed(2)}`);
-  console.log(`[ROUTING]   Mais OSs: ${melhorQuantidade.metricas.totalOSs}`);
-  console.log(`[ROUTING]   Menor Distância: ${melhorDistancia.metricas.totalDistanciaKm.toFixed(1)}km`);
+  console.log(`[ROUTING]   Opção 'financeiro': R$ ${opcoes.find(o => o.id === 'financeiro')?.metricas.totalFaturamento.toFixed(2)}, ${opcoes.find(o => o.id === 'financeiro')?.metricas.totalOSs} OSs, ${opcoes.find(o => o.id === 'financeiro')?.metricas.totalDistanciaKm.toFixed(1)}km`);
+  console.log(`[ROUTING]   Opção 'quantidade': R$ ${opcoes.find(o => o.id === 'quantidade')?.metricas.totalFaturamento.toFixed(2)}, ${opcoes.find(o => o.id === 'quantidade')?.metricas.totalOSs} OSs, ${opcoes.find(o => o.id === 'quantidade')?.metricas.totalDistanciaKm.toFixed(1)}km`);
+  console.log(`[ROUTING]   Opção 'distancia': R$ ${opcoes.find(o => o.id === 'distancia')?.metricas.totalFaturamento.toFixed(2)}, ${opcoes.find(o => o.id === 'distancia')?.metricas.totalOSs} OSs, ${opcoes.find(o => o.id === 'distancia')?.metricas.totalDistanciaKm.toFixed(1)}km`);
+  console.log(`[ROUTING]   🏆 Melhor Faturamento: ${melhorFinanceiro.id} (R$ ${melhorFinanceiro.metricas.totalFaturamento.toFixed(2)})`);
+  console.log(`[ROUTING]   🏆 Mais OSs: ${melhorQuantidade.id} (${melhorQuantidade.metricas.totalOSs} OSs)`);
+  console.log(`[ROUTING]   🏆 Menor Distância: ${melhorDistancia.id} (${melhorDistancia.metricas.totalDistanciaKm.toFixed(1)}km)`);
   
   return opcoes;
 }
 
 /**
  * Função interna de otimização com estratégia específica
- * Reutiliza a lógica principal de otimizarRotas mas com diferentes priorizações
+ * V19.6: Corrigido para aplicar ordenação ANTES de chamar otimizarRotas
+ * e usar OSs ordenadas corretamente
  */
 async function otimizarRotasInterno(
   ordensServico: OrdemServico[],
@@ -4054,7 +4478,9 @@ async function otimizarRotasInterno(
   equipeEstaNoTerritorioDaOS: (osId: string, equipeId: string) => boolean,
   estrategia: 'financeiro' | 'quantidade' | 'distancia'
 ): Promise<{ rotas: RotaEquipe[]; naoAlocadas: NaoAlocada[] }> {
-  // Criar uma cópia das OSs para ordenar conforme a estratégia
+  console.log(`[ROUTING]   Estratégia: ${estrategia}`);
+  
+  // Criar uma cópia profunda das OSs para ordenar conforme a estratégia
   const ossOrdenadas = [...ordensServico];
   
   // Sempre manter urgentes no topo, independente da estratégia
@@ -4077,29 +4503,51 @@ async function otimizarRotasInterno(
   
   const { urgentes, naoUrgentes } = separarUrgentes(ossOrdenadas);
   
-  // Ordenar não-urgentes conforme a estratégia
+  // V19.6: Ordenar não-urgentes conforme a estratégia de forma mais agressiva
   if (estrategia === 'financeiro') {
-    // Ordenar por valor (maior primeiro)
-    naoUrgentes.sort((a, b) => (b.valor || 0) - (a.valor || 0));
+    // Ordenar por valor (maior primeiro) - prioriza OSs de maior valor
+    // Também considera tempo de execução para maximizar valor/hora
+    naoUrgentes.sort((a, b) => {
+      const valorHoraA = (a.valor || 0) / Math.max(a.tempoExecucao || 15, 1);
+      const valorHoraB = (b.valor || 0) / Math.max(b.tempoExecucao || 15, 1);
+      // Primeiro por valor/hora (maior primeiro), depois por valor absoluto
+      if (Math.abs(valorHoraA - valorHoraB) > 0.1) {
+        return valorHoraB - valorHoraA;
+      }
+      return (b.valor || 0) - (a.valor || 0);
+    });
+    console.log(`[ROUTING]   OSs ordenadas por valor/hora (maior primeiro)`);
   } else if (estrategia === 'quantidade') {
-    // Ordenar por tempo de execução (menor primeiro) para caber mais OSs
-    naoUrgentes.sort((a, b) => (a.tempoExecucao || 0) - (b.tempoExecucao || 0));
+    // Ordenar por tempo de execução (menor primeiro) para caber mais OSs na jornada
+    // Também considera distância implicitamente (OSs rápidas = mais OSs)
+    naoUrgentes.sort((a, b) => {
+      const tempoA = a.tempoExecucao || 15;
+      const tempoB = b.tempoExecucao || 15;
+      return tempoA - tempoB;
+    });
+    console.log(`[ROUTING]   OSs ordenadas por tempo de execução (menor primeiro)`);
   } else if (estrategia === 'distancia') {
-    // Manter ordem original para distância (será otimizada durante alocação)
-    // Por enquanto, manter como está
+    // Para distância, a ordenação será feita geograficamente durante a alocação
+    // Aqui apenas garantimos que OSs próximas umas das outras fiquem juntas
+    // Não alteramos a ordem aqui - a otimização geográfica faz isso
+    console.log(`[ROUTING]   OSs mantidas para otimização geográfica`);
   }
   
+  // V19.6: Recombinar urgentes + não-urgentes ordenadas
+  const ossParaOtimizar = [...urgentes, ...naoUrgentes];
+  
   // Chamar otimizarRotas com a estratégia específica
-  // Precisamos determinar os territoriosSelecionadosIds a partir dos territoriosAtivos
   const territoriosSelecionadosIds = territoriosAtivos.map(t => t.id);
   
   const resultado = await otimizarRotas(
-    ordensServico, // Usar ordensServico original, a ordenação será feita internamente
+    ossParaOtimizar, // V19.6: Usar OSs ordenadas!
     equipes,
     usarTerritorios,
     territoriosSelecionadosIds.length > 0 ? territoriosSelecionadosIds : undefined,
-    estrategia // Passar estratégia para aplicar ordenação correta
+    estrategia // Passar estratégia para aplicar ordenação adicional internamente
   );
+  
+  console.log(`[ROUTING]   Resultado ${estrategia}: ${resultado.rotas.reduce((sum, r) => sum + r.servicos.filter(s => s.tipo === 'SERVICO').length, 0)} OSs, R$ ${resultado.rotas.reduce((sum, r) => sum + r.faturamentoTotal, 0).toFixed(2)}, ${resultado.rotas.reduce((sum, r) => sum + r.distanciaTotal, 0).toFixed(1)}km`);
   
   return {
     rotas: resultado.rotas,

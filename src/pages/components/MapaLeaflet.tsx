@@ -43,6 +43,9 @@ interface MapaLeafletProps {
   onOSSelecionada?: (osId: string | null) => void; // Callback quando OS é selecionada no mapa
   territorios?: Territorio[]; // Territórios para mostrar no mapa
   onTerritorioEditado?: (territorioId: string, novoPoligono: { lat: number; lng: number }[]) => void; // Callback para salvar território editado
+  osUrgenteDestaque?: OrdemServico | null; // V19.6: OS urgente fora do território para destacar (única)
+  osUrgentesDestaque?: OrdemServico[]; // V19.7: Array de OSs urgentes fora do território para destacar (múltiplas)
+  onOsUrgenteDestaqueClear?: () => void; // V19.6: Callback para limpar destaque
 }
 
 interface RouteGeometryData {
@@ -80,7 +83,7 @@ function getLucideIconSVG(iconName: string | undefined, color: string, size: num
   `;
 }
 
-export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, onOSSelecionada, territorios = [], onTerritorioEditado }: MapaLeafletProps) {
+export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, onOSSelecionada, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear }: MapaLeafletProps) {
   // Debug: log quando rotas mudarem
   useEffect(() => {
     console.log('[MAPA] Props recebidas - Rotas:', rotas.length, 'OSs Pendentes:', osPendentes.length);
@@ -120,6 +123,245 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
   const verticesEditaveisRef = useRef<L.Marker[]>([]);
   const polygonEditandoRef = useRef<L.Polygon | null>(null);
   const territorioOriginalRef = useRef<Territorio | null>(null);
+  
+  // V19.7: Estado para controlar se o mapa foi inicializado
+  const [mapaInicializado, setMapaInicializado] = useState(false);
+  
+  // V19.6: Ref para o marker da OS urgente destacada
+  const osUrgenteMarkerRef = useRef<L.Marker | null>(null);
+  const osUrgenteCircleRef = useRef<L.Circle | null>(null);
+  
+  // V19.7: Refs para múltiplas OSs urgentes destacadas
+  const osUrgentesMarkersRef = useRef<L.Marker[]>([]);
+  const osUrgentesCirclesRef = useRef<L.Circle[]>([]);
+  
+  // V19.6: Efeito para centralizar e destacar OS urgente quando selecionada
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapaInicializado) return;
+    
+    // Limpar destaque anterior
+    if (osUrgenteMarkerRef.current) {
+      map.removeLayer(osUrgenteMarkerRef.current);
+      osUrgenteMarkerRef.current = null;
+    }
+    if (osUrgenteCircleRef.current) {
+      map.removeLayer(osUrgenteCircleRef.current);
+      osUrgenteCircleRef.current = null;
+    }
+    
+    if (osUrgenteDestaque) {
+      console.log('[MAPA] Destacando OS urgente:', osUrgenteDestaque.numero);
+      
+      // Criar círculo pulsante ao redor da OS
+      const circle = L.circle([osUrgenteDestaque.latitude, osUrgenteDestaque.longitude], {
+        color: '#ef4444',
+        fillColor: '#ef4444',
+        fillOpacity: 0.2,
+        radius: 500,
+        weight: 3,
+        dashArray: '10, 5',
+        className: 'pulse-animation'
+      }).addTo(map);
+      osUrgenteCircleRef.current = circle;
+      
+      // Criar ícone especial para a OS urgente
+      const urgentIcon = L.divIcon({
+        className: 'custom-urgent-marker',
+        html: `
+          <div style="
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: 4px solid white;
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.6), 0 0 20px rgba(239, 68, 68, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: bounce 1s ease infinite;
+          ">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+            </svg>
+          </div>
+        `,
+        iconSize: [40, 40],
+        iconAnchor: [20, 20],
+        popupAnchor: [0, -20]
+      });
+      
+      // Criar marker especial
+      const marker = L.marker([osUrgenteDestaque.latitude, osUrgenteDestaque.longitude], {
+        icon: urgentIcon,
+        zIndexOffset: 10000
+      }).addTo(map);
+      
+      // Adicionar popup com informações
+      const ehReliga = osUrgenteDestaque.tipo.toUpperCase() === 'RELIGA';
+      const ehRegulada = osUrgenteDestaque.regulada === true;
+      const prazoStr = osUrgenteDestaque.prazo 
+        ? new Date(osUrgenteDestaque.prazo).toLocaleString("pt-BR")
+        : 'N/A';
+      
+      marker.bindPopup(`
+        <div style="min-width: 280px; font-family: system-ui;">
+          <div style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; padding: 12px; margin: -10px -10px 10px -10px; border-radius: 4px 4px 0 0;">
+            <div style="font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 6px;">
+              ⚠️ OS URGENTE FORA DO TERRITÓRIO
+            </div>
+          </div>
+          <div style="padding: 0 4px;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+              <span style="font-weight: 700; font-size: 16px;">${osUrgenteDestaque.numero}</span>
+              <span style="background: ${ehReliga ? '#9333ea' : ehRegulada ? '#f97316' : '#ef4444'}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">
+                ${ehReliga ? 'RELIGA' : ehRegulada ? 'REGULADA' : osUrgenteDestaque.tipo}
+              </span>
+            </div>
+            <div style="font-size: 12px; color: #666; margin-bottom: 6px;">
+              📍 ${osUrgenteDestaque.endereco}
+            </div>
+            <div style="font-size: 12px; color: #ef4444; font-weight: 600; margin-bottom: 8px;">
+              ⏰ Prazo: ${prazoStr}
+            </div>
+            <div style="font-size: 11px; color: #999; border-top: 1px solid #eee; padding-top: 8px;">
+              Coordenadas: ${osUrgenteDestaque.latitude.toFixed(5)}, ${osUrgenteDestaque.longitude.toFixed(5)}
+            </div>
+          </div>
+        </div>
+      `, {
+        maxWidth: 350,
+        className: 'urgent-popup'
+      }).openPopup();
+      
+      osUrgenteMarkerRef.current = marker;
+      
+      // Centralizar mapa na OS com zoom adequado
+      map.flyTo([osUrgenteDestaque.latitude, osUrgenteDestaque.longitude], 16, {
+        animate: true,
+        duration: 1.5
+      });
+    }
+  }, [osUrgenteDestaque, mapaInicializado]);
+
+  // V19.7: Efeito para destacar MÚLTIPLAS OSs urgentes
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapaInicializado) return;
+    
+    // Limpar destaques anteriores de múltiplas OSs
+    osUrgentesMarkersRef.current.forEach(marker => {
+      try { map.removeLayer(marker); } catch(e) {}
+    });
+    osUrgentesMarkersRef.current = [];
+    
+    osUrgentesCirclesRef.current.forEach(circle => {
+      try { map.removeLayer(circle); } catch(e) {}
+    });
+    osUrgentesCirclesRef.current = [];
+    
+    // Se temos múltiplas OSs para destacar (e não há uma única OS selecionada)
+    if (osUrgentesDestaque && osUrgentesDestaque.length > 0 && !osUrgenteDestaque) {
+      const markers: L.Marker[] = [];
+      const circles: L.Circle[] = [];
+      
+      // Filtrar OSs com coordenadas válidas
+      const ossValidas = osUrgentesDestaque.filter(os => 
+        os.latitude && os.longitude && !isNaN(os.latitude) && !isNaN(os.longitude)
+      );
+      
+      ossValidas.forEach((os, index) => {
+        const ehReliga = os.tipo.toUpperCase() === 'RELIGA';
+        const ehRegulada = os.regulada === true;
+        const cor = ehReliga ? '#9333ea' : ehRegulada ? '#f97316' : '#ef4444';
+        
+        // Criar círculo pulsante
+        const circle = L.circle([os.latitude, os.longitude], {
+          color: cor,
+          fillColor: cor,
+          fillOpacity: 0.2,
+          radius: 300,
+          weight: 3,
+          dashArray: '8, 4'
+        }).addTo(map);
+        circles.push(circle);
+        
+        // Criar ícone especial
+        const urgentIcon = L.divIcon({
+          className: '',
+          html: `
+            <div style="
+              background: ${cor};
+              width: 32px;
+              height: 32px;
+              border-radius: 50%;
+              border: 3px solid white;
+              box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              position: relative;
+            ">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+              </svg>
+              <div style="
+                position: absolute;
+                top: -6px;
+                right: -6px;
+                background: white;
+                color: ${cor};
+                border-radius: 50%;
+                width: 16px;
+                height: 16px;
+                font-size: 9px;
+                font-weight: bold;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+              ">${index + 1}</div>
+            </div>
+          `,
+          iconSize: [32, 32],
+          iconAnchor: [16, 16],
+          popupAnchor: [0, -16]
+        });
+        
+        // Criar marker
+        const marker = L.marker([os.latitude, os.longitude], {
+          icon: urgentIcon,
+          zIndexOffset: 8000 + index
+        }).addTo(map);
+        
+        // Popup simples
+        const prazoStr = os.prazo ? new Date(os.prazo).toLocaleString("pt-BR") : 'N/A';
+        marker.bindPopup(`
+          <div style="font-family: system-ui; min-width: 200px;">
+            <div style="background: ${cor}; color: white; padding: 8px; margin: -10px -10px 8px; border-radius: 4px 4px 0 0; font-weight: 600;">
+              ⚠️ OS #${index + 1} - FORA DO TERRITÓRIO
+            </div>
+            <div style="font-weight: 700;">${os.numero}</div>
+            <div style="font-size: 12px; color: #666; margin-top: 4px;">📍 ${os.endereco}</div>
+            <div style="font-size: 12px; color: ${cor}; font-weight: 600; margin-top: 4px;">⏰ Prazo: ${prazoStr}</div>
+          </div>
+        `);
+        
+        markers.push(marker);
+      });
+      
+      osUrgentesMarkersRef.current = markers;
+      osUrgentesCirclesRef.current = circles;
+      
+      // Ajustar zoom
+      if (ossValidas.length === 1) {
+        map.flyTo([ossValidas[0].latitude, ossValidas[0].longitude], 16, { duration: 1 });
+      } else if (ossValidas.length > 1) {
+        const bounds = L.latLngBounds(ossValidas.map(os => [os.latitude, os.longitude] as [number, number]));
+        map.flyToBounds(bounds.pad(0.2), { duration: 1, maxZoom: 15 });
+      }
+    }
+  }, [osUrgentesDestaque, osUrgenteDestaque, mapaInicializado]);
 
   // Função para limpar edição atual
   const limparEdicao = () => {
@@ -285,6 +527,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
       }).addTo(map);
 
       mapInstanceRef.current = map;
+      setMapaInicializado(true); // V19.7: Marcar mapa como inicializado
     } catch (error) {
       console.error("Erro ao criar mapa:", error);
       setErroMsg(error instanceof Error ? error.message : String(error));
@@ -295,6 +538,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
+        setMapaInicializado(false);
       }
     };
   }, []);

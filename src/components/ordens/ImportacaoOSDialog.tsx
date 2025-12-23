@@ -59,13 +59,11 @@ interface LinhaImportacao {
   avisos: string[];
   valida: boolean;
   selecionada: boolean;
-  reativacao?: boolean; // Se é uma reativação de OS concluída/cancelada
 }
 
 interface OSExistente {
   numero: string;
   status: string;
-  prazo: string | null;
 }
 
 interface ResumoImportacao {
@@ -111,7 +109,7 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
   const [skillsDisponiveis, setSkillsDisponiveis] = useState<any[]>([]);
   const [osExistentesMap, setOsExistentesMap] = useState<Map<string, OSExistente>>(new Map());
   const [expandirErros, setExpandirErros] = useState<Set<number>>(new Set());
-  const [resultadoFinal, setResultadoFinal] = useState<{ importadas: number; erros: number; detalhesErros: string[] }>({ importadas: 0, erros: 0, detalhesErros: [] });
+  const [resultadoFinal, setResultadoFinal] = useState<{ importadas: number; atualizadas: number; erros: number; detalhesErros: string[] }>({ importadas: 0, atualizadas: 0, erros: 0, detalhesErros: [] });
   
   // Estados para filtros e paginação
   const [filtroStatus, setFiltroStatus] = useState<FiltroStatus>("todos");
@@ -127,7 +125,7 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
     setProcessando(false);
     setProgresso({ atual: 0, total: 0 });
     setExpandirErros(new Set());
-    setResultadoFinal({ importadas: 0, erros: 0, detalhesErros: [] });
+    setResultadoFinal({ importadas: 0, atualizadas: 0, erros: 0, detalhesErros: [] });
     setFiltroStatus("todos");
     setFiltroBusca("");
     setPaginaAtual(1);
@@ -145,24 +143,28 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
       .eq("ativo", true);
     setSkillsDisponiveis(skills || []);
 
-    // Buscar OSs existentes com status e prazo para permitir reimportação de concluídas/canceladas
+    // Buscar OSs existentes com status ativo (não concluídas/canceladas)
+    // Agrupamos por número e pegamos o status mais recente
     const { data: osExistentes } = await supabase
       .from("ordens_servico")
-      .select("numero, status, prazo");
+      .select("numero, status")
+      .not("status", "in", "(concluida,cancelada)");
     
     const osMap = new Map<string, OSExistente>();
     (osExistentes || []).forEach(os => {
-      osMap.set(os.numero, { numero: os.numero, status: os.status, prazo: os.prazo });
+      // Se já existe no mapa, manter (primeira ocorrência)
+      if (!osMap.has(os.numero)) {
+        osMap.set(os.numero, { numero: os.numero, status: os.status });
+      }
     });
     setOsExistentesMap(osMap);
 
     return { skills: skills || [], osExistentesMap: osMap };
   };
 
-  const validarLinha = (row: Record<string, any>, index: number, skills: any[], osExistentesMap: Map<string, OSExistente>, prazoImportacao: string | null): LinhaImportacao => {
+  const validarLinha = (row: Record<string, any>, index: number, skills: any[], osExistentesMap: Map<string, OSExistente>): LinhaImportacao => {
     const erros: string[] = [];
     const avisos: string[] = [];
-    let reativacao = false;
 
     const numero = (row.numero || "").toString().trim();
     if (!numero) {
@@ -170,20 +172,12 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
     } else {
       const osExistente = osExistentesMap.get(numero);
       if (osExistente) {
-        // Permitir reimportação se OS está concluída ou cancelada
+        // Permitir criar nova OS se a existente está concluída ou cancelada
         if (osExistente.status === "concluida" || osExistente.status === "cancelada") {
-          // Verificar se o prazo é diferente (nova OS)
-          const prazoExistente = osExistente.prazo ? new Date(osExistente.prazo).toDateString() : null;
-          const prazoNovo = prazoImportacao ? new Date(prazoImportacao).toDateString() : null;
-          
-          if (prazoExistente !== prazoNovo || !prazoExistente) {
-            reativacao = true;
-            avisos.push(`OS "${numero}" existe como ${osExistente.status} - será criada nova OS`);
-          } else {
-            erros.push(`Número "${numero}" já existe com mesmo prazo (status: ${osExistente.status})`);
-          }
+          avisos.push(`Existe OS "${numero}" (${osExistente.status}) - será criada nova OS com código único`);
         } else {
-          erros.push(`Número "${numero}" já existe no sistema (status: ${osExistente.status})`);
+          // OS existe com status ativo (pendente, em_andamento, etc) - bloquear
+          erros.push(`Número "${numero}" já existe com status "${osExistente.status}"`);
         }
       }
     }
@@ -238,7 +232,6 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
       avisos,
       valida: erros.length === 0,
       selecionada: erros.length === 0,
-      reativacao,
     };
   };
 
@@ -269,15 +262,14 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
         return;
       }
 
+
       setProgresso({ atual: 50, total: 100 });
       const numerosNoArquivo = new Set<string>();
       const linhasValidadas: LinhaImportacao[] = [];
 
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
-        // Processar prazo antes para usar na validação
-        const prazoImportacao = processarPrazo(row.prazo);
-        const linha = validarLinha(row, i, skills, osMap, prazoImportacao);
+        const linha = validarLinha(row, i, skills, osMap);
 
         const numero = (row.numero || "").toString().trim();
         if (numero && numerosNoArquivo.has(numero)) {
@@ -403,22 +395,16 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
       });
     }
 
-    // Preparar TODOS os dados de uma vez (processamento síncrono, muito rápido)
-    setProgresso({ atual: Math.floor(total * 0.1), total });
-    
+    // Preparar todas as OSs para inserção
     const ordensParaInserir: any[] = [];
-    const linhaMap = new Map<string, number>();
 
     for (const linha of linhasSelecionadas) {
       const row = linha.dados;
       const tipo = (row.tipo || "").toString().toLowerCase().trim();
       const skillDados = skillsMap.get(tipo) || { tempoExecucao: 15, valor: 0, regulada: false };
-      const numero = (row.numero || "").toString().trim();
-
-      linhaMap.set(numero, linha.linha);
 
       ordensParaInserir.push({
-        numero,
+        numero: (row.numero || "").toString().trim(),
         tipo,
         status: "pendente",
         endereco: (row.endereco || "").toString().trim(),
@@ -433,12 +419,17 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
         latitude: row.latitude ? parseFloat(row.latitude.toString().replace(",", ".")) : null,
         longitude: row.longitude ? parseFloat(row.longitude.toString().replace(",", ".")) : null,
         observacoes: row.observacoes ? row.observacoes.toString().trim() : null,
+        // codigo será gerado automaticamente pelo trigger no banco
       });
     }
 
     setProgresso({ atual: Math.floor(total * 0.2), total });
 
-    // INSERÇÃO EM MASSA - lotes grandes de 500 sem retorno de dados
+    let importadas = 0;
+    let erros = 0;
+    const detalhesErros: string[] = [];
+
+    // INSERÇÃO EM MASSA - lotes de 500, paralelo
     const BATCH_SIZE = 500;
     const batches: any[][] = [];
     
@@ -446,20 +437,13 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
       batches.push(ordensParaInserir.slice(i, i + BATCH_SIZE));
     }
 
-    let importadas = 0;
-    let erros = 0;
-    const detalhesErros: string[] = [];
-
-    // Executar todos os batches em paralelo para máxima velocidade
-    const batchPromises = batches.map(async (batch, batchIndex) => {
+    const batchPromises = batches.map(async (batch) => {
       try {
-        // Insert sem .select() é MUITO mais rápido
         const { error } = await supabase
           .from("ordens_servico")
           .insert(batch);
 
         if (error) {
-          // Erro no batch - registrar erro genérico
           return { success: 0, failed: batch.length, errorMsg: error.message, batch };
         }
         return { success: batch.length, failed: 0, errorMsg: null, batch: null };
@@ -468,25 +452,27 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
       }
     });
 
-    // Aguardar todos os batches (execução paralela)
     const results = await Promise.all(batchPromises);
     
-    setProgresso({ atual: Math.floor(total * 0.8), total });
+    setProgresso({ atual: Math.floor(total * 0.9), total });
 
-    // Processar resultados
     for (const result of results) {
       importadas += result.success;
       erros += result.failed;
       
       if (result.errorMsg && result.batch) {
-        // Se batch falhou, adicionar um erro resumido
         const primeirosNumeros = result.batch.slice(0, 3).map((o: any) => o.numero).join(", ");
-        detalhesErros.push(`Lote com ${result.failed} OSs falhou (${primeirosNumeros}...): ${result.errorMsg}`);
+        detalhesErros.push(`Lote falhou (${primeirosNumeros}...): ${result.errorMsg}`);
       }
     }
 
     setProgresso({ atual: total, total });
-    setResultadoFinal({ importadas, erros, detalhesErros });
+    setResultadoFinal({ 
+      importadas, 
+      atualizadas: 0,
+      erros, 
+      detalhesErros 
+    });
     setProcessando(false);
     setEtapa("resultado");
 
@@ -890,16 +876,16 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
           {/* ETAPA 4: Resultado */}
           {etapa === "resultado" && (
             <div className="flex flex-col gap-4">
-              <div className="flex gap-4">
-                <div className="flex-1 p-6 bg-green-500/10 rounded-lg text-center">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-6 bg-green-500/10 rounded-lg text-center">
                   <CheckCircle2 className="h-8 w-8 mx-auto text-green-600 mb-2" />
                   <div className="text-3xl font-bold text-green-600">{resultadoFinal.importadas}</div>
-                  <div className="text-sm text-muted-foreground">Importadas com sucesso</div>
+                  <div className="text-sm text-muted-foreground">OSs importadas</div>
                 </div>
-                <div className="flex-1 p-6 bg-red-500/10 rounded-lg text-center">
+                <div className="p-6 bg-red-500/10 rounded-lg text-center">
                   <XCircle className="h-8 w-8 mx-auto text-red-600 mb-2" />
                   <div className="text-3xl font-bold text-red-600">{resultadoFinal.erros}</div>
-                  <div className="text-sm text-muted-foreground">Erros na importação</div>
+                  <div className="text-sm text-muted-foreground">Erros</div>
                 </div>
               </div>
 
