@@ -48,6 +48,7 @@ import { toast } from "sonner";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, getDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { SortableTableHead, useSortableTable } from "@/components/ui/sortable-table-head";
+import { ExportButton } from "@/components/ui/export-button";
 import {
   DataTableFilters,
   useDataTableFilters,
@@ -464,6 +465,21 @@ export default function CadastroMetas() {
             </Button>
           </div>
           <div className="flex items-center gap-2">
+            <ExportButton
+              data={metas}
+              filename="metas"
+              columns={[
+                { key: "data", label: "Data", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
+                { key: "tecnicos.codigo", label: "Equipe Código" },
+                { key: "tecnicos.nome", label: "Equipe Nome" },
+                { key: "contratos.codigo", label: "Contrato" },
+                { key: "meta_qtd", label: "Meta Qtd" },
+                { key: "meta_valor", label: "Meta Valor", format: (v) => v ? `R$ ${Number(v).toFixed(2)}` : "" },
+                { key: "realizado_qtd", label: "Realizado Qtd" },
+                { key: "realizado_valor", label: "Realizado Valor", format: (v) => v ? `R$ ${Number(v).toFixed(2)}` : "" },
+              ]}
+              disabled={loading}
+            />
             <Button variant="outline" onClick={fetchData} disabled={loading}>
               <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
               Atualizar

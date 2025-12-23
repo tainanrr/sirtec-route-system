@@ -52,6 +52,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
+import { ExportButton } from "@/components/ui/export-button";
 import { format } from "date-fns";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -458,6 +459,21 @@ export default function EstoqueCentral() {
             </div>
           </div>
           <div className="flex gap-2">
+            <ExportButton
+              data={filteredItens}
+              filename="estoque_central"
+              columns={[
+                { key: "materiais.codigo_sap", label: "Código SAP" },
+                { key: "materiais.nome", label: "Material" },
+                { key: "materiais.unidade_medida", label: "Unidade" },
+                { key: "quantidade", label: "Quantidade" },
+                { key: "materiais.estoque_minimo", label: "Estoque Mínimo" },
+                { key: "materiais.estoque_maximo", label: "Estoque Máximo" },
+                { key: "materiais.preco_unitario", label: "Preço Unit.", format: (v: any) => v ? `R$ ${Number(v).toFixed(2)}` : "" },
+                { key: "updated_at", label: "Última Atualização", format: (v: any) => v ? new Date(v).toLocaleString("pt-BR") : "" },
+              ]}
+              disabled={isLoading}
+            />
             <Button variant="outline" asChild>
               <Link to="/materiais/movimentacoes">
                 <History className="h-4 w-4 mr-2" />

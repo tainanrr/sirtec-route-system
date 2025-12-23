@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { useTelaPermissao } from "@/hooks/usePermissoes";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -78,6 +79,9 @@ type OrdemWithTecnico = Tables<"ordens_servico"> & {
 };
 
 const OrdensServico = () => {
+  // Permissões da tela
+  const { podeEditar } = useTelaPermissao("ordens_servico");
+
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [tipoFilter, setTipoFilter] = useState<string>("all");
@@ -511,7 +515,13 @@ const OrdensServico = () => {
               <FileText className="h-4 w-4" />
               Modelo de Importação
             </Button>
-            <Button variant="outline" className="gap-2" onClick={() => setImportDialogOpen(true)}>
+            <Button 
+              variant="outline" 
+              className="gap-2" 
+              onClick={() => setImportDialogOpen(true)}
+              disabled={!podeEditar}
+              title={!podeEditar ? "Você não tem permissão para importar" : undefined}
+            >
               <Upload className="h-4 w-4" />
               Importar OSS
             </Button>
@@ -530,11 +540,22 @@ const OrdensServico = () => {
                 Geocodificar ({ordensSemCoordenadas.length})
               </Button>
             )}
-            <Button variant="outline" className="gap-2 border-orange-500 text-orange-600 hover:bg-orange-50 hover:text-orange-700" onClick={() => setClearAllDialogOpen(true)}>
+            <Button 
+              variant="outline" 
+              className="gap-2 border-orange-500 text-orange-600 hover:bg-orange-50 hover:text-orange-700" 
+              onClick={() => setClearAllDialogOpen(true)}
+              disabled={!podeEditar}
+              title={!podeEditar ? "Você não tem permissão para cancelar" : undefined}
+            >
               <X className="h-4 w-4" />
               Cancelar Todas
             </Button>
-            <Button className="gap-2" onClick={() => { setSelectedOrdem(null); setFormOpen(true); }}>
+            <Button 
+              className="gap-2" 
+              onClick={() => { setSelectedOrdem(null); setFormOpen(true); }}
+              disabled={!podeEditar}
+              title={!podeEditar ? "Você não tem permissão para criar" : undefined}
+            >
               <Plus className="h-4 w-4" />
               Nova OS
             </Button>
@@ -662,7 +683,14 @@ const OrdensServico = () => {
                       >
                         <Eye className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEdit(os)} title="Editar">
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-8 w-8" 
+                        onClick={() => handleEdit(os)} 
+                        title={podeEditar ? "Editar" : "Você não tem permissão para editar"}
+                        disabled={!podeEditar}
+                      >
                         <Edit className="h-4 w-4" />
                       </Button>
                       <Button
@@ -670,7 +698,8 @@ const OrdensServico = () => {
                         size="icon"
                         className="h-8 w-8 text-destructive hover:text-destructive"
                         onClick={() => { setOrdemToDelete(os); setDeleteDialogOpen(true); }}
-                        title="Excluir"
+                        title={podeEditar ? "Excluir" : "Você não tem permissão para excluir"}
+                        disabled={!podeEditar}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>

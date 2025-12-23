@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { useTelaPermissao } from "@/hooks/usePermissoes";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -125,6 +126,9 @@ function obterLabelTipo(tipo: string): string {
 }
 
 const Roteirizacao = () => {
+  // Permissões da tela
+  const { podeEditar } = useTelaPermissao("roteirizacao");
+
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchTerm, setSearchTerm] = useState("");
@@ -220,8 +224,8 @@ const Roteirizacao = () => {
     const loadTerritorios = async () => {
       const loaded = await carregarTerritorios();
       setTerritorios(loaded);
-      // Marcar todos os territórios ativos por padrão
-      const territoriosAtivos = loaded.filter(t => t.ativo && t.equipeIds && t.equipeIds.length > 0);
+      // Marcar todos os territórios ativos por padrão (com polígono válido)
+      const territoriosAtivos = loaded.filter(t => t.ativo && t.poligono.length >= 3);
       if (territoriosAtivos.length > 0) {
         setTerritoriosSelecionados(territoriosAtivos.map(t => t.id));
       }
@@ -1903,8 +1907,9 @@ const Roteirizacao = () => {
             </Button>
             <Button
               onClick={handleOtimizarRotas}
-              disabled={isOtimizando || osPendentes.length === 0}
+              disabled={isOtimizando || osPendentes.length === 0 || !podeEditar}
               className="gap-2"
+              title={!podeEditar ? "Você não tem permissão para otimizar rotas" : undefined}
             >
               <RefreshCcw className={cn("h-4 w-4", isOtimizando && "animate-spin")} />
               {isOtimizando ? "Calculando rotas..." : "Otimizar Rotas"}
@@ -1930,26 +1935,27 @@ const Roteirizacao = () => {
         {/* Configurações Compactas */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Configuração de Territórios */}
-          <div className="rounded-lg border border-border bg-card p-4">
+          <div className="rounded-lg border border-border bg-card p-4 flex flex-col min-h-[200px]">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                <MapIcon className="h-4 w-4 text-muted-foreground" />
+                  <MapIcon className="h-4 w-4 text-muted-foreground" />
                   <Label htmlFor="usar-territorios" className="text-sm font-medium text-foreground cursor-pointer">
-                  Usar Territórios
+                    Territórios
                   </Label>
+                  <Switch
+                    id="usar-territorios"
+                    checked={usarTerritorios}
+                    onCheckedChange={setUsarTerritorios}
+                    className="ml-2"
+                  />
                 </div>
-                <Switch
-                  id="usar-territorios"
-                  checked={usarTerritorios}
-                  onCheckedChange={setUsarTerritorios}
-                />
+                {usarTerritorios && (
+                  <span className="text-xs text-muted-foreground">{territoriosSelecionados.length} de {territorios.filter(t => t.ativo && t.poligono.length >= 3).length} selecionados</span>
+                )}
               </div>
             {usarTerritorios && (
-              <div className="space-y-2">
-                <div className="text-xs text-muted-foreground mb-2">
-                  {territoriosSelecionados.length} de {territorios.filter(t => t.ativo && t.poligono.length >= 3).length} selecionados
-                </div>
-                <div className="grid grid-cols-3 lg:grid-cols-4 gap-1 max-h-[280px] overflow-y-auto">
+              <div className="flex flex-col flex-1">
+                <div className="grid grid-cols-3 lg:grid-cols-4 gap-1 max-h-[280px] overflow-y-auto flex-1">
                   {territorios.filter(t => t.ativo && t.poligono.length >= 3).map((territorio) => {
                     const checked = territoriosSelecionados.includes(territorio.id);
                     const equipesVinculadas = (territorio.equipeIds || [])
@@ -1992,7 +1998,7 @@ const Roteirizacao = () => {
                     );
                   })}
                 </div>
-                <div className="flex gap-2 pt-2 border-t">
+                <div className="flex gap-2 pt-2 border-t mt-auto">
                   <Button
                     variant="ghost"
                     size="sm"
@@ -2036,19 +2042,20 @@ const Roteirizacao = () => {
             </div>
 
           {/* Seleção de Equipes */}
-          <div className="rounded-lg border border-border bg-card p-4">
+          <div className="rounded-lg border border-border bg-card p-4 flex flex-col min-h-[200px]">
             <div className="flex items-center justify-between mb-3">
               <div className="text-sm font-medium text-foreground">Equipes</div>
               <span className="text-xs text-muted-foreground">{equipesSelecionadas.length} de {equipes.length} selecionadas</span>
             </div>
-            {loadingEquipes ? (
-              <div className="text-xs text-muted-foreground">Carregando...</div>
-            ) : equipes.length === 0 ? (
-              <div className="text-xs text-muted-foreground">
-                Nenhuma equipe ativa cadastrada
-              </div>
-            ) : (
-              <div className="grid grid-cols-3 lg:grid-cols-4 gap-1 max-h-[280px] overflow-y-auto">
+            <div className="flex flex-col flex-1">
+              {loadingEquipes ? (
+                <div className="text-xs text-muted-foreground">Carregando...</div>
+              ) : equipes.length === 0 ? (
+                <div className="text-xs text-muted-foreground">
+                  Nenhuma equipe ativa cadastrada
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 lg:grid-cols-4 gap-1 max-h-[280px] overflow-y-auto flex-1">
                 {equipes.map((eq) => {
                   const checked = equipesSelecionadas.includes(eq.id);
                   // Verificar se equipe está vinculada a algum território ativo
@@ -2092,22 +2099,23 @@ const Roteirizacao = () => {
                   );
                 })}
               </div>
-            )}
-            <div className="mt-2 pt-2 border-t">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  if (equipesSelecionadas.length === equipes.length) {
-                    setEquipesSelecionadas([]);
-                  } else {
-                    setEquipesSelecionadas(equipes.map(e => e.id));
-                  }
-                }}
-                className="w-full text-xs h-7"
-              >
-                {equipesSelecionadas.length === equipes.length ? "Desselecionar Todas" : "Selecionar Todas"}
-              </Button>
+              )}
+              <div className="mt-auto pt-2 border-t">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    if (equipesSelecionadas.length === equipes.length) {
+                      setEquipesSelecionadas([]);
+                    } else {
+                      setEquipesSelecionadas(equipes.map(e => e.id));
+                    }
+                  }}
+                  className="w-full text-xs h-7"
+                >
+                  {equipesSelecionadas.length === equipes.length ? "Desselecionar Todas" : "Selecionar Todas"}
+                </Button>
+              </div>
             </div>
           </div>
         </div>
@@ -3090,19 +3098,21 @@ const Roteirizacao = () => {
             <Button 
               variant="outline"
               onClick={handleSalvarRascunho}
-              disabled={rotas.length === 0 || salvandoPlanejamento}
+              disabled={rotas.length === 0 || salvandoPlanejamento || !podeEditar}
+              title={!podeEditar ? "Você não tem permissão para salvar" : undefined}
             >
               {salvandoPlanejamento ? "Salvando..." : "Salvar Rascunho"}
             </Button>
             <Button 
               className="gap-2" 
-              disabled={rotas.length === 0 || salvandoPlanejamento}
+              disabled={rotas.length === 0 || salvandoPlanejamento || !podeEditar}
               onClick={() => {
                 // Definir data padrão como hoje
                 const hoje = new Date().toISOString().split('T')[0];
                 setDataPlanejamento(hoje);
                 setConfirmarPlanejamentoDialogOpen(true);
               }}
+              title={!podeEditar ? "Você não tem permissão para confirmar rotas" : undefined}
             >
               <CheckCircle className="h-4 w-4" />
               Confirmar Rotas

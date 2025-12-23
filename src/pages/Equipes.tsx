@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { useTelaPermissao } from "@/hooks/usePermissoes";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -52,6 +53,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { ExportButton } from "@/components/ui/export-button";
 
 // Interface para colaborador
 interface Colaborador {
@@ -79,7 +81,16 @@ const statusConfig = {
   offline: { label: "Inativa", icon: XCircle, color: "bg-muted", dotColor: "bg-muted-foreground" },
 };
 
+const tipoEquipeConfig = {
+  normal: { label: "Normal", color: "bg-slate-100 text-slate-700 border-slate-300" },
+  gaviao: { label: "Gavião", color: "bg-amber-100 text-amber-700 border-amber-300" },
+  kit: { label: "Kit", color: "bg-purple-100 text-purple-700 border-purple-300" },
+};
+
 const Equipes = () => {
+  // Permissões da tela
+  const { podeEditar, apenasLeitura } = useTelaPermissao("equipes");
+
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [tecnicos, setTecnicos] = useState<EquipeComColaboradores[]>([]);
@@ -195,17 +206,75 @@ const Equipes = () => {
   const handleDelete = async () => {
     if (!tecnicoToDelete) return;
 
-    const { error } = await supabase
-      .from("tecnicos")
-      .delete()
-      .eq("id", tecnicoToDelete.id);
+    try {
+      // Verificar se há ordens de serviço concluídas para esta equipe
+      const { data: osConcluidas, error: osError } = await supabase
+        .from("ordens_servico")
+        .select("id")
+        .eq("equipe_planejada_id", tecnicoToDelete.id)
+        .in("status", ["concluida", "finalizada", "executada"])
+        .limit(1);
 
-    if (error) {
-      toast.error("Erro ao excluir técnico");
-    } else {
-      toast.success("Técnico excluído com sucesso");
-      fetchTecnicos();
+      if (osError) {
+        console.error("Erro ao verificar OS:", osError);
+      }
+
+      // Se há OS concluídas, apenas desativar
+      if (osConcluidas && osConcluidas.length > 0) {
+        const { error: updateError } = await supabase
+          .from("tecnicos")
+          .update({ status: "offline" })
+          .eq("id", tecnicoToDelete.id);
+
+        if (updateError) {
+          toast.error("Erro ao desativar equipe");
+        } else {
+          toast.info("Equipe desativada (possui OS concluídas no histórico)");
+          fetchTecnicos();
+        }
+      } else {
+        // Primeiro, remover vínculos com colaboradores
+        await supabase
+          .from("equipe_colaboradores")
+          .delete()
+          .eq("equipe_id", tecnicoToDelete.id);
+
+        // Remover vínculos com OS pendentes (definir equipe como null)
+        await supabase
+          .from("ordens_servico")
+          .update({ equipe_planejada_id: null })
+          .eq("equipe_planejada_id", tecnicoToDelete.id);
+
+        // Agora pode excluir a equipe
+        const { error } = await supabase
+          .from("tecnicos")
+          .delete()
+          .eq("id", tecnicoToDelete.id);
+
+        if (error) {
+          // Se ainda der erro, apenas desativar
+          console.error("Erro ao excluir, tentando desativar:", error);
+          const { error: updateError } = await supabase
+            .from("tecnicos")
+            .update({ status: "offline" })
+            .eq("id", tecnicoToDelete.id);
+
+          if (updateError) {
+            toast.error("Erro ao excluir/desativar equipe");
+          } else {
+            toast.info("Equipe desativada (não foi possível excluir)");
+            fetchTecnicos();
+          }
+        } else {
+          toast.success("Equipe excluída com sucesso");
+          fetchTecnicos();
+        }
+      }
+    } catch (err) {
+      console.error("Erro:", err);
+      toast.error("Erro ao processar solicitação");
     }
+
     setDeleteDialogOpen(false);
     setTecnicoToDelete(null);
   };
@@ -245,10 +314,44 @@ const Equipes = () => {
     }
   };
 
+  // Atualizar tipo de equipe inline
+  const handleUpdateTipoEquipe = async (tecnicoId: string, novoTipo: string) => {
+    const { error } = await supabase
+      .from("tecnicos")
+      .update({ tipo_equipe: novoTipo })
+      .eq("id", tecnicoId);
+
+    if (error) {
+      toast.error("Erro ao atualizar tipo de equipe");
+    } else {
+      const tipoLabel = tipoEquipeConfig[novoTipo as keyof typeof tipoEquipeConfig]?.label || novoTipo;
+      toast.success(`Tipo alterado para "${tipoLabel}"`);
+      fetchTecnicos();
+    }
+  };
+
   // Adicionar colaborador à equipe
   const handleAddColaborador = async (equipeId: string, colaboradorId: string, slotIndex: number) => {
     const equipe = tecnicos.find(t => t.id === equipeId);
     if (!equipe) return;
+
+    // Verificar se o colaborador já está ativo em outra equipe
+    const { data: vinculoExistente } = await supabase
+      .from("equipe_colaboradores")
+      .select(`
+        id,
+        equipe_id,
+        tecnicos:equipe_id (codigo, nome)
+      `)
+      .eq("colaborador_id", colaboradorId)
+      .eq("ativo", true)
+      .single();
+
+    if (vinculoExistente && vinculoExistente.equipe_id !== equipeId) {
+      const equipeAtual = (vinculoExistente as any).tecnicos;
+      toast.error(`Colaborador já está vinculado à equipe ${equipeAtual?.codigo || ''} (${equipeAtual?.nome || ''})`);
+      return;
+    }
 
     // Verificar se já tem um colaborador no slot
     const colabNoSlot = equipe.colaboradores?.[slotIndex];
@@ -297,6 +400,21 @@ const Equipes = () => {
     }
   };
 
+  // Atualizar função do colaborador
+  const handleUpdateFuncao = async (equipeColaboradorId: string, novaFuncao: string) => {
+    const { error } = await supabase
+      .from("equipe_colaboradores")
+      .update({ funcao: novaFuncao })
+      .eq("id", equipeColaboradorId);
+
+    if (error) {
+      toast.error("Erro ao atualizar função");
+    } else {
+      toast.success("Função atualizada");
+      fetchTecnicos();
+    }
+  };
+
   // Colaboradores disponíveis (não vinculados à equipe)
   const getColaboradoresDisponiveis = (equipeId: string, searchTerm: string = "") => {
     const equipe = tecnicos.find(t => t.id === equipeId);
@@ -330,6 +448,51 @@ const Equipes = () => {
     return acc;
   }, {} as Record<string, number>);
 
+  // Componente para célula de tipo de equipe com edição inline
+  const TipoEquipeCell = ({ equipe }: { equipe: EquipeComColaboradores }) => {
+    const tipoAtual = (equipe as any).tipo_equipe || "normal";
+    const config = tipoEquipeConfig[tipoAtual as keyof typeof tipoEquipeConfig] || tipoEquipeConfig.normal;
+
+    return (
+      <Select
+        value={tipoAtual}
+        onValueChange={(value) => handleUpdateTipoEquipe(equipe.id, value)}
+        disabled={!podeEditar}
+      >
+        <SelectTrigger 
+          className={cn(
+            "h-7 w-[90px] text-xs font-medium border",
+            config.color,
+            !podeEditar && "cursor-not-allowed opacity-60"
+          )}
+          title={!podeEditar ? "Você não tem permissão para editar" : undefined}
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="normal">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-slate-500" />
+              Normal
+            </div>
+          </SelectItem>
+          <SelectItem value="gaviao">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-amber-500" />
+              Gavião
+            </div>
+          </SelectItem>
+          <SelectItem value="kit">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-purple-500" />
+              Kit
+            </div>
+          </SelectItem>
+        </SelectContent>
+      </Select>
+    );
+  };
+
   // Componente para célula de colaborador com edição inline
   const ColaboradorCell = ({ 
     equipe, 
@@ -343,8 +506,47 @@ const Equipes = () => {
     const colaborador = equipe.colaboradores?.[slotIndex];
     const [open, setOpen] = useState(false);
     const [localSearch, setLocalSearch] = useState("");
+    const [showTrocar, setShowTrocar] = useState(false);
 
     const colaboradoresDisponiveis = getColaboradoresDisponiveis(equipe.id, localSearch);
+
+    const funcoes = [
+      { value: "lider", label: "Líder", color: "bg-amber-500" },
+      { value: "membro", label: "Membro", color: "bg-blue-500" },
+      { value: "motorista", label: "Motorista", color: "bg-green-500" },
+    ];
+
+    // Se não tem permissão de editar, mostra apenas visualização
+    if (!podeEditar) {
+      return (
+        <div 
+          className={cn(
+            "flex items-center gap-2 p-2 rounded-md min-h-[40px]",
+            colaborador 
+              ? "bg-muted/50" 
+              : "border border-dashed border-muted-foreground/30"
+          )}
+          title="Você não tem permissão para editar"
+        >
+          {colaborador ? (
+            <>
+              <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-semibold flex-shrink-0">
+                {colaborador.colaborador?.nome?.split(" ").map(n => n[0]).join("").slice(0, 2)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{colaborador.colaborador?.nome?.split(" ")[0]}</p>
+                <p className="text-xs text-muted-foreground capitalize">{colaborador.funcao}</p>
+              </div>
+            </>
+          ) : (
+            <>
+              <User className="h-4 w-4 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">{label}</span>
+            </>
+          )}
+        </div>
+      );
+    }
 
     return (
       <Popover 
@@ -353,6 +555,7 @@ const Equipes = () => {
           setOpen(isOpen);
           if (!isOpen) {
             setLocalSearch("");
+            setShowTrocar(false);
           }
         }}
       >
@@ -400,47 +603,123 @@ const Equipes = () => {
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
           <div className="space-y-2">
-            <div className="relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-              <Input
-                placeholder="Buscar por nome ou CPF..."
-                value={localSearch}
-                onChange={(e) => setLocalSearch(e.target.value)}
-                className="h-8 pl-7 text-sm"
-                autoFocus
-              />
-            </div>
-            <div className="text-xs text-muted-foreground px-1">
-              {colaboradoresDisponiveis.length} colaborador(es) disponível(is)
-            </div>
-            <ScrollArea className="h-52">
-              <div className="space-y-1">
-                {colaboradoresDisponiveis.map((c) => (
-                  <div
-                    key={c.id}
-                    className="flex items-center gap-2 p-2 rounded hover:bg-accent cursor-pointer"
+            {/* Se já tem colaborador, mostrar opções de edição */}
+            {colaborador && !showTrocar ? (
+              <>
+                <div className="flex items-center gap-2 p-2 bg-muted/50 rounded-lg mb-2">
+                  <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-semibold">
+                    {colaborador.colaborador?.nome?.split(" ").map(n => n[0]).join("").slice(0, 2)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{colaborador.colaborador?.nome}</p>
+                    <p className="text-xs text-muted-foreground">{colaborador.colaborador?.cargo || "Colaborador"}</p>
+                  </div>
+                </div>
+                
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground px-1">Função:</p>
+                  <div className="grid grid-cols-3 gap-1">
+                    {funcoes.map((f) => (
+                      <Button
+                        key={f.value}
+                        variant={colaborador.funcao === f.value ? "default" : "outline"}
+                        size="sm"
+                        className={cn(
+                          "text-xs h-8",
+                          colaborador.funcao === f.value && f.color
+                        )}
+                        onClick={() => {
+                          handleUpdateFuncao(colaborador.id, f.value);
+                          setOpen(false);
+                        }}
+                      >
+                        {f.label}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border-t pt-2 mt-2 space-y-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start text-xs h-8"
+                    onClick={() => setShowTrocar(true)}
+                  >
+                    <User className="h-3 w-3 mr-2" />
+                    Trocar colaborador
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start text-xs h-8 text-destructive hover:text-destructive hover:bg-destructive/10"
                     onClick={() => {
-                      handleAddColaborador(equipe.id, c.id, slotIndex);
+                      handleRemoveColaborador(colaborador.id);
                       setOpen(false);
-                      setLocalSearch("");
                     }}
                   >
-                    <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-semibold">
-                      {c.nome.split(" ").map(n => n[0]).join("").slice(0, 2)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{c.nome}</p>
-                      <p className="text-xs text-muted-foreground">{c.cargo || "Sem cargo"}</p>
-                    </div>
-                  </div>
-                ))}
-                {colaboradoresDisponiveis.length === 0 && (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    Nenhum colaborador encontrado
-                  </p>
+                    <X className="h-3 w-3 mr-2" />
+                    Remover colaborador
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Busca de colaboradores */}
+                {showTrocar && colaborador && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start text-xs h-7 mb-2"
+                    onClick={() => setShowTrocar(false)}
+                  >
+                    ← Voltar
+                  </Button>
                 )}
-              </div>
-            </ScrollArea>
+                <div className="relative">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+                  <Input
+                    placeholder="Buscar por nome ou CPF..."
+                    value={localSearch}
+                    onChange={(e) => setLocalSearch(e.target.value)}
+                    className="h-8 pl-7 text-sm"
+                    autoFocus
+                  />
+                </div>
+                <div className="text-xs text-muted-foreground px-1">
+                  {colaboradoresDisponiveis.length} colaborador(es) disponível(is)
+                </div>
+                <ScrollArea className="h-52">
+                  <div className="space-y-1">
+                    {colaboradoresDisponiveis.map((c) => (
+                      <div
+                        key={c.id}
+                        className="flex items-center gap-2 p-2 rounded hover:bg-accent cursor-pointer"
+                        onClick={() => {
+                          handleAddColaborador(equipe.id, c.id, slotIndex);
+                          setOpen(false);
+                          setLocalSearch("");
+                          setShowTrocar(false);
+                        }}
+                      >
+                        <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-semibold">
+                          {c.nome.split(" ").map(n => n[0]).join("").slice(0, 2)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{c.nome}</p>
+                          <p className="text-xs text-muted-foreground">{c.cargo || "Sem cargo"}</p>
+                        </div>
+                      </div>
+                    ))}
+                    {colaboradoresDisponiveis.length === 0 && (
+                      <p className="text-sm text-muted-foreground text-center py-4">
+                        Nenhum colaborador encontrado
+                      </p>
+                    )}
+                  </div>
+                </ScrollArea>
+              </>
+            )}
           </div>
         </PopoverContent>
       </Popover>
@@ -505,7 +784,32 @@ const Equipes = () => {
             </SelectContent>
           </Select>
 
-          <Button className="gap-2" onClick={() => { setSelectedTecnico(null); setFormOpen(true); }}>
+          <ExportButton
+            data={tecnicos}
+            filename="equipes"
+            columns={[
+              { key: "codigo", label: "Código" },
+              { key: "nome", label: "Nome" },
+              { key: "status", label: "Status", format: (v) => v === "offline" ? "Inativa" : "Ativa" },
+              { key: "tipo_equipe", label: "Tipo", format: (v) => v === "gaviao" ? "Gavião" : v === "kit" ? "Kit" : "Normal" },
+              { key: "hora_inicio", label: "Jornada Início" },
+              { key: "jornada_horas", label: "Jornada (horas)" },
+              { key: "max_horas_trabalho", label: "Máx Horas Trabalho" },
+              { key: "habilidades", label: "Habilidades", format: (v) => Array.isArray(v) ? v.join(", ") : "" },
+              { key: "color", label: "Cor" },
+              { key: "placa_veiculo", label: "Placa Veículo" },
+              { key: "min_colaboradores", label: "Mín Colaboradores" },
+              { key: "max_colaboradores", label: "Máx Colaboradores" },
+              { key: "colaboradores", label: "Colaboradores", format: (v) => Array.isArray(v) ? v.map((c: any) => c.colaborador?.nome).join(", ") : "" },
+            ]}
+            disabled={loading}
+          />
+          <Button 
+            className="gap-2" 
+            onClick={() => { setSelectedTecnico(null); setFormOpen(true); }}
+            disabled={!podeEditar}
+            title={!podeEditar ? "Você não tem permissão para criar equipes" : undefined}
+          >
             <Plus className="h-4 w-4" />
             Nova Equipe
           </Button>
@@ -526,6 +830,7 @@ const Equipes = () => {
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <TableHead className="w-[100px]">Código</TableHead>
+                  <TableHead className="w-[100px]">Tipo</TableHead>
                   <TableHead className="w-[100px]">Jornada</TableHead>
                   <TableHead className="w-[180px]">Colaborador 1</TableHead>
                   <TableHead className="w-[180px]">Colaborador 2</TableHead>
@@ -557,6 +862,9 @@ const Equipes = () => {
                         </div>
                       </TableCell>
                       <TableCell>
+                        <TipoEquipeCell equipe={tecnico} />
+                      </TableCell>
+                      <TableCell>
                         {editingJornada === tecnico.id ? (
                           <div className="flex items-center gap-1">
                             <Input
@@ -585,11 +893,13 @@ const Equipes = () => {
                           </div>
                         ) : (
                           <div 
-                            className="flex items-center gap-1.5 cursor-pointer hover:bg-muted/50 p-1.5 rounded-md transition-colors"
+                            className={`flex items-center gap-1.5 p-1.5 rounded-md transition-colors ${podeEditar ? 'cursor-pointer hover:bg-muted/50' : 'cursor-default'}`}
                             onClick={() => {
+                              if (!podeEditar) return;
                               setEditingJornada(tecnico.id);
                               setJornadaValue(horaInicio);
                             }}
+                            title={podeEditar ? "Clique para editar" : "Você não tem permissão para editar"}
                           >
                             <Clock className="h-3.5 w-3.5 text-muted-foreground" />
                             <span className="text-sm font-medium">{horaInicio}</span>
@@ -607,13 +917,16 @@ const Equipes = () => {
                       </TableCell>
                       <TableCell>
                         <div 
-                          className="cursor-pointer"
-                          onClick={() => handleToggleStatus(tecnico.id, normalizedStatus)}
-                          title="Clique para alternar status"
+                          className={podeEditar ? "cursor-pointer" : "cursor-default"}
+                          onClick={() => {
+                            if (!podeEditar) return;
+                            handleToggleStatus(tecnico.id, normalizedStatus);
+                          }}
+                          title={podeEditar ? "Clique para alternar status" : "Você não tem permissão para editar"}
                         >
                           <Badge 
                             variant={isAtivo ? "success" : "secondary"}
-                            className="gap-1 cursor-pointer hover:opacity-80 transition-opacity"
+                            className={`gap-1 ${podeEditar ? 'cursor-pointer hover:opacity-80' : 'cursor-default'} transition-opacity`}
                           >
                             {isAtivo ? (
                               <CheckCircle className="h-3 w-3" />
@@ -649,7 +962,8 @@ const Equipes = () => {
                             size="icon" 
                             className="h-8 w-8"
                             onClick={() => handleEdit(tecnico)}
-                            title="Editar"
+                            title={podeEditar ? "Editar" : "Você não tem permissão para editar"}
+                            disabled={!podeEditar}
                           >
                             <Edit className="h-4 w-4" />
                           </Button>
@@ -658,7 +972,8 @@ const Equipes = () => {
                             size="icon" 
                             className="h-8 w-8"
                             onClick={() => handleDuplicate(tecnico)}
-                            title="Duplicar equipe"
+                            title={podeEditar ? "Duplicar equipe" : "Você não tem permissão para duplicar"}
+                            disabled={!podeEditar}
                           >
                             <Copy className="h-4 w-4" />
                           </Button>
@@ -667,7 +982,8 @@ const Equipes = () => {
                             size="icon"
                             className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
                             onClick={() => { setTecnicoToDelete(tecnico); setDeleteDialogOpen(true); }}
-                            title="Excluir"
+                            title={podeEditar ? "Excluir" : "Você não tem permissão para excluir"}
+                            disabled={!podeEditar}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -692,9 +1008,15 @@ const Equipes = () => {
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Excluir técnico</AlertDialogTitle>
+            <AlertDialogTitle>Excluir/Desativar Equipe</AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja excluir o técnico {tecnicoToDelete?.nome}? Esta ação não pode ser desfeita.
+              Tem certeza que deseja remover a equipe <strong>{tecnicoToDelete?.nome}</strong>?
+              <br /><br />
+              <span className="text-muted-foreground text-xs">
+                • Se a equipe tiver OS concluídas, será apenas <strong>desativada</strong> (mantendo o histórico).
+                <br />
+                • Se não tiver OS concluídas, será <strong>excluída permanentemente</strong>.
+              </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

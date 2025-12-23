@@ -56,6 +56,7 @@ const tecnicoSchema = z.object({
   codigo: z.string().min(1, "Código é obrigatório").max(20),
   nome: z.string().max(200).optional(), // Nome será gerado automaticamente dos colaboradores
   status: z.enum(["disponivel", "offline"]),
+  tipo_equipe: z.enum(["normal", "gaviao", "kit"]),
   hora_inicio: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Formato inválido (use HH:mm)"),
   jornada_horas: z.number().min(1).max(24),
   max_horas_trabalho: z.number().min(1).max(24),
@@ -70,6 +71,13 @@ const tecnicoSchema = z.object({
   path: ["max_colaboradores"],
 });
 
+// Tipos de equipe disponíveis
+const tiposEquipeDisponiveis = [
+  { value: "normal", label: "Normal", description: "Equipe padrão de campo" },
+  { value: "gaviao", label: "Gavião", description: "Equipe especializada em corte/religa" },
+  { value: "kit", label: "Kit", description: "Equipe de instalação de kit" },
+];
+
 type TecnicoFormData = z.infer<typeof tecnicoSchema>;
 
 interface TecnicoFormDialogProps {
@@ -79,16 +87,13 @@ interface TecnicoFormDialogProps {
   onSuccess: () => void;
 }
 
-// Mapeamento de habilidades para tipos de OS
-const habilidadesDisponiveis = [
-  { label: "Corte", value: "CORTE" },
-  { label: "Religa", value: "RELIGA" },
-  { label: "Inspeção", value: "INSPEÇÃO" },
-  { label: "Ligação Nova", value: "LIGAÇÃO NOVA" },
-  { label: "Manutenção", value: "MANUTENÇÃO" },
-  { label: "Troca de Medidor", value: "TROCA DE MEDIDOR" },
-  { label: "Vistoria", value: "VISTORIA" },
-];
+// Interface para skills do banco
+interface Skill {
+  id: string;
+  codigo: string;
+  nome: string;
+  ativo: boolean;
+}
 
 export function TecnicoFormDialog({
   open,
@@ -98,6 +103,7 @@ export function TecnicoFormDialog({
 }: TecnicoFormDialogProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [habilidades, setHabilidades] = useState<string[]>([]);
+  const [skillsDisponiveis, setSkillsDisponiveis] = useState<Skill[]>([]);
   const [almoco, setAlmoco] = useState({
     duracao: 60,
     janelaInicio: "11:00",
@@ -119,6 +125,7 @@ export function TecnicoFormDialog({
       codigo: "",
       nome: "",
       status: "disponivel",
+      tipo_equipe: "normal",
       hora_inicio: "07:30",
       jornada_horas: 8,
       max_horas_trabalho: 10,
@@ -130,6 +137,22 @@ export function TecnicoFormDialog({
       max_colaboradores: 2,
     },
   });
+
+  // Carregar skills disponíveis do banco de dados
+  const fetchSkills = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("skills")
+        .select("id, codigo, nome, ativo")
+        .eq("ativo", true)
+        .order("nome");
+
+      if (error) throw error;
+      setSkillsDisponiveis(data || []);
+    } catch (error) {
+      console.error("Erro ao carregar skills:", error);
+    }
+  };
 
   // Carregar todos os colaboradores disponíveis
   const fetchColaboradores = async () => {
@@ -185,9 +208,28 @@ export function TecnicoFormDialog({
 
   // Adicionar colaborador à equipe
   const addColaborador = async (colaboradorId: string, funcao: string = "membro") => {
+    const colaborador = todosColaboradores.find(c => c.id === colaboradorId);
+    
+    // Verificar se o colaborador já está ativo em outra equipe
+    const { data: vinculoExistente, error: erroVerificacao } = await supabase
+      .from("equipe_colaboradores")
+      .select(`
+        id,
+        equipe_id,
+        tecnicos:equipe_id (codigo, nome)
+      `)
+      .eq("colaborador_id", colaboradorId)
+      .eq("ativo", true)
+      .single();
+
+    if (vinculoExistente && vinculoExistente.equipe_id !== tecnico?.id) {
+      const equipeAtual = (vinculoExistente as any).tecnicos;
+      toast.error(`Colaborador já está vinculado à equipe ${equipeAtual?.codigo || ''} (${equipeAtual?.nome || ''})`);
+      return;
+    }
+
     if (!tecnico?.id || tecnico.id.startsWith("temp-")) {
       // Se é nova equipe, apenas adicionar na lista local
-      const colaborador = todosColaboradores.find(c => c.id === colaboradorId);
       if (colaborador && !colaboradoresEquipe.some(ec => ec.colaborador_id === colaboradorId)) {
         setColaboradoresEquipe(prev => [...prev, {
           id: `temp-${Date.now()}`,
@@ -302,6 +344,7 @@ export function TecnicoFormDialog({
   useEffect(() => {
     if (open) {
       fetchColaboradores();
+      fetchSkills();
     }
   }, [open]);
 
@@ -309,11 +352,14 @@ export function TecnicoFormDialog({
     if (tecnico) {
       // Normalizar status antigos (em_servico, pausa) para "disponivel"
       const normalizedStatus = tecnico.status === "offline" ? "offline" : "disponivel";
+      // Normalizar tipo_equipe
+      const tipoEquipe = (tecnico as any).tipo_equipe || "normal";
       
       form.reset({
         codigo: tecnico.codigo,
         nome: tecnico.nome || "",
         status: normalizedStatus as TecnicoFormData["status"],
+        tipo_equipe: tipoEquipe as TecnicoFormData["tipo_equipe"],
         hora_inicio: (tecnico as any).hora_inicio || "07:30",
         jornada_horas: (tecnico as any).jornada_horas || 8,
         max_horas_trabalho: (tecnico as any).max_horas_trabalho || 10,
@@ -350,6 +396,7 @@ export function TecnicoFormDialog({
         codigo: "",
         nome: "",
         status: "disponivel",
+        tipo_equipe: "normal",
         hora_inicio: "07:30",
         jornada_horas: 8,
         max_horas_trabalho: 10,
@@ -397,6 +444,7 @@ export function TecnicoFormDialog({
         codigo: data.codigo,
         nome: nomeEquipe,
         status: data.status,
+        tipo_equipe: data.tipo_equipe,
         habilidades,
         hora_inicio: data.hora_inicio,
         jornada_horas: data.jornada_horas,
@@ -553,6 +601,36 @@ export function TecnicoFormDialog({
                       </FormItem>
                     )}
                   />
+
+                  <FormField
+                    control={form.control}
+                    name="tipo_equipe"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Tipo de Equipe</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {tiposEquipeDisponiveis.map((tipo) => (
+                              <SelectItem key={tipo.value} value={tipo.value}>
+                                <div className="flex flex-col">
+                                  <span>{tipo.label}</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          {tiposEquipeDisponiveis.find(t => t.value === field.value)?.description}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                 </div>
 
                 {/* Informação sobre colaboradores */}
@@ -571,19 +649,23 @@ export function TecnicoFormDialog({
                     Selecione as habilidades que esta equipe possui
                   </FormDescription>
                   <div className="flex flex-wrap gap-2">
-                    {habilidadesDisponiveis.map((hab) => (
-                      <Badge
-                        key={hab.value}
-                        variant={habilidades.includes(hab.value) ? "default" : "outline"}
-                        className="cursor-pointer"
-                        onClick={() => toggleHabilidade(hab.value)}
-                      >
-                        {hab.label}
-                        {habilidades.includes(hab.value) && (
-                          <X className="h-3 w-3 ml-1" />
-                        )}
-                      </Badge>
-                    ))}
+                    {skillsDisponiveis.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">Nenhuma skill cadastrada. Cadastre skills em "Cadastrar &gt; Skills".</p>
+                    ) : (
+                      skillsDisponiveis.map((skill) => (
+                        <Badge
+                          key={skill.codigo}
+                          variant={habilidades.includes(skill.codigo) ? "default" : "outline"}
+                          className="cursor-pointer"
+                          onClick={() => toggleHabilidade(skill.codigo)}
+                        >
+                          {skill.nome}
+                          {habilidades.includes(skill.codigo) && (
+                            <X className="h-3 w-3 ml-1" />
+                          )}
+                        </Badge>
+                      ))
+                    )}
                   </div>
                 </div>
 

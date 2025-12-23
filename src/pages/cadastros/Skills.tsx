@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { useTelaPermissao } from "@/hooks/usePermissoes";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -24,6 +25,7 @@ import {
   filterData,
   FilterConfig,
 } from "@/components/ui/data-table-filters";
+import { ExportButton } from "@/components/ui/export-button";
 
 type Skill = Tables<"skills">;
 
@@ -56,6 +58,9 @@ const filterConfigs: FilterConfig[] = [
 ];
 
 export default function Skills() {
+  // Permissões da tela
+  const { podeEditar } = useTelaPermissao("skills");
+
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
   const queryClient = useQueryClient();
@@ -164,11 +169,30 @@ export default function Skills() {
             </Badge>
           </div>
           <div className="flex items-center gap-2">
+            <ExportButton
+              data={skills || []}
+              filename="skills"
+              columns={[
+                { key: "codigo", label: "Código" },
+                { key: "nome", label: "Nome" },
+                { key: "descricao", label: "Descrição" },
+                { key: "tempo_medio_minutos", label: "Tempo Médio (min)" },
+                { key: "valor_base", label: "Valor Base", format: (v) => v ? `R$ ${Number(v).toFixed(2)}` : "" },
+                { key: "ativo", label: "Ativo", format: (v) => v ? "Sim" : "Não" },
+                { key: "icone", label: "Ícone" },
+                { key: "cor", label: "Cor" },
+              ]}
+              disabled={isLoading}
+            />
             <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
               <RefreshCcw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
               Atualizar
             </Button>
-            <Button onClick={handleAdd}>
+            <Button 
+              onClick={handleAdd}
+              disabled={!podeEditar}
+              title={!podeEditar ? "Você não tem permissão para criar" : undefined}
+            >
               <Plus className="h-4 w-4 mr-2" />
               Nova Skill
             </Button>
@@ -311,13 +335,21 @@ export default function Skills() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button variant="ghost" size="sm" onClick={() => handleEdit(skill)}>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={() => handleEdit(skill)}
+                          disabled={!podeEditar}
+                          title={!podeEditar ? "Você não tem permissão para editar" : "Editar"}
+                        >
                           <Pencil className="h-4 w-4" />
                         </Button>
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => deleteMutation.mutate(skill.id)}
+                          disabled={!podeEditar}
+                          title={!podeEditar ? "Você não tem permissão para excluir" : "Excluir"}
                         >
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>

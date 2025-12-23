@@ -46,6 +46,7 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { SortableTableHead, useSortableTable } from "@/components/ui/sortable-table-head";
+import { ExportButton } from "@/components/ui/export-button";
 import {
   DataTableFilters,
   useDataTableFilters,
@@ -337,6 +338,22 @@ export default function AdminProcedimentos() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <ExportButton
+            data={procedimentos}
+            filename="procedimentos"
+            columns={[
+              { key: "codigo", label: "Código" },
+              { key: "titulo", label: "Título" },
+              { key: "descricao", label: "Descrição" },
+              { key: "categoria", label: "Categoria" },
+              { key: "aplicavel_app", label: "App", format: (v) => v ? "Sim" : "Não" },
+              { key: "aplicavel_web", label: "Web", format: (v) => v ? "Sim" : "Não" },
+              { key: "url_documento", label: "URL Documento" },
+              { key: "ativo", label: "Ativo", format: (v) => v ? "Sim" : "Não" },
+              { key: "created_at", label: "Criado em", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
+            ]}
+            disabled={loading}
+          />
           <Button variant="outline" onClick={fetchData} disabled={loading}>
             <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
             Atualizar

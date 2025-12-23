@@ -152,7 +152,41 @@ export default function AppAbrirTurno() {
       return;
     }
 
+    // Verificar se algum colaborador já tem turno aberto em outra equipe
     const colaboradoresIds = colaboradoresTurno.map(c => c.id);
+    
+    try {
+      const { data: turnosAbertos, error: erroVerificacao } = await supabase
+        .from("turnos")
+        .select(`
+          id,
+          equipe_id,
+          colaboradores_ids,
+          tecnicos:equipe_id (codigo, nome)
+        `)
+        .eq("status", "aberto")
+        .neq("equipe_id", equipe?.id);
+
+      if (turnosAbertos && turnosAbertos.length > 0) {
+        // Verificar se algum colaborador está em turno aberto
+        for (const turno of turnosAbertos) {
+          const colabsNoTurno = (turno as any).colaboradores_ids || [];
+          const colaboradorEmOutroTurno = colaboradoresTurno.find(c => colabsNoTurno.includes(c.id));
+          
+          if (colaboradorEmOutroTurno) {
+            const equipeDoTurno = (turno as any).tecnicos;
+            toast.error(
+              `${colaboradorEmOutroTurno.nome} já está com turno aberto na equipe ${equipeDoTurno?.codigo || ''} (${equipeDoTurno?.nome || ''})`,
+              { duration: 5000 }
+            );
+            return;
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Erro ao verificar turnos:", error);
+    }
+
     // Passar a lista completa de colaboradores para o contexto
     const success = await iniciarTurno(colaboradoresIds, km, colaboradoresTurno);
 

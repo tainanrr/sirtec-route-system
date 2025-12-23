@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Plus, Pencil, Trash2, Search } from "lucide-react";
 import { toast } from "sonner";
+import { ExportButton } from "@/components/ui/export-button";
 
 interface PontoSaida {
   id: string;
@@ -138,10 +139,25 @@ export default function CadastroPontosSaida() {
     <MainLayout title="Pontos de Saída" subtitle="Gerencie os pontos de partida das equipes">
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <Button onClick={handleAdd}>
-            <Plus className="mr-2 h-4 w-4" />
-            Novo Ponto
-          </Button>
+          <div className="flex items-center gap-2">
+            <ExportButton
+              data={pontos || []}
+              filename="pontos_saida"
+              columns={[
+                { key: "nome", label: "Nome" },
+                { key: "endereco", label: "Endereço" },
+                { key: "latitude", label: "Latitude" },
+                { key: "longitude", label: "Longitude" },
+                { key: "ativo", label: "Ativo", format: (v) => v ? "Sim" : "Não" },
+                { key: "created_at", label: "Criado em", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
+              ]}
+              disabled={isLoading}
+            />
+            <Button onClick={handleAdd}>
+              <Plus className="mr-2 h-4 w-4" />
+              Novo Ponto
+            </Button>
+          </div>
         </div>
 
         <div className="flex items-center gap-4">

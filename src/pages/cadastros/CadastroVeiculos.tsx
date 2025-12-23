@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { useTelaPermissao } from "@/hooks/usePermissoes";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -45,6 +46,7 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { SortableTableHead, useSortableTable } from "@/components/ui/sortable-table-head";
+import { ExportButton } from "@/components/ui/export-button";
 import {
   DataTableFilters,
   useDataTableFilters,
@@ -89,6 +91,9 @@ const statusOptions = [
 ];
 
 export default function CadastroVeiculos() {
+  // Permissões da tela
+  const { podeEditar } = useTelaPermissao("veiculos");
+
   const [veiculos, setVeiculos] = useState<Veiculo[]>([]);
   const [contratos, setContratos] = useState<Contrato[]>([]);
   const [loading, setLoading] = useState(true);
@@ -343,11 +348,34 @@ export default function CadastroVeiculos() {
             })}
           </div>
           <div className="flex items-center gap-2">
+            <ExportButton
+              data={veiculos}
+              filename="veiculos"
+              columns={[
+                { key: "placa", label: "Placa" },
+                { key: "modelo", label: "Modelo" },
+                { key: "marca", label: "Marca" },
+                { key: "ano", label: "Ano" },
+                { key: "cor", label: "Cor" },
+                { key: "tipo", label: "Tipo" },
+                { key: "combustivel", label: "Combustível" },
+                { key: "capacidade_carga", label: "Capacidade Carga (kg)" },
+                { key: "km_atual", label: "KM Atual" },
+                { key: "data_ultima_revisao", label: "Última Revisão", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
+                { key: "ativo", label: "Ativo", format: (v) => v ? "Sim" : "Não" },
+                { key: "observacoes", label: "Observações" },
+              ]}
+              disabled={loading}
+            />
             <Button variant="outline" onClick={fetchData} disabled={loading}>
               <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
               Atualizar
             </Button>
-            <Button onClick={handleCreate}>
+            <Button 
+              onClick={handleCreate}
+              disabled={!podeEditar}
+              title={!podeEditar ? "Você não tem permissão para criar" : undefined}
+            >
               <Plus className="h-4 w-4 mr-2" />
               Novo Veículo
             </Button>
@@ -501,6 +529,8 @@ export default function CadastroVeiculos() {
                             variant="ghost"
                             size="sm"
                             onClick={() => handleEdit(veiculo)}
+                            disabled={!podeEditar}
+                            title={!podeEditar ? "Você não tem permissão para editar" : "Editar"}
                           >
                             <Pencil className="h-4 w-4" />
                           </Button>
@@ -511,6 +541,8 @@ export default function CadastroVeiculos() {
                               setVeiculoToDelete(veiculo);
                               setDeleteDialogOpen(true);
                             }}
+                            disabled={!podeEditar}
+                            title={!podeEditar ? "Você não tem permissão para excluir" : "Excluir"}
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>

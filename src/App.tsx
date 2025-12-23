@@ -9,6 +9,7 @@ import { EquipeAuthProvider, useEquipeAuth } from "@/contexts/EquipeAuthContext"
 import { TecnicoProvider } from "@/contexts/TecnicoContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { PermissoesProvider } from "@/hooks/usePermissoes";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Roteirizacao from "./pages/Roteirizacao";
@@ -94,6 +95,7 @@ const App = () => (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <WebAuthProvider>
+          <PermissoesProvider>
           <TooltipProvider>
           <Toaster />
           <Sonner />
@@ -180,6 +182,7 @@ const App = () => (
             </Routes>
           </BrowserRouter>
         </TooltipProvider>
+          </PermissoesProvider>
         </WebAuthProvider>
       </AuthProvider>
     </QueryClientProvider>

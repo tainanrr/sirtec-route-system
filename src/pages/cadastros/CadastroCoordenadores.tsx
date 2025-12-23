@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { useTelaPermissao } from "@/hooks/usePermissoes";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -39,7 +40,6 @@ import {
   Mail,
   Phone,
   Users,
-  History,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -50,6 +50,7 @@ import {
   filterData,
   FilterConfig,
 } from "@/components/ui/data-table-filters";
+import { ExportButton } from "@/components/ui/export-button";
 
 interface CoordenadorSupervisor {
   id: string;
@@ -59,9 +60,23 @@ interface CoordenadorSupervisor {
   email: string | null;
   telefone: string | null;
   contrato_id: string | null;
+  usuario_web_id: string | null;
+  coordenador_id: string | null;
   ativo: boolean;
   created_at: string;
   contratos?: { codigo: string; nome: string } | null;
+  usuarios_web?: { id: string; nome: string; email: string; telefone: string | null; contrato_id: string | null } | null;
+  coordenador?: { id: string; nome: string } | null;
+}
+
+interface UsuarioWeb {
+  id: string;
+  nome: string;
+  email: string;
+  telefone: string | null;
+  cargo: string | null;
+  contrato_id: string | null;
+  ativo: boolean;
 }
 
 interface Contrato {
@@ -82,16 +97,18 @@ const tipoOptions = [
 ];
 
 export default function CadastroCoordenadores() {
+  // Permissões da tela
+  const { podeEditar, apenasLeitura } = useTelaPermissao("coordenadores");
+
   const [coordenadores, setCoordenadores] = useState<CoordenadorSupervisor[]>([]);
   const [contratos, setContratos] = useState<Contrato[]>([]);
   const [equipes, setEquipes] = useState<Equipe[]>([]);
+  const [usuariosWeb, setUsuariosWeb] = useState<UsuarioWeb[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [vinculoDialogOpen, setVinculoDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<CoordenadorSupervisor | null>(null);
   const [itemToDelete, setItemToDelete] = useState<CoordenadorSupervisor | null>(null);
-  const [selectedCoordForVinculo, setSelectedCoordForVinculo] = useState<CoordenadorSupervisor | null>(null);
   const [saving, setSaving] = useState(false);
 
   // Configuração dos filtros
@@ -100,7 +117,7 @@ export default function CadastroCoordenadores() {
       id: "search",
       label: "Buscar",
       type: "text",
-      placeholder: "Buscar por código, nome ou email...",
+      placeholder: "Buscar por nome ou email...",
     },
     {
       id: "tipo",
@@ -124,18 +141,18 @@ export default function CadastroCoordenadores() {
 
   // Form state
   const [formData, setFormData] = useState({
-    codigo: "",
+    usuario_web_id: "",
     nome: "",
     tipo: "coordenador" as "coordenador" | "supervisor",
     email: "",
     telefone: "",
     contrato_id: "",
+    coordenador_id: "",
     ativo: true,
   });
 
-  // Estado para vínculo
-  const [vinculoEquipeId, setVinculoEquipeId] = useState("");
-  const [vinculoDataInicio, setVinculoDataInicio] = useState(new Date().toISOString().split("T")[0]);
+  // Estado para busca de usuários web
+  const [usuarioSearch, setUsuarioSearch] = useState("");
 
   // Carregar dados
   const fetchData = async () => {
@@ -145,7 +162,9 @@ export default function CadastroCoordenadores() {
         .from("coordenadores_supervisores")
         .select(`
           *,
-          contratos (codigo, nome)
+          contratos (codigo, nome),
+          usuarios_web (id, nome, email, telefone, contrato_id),
+          coordenador:coordenadores_supervisores!coordenador_id (id, nome)
         `)
         .order("tipo", { ascending: true })
         .order("nome", { ascending: true });
@@ -162,16 +181,33 @@ export default function CadastroCoordenadores() {
 
       const { data: equipesData } = await supabase
         .from("tecnicos")
-        .select("id, codigo, nome")
-        .eq("ativo", true)
+        .select("id, codigo, nome, supervisor_id, coordenador_id")
         .order("codigo");
       setEquipes(equipesData || []);
+
+      // Carregar usuários web ativos
+      const { data: usuariosData } = await supabase
+        .from("usuarios_web")
+        .select("id, nome, email, telefone, cargo, contrato_id, ativo")
+        .eq("ativo", true)
+        .order("nome");
+      setUsuariosWeb(usuariosData || []);
     } catch (error: any) {
       console.error("Erro ao carregar dados:", error);
       toast.error("Erro ao carregar dados");
     } finally {
       setLoading(false);
     }
+  };
+
+  // Obter supervisores vinculados a um coordenador
+  const getSupervisoresVinculados = (coordenadorId: string) => {
+    return coordenadores.filter(c => c.tipo === "supervisor" && c.coordenador_id === coordenadorId);
+  };
+
+  // Obter equipes vinculadas a um supervisor
+  const getEquipesVinculadas = (supervisorId: string) => {
+    return equipes.filter((e: any) => e.supervisor_id === supervisorId);
   };
 
   useEffect(() => {
@@ -188,7 +224,6 @@ export default function CadastroCoordenadores() {
         search: (item, value) => {
           const searchTerm = value.toLowerCase();
           return (
-            item.codigo.toLowerCase().includes(searchTerm) ||
             item.nome.toLowerCase().includes(searchTerm) ||
             item.email?.toLowerCase().includes(searchTerm) || false
           );
@@ -211,46 +246,119 @@ export default function CadastroCoordenadores() {
   const handleCreate = () => {
     setEditingItem(null);
     setFormData({
-      codigo: "",
+      usuario_web_id: "",
       nome: "",
       tipo: "coordenador",
       email: "",
       telefone: "",
       contrato_id: "",
+      coordenador_id: "",
       ativo: true,
     });
+    setUsuarioSearch("");
     setDialogOpen(true);
   };
 
   const handleEdit = (item: CoordenadorSupervisor) => {
     setEditingItem(item);
     setFormData({
-      codigo: item.codigo,
+      usuario_web_id: item.usuario_web_id || "",
       nome: item.nome,
       tipo: item.tipo,
       email: item.email || "",
       telefone: item.telefone || "",
       contrato_id: item.contrato_id || "",
+      coordenador_id: item.coordenador_id || "",
       ativo: item.ativo,
     });
+    setUsuarioSearch("");
     setDialogOpen(true);
   };
 
+  // Quando selecionar um usuário web, preencher os dados
+  const handleUsuarioWebChange = (usuarioId: string) => {
+    const usuario = usuariosWeb.find(u => u.id === usuarioId);
+    console.log("Usuario selecionado:", usuario); // Debug
+    if (usuario) {
+      // Buscar contrato_id do usuário (pode estar em usuario_contratos)
+      setFormData(prev => ({
+        ...prev,
+        usuario_web_id: usuarioId,
+        nome: usuario.nome,
+        email: usuario.email,
+        telefone: usuario.telefone || "",
+        contrato_id: usuario.contrato_id || "",
+      }));
+      setUsuarioSearch("");
+      
+      // Se o usuário não tem contrato_id, tentar buscar de usuario_contratos
+      if (!usuario.contrato_id) {
+        supabase
+          .from("usuario_contratos")
+          .select("contrato_id")
+          .eq("usuario_web_id", usuarioId)
+          .limit(1)
+          .then(({ data }) => {
+            if (data && data.length > 0) {
+              setFormData(prev => ({
+                ...prev,
+                contrato_id: data[0].contrato_id,
+              }));
+            }
+          });
+      }
+    }
+  };
+
+  // Filtrar usuários web disponíveis (não vinculados a outros coordenadores/supervisores)
+  const usuariosDisponiveis = useMemo(() => {
+    const vinculados = coordenadores
+      .filter(c => c.usuario_web_id && c.id !== editingItem?.id)
+      .map(c => c.usuario_web_id);
+    return usuariosWeb.filter(u => !vinculados.includes(u.id));
+  }, [usuariosWeb, coordenadores, editingItem]);
+
+  // Filtrar usuários pela busca
+  const usuariosFiltrados = useMemo(() => {
+    if (!usuarioSearch) return usuariosDisponiveis;
+    const search = usuarioSearch.toLowerCase();
+    return usuariosDisponiveis.filter(u => 
+      u.nome.toLowerCase().includes(search) ||
+      u.email.toLowerCase().includes(search)
+    );
+  }, [usuariosDisponiveis, usuarioSearch]);
+
+  // Lista de coordenadores ativos (para vincular supervisores)
+  const coordenadoresAtivos = useMemo(() => {
+    return coordenadores.filter(c => c.tipo === "coordenador" && c.ativo);
+  }, [coordenadores]);
+
   const handleSave = async () => {
-    if (!formData.codigo || !formData.nome) {
-      toast.error("Preencha os campos obrigatórios");
+    if (!formData.usuario_web_id) {
+      toast.error("Selecione um usuário web");
+      return;
+    }
+
+    // Validar que supervisores precisam ter coordenador vinculado
+    if (formData.tipo === "supervisor" && !formData.coordenador_id) {
+      toast.error("Supervisor precisa estar vinculado a um coordenador");
       return;
     }
 
     setSaving(true);
     try {
-      const payload = {
-        codigo: formData.codigo,
+      // Gerar código automaticamente baseado no tipo e nome
+      const codigo = `${formData.tipo === "coordenador" ? "COORD" : "SUP"}-${formData.nome.split(" ")[0].toUpperCase().slice(0, 6)}`;
+      
+      const payload: any = {
+        codigo: codigo,
         nome: formData.nome,
         tipo: formData.tipo,
         email: formData.email || null,
         telefone: formData.telefone || null,
         contrato_id: formData.contrato_id || null,
+        usuario_web_id: formData.usuario_web_id,
+        coordenador_id: formData.tipo === "supervisor" ? formData.coordenador_id : null,
         ativo: formData.ativo,
       };
 
@@ -271,6 +379,17 @@ export default function CadastroCoordenadores() {
         toast.success("Registro criado com sucesso");
       }
 
+      // Sincronizar contrato com o usuário web (se alterou o contrato)
+      if (formData.contrato_id) {
+        const usuario = usuariosWeb.find(u => u.id === formData.usuario_web_id);
+        if (usuario && usuario.contrato_id !== formData.contrato_id) {
+          await supabase
+            .from("usuarios_web")
+            .update({ contrato_id: formData.contrato_id })
+            .eq("id", formData.usuario_web_id);
+        }
+      }
+
       setDialogOpen(false);
       fetchData();
     } catch (error: any) {
@@ -285,64 +404,49 @@ export default function CadastroCoordenadores() {
     if (!itemToDelete) return;
 
     try {
-      const { error } = await supabase
-        .from("coordenadores_supervisores")
-        .delete()
-        .eq("id", itemToDelete.id);
+      // Verificar se há OSs atendidas vinculadas a este coordenador/supervisor
+      // Buscar em ordens_servico onde coordenador_id ou supervisor_id = itemToDelete.id
+      const { data: osVinculadas, error: osError } = await supabase
+        .from("ordens_servico")
+        .select("id")
+        .or(`coordenador_id.eq.${itemToDelete.id},supervisor_id.eq.${itemToDelete.id}`)
+        .limit(1);
 
-      if (error) throw error;
+      if (osError) {
+        console.error("Erro ao verificar OSs:", osError);
+        // Se não conseguir verificar, apenas desativa por segurança
+      }
 
-      toast.success("Registro excluído com sucesso");
+      const temOsVinculada = osVinculadas && osVinculadas.length > 0;
+
+      if (temOsVinculada) {
+        // Apenas desativar
+        const { error } = await supabase
+          .from("coordenadores_supervisores")
+          .update({ ativo: false, updated_at: new Date().toISOString() })
+          .eq("id", itemToDelete.id);
+
+        if (error) throw error;
+
+        toast.success("Registro desativado (possui OSs vinculadas)");
+      } else {
+        // Pode excluir
+        const { error } = await supabase
+          .from("coordenadores_supervisores")
+          .delete()
+          .eq("id", itemToDelete.id);
+
+        if (error) throw error;
+
+        toast.success("Registro excluído com sucesso");
+      }
+
       setDeleteDialogOpen(false);
       setItemToDelete(null);
       fetchData();
     } catch (error: any) {
-      console.error("Erro ao excluir:", error);
-      toast.error(`Erro ao excluir: ${error.message}`);
-    }
-  };
-
-  const handleVincularEquipe = async () => {
-    if (!selectedCoordForVinculo || !vinculoEquipeId || !vinculoDataInicio) {
-      toast.error("Preencha todos os campos");
-      return;
-    }
-
-    setSaving(true);
-    try {
-      await supabase
-        .from("equipe_coordenador_historico")
-        .update({ data_fim: vinculoDataInicio })
-        .eq("equipe_id", vinculoEquipeId)
-        .is("data_fim", null);
-
-      const { error } = await supabase
-        .from("equipe_coordenador_historico")
-        .insert({
-          equipe_id: vinculoEquipeId,
-          coordenador_supervisor_id: selectedCoordForVinculo.id,
-          data_inicio: vinculoDataInicio,
-        });
-
-      if (error) throw error;
-
-      const fieldToUpdate = selectedCoordForVinculo.tipo === "coordenador" 
-        ? "coordenador_id" 
-        : "supervisor_id";
-
-      await supabase
-        .from("tecnicos")
-        .update({ [fieldToUpdate]: selectedCoordForVinculo.id })
-        .eq("id", vinculoEquipeId);
-
-      toast.success("Equipe vinculada com sucesso");
-      setVinculoDialogOpen(false);
-      setVinculoEquipeId("");
-    } catch (error: any) {
-      console.error("Erro ao vincular:", error);
-      toast.error(`Erro ao vincular: ${error.message}`);
-    } finally {
-      setSaving(false);
+      console.error("Erro ao excluir/desativar:", error);
+      toast.error(`Erro: ${error.message}`);
     }
   };
 
@@ -352,7 +456,7 @@ export default function CadastroCoordenadores() {
       subtitle="Gerencie os coordenadores e supervisores das equipes"
       breadcrumbs={[
         { label: "Cadastros", href: "/cadastros" },
-        { label: "Coordenadores" },
+        { label: "Coordenadores e Supervisores" },
       ]}
     >
       <div className="space-y-6">
@@ -367,11 +471,33 @@ export default function CadastroCoordenadores() {
             </Badge>
           </div>
           <div className="flex items-center gap-2">
+            <ExportButton
+              data={coordenadores}
+              filename="coordenadores_supervisores"
+              columns={[
+                { key: "codigo", label: "Código" },
+                { key: "nome", label: "Nome" },
+                { key: "tipo", label: "Tipo", format: (v) => v === "coordenador" ? "Coordenador" : "Supervisor" },
+                { key: "email", label: "Email" },
+                { key: "telefone", label: "Telefone" },
+                { key: "contratos.codigo", label: "Contrato Código" },
+                { key: "contratos.nome", label: "Contrato Nome" },
+                { key: "coordenador.nome", label: "Coordenador Responsável" },
+                { key: "ativo", label: "Ativo", format: (v) => v ? "Sim" : "Não" },
+                { key: "usuario_web_id", label: "ID Usuário Web" },
+                { key: "created_at", label: "Criado em", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
+              ]}
+              disabled={loading}
+            />
             <Button variant="outline" onClick={fetchData} disabled={loading}>
               <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
               Atualizar
             </Button>
-            <Button onClick={handleCreate}>
+            <Button 
+              onClick={handleCreate}
+              disabled={!podeEditar}
+              title={!podeEditar ? "Você não tem permissão para criar" : undefined}
+            >
               <Plus className="h-4 w-4 mr-2" />
               Novo
             </Button>
@@ -394,12 +520,6 @@ export default function CadastroCoordenadores() {
             <TableHeader>
               <TableRow>
                 <SortableTableHead
-                  column="codigo"
-                  label="Código"
-                  sortConfig={sortConfig}
-                  onSort={handleSort}
-                />
-                <SortableTableHead
                   column="nome"
                   label="Nome"
                   sortConfig={sortConfig}
@@ -412,6 +532,7 @@ export default function CadastroCoordenadores() {
                   onSort={handleSort}
                 />
                 <TableHead>Contato</TableHead>
+                <TableHead>Vínculos</TableHead>
                 <SortableTableHead
                   column="contratos.codigo"
                   label="Contrato"
@@ -451,84 +572,128 @@ export default function CadastroCoordenadores() {
                   </TableCell>
                 </TableRow>
               ) : (
-                sortedData?.map((item) => (
-                  <TableRow key={item.id} className="group">
-                    <TableCell className="font-mono font-medium">
-                      {item.codigo}
-                    </TableCell>
-                    <TableCell className="font-medium">{item.nome}</TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={item.tipo === "coordenador" ? "default" : "secondary"}
-                      >
-                        {item.tipo === "coordenador" ? "Coordenador" : "Supervisor"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="space-y-1">
-                        {item.email && (
-                          <div className="flex items-center gap-1 text-sm">
-                            <Mail className="h-3 w-3 text-muted-foreground" />
-                            {item.email}
+                sortedData?.map((item) => {
+                  // Para coordenadores: mostrar supervisores vinculados
+                  // Para supervisores: mostrar equipes vinculadas
+                  const supervisoresVinculados = item.tipo === "coordenador" 
+                    ? getSupervisoresVinculados(item.id) 
+                    : [];
+                  const equipesVinculadas = item.tipo === "supervisor" 
+                    ? getEquipesVinculadas(item.id) 
+                    : [];
+
+                  return (
+                    <TableRow key={item.id}>
+                      <TableCell className="font-medium">{item.nome}</TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={item.tipo === "coordenador" ? "default" : "secondary"}
+                        >
+                          {item.tipo === "coordenador" ? "Coordenador" : "Supervisor"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="space-y-1">
+                          {item.email && (
+                            <div className="flex items-center gap-1 text-sm">
+                              <Mail className="h-3 w-3 text-muted-foreground" />
+                              {item.email}
+                            </div>
+                          )}
+                          {item.telefone && (
+                            <div className="flex items-center gap-1 text-sm">
+                              <Phone className="h-3 w-3 text-muted-foreground" />
+                              {item.telefone}
+                            </div>
+                          )}
+                          {!item.email && !item.telefone && (
+                            <span className="text-muted-foreground text-sm">-</span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {item.tipo === "coordenador" ? (
+                          <div className="space-y-1">
+                            {supervisoresVinculados.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {supervisoresVinculados.map(sup => (
+                                  <Badge key={sup.id} variant="outline" className="text-xs bg-purple-50">
+                                    {sup.nome.split(" ")[0]}
+                                  </Badge>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">Sem supervisores</span>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="space-y-1">
+                            {/* Mostrar coordenador responsável */}
+                            {item.coordenador && (
+                              <div className="text-xs text-muted-foreground mb-1">
+                                Coord: <span className="font-medium">{(item.coordenador as any).nome}</span>
+                              </div>
+                            )}
+                            {/* Mostrar equipes */}
+                            {equipesVinculadas.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {equipesVinculadas.slice(0, 3).map((eq: any) => (
+                                  <Badge key={eq.id} variant="outline" className="text-xs bg-blue-50">
+                                    {eq.codigo}
+                                  </Badge>
+                                ))}
+                                {equipesVinculadas.length > 3 && (
+                                  <Badge variant="outline" className="text-xs">
+                                    +{equipesVinculadas.length - 3}
+                                  </Badge>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">Sem equipes</span>
+                            )}
                           </div>
                         )}
-                        {item.telefone && (
-                          <div className="flex items-center gap-1 text-sm">
-                            <Phone className="h-3 w-3 text-muted-foreground" />
-                            {item.telefone}
-                          </div>
-                        )}
-                        {!item.email && !item.telefone && (
+                      </TableCell>
+                      <TableCell>
+                        {item.contratos ? (
+                          <Badge variant="outline">{item.contratos.codigo}</Badge>
+                        ) : (
                           <span className="text-muted-foreground text-sm">-</span>
                         )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {item.contratos ? (
-                        <Badge variant="outline">{item.contratos.codigo}</Badge>
-                      ) : (
-                        <span className="text-muted-foreground text-sm">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={item.ativo ? "default" : "secondary"}>
-                        {item.ativo ? "Ativo" : "Inativo"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setSelectedCoordForVinculo(item);
-                            setVinculoDialogOpen(true);
-                          }}
-                          title="Vincular Equipe"
-                        >
-                          <Users className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleEdit(item)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setItemToDelete(item);
-                            setDeleteDialogOpen(true);
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={item.ativo ? "default" : "secondary"}>
+                          {item.ativo ? "Ativo" : "Inativo"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center gap-1 justify-end">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleEdit(item)}
+                            title={podeEditar ? "Editar" : "Você não tem permissão para editar"}
+                            disabled={!podeEditar}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setItemToDelete(item);
+                              setDeleteDialogOpen(true);
+                            }}
+                            title={podeEditar ? "Desativar" : "Você não tem permissão para desativar"}
+                            disabled={!podeEditar}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
               )}
             </TableBody>
           </Table>
@@ -548,78 +713,193 @@ export default function CadastroCoordenadores() {
                 {editingItem ? "Editar" : "Novo"}{" "}
                 {formData.tipo === "coordenador" ? "Coordenador" : "Supervisor"}
               </DialogTitle>
+              <DialogDescription>
+                {!editingItem && "Selecione um usuário web cadastrado para vincular como coordenador ou supervisor."}
+              </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              {/* Seleção de Usuário Web com busca */}
+              <div className="space-y-2">
+                <Label>Usuário Web *</Label>
+                
+                {/* Usuário selecionado */}
+                {formData.usuario_web_id && (
+                  <div className="flex items-center justify-between p-2 border rounded-md bg-muted/30">
+                    <div>
+                      <div className="font-medium text-sm">{formData.nome}</div>
+                      <div className="text-xs text-muted-foreground">{formData.email}</div>
+                    </div>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      type="button"
+                      onClick={() => {
+                        setFormData(prev => ({
+                          ...prev,
+                          usuario_web_id: "",
+                          nome: "",
+                          email: "",
+                          telefone: "",
+                          contrato_id: "",
+                        }));
+                        setUsuarioSearch("");
+                      }}
+                    >
+                      Alterar
+                    </Button>
+                  </div>
+                )}
+
+                {/* Campo de busca (só mostra se não tem usuário selecionado) */}
+                {!formData.usuario_web_id && (
+                  <div className="space-y-2">
+                    <Input
+                      placeholder="Digite para pesquisar por nome ou email..."
+                      value={usuarioSearch}
+                      onChange={(e) => setUsuarioSearch(e.target.value)}
+                    />
+                    
+                    {/* Lista de usuários */}
+                    <div className="border rounded-md max-h-[200px] overflow-y-auto">
+                      {usuariosFiltrados.length === 0 ? (
+                        <div className="p-4 text-sm text-muted-foreground text-center">
+                          {usuariosDisponiveis.length === 0 
+                            ? "Nenhum usuário disponível" 
+                            : usuarioSearch 
+                              ? "Nenhum usuário encontrado" 
+                              : "Digite para pesquisar..."}
+                        </div>
+                      ) : (
+                        <div className="divide-y">
+                          {usuariosFiltrados.slice(0, 10).map((u) => (
+                            <button
+                              key={u.id}
+                              type="button"
+                              className="w-full text-left px-3 py-2 hover:bg-muted transition-colors"
+                              onClick={() => handleUsuarioWebChange(u.id)}
+                            >
+                              <div className="font-medium text-sm">{u.nome}</div>
+                              <div className="text-xs text-muted-foreground">{u.email}</div>
+                              {u.cargo && (
+                                <div className="text-xs text-muted-foreground">{u.cargo}</div>
+                              )}
+                            </button>
+                          ))}
+                          {usuariosFiltrados.length > 10 && (
+                            <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                              +{usuariosFiltrados.length - 10} usuários (refine a busca)
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                
+                {usuariosDisponiveis.length === 0 && !editingItem && (
+                  <p className="text-xs text-amber-600">
+                    Cadastre primeiro um usuário em "Usuários Web" para poder vincular.
+                  </p>
+                )}
+              </div>
+
+              {/* Tipo */}
+              <div className="space-y-2">
+                <Label>Tipo *</Label>
+                <Select
+                  value={formData.tipo}
+                  onValueChange={(v: "coordenador" | "supervisor") =>
+                    setFormData({ ...formData, tipo: v, coordenador_id: "" })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="coordenador">Coordenador</SelectItem>
+                    <SelectItem value="supervisor">Supervisor</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Coordenador vinculado (apenas para supervisores) */}
+              {formData.tipo === "supervisor" && (
                 <div className="space-y-2">
-                  <Label>Código *</Label>
-                  <Input
-                    value={formData.codigo}
-                    onChange={(e) =>
-                      setFormData({ ...formData, codigo: e.target.value.toUpperCase() })
-                    }
-                    placeholder="Ex: COORD-001"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Tipo *</Label>
+                  <Label>Coordenador Responsável *</Label>
                   <Select
-                    value={formData.tipo}
-                    onValueChange={(v: "coordenador" | "supervisor") =>
-                      setFormData({ ...formData, tipo: v })
-                    }
+                    value={formData.coordenador_id || "none"}
+                    onValueChange={(v) => setFormData({ ...formData, coordenador_id: v === "none" ? "" : v })}
                   >
-                    <SelectTrigger>
-                      <SelectValue />
+                    <SelectTrigger className={!formData.coordenador_id ? "border-amber-500" : ""}>
+                      <SelectValue placeholder="Selecione o coordenador" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="coordenador">Coordenador</SelectItem>
-                      <SelectItem value="supervisor">Supervisor</SelectItem>
+                      {coordenadoresAtivos.length === 0 ? (
+                        <div className="p-2 text-sm text-muted-foreground text-center">
+                          Nenhum coordenador ativo
+                        </div>
+                      ) : (
+                        coordenadoresAtivos.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.nome}
+                          </SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
+                  {!formData.coordenador_id && (
+                    <p className="text-xs text-amber-600">
+                      Supervisores precisam estar vinculados a um coordenador.
+                    </p>
+                  )}
                 </div>
-              </div>
+              )}
 
-              <div className="space-y-2">
-                <Label>Nome *</Label>
-                <Input
-                  value={formData.nome}
-                  onChange={(e) => setFormData({ ...formData, nome: e.target.value })}
-                  placeholder="Nome completo"
-                />
-              </div>
+              {/* Dados do usuário selecionado (somente leitura) */}
+              {formData.usuario_web_id && (
+                <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase">Dados do Usuário</p>
+                  <div className="grid grid-cols-1 gap-2 text-sm">
+                    <div className="flex items-center gap-2">
+                      <Users className="h-4 w-4 text-muted-foreground" />
+                      <span className="font-medium">{formData.nome}</span>
+                    </div>
+                    {formData.email && (
+                      <div className="flex items-center gap-2">
+                        <Mail className="h-4 w-4 text-muted-foreground" />
+                        <span>{formData.email}</span>
+                      </div>
+                    )}
+                    {formData.telefone && (
+                      <div className="flex items-center gap-2">
+                        <Phone className="h-4 w-4 text-muted-foreground" />
+                        <span>{formData.telefone}</span>
+                      </div>
+                    )}
+                    {formData.contrato_id && (
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-xs">
+                          Contrato: {contratos.find(c => c.id === formData.contrato_id)?.codigo || formData.contrato_id}
+                        </Badge>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
-              <div className="space-y-2">
-                <Label>Email</Label>
-                <Input
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  placeholder="email@exemplo.com"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Telefone</Label>
-                <Input
-                  value={formData.telefone}
-                  onChange={(e) => setFormData({ ...formData, telefone: e.target.value })}
-                  placeholder="(00) 00000-0000"
-                />
-              </div>
-
+              {/* Contrato */}
               <div className="space-y-2">
                 <Label>Contrato</Label>
                 <Select
-                  value={formData.contrato_id}
-                  onValueChange={(v) => setFormData({ ...formData, contrato_id: v })}
+                  value={formData.contrato_id || "none"}
+                  onValueChange={(v) => setFormData({ ...formData, contrato_id: v === "none" ? "" : v })}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Selecione (opcional)" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Nenhum</SelectItem>
+                    <SelectItem value="none">Nenhum</SelectItem>
                     {contratos.map((c) => (
                       <SelectItem key={c.id} value={c.id}>
                         {c.codigo} - {c.nome}
@@ -627,6 +907,9 @@ export default function CadastroCoordenadores() {
                     ))}
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">
+                  Ao alterar, será sincronizado com o cadastro do Usuário Web.
+                </p>
               </div>
 
               <div className="flex items-center gap-2">
@@ -642,7 +925,14 @@ export default function CadastroCoordenadores() {
               <Button variant="outline" onClick={() => setDialogOpen(false)}>
                 Cancelar
               </Button>
-              <Button onClick={handleSave} disabled={saving}>
+              <Button 
+                onClick={handleSave} 
+                disabled={
+                  saving || 
+                  !formData.usuario_web_id || 
+                  (formData.tipo === "supervisor" && !formData.coordenador_id)
+                }
+              >
                 {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 Salvar
               </Button>
@@ -650,80 +940,24 @@ export default function CadastroCoordenadores() {
           </DialogContent>
         </Dialog>
 
-        {/* Dialog de Vincular Equipe */}
-        <Dialog open={vinculoDialogOpen} onOpenChange={setVinculoDialogOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Vincular Equipe</DialogTitle>
-              <DialogDescription>
-                Vincular equipe ao{" "}
-                {selectedCoordForVinculo?.tipo === "coordenador"
-                  ? "coordenador"
-                  : "supervisor"}{" "}
-                <strong>{selectedCoordForVinculo?.nome}</strong>
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>Equipe *</Label>
-                <Select
-                  value={vinculoEquipeId}
-                  onValueChange={setVinculoEquipeId}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione a equipe" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {equipes.map((eq) => (
-                      <SelectItem key={eq.id} value={eq.id}>
-                        {eq.codigo} - {eq.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Data de Início *</Label>
-                <Input
-                  type="date"
-                  value={vinculoDataInicio}
-                  onChange={(e) => setVinculoDataInicio(e.target.value)}
-                />
-              </div>
-
-              <div className="bg-muted/50 p-3 rounded-lg text-sm text-muted-foreground">
-                <History className="h-4 w-4 inline mr-2" />
-                O vínculo anterior da equipe (se houver) será encerrado automaticamente
-                na data informada.
-              </div>
-            </div>
-
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setVinculoDialogOpen(false)}>
-                Cancelar
-              </Button>
-              <Button onClick={handleVincularEquipe} disabled={saving}>
-                {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Vincular
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* Dialog de Confirmação de Exclusão */}
+        {/* Dialog de Confirmação de Exclusão/Desativação */}
         <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <AlertCircle className="h-5 w-5 text-destructive" />
-                Confirmar Exclusão
+                Confirmar Remoção
               </DialogTitle>
-              <DialogDescription>
-                Tem certeza que deseja excluir o{" "}
-                {itemToDelete?.tipo === "coordenador" ? "coordenador" : "supervisor"}{" "}
-                <strong>{itemToDelete?.nome}</strong>?
+              <DialogDescription className="space-y-2">
+                <p>
+                  Tem certeza que deseja remover o{" "}
+                  {itemToDelete?.tipo === "coordenador" ? "coordenador" : "supervisor"}{" "}
+                  <strong>{itemToDelete?.nome}</strong>?
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Se houver OSs vinculadas, o registro será apenas desativado.
+                  Caso contrário, será excluído permanentemente.
+                </p>
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
@@ -731,7 +965,7 @@ export default function CadastroCoordenadores() {
                 Cancelar
               </Button>
               <Button variant="destructive" onClick={handleDelete}>
-                Excluir
+                Remover
               </Button>
             </DialogFooter>
           </DialogContent>

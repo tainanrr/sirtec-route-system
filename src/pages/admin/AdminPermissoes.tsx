@@ -20,9 +20,15 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import {
   Lock,
   Plus,
@@ -34,26 +40,27 @@ import {
   Shield,
   Users,
   Key,
+  Eye,
+  Edit,
+  Check,
+  X,
+  ChevronRight,
+  LayoutDashboard,
+  Map,
+  Package,
+  ClipboardList,
+  Settings,
+  BarChart3,
+  Calendar,
+  Truck,
+  UserCog,
+  FileText,
+  Database,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { SortableTableHead, useSortableTable } from "@/components/ui/sortable-table-head";
-import {
-  DataTableFilters,
-  useDataTableFilters,
-  filterData,
-  FilterConfig,
-} from "@/components/ui/data-table-filters";
-
-interface Permissao {
-  id: string;
-  codigo: string;
-  nome: string;
-  descricao: string | null;
-  modulo: string;
-  ativo: boolean;
-  created_at: string;
-}
+import { ExportButton } from "@/components/ui/export-button";
 
 interface PerfilPermissao {
   id: string;
@@ -61,74 +68,109 @@ interface PerfilPermissao {
   descricao: string | null;
   is_admin: boolean;
   ativo: boolean;
+  permissoes: Record<string, { editar: boolean; consultar: boolean }>;
   created_at: string;
 }
 
-interface PerfilPermissaoLink {
-  perfil_id: string;
-  permissao_id: string;
-}
-
-const moduloOptions = [
-  { value: "admin", label: "Admin" },
-  { value: "roteirizacao", label: "Roteirização" },
-  { value: "cadastros", label: "Cadastros" },
-  { value: "materiais", label: "Materiais" },
-  { value: "ordens", label: "Ordens" },
-  { value: "planejamento", label: "Planejamento" },
-  { value: "relatorios", label: "Relatórios" },
+// Estrutura de módulos e telas do sistema
+const sistemaTelas = [
+  {
+    modulo: "Dashboard",
+    icon: LayoutDashboard,
+    telas: [
+      { id: "dashboard", nome: "Dashboard Principal", descricao: "Visão geral do sistema" },
+    ],
+  },
+  {
+    modulo: "Roteirização",
+    icon: Map,
+    telas: [
+      { id: "roteirizacao", nome: "Roteirização", descricao: "Criar e gerenciar rotas" },
+      { id: "acompanhamento_rotas", nome: "Acompanhamento de Rotas", descricao: "Monitorar rotas em tempo real" },
+      { id: "torre_controle", nome: "Torre de Controle", descricao: "Central de monitoramento" },
+    ],
+  },
+  {
+    modulo: "Ordens de Serviço",
+    icon: ClipboardList,
+    telas: [
+      { id: "ordens_servico", nome: "Ordens de Serviço", descricao: "Gerenciar OS" },
+      { id: "importar_os", nome: "Importar OS", descricao: "Importar planilhas de OS" },
+    ],
+  },
+  {
+    modulo: "Cadastros",
+    icon: Database,
+    telas: [
+      { id: "equipes", nome: "Equipes", descricao: "Cadastro de equipes de campo" },
+      { id: "colaboradores", nome: "Colaboradores", descricao: "Cadastro de colaboradores" },
+      { id: "coordenadores", nome: "Coordenadores e Supervisores", descricao: "Gestão de supervisão" },
+      { id: "skills", nome: "Skills/Habilidades", descricao: "Tipos de habilidades" },
+      { id: "veiculos", nome: "Veículos", descricao: "Frota de veículos" },
+      { id: "territorios", nome: "Territórios", descricao: "Zonas de atuação" },
+      { id: "pontos_saida", nome: "Pontos de Saída", descricao: "Locais de partida" },
+      { id: "poligonos", nome: "Polígonos", descricao: "Áreas geográficas" },
+      { id: "checklists", nome: "Checklists", descricao: "Listas de verificação" },
+      { id: "metas", nome: "Metas", descricao: "Metas de equipes" },
+    ],
+  },
+  {
+    modulo: "Materiais",
+    icon: Package,
+    telas: [
+      { id: "materiais_dashboard", nome: "Dashboard Materiais", descricao: "Visão geral de materiais" },
+      { id: "catalogo_materiais", nome: "Catálogo de Materiais", descricao: "Produtos cadastrados" },
+      { id: "estoque_central", nome: "Estoque Central", descricao: "Almoxarifado principal" },
+      { id: "movimentacoes", nome: "Movimentações", descricao: "Entradas e saídas" },
+      { id: "recebimentos", nome: "Recebimentos", descricao: "Recebimento de materiais" },
+      { id: "entregas_equipes", nome: "Entregas às Equipes", descricao: "Distribuição para campo" },
+      { id: "devolucoes", nome: "Devoluções", descricao: "Retorno de materiais" },
+      { id: "aplicacoes_os", nome: "Aplicações em OS", descricao: "Materiais usados em OS" },
+      { id: "rastreabilidade", nome: "Rastreabilidade", descricao: "Histórico de materiais" },
+    ],
+  },
+  {
+    modulo: "Planejamento",
+    icon: Calendar,
+    telas: [
+      { id: "planejamento_diario", nome: "Planejamento Diário", descricao: "Planejar dia de trabalho" },
+      { id: "agenda", nome: "Agenda", descricao: "Calendário de atividades" },
+    ],
+  },
+  {
+    modulo: "Relatórios",
+    icon: BarChart3,
+    telas: [
+      { id: "relatorios_produtividade", nome: "Produtividade", descricao: "Relatórios de produção" },
+      { id: "relatorios_materiais", nome: "Relatórios de Materiais", descricao: "Consumo e estoque" },
+      { id: "relatorios_financeiro", nome: "Financeiro", descricao: "Faturamento e custos" },
+      { id: "relatorios_kpis", nome: "KPIs", descricao: "Indicadores de desempenho" },
+    ],
+  },
+  {
+    modulo: "Administração",
+    icon: Settings,
+    telas: [
+      { id: "usuarios_web", nome: "Usuários Web", descricao: "Usuários do sistema web" },
+      { id: "usuarios_app", nome: "Usuários App", descricao: "Usuários do aplicativo" },
+      { id: "contratos", nome: "Contratos", descricao: "Contratos de clientes" },
+      { id: "permissoes", nome: "Permissões e Perfis", descricao: "Controle de acesso" },
+      { id: "cadastros_base", nome: "Cadastros Base", descricao: "Configurações do sistema" },
+      { id: "procedimentos", nome: "Procedimentos", descricao: "Documentos e procedimentos" },
+      { id: "logs", nome: "Logs do Sistema", descricao: "Histórico de ações" },
+    ],
+  },
 ];
 
 export default function AdminPermissoes() {
-  const [permissoes, setPermissoes] = useState<Permissao[]>([]);
   const [perfis, setPerfis] = useState<PerfilPermissao[]>([]);
-  const [perfilPermissoes, setPerfilPermissoes] = useState<PerfilPermissaoLink[]>([]);
   const [loading, setLoading] = useState(true);
-  const [permissaoDialogOpen, setPermissaoDialogOpen] = useState(false);
   const [perfilDialogOpen, setPerfilDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [editingPermissao, setEditingPermissao] = useState<Permissao | null>(null);
   const [editingPerfil, setEditingPerfil] = useState<PerfilPermissao | null>(null);
-  const [itemToDelete, setItemToDelete] = useState<{ type: "permissao" | "perfil"; item: any } | null>(null);
+  const [perfilToDelete, setPerfilToDelete] = useState<PerfilPermissao | null>(null);
   const [saving, setSaving] = useState(false);
-  const [selectedPerfilId, setSelectedPerfilId] = useState<string | null>(null);
-
-  // Configuração dos filtros para permissões
-  const permissaoFilterConfigs: FilterConfig[] = useMemo(() => [
-    {
-      id: "search",
-      label: "Buscar",
-      type: "text",
-      placeholder: "Buscar por código, nome ou descrição...",
-    },
-    {
-      id: "modulo",
-      label: "Módulo",
-      type: "select",
-      options: moduloOptions,
-    },
-    {
-      id: "status",
-      label: "Status",
-      type: "select",
-      options: [
-        { value: "ativo", label: "Ativos", color: "bg-green-500" },
-        { value: "inativo", label: "Inativos", color: "bg-gray-500" },
-      ],
-    },
-  ], []);
-
-  const { filterValues, setFilterValues, clearFilters, hasActiveFilters } =
-    useDataTableFilters(permissaoFilterConfigs);
-
-  // Form state para permissão
-  const [permissaoForm, setPermissaoForm] = useState({
-    codigo: "",
-    nome: "",
-    descricao: "",
-    modulo: "admin",
-    ativo: true,
-  });
+  const [expandedModulos, setExpandedModulos] = useState<string[]>(sistemaTelas.map(m => m.modulo));
 
   // Form state para perfil
   const [perfilForm, setPerfilForm] = useState({
@@ -136,26 +178,27 @@ export default function AdminPermissoes() {
     descricao: "",
     is_admin: false,
     ativo: true,
-    permissoes_ids: [] as string[],
+    permissoes: {} as Record<string, { editar: boolean; consultar: boolean }>,
   });
 
   // Carregar dados
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [permissoesRes, perfisRes, perfilPermissoesRes] = await Promise.all([
-        supabase.from("permissoes").select("*").order("modulo").order("nome"),
-        supabase.from("perfis_permissao").select("*").order("nome"),
-        supabase.from("perfil_permissoes").select("perfil_id, permissao_id"),
-      ]);
+      const { data, error } = await supabase
+        .from("perfis_permissao")
+        .select("*")
+        .order("nome");
 
-      if (permissoesRes.error) throw permissoesRes.error;
-      if (perfisRes.error) throw perfisRes.error;
-      if (perfilPermissoesRes.error) throw perfilPermissoesRes.error;
+      if (error) throw error;
 
-      setPermissoes(permissoesRes.data || []);
-      setPerfis(perfisRes.data || []);
-      setPerfilPermissoes(perfilPermissoesRes.data || []);
+      // Processar perfis com permissões do campo JSON
+      const perfisProcessados = (data || []).map(perfil => ({
+        ...perfil,
+        permissoes: (perfil as any).permissoes_json || {},
+      }));
+
+      setPerfis(perfisProcessados);
     } catch (error: any) {
       console.error("Erro ao carregar dados:", error);
       toast.error("Erro ao carregar dados");
@@ -168,140 +211,52 @@ export default function AdminPermissoes() {
     fetchData();
   }, []);
 
-  // Filtrar permissões
-  const filteredPermissoes = useMemo(() => {
-    return filterData(
-      permissoes,
-      filterValues,
-      permissaoFilterConfigs,
-      {
-        search: (item, value) => {
-          const searchTerm = value.toLowerCase();
-          return (
-            item.codigo.toLowerCase().includes(searchTerm) ||
-            item.nome.toLowerCase().includes(searchTerm) ||
-            item.descricao?.toLowerCase().includes(searchTerm) || false
-          );
-        },
-        status: (item, value) => {
-          if (value === "ativo") return item.ativo;
-          if (value === "inativo") return !item.ativo;
-          return true;
-        },
-      }
-    );
-  }, [permissoes, filterValues, permissaoFilterConfigs]);
-
-  // Ordenação de permissões
-  const { sortConfig: permissaoSortConfig, handleSort: handlePermissaoSort, sortedData: sortedPermissoes } =
-    useSortableTable(filteredPermissoes, { column: "modulo", direction: "asc" });
-
   // Ordenação de perfis
   const { sortConfig: perfilSortConfig, handleSort: handlePerfilSort, sortedData: sortedPerfis } =
     useSortableTable(perfis, { column: "nome", direction: "asc" });
 
-  // Obter permissões de um perfil
-  const getPerfilPermissoes = (perfilId: string) => {
-    return perfilPermissoes
-      .filter((pp) => pp.perfil_id === perfilId)
-      .map((pp) => pp.permissao_id);
-  };
-
-  // Handlers para Permissão
-  const handleCreatePermissao = () => {
-    setEditingPermissao(null);
-    setPermissaoForm({
-      codigo: "",
-      nome: "",
-      descricao: "",
-      modulo: "admin",
-      ativo: true,
-    });
-    setPermissaoDialogOpen(true);
-  };
-
-  const handleEditPermissao = (permissao: Permissao) => {
-    setEditingPermissao(permissao);
-    setPermissaoForm({
-      codigo: permissao.codigo,
-      nome: permissao.nome,
-      descricao: permissao.descricao || "",
-      modulo: permissao.modulo,
-      ativo: permissao.ativo,
-    });
-    setPermissaoDialogOpen(true);
-  };
-
-  const handleSavePermissao = async () => {
-    if (!permissaoForm.codigo || !permissaoForm.nome) {
-      toast.error("Preencha os campos obrigatórios");
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const payload = {
-        codigo: permissaoForm.codigo,
-        nome: permissaoForm.nome,
-        descricao: permissaoForm.descricao || null,
-        modulo: permissaoForm.modulo,
-        ativo: permissaoForm.ativo,
-      };
-
-      if (editingPermissao) {
-        const { error } = await supabase
-          .from("permissoes")
-          .update({ ...payload, updated_at: new Date().toISOString() })
-          .eq("id", editingPermissao.id);
-
-        if (error) throw error;
-        toast.success("Permissão atualizada com sucesso");
-      } else {
-        const { error } = await supabase.from("permissoes").insert(payload);
-
-        if (error) throw error;
-        toast.success("Permissão criada com sucesso");
-      }
-
-      setPermissaoDialogOpen(false);
-      fetchData();
-    } catch (error: any) {
-      console.error("Erro ao salvar:", error);
-      toast.error(`Erro ao salvar: ${error.message}`);
-    } finally {
-      setSaving(false);
-    }
-  };
-
   // Handlers para Perfil
   const handleCreatePerfil = () => {
     setEditingPerfil(null);
+    // Inicializar permissões vazias para todas as telas
+    const permissoesIniciais: Record<string, { editar: boolean; consultar: boolean }> = {};
+    sistemaTelas.forEach(modulo => {
+      modulo.telas.forEach(tela => {
+        permissoesIniciais[tela.id] = { editar: false, consultar: false };
+      });
+    });
     setPerfilForm({
       nome: "",
       descricao: "",
       is_admin: false,
       ativo: true,
-      permissoes_ids: [],
+      permissoes: permissoesIniciais,
     });
     setPerfilDialogOpen(true);
   };
 
   const handleEditPerfil = (perfil: PerfilPermissao) => {
     setEditingPerfil(perfil);
-    const perfilPerms = getPerfilPermissoes(perfil.id);
+    // Garantir que todas as telas tenham entrada de permissão
+    const permissoesCompletas: Record<string, { editar: boolean; consultar: boolean }> = {};
+    sistemaTelas.forEach(modulo => {
+      modulo.telas.forEach(tela => {
+        permissoesCompletas[tela.id] = perfil.permissoes[tela.id] || { editar: false, consultar: false };
+      });
+    });
     setPerfilForm({
       nome: perfil.nome,
       descricao: perfil.descricao || "",
       is_admin: perfil.is_admin,
       ativo: perfil.ativo,
-      permissoes_ids: perfilPerms,
+      permissoes: permissoesCompletas,
     });
     setPerfilDialogOpen(true);
   };
 
   const handleSavePerfil = async () => {
     if (!perfilForm.nome) {
-      toast.error("Preencha os campos obrigatórios");
+      toast.error("Preencha o nome do perfil");
       return;
     }
 
@@ -312,9 +267,8 @@ export default function AdminPermissoes() {
         descricao: perfilForm.descricao || null,
         is_admin: perfilForm.is_admin,
         ativo: perfilForm.ativo,
+        permissoes_json: perfilForm.permissoes,
       };
-
-      let perfilId: string;
 
       if (editingPerfil) {
         const { error } = await supabase
@@ -323,51 +277,14 @@ export default function AdminPermissoes() {
           .eq("id", editingPerfil.id);
 
         if (error) throw error;
-        perfilId = editingPerfil.id;
         toast.success("Perfil atualizado com sucesso");
       } else {
-        const { data, error } = await supabase
+        const { error } = await supabase
           .from("perfis_permissao")
-          .insert(payload)
-          .select()
-          .single();
+          .insert(payload);
 
         if (error) throw error;
-        perfilId = data.id;
         toast.success("Perfil criado com sucesso");
-      }
-
-      // Atualizar permissões do perfil
-      console.log("[AdminPermissoes] Deletando permissões antigas do perfil:", perfilId);
-      const { error: deleteError } = await supabase
-        .from("perfil_permissoes")
-        .delete()
-        .eq("perfil_id", perfilId);
-
-      if (deleteError) {
-        console.error("[AdminPermissoes] Erro ao deletar permissões antigas:", deleteError);
-        toast.error(`Erro ao atualizar permissões: ${deleteError.message}`);
-        return;
-      }
-
-      console.log("[AdminPermissoes] Inserindo novas permissões:", perfilForm.permissoes_ids);
-      if (perfilForm.permissoes_ids.length > 0) {
-        const permsToInsert = perfilForm.permissoes_ids.map((permId) => ({
-          perfil_id: perfilId,
-          permissao_id: permId,
-        }));
-
-        const { error: permsError } = await supabase
-          .from("perfil_permissoes")
-          .insert(permsToInsert);
-
-        if (permsError) {
-          console.error("[AdminPermissoes] Erro ao inserir permissões:", permsError);
-          toast.error(`Erro ao salvar permissões: ${permsError.message}`);
-          return;
-        }
-        
-        console.log("[AdminPermissoes] Permissões salvas com sucesso!");
       }
 
       setPerfilDialogOpen(false);
@@ -382,29 +299,19 @@ export default function AdminPermissoes() {
 
   // Handler para exclusão
   const handleDelete = async () => {
-    if (!itemToDelete) return;
+    if (!perfilToDelete) return;
 
     try {
-      if (itemToDelete.type === "permissao") {
-        const { error } = await supabase
-          .from("permissoes")
-          .delete()
-          .eq("id", itemToDelete.item.id);
+      const { error } = await supabase
+        .from("perfis_permissao")
+        .delete()
+        .eq("id", perfilToDelete.id);
 
-        if (error) throw error;
-        toast.success("Permissão excluída com sucesso");
-      } else {
-        const { error } = await supabase
-          .from("perfis_permissao")
-          .delete()
-          .eq("id", itemToDelete.item.id);
-
-        if (error) throw error;
-        toast.success("Perfil excluído com sucesso");
-      }
+      if (error) throw error;
+      toast.success("Perfil excluído com sucesso");
 
       setDeleteDialogOpen(false);
-      setItemToDelete(null);
+      setPerfilToDelete(null);
       fetchData();
     } catch (error: any) {
       console.error("Erro ao excluir:", error);
@@ -412,24 +319,98 @@ export default function AdminPermissoes() {
     }
   };
 
-  const togglePermissaoInPerfil = (permissaoId: string) => {
-    setPerfilForm((prev) => ({
-      ...prev,
-      permissoes_ids: prev.permissoes_ids.includes(permissaoId)
-        ? prev.permissoes_ids.filter((id) => id !== permissaoId)
-        : [...prev.permissoes_ids, permissaoId],
-    }));
+  // Toggle permissão para uma tela
+  const togglePermissao = (telaId: string, tipo: "editar" | "consultar") => {
+    setPerfilForm(prev => {
+      const current = prev.permissoes[telaId] || { editar: false, consultar: false };
+      const newValue = !current[tipo];
+      
+      // Se marcar editar, marca consultar também
+      // Se desmarcar consultar, desmarca editar também
+      let newPermissoes = { ...current };
+      if (tipo === "editar" && newValue) {
+        newPermissoes = { editar: true, consultar: true };
+      } else if (tipo === "consultar" && !newValue) {
+        newPermissoes = { editar: false, consultar: false };
+      } else {
+        newPermissoes[tipo] = newValue;
+      }
+
+      return {
+        ...prev,
+        permissoes: {
+          ...prev.permissoes,
+          [telaId]: newPermissoes,
+        },
+      };
+    });
   };
 
-  // Agrupar permissões por módulo
-  const permissoesPorModulo = useMemo(() => {
-    const grupos: Record<string, Permissao[]> = {};
-    permissoes.forEach((p) => {
-      if (!grupos[p.modulo]) grupos[p.modulo] = [];
-      grupos[p.modulo].push(p);
+  // Marcar/desmarcar todas as telas de um módulo
+  const toggleModulo = (modulo: typeof sistemaTelas[0], tipo: "editar" | "consultar" | "nenhum") => {
+    setPerfilForm(prev => {
+      const newPermissoes = { ...prev.permissoes };
+      modulo.telas.forEach(tela => {
+        if (tipo === "editar") {
+          newPermissoes[tela.id] = { editar: true, consultar: true };
+        } else if (tipo === "consultar") {
+          newPermissoes[tela.id] = { editar: false, consultar: true };
+        } else {
+          newPermissoes[tela.id] = { editar: false, consultar: false };
+        }
+      });
+      return { ...prev, permissoes: newPermissoes };
     });
-    return grupos;
-  }, [permissoes]);
+  };
+
+  // Marcar/desmarcar todas as telas
+  const toggleTodas = (tipo: "editar" | "consultar" | "nenhum") => {
+    setPerfilForm(prev => {
+      const newPermissoes: Record<string, { editar: boolean; consultar: boolean }> = {};
+      sistemaTelas.forEach(modulo => {
+        modulo.telas.forEach(tela => {
+          if (tipo === "editar") {
+            newPermissoes[tela.id] = { editar: true, consultar: true };
+          } else if (tipo === "consultar") {
+            newPermissoes[tela.id] = { editar: false, consultar: true };
+          } else {
+            newPermissoes[tela.id] = { editar: false, consultar: false };
+          }
+        });
+      });
+      return { ...prev, permissoes: newPermissoes };
+    });
+  };
+
+  // Contar permissões de um perfil
+  const contarPermissoes = (permissoes: Record<string, { editar: boolean; consultar: boolean }>) => {
+    let editar = 0;
+    let consultar = 0;
+    Object.values(permissoes || {}).forEach(p => {
+      if (p.editar) editar++;
+      if (p.consultar && !p.editar) consultar++;
+    });
+    return { editar, consultar, total: editar + consultar };
+  };
+
+  // Verificar status do módulo
+  const getModuloStatus = (modulo: typeof sistemaTelas[0]) => {
+    let todosEditar = true;
+    let todosConsultar = true;
+    let algumMarcado = false;
+
+    modulo.telas.forEach(tela => {
+      const perm = perfilForm.permissoes[tela.id];
+      if (!perm?.editar) todosEditar = false;
+      if (!perm?.consultar) todosConsultar = false;
+      if (perm?.editar || perm?.consultar) algumMarcado = true;
+    });
+
+    if (todosEditar) return "editar";
+    if (todosConsultar) return "consultar";
+    if (algumMarcado) return "parcial";
+    return "nenhum";
+  };
 
   return (
     <div className="space-y-6">
@@ -438,411 +419,220 @@ export default function AdminPermissoes() {
         <div>
           <h2 className="text-2xl font-bold">Permissões e Perfis</h2>
           <p className="text-muted-foreground">
-            Gerencie as permissões do sistema e perfis de acesso
+            Gerencie os perfis de acesso e suas permissões por tela
           </p>
         </div>
-        <Button variant="outline" onClick={fetchData} disabled={loading}>
-          <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-          Atualizar
-        </Button>
+        <div className="flex items-center gap-2">
+          <ExportButton
+            data={perfis}
+            filename="perfis_permissao"
+            columns={[
+              { key: "nome", label: "Nome" },
+              { key: "descricao", label: "Descrição" },
+              { key: "is_admin", label: "Admin", format: (v) => v ? "Sim" : "Não" },
+              { key: "ativo", label: "Ativo", format: (v) => v ? "Sim" : "Não" },
+              { key: "created_at", label: "Criado em", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
+            ]}
+            disabled={loading}
+          />
+          <Button variant="outline" onClick={fetchData} disabled={loading}>
+            <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+            Atualizar
+          </Button>
+          <Button onClick={handleCreatePerfil}>
+            <Plus className="h-4 w-4 mr-2" />
+            Novo Perfil
+          </Button>
+        </div>
       </div>
 
-      <Tabs defaultValue="perfis" className="w-full">
-        <TabsList>
-          <TabsTrigger value="perfis" className="flex items-center gap-2">
-            <Shield className="h-4 w-4" />
-            Perfis de Acesso
-          </TabsTrigger>
-          <TabsTrigger value="permissoes" className="flex items-center gap-2">
-            <Key className="h-4 w-4" />
-            Permissões do Sistema
-          </TabsTrigger>
-        </TabsList>
+      {/* Estatísticas */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Shield className="h-4 w-4" />
+              <span className="text-sm">Total Perfis</span>
+            </div>
+            <p className="text-2xl font-bold mt-1">{perfis.length}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 text-amber-600">
+              <Shield className="h-4 w-4" />
+              <span className="text-sm">Administradores</span>
+            </div>
+            <p className="text-2xl font-bold mt-1">
+              {perfis.filter((p) => p.is_admin).length}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 text-green-600">
+              <div className="w-2 h-2 rounded-full bg-green-500" />
+              <span className="text-sm">Ativos</span>
+            </div>
+            <p className="text-2xl font-bold mt-1">
+              {perfis.filter((p) => p.ativo).length}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <LayoutDashboard className="h-4 w-4" />
+              <span className="text-sm">Total de Telas</span>
+            </div>
+            <p className="text-2xl font-bold mt-1">
+              {sistemaTelas.reduce((acc, m) => acc + m.telas.length, 0)}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
 
-        {/* Tab de Perfis */}
-        <TabsContent value="perfis" className="space-y-4 mt-6">
-          <div className="flex justify-end">
-            <Button onClick={handleCreatePerfil}>
-              <Plus className="h-4 w-4 mr-2" />
-              Novo Perfil
-            </Button>
-          </div>
-
-          {/* Estatísticas de perfis */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="p-4 rounded-lg border border-border bg-card">
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Shield className="h-4 w-4" />
-                <span className="text-sm">Total Perfis</span>
-              </div>
-              <p className="text-2xl font-bold mt-1">{perfis.length}</p>
-            </div>
-            <div className="p-4 rounded-lg border border-border bg-card">
-              <div className="flex items-center gap-2 text-amber-600">
-                <Shield className="h-4 w-4" />
-                <span className="text-sm">Administradores</span>
-              </div>
-              <p className="text-2xl font-bold mt-1">
-                {perfis.filter((p) => p.is_admin).length}
-              </p>
-            </div>
-            <div className="p-4 rounded-lg border border-border bg-card">
-              <div className="flex items-center gap-2 text-green-600">
-                <div className="w-2 h-2 rounded-full bg-green-500" />
-                <span className="text-sm">Ativos</span>
-              </div>
-              <p className="text-2xl font-bold mt-1">
-                {perfis.filter((p) => p.ativo).length}
-              </p>
-            </div>
-            <div className="p-4 rounded-lg border border-border bg-card">
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Key className="h-4 w-4" />
-                <span className="text-sm">Total Permissões</span>
-              </div>
-              <p className="text-2xl font-bold mt-1">{permissoes.length}</p>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-border bg-card overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <SortableTableHead
-                    column="nome"
-                    label="Nome"
-                    sortConfig={perfilSortConfig}
-                    onSort={handlePerfilSort}
-                  />
-                  <TableHead>Descrição</TableHead>
-                  <SortableTableHead
-                    column="is_admin"
-                    label="Tipo"
-                    sortConfig={perfilSortConfig}
-                    onSort={handlePerfilSort}
-                  />
-                  <TableHead>Permissões</TableHead>
-                  <SortableTableHead
-                    column="ativo"
-                    label="Status"
-                    sortConfig={perfilSortConfig}
-                    onSort={handlePerfilSort}
-                  />
-                  <TableHead className="text-right">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8">
-                      <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
+      {/* Lista de Perfis */}
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <SortableTableHead
+                column="nome"
+                label="Nome"
+                sortConfig={perfilSortConfig}
+                onSort={handlePerfilSort}
+              />
+              <TableHead>Descrição</TableHead>
+              <SortableTableHead
+                column="is_admin"
+                label="Tipo"
+                sortConfig={perfilSortConfig}
+                onSort={handlePerfilSort}
+              />
+              <TableHead>Permissões</TableHead>
+              <SortableTableHead
+                column="ativo"
+                label="Status"
+                sortConfig={perfilSortConfig}
+                onSort={handlePerfilSort}
+              />
+              <TableHead className="text-right">Ações</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
+                </TableCell>
+              </TableRow>
+            ) : sortedPerfis?.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center py-8">
+                  <Shield className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                  <p className="text-muted-foreground">Nenhum perfil cadastrado</p>
+                </TableCell>
+              </TableRow>
+            ) : (
+              sortedPerfis?.map((perfil) => {
+                const stats = contarPermissoes(perfil.permissoes);
+                return (
+                  <TableRow key={perfil.id} className="group">
+                    <TableCell className="font-medium">{perfil.nome}</TableCell>
+                    <TableCell className="max-w-xs truncate text-sm text-muted-foreground">
+                      {perfil.descricao || "-"}
                     </TableCell>
-                  </TableRow>
-                ) : sortedPerfis?.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8">
-                      <Shield className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                      <p className="text-muted-foreground">Nenhum perfil cadastrado</p>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  sortedPerfis?.map((perfil) => {
-                    const perfilPerms = getPerfilPermissoes(perfil.id);
-                    return (
-                      <TableRow key={perfil.id} className="group">
-                        <TableCell className="font-medium">{perfil.nome}</TableCell>
-                        <TableCell className="max-w-xs truncate text-sm text-muted-foreground">
-                          {perfil.descricao || "-"}
-                        </TableCell>
-                        <TableCell>
-                          {perfil.is_admin ? (
-                            <Badge variant="default" className="flex items-center gap-1 w-fit">
-                              <Shield className="h-3 w-3" />
-                              Admin
-                            </Badge>
-                          ) : (
-                            <Badge variant="secondary">Usuário</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{perfilPerms.length} permissões</Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={perfil.ativo ? "default" : "secondary"}>
-                            {perfil.ativo ? "Ativo" : "Inativo"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleEditPerfil(perfil)}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setItemToDelete({ type: "perfil", item: perfil });
-                                setDeleteDialogOpen(true);
-                              }}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </TabsContent>
-
-        {/* Tab de Permissões */}
-        <TabsContent value="permissoes" className="space-y-4 mt-6">
-          <div className="flex justify-end">
-            <Button onClick={handleCreatePermissao}>
-              <Plus className="h-4 w-4 mr-2" />
-              Nova Permissão
-            </Button>
-          </div>
-
-          {/* Filtros */}
-          <div className="rounded-xl border border-border bg-card p-4">
-            <DataTableFilters
-              filters={permissaoFilterConfigs}
-              values={filterValues}
-              onChange={setFilterValues}
-              onClear={clearFilters}
-            />
-          </div>
-
-          <div className="rounded-xl border border-border bg-card overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <SortableTableHead
-                    column="codigo"
-                    label="Código"
-                    sortConfig={permissaoSortConfig}
-                    onSort={handlePermissaoSort}
-                  />
-                  <SortableTableHead
-                    column="nome"
-                    label="Nome"
-                    sortConfig={permissaoSortConfig}
-                    onSort={handlePermissaoSort}
-                  />
-                  <SortableTableHead
-                    column="modulo"
-                    label="Módulo"
-                    sortConfig={permissaoSortConfig}
-                    onSort={handlePermissaoSort}
-                  />
-                  <TableHead>Descrição</TableHead>
-                  <SortableTableHead
-                    column="ativo"
-                    label="Status"
-                    sortConfig={permissaoSortConfig}
-                    onSort={handlePermissaoSort}
-                  />
-                  <TableHead className="text-right">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8">
-                      <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
-                    </TableCell>
-                  </TableRow>
-                ) : sortedPermissoes?.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8">
-                      <Key className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                      <p className="text-muted-foreground">
-                        {hasActiveFilters
-                          ? "Nenhuma permissão encontrada com os filtros aplicados"
-                          : "Nenhuma permissão cadastrada"}
-                      </p>
-                      {hasActiveFilters && (
-                        <Button variant="link" size="sm" onClick={clearFilters} className="mt-2">
-                          Limpar filtros
-                        </Button>
+                    <TableCell>
+                      {perfil.is_admin ? (
+                        <Badge variant="default" className="flex items-center gap-1 w-fit bg-amber-600">
+                          <Shield className="h-3 w-3" />
+                          Admin
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary">Usuário</Badge>
                       )}
                     </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        {stats.editar > 0 && (
+                          <Badge variant="default" className="flex items-center gap-1 bg-green-600">
+                            <Edit className="h-3 w-3" />
+                            {stats.editar} editar
+                          </Badge>
+                        )}
+                        {stats.consultar > 0 && (
+                          <Badge variant="outline" className="flex items-center gap-1">
+                            <Eye className="h-3 w-3" />
+                            {stats.consultar} consultar
+                          </Badge>
+                        )}
+                        {stats.total === 0 && (
+                          <Badge variant="secondary">Sem permissões</Badge>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={perfil.ativo ? "default" : "secondary"}>
+                        {perfil.ativo ? "Ativo" : "Inativo"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center gap-1 justify-end">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleEditPerfil(perfil)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setPerfilToDelete(perfil);
+                            setDeleteDialogOpen(true);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </TableCell>
                   </TableRow>
-                ) : (
-                  sortedPermissoes?.map((permissao) => (
-                    <TableRow key={permissao.id} className="group">
-                      <TableCell className="font-mono text-sm">
-                        {permissao.codigo}
-                      </TableCell>
-                      <TableCell className="font-medium">{permissao.nome}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline">
-                          {moduloOptions.find((m) => m.value === permissao.modulo)?.label ||
-                            permissao.modulo}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="max-w-xs truncate text-sm text-muted-foreground">
-                        {permissao.descricao || "-"}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={permissao.ativo ? "default" : "secondary"}>
-                          {permissao.ativo ? "Ativo" : "Inativo"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleEditPermissao(permissao)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              setItemToDelete({ type: "permissao", item: permissao });
-                              setDeleteDialogOpen(true);
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-
-            {sortedPermissoes && sortedPermissoes.length > 0 && (
-              <div className="px-4 py-3 border-t border-border bg-muted/30 text-sm text-muted-foreground">
-                Mostrando {sortedPermissoes.length} de {permissoes.length} permissões
-              </div>
+                );
+              })
             )}
-          </div>
-        </TabsContent>
-      </Tabs>
-
-      {/* Dialog de Criar/Editar Permissão */}
-      <Dialog open={permissaoDialogOpen} onOpenChange={setPermissaoDialogOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {editingPermissao ? "Editar Permissão" : "Nova Permissão"}
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Código *</Label>
-                <Input
-                  value={permissaoForm.codigo}
-                  onChange={(e) =>
-                    setPermissaoForm({
-                      ...permissaoForm,
-                      codigo: e.target.value.toUpperCase().replace(/\s/g, "_"),
-                    })
-                  }
-                  placeholder="Ex: ADMIN_USERS"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Módulo</Label>
-                <select
-                  value={permissaoForm.modulo}
-                  onChange={(e) =>
-                    setPermissaoForm({ ...permissaoForm, modulo: e.target.value })
-                  }
-                  className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
-                >
-                  {moduloOptions.map((m) => (
-                    <option key={m.value} value={m.value}>
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Nome *</Label>
-              <Input
-                value={permissaoForm.nome}
-                onChange={(e) =>
-                  setPermissaoForm({ ...permissaoForm, nome: e.target.value })
-                }
-                placeholder="Nome da permissão"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Descrição</Label>
-              <Textarea
-                value={permissaoForm.descricao}
-                onChange={(e) =>
-                  setPermissaoForm({ ...permissaoForm, descricao: e.target.value })
-                }
-                placeholder="Descrição da permissão..."
-                rows={2}
-              />
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Switch
-                checked={permissaoForm.ativo}
-                onCheckedChange={(v) =>
-                  setPermissaoForm({ ...permissaoForm, ativo: v })
-                }
-              />
-              <Label>Ativa</Label>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPermissaoDialogOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleSavePermissao} disabled={saving}>
-              {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Salvar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </TableBody>
+        </Table>
+      </div>
 
       {/* Dialog de Criar/Editar Perfil */}
       <Dialog open={perfilDialogOpen} onOpenChange={setPerfilDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
+        <DialogContent className="max-w-5xl w-[95vw] h-[95vh] flex flex-col p-0">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5" />
               {editingPerfil ? "Editar Perfil" : "Novo Perfil"}
             </DialogTitle>
+            <DialogDescription>
+              Configure as permissões de acesso para cada tela do sistema
+            </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
+          <div className="flex-1 overflow-y-auto px-6 py-4">
+            {/* Dados básicos */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Nome *</Label>
+                <Label>Nome do Perfil *</Label>
                 <Input
                   value={perfilForm.nome}
                   onChange={(e) =>
                     setPerfilForm({ ...perfilForm, nome: e.target.value })
                   }
-                  placeholder="Nome do perfil"
+                  placeholder="Ex: Operador, Supervisor, Gestor"
                 />
               </div>
-              <div className="flex items-center gap-4 pt-6">
+              <div className="flex items-center gap-6 pt-6">
                 <div className="flex items-center gap-2">
                   <Switch
                     checked={perfilForm.is_admin}
@@ -850,7 +640,7 @@ export default function AdminPermissoes() {
                       setPerfilForm({ ...perfilForm, is_admin: v })
                     }
                   />
-                  <Label>Administrador</Label>
+                  <Label>Administrador (acesso total)</Label>
                 </div>
                 <div className="flex items-center gap-2">
                   <Switch
@@ -876,53 +666,138 @@ export default function AdminPermissoes() {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label>Permissões</Label>
-              <p className="text-xs text-muted-foreground">
-                Selecione as permissões que este perfil terá acesso
-              </p>
+            {/* Ações em massa */}
+            <div className="flex items-center gap-2 py-2 border-y">
+              <span className="text-sm font-medium text-muted-foreground">Ações rápidas:</span>
+              <Button size="sm" variant="outline" onClick={() => toggleTodas("editar")}>
+                <Edit className="h-3 w-3 mr-1" />
+                Liberar tudo (Editar)
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => toggleTodas("consultar")}>
+                <Eye className="h-3 w-3 mr-1" />
+                Liberar tudo (Consultar)
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => toggleTodas("nenhum")}>
+                <X className="h-3 w-3 mr-1" />
+                Remover todas
+              </Button>
+            </div>
 
-              <div className="border rounded-lg max-h-72 overflow-y-auto">
-                {Object.entries(permissoesPorModulo).map(([modulo, perms]) => (
-                  <div key={modulo} className="border-b last:border-b-0">
-                    <div className="px-3 py-2 bg-muted/50 font-medium text-sm">
-                      {moduloOptions.find((m) => m.value === modulo)?.label || modulo}
-                    </div>
-                    <div className="divide-y">
-                      {perms
-                        .filter((p) => p.ativo)
-                        .map((perm) => (
-                          <div
-                            key={perm.id}
-                            className="flex items-center gap-3 px-3 py-2 hover:bg-muted/30 cursor-pointer"
-                            onClick={() => togglePermissaoInPerfil(perm.id)}
+            {/* Lista de permissões por módulo */}
+            <div className="space-y-3">
+                {sistemaTelas.map((modulo) => {
+                  const ModuloIcon = modulo.icon;
+                  const status = getModuloStatus(modulo);
+                  
+                  return (
+                    <div key={modulo.modulo} className="border rounded-lg overflow-hidden">
+                      {/* Header do módulo */}
+                      <div className="flex items-center justify-between px-4 py-3 bg-muted/50">
+                        <div className="flex items-center gap-3">
+                          <ModuloIcon className="h-5 w-5 text-primary" />
+                          <span className="font-medium">{modulo.modulo}</span>
+                          <Badge variant="outline" className="text-xs">
+                            {modulo.telas.length} telas
+                          </Badge>
+                          {status === "editar" && (
+                            <Badge className="bg-green-600 text-xs">Edição total</Badge>
+                          )}
+                          {status === "consultar" && (
+                            <Badge variant="outline" className="text-xs">Consulta total</Badge>
+                          )}
+                          {status === "parcial" && (
+                            <Badge variant="secondary" className="text-xs">Parcial</Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            size="sm"
+                            variant={status === "editar" ? "default" : "ghost"}
+                            className="h-7 px-2"
+                            onClick={() => toggleModulo(modulo, status === "editar" ? "nenhum" : "editar")}
                           >
-                            <Checkbox
-                              checked={perfilForm.permissoes_ids.includes(perm.id)}
-                              onCheckedChange={() => togglePermissaoInPerfil(perm.id)}
-                            />
-                            <div className="flex-1">
-                              <p className="text-sm font-medium">{perm.nome}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {perm.codigo}
-                              </p>
+                            <Edit className="h-3 w-3 mr-1" />
+                            Editar
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={status === "consultar" ? "default" : "ghost"}
+                            className="h-7 px-2"
+                            onClick={() => toggleModulo(modulo, status === "consultar" ? "nenhum" : "consultar")}
+                          >
+                            <Eye className="h-3 w-3 mr-1" />
+                            Consultar
+                          </Button>
+                        </div>
+                      </div>
+                      
+                      {/* Telas do módulo */}
+                      <div className="divide-y">
+                        {modulo.telas.map((tela) => {
+                          const perm = perfilForm.permissoes[tela.id] || { editar: false, consultar: false };
+                          
+                          return (
+                            <div
+                              key={tela.id}
+                              className="flex items-center justify-between px-4 py-2.5 hover:bg-muted/30"
+                            >
+                              <div className="flex-1">
+                                <p className="text-sm font-medium">{tela.nome}</p>
+                                <p className="text-xs text-muted-foreground">{tela.descricao}</p>
+                              </div>
+                              <div className="flex items-center gap-4">
+                                {/* Consultar */}
+                                <button
+                                  type="button"
+                                  onClick={() => togglePermissao(tela.id, "consultar")}
+                                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors ${
+                                    perm.consultar
+                                      ? "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300"
+                                      : "bg-muted/50 text-muted-foreground hover:bg-muted"
+                                  }`}
+                                >
+                                  <Eye className="h-3.5 w-3.5" />
+                                  Consultar
+                                  {perm.consultar && <Check className="h-3.5 w-3.5" />}
+                                </button>
+                                
+                                {/* Editar */}
+                                <button
+                                  type="button"
+                                  onClick={() => togglePermissao(tela.id, "editar")}
+                                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors ${
+                                    perm.editar
+                                      ? "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300"
+                                      : "bg-muted/50 text-muted-foreground hover:bg-muted"
+                                  }`}
+                                >
+                                  <Edit className="h-3.5 w-3.5" />
+                                  Editar
+                                  {perm.editar && <Check className="h-3.5 w-3.5" />}
+                                </button>
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  );
+                })}
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="px-6 py-4 border-t shrink-0 bg-background">
+            <div className="flex items-center gap-2 mr-auto text-sm text-muted-foreground">
+              <span>
+                Selecionadas: {Object.values(perfilForm.permissoes).filter(p => p.editar || p.consultar).length} telas
+              </span>
+            </div>
             <Button variant="outline" onClick={() => setPerfilDialogOpen(false)}>
               Cancelar
             </Button>
             <Button onClick={handleSavePerfil} disabled={saving}>
               {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Salvar
+              Salvar Perfil
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -937,14 +812,12 @@ export default function AdminPermissoes() {
               Confirmar Exclusão
             </DialogTitle>
             <DialogDescription>
-              Tem certeza que deseja excluir{" "}
-              {itemToDelete?.type === "permissao" ? "a permissão" : "o perfil"}{" "}
-              <strong>
-                {itemToDelete?.type === "permissao"
-                  ? itemToDelete?.item.nome
-                  : itemToDelete?.item.nome}
-              </strong>
-              ?
+              Tem certeza que deseja excluir o perfil{" "}
+              <strong>{perfilToDelete?.nome}</strong>?
+              <br /><br />
+              <span className="text-destructive">
+                Usuários vinculados a este perfil perderão as permissões associadas.
+              </span>
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -960,4 +833,3 @@ export default function AdminPermissoes() {
     </div>
   );
 }
-

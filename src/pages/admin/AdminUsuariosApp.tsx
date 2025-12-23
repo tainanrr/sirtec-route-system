@@ -46,6 +46,7 @@ import {
   filterData,
   FilterConfig,
 } from "@/components/ui/data-table-filters";
+import { ExportButton } from "@/components/ui/export-button";
 
 interface EquipeUsuario {
   id: string;
@@ -228,10 +229,24 @@ export default function AdminUsuariosApp() {
             Configure os usuários do aplicativo móvel (equipes de campo)
           </p>
         </div>
-        <Button variant="outline" onClick={fetchData} disabled={loading}>
-          <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-          Atualizar
-        </Button>
+        <div className="flex items-center gap-2">
+          <ExportButton
+            data={equipes}
+            filename="usuarios_app"
+            columns={[
+              { key: "codigo", label: "Código" },
+              { key: "nome", label: "Nome" },
+              { key: "usuario", label: "Usuário" },
+              { key: "contratos.codigo", label: "Contrato" },
+              { key: "ativo", label: "Ativo", format: (v) => v ? "Sim" : "Não" },
+            ]}
+            disabled={loading}
+          />
+          <Button variant="outline" onClick={fetchData} disabled={loading}>
+            <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+            Atualizar
+          </Button>
+        </div>
       </div>
 
       {/* Info */}

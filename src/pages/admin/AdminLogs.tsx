@@ -29,6 +29,7 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { SortableTableHead, useSortableTable } from "@/components/ui/sortable-table-head";
+import { ExportButton } from "@/components/ui/export-button";
 import {
   DataTableFilters,
   useDataTableFilters,
@@ -194,10 +195,28 @@ export default function AdminLogs() {
             Histórico de todas as ações realizadas no sistema
           </p>
         </div>
-        <Button variant="outline" onClick={() => fetchLogs(true)} disabled={loading}>
-          <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-          Atualizar
-        </Button>
+        <div className="flex items-center gap-2">
+          <ExportButton
+            data={logs}
+            filename="logs_sistema"
+            columns={[
+              { key: "created_at", label: "Data/Hora", format: (v) => v ? new Date(v).toLocaleString("pt-BR") : "" },
+              { key: "usuario_nome", label: "Usuário" },
+              { key: "acao", label: "Ação" },
+              { key: "modulo", label: "Módulo" },
+              { key: "tabela", label: "Tabela" },
+              { key: "registro_id", label: "ID Registro" },
+              { key: "detalhes", label: "Detalhes" },
+              { key: "dados_anteriores", label: "Dados Anteriores", format: (v) => v ? JSON.stringify(v) : "" },
+              { key: "dados_novos", label: "Dados Novos", format: (v) => v ? JSON.stringify(v) : "" },
+            ]}
+            disabled={loading}
+          />
+          <Button variant="outline" onClick={() => fetchLogs(true)} disabled={loading}>
+            <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+            Atualizar
+          </Button>
+        </div>
       </div>
 
       {/* Filtros */}

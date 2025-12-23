@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
+import { useTelaPermissao } from "@/hooks/usePermissoes";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -51,6 +52,7 @@ import {
   filterData,
   FilterConfig,
 } from "@/components/ui/data-table-filters";
+import { ExportButton } from "@/components/ui/export-button";
 import { format } from "date-fns";
 
 interface Colaborador {
@@ -120,6 +122,9 @@ const validateCPF = (cpf: string): boolean => {
 };
 
 export default function AdminColaboradores() {
+  // Permissões da tela
+  const { podeEditar } = useTelaPermissao("colaboradores");
+
   const [colaboradores, setColaboradores] = useState<Colaborador[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -372,11 +377,32 @@ export default function AdminColaboradores() {
           </p>
         </div>
         <div className="flex gap-2">
+          <ExportButton
+            data={colaboradores}
+            filename="colaboradores"
+            columns={[
+              { key: "cpf", label: "CPF" },
+              { key: "nome", label: "Nome" },
+              { key: "telefone", label: "Telefone" },
+              { key: "email", label: "Email" },
+              { key: "cargo", label: "Cargo" },
+              { key: "data_admissao", label: "Data Admissão", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
+              { key: "data_demissao", label: "Data Demissão", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
+              { key: "ativo", label: "Ativo", format: (v) => v ? "Sim" : "Não" },
+              { key: "observacoes", label: "Observações" },
+              { key: "created_at", label: "Criado em", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
+            ]}
+            disabled={loading}
+          />
           <Button variant="outline" onClick={fetchData} disabled={loading}>
             <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
             Atualizar
           </Button>
-          <Button onClick={handleCreate}>
+          <Button 
+            onClick={handleCreate}
+            disabled={!podeEditar}
+            title={!podeEditar ? "Você não tem permissão para criar" : undefined}
+          >
             <Plus className="h-4 w-4 mr-2" />
             Novo Colaborador
           </Button>
@@ -559,7 +585,13 @@ export default function AdminColaboradores() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button variant="ghost" size="sm" onClick={() => handleEdit(colaborador)}>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={() => handleEdit(colaborador)}
+                          disabled={!podeEditar}
+                          title={!podeEditar ? "Você não tem permissão para editar" : "Editar"}
+                        >
                           <Pencil className="h-4 w-4" />
                         </Button>
                         <Button
@@ -569,6 +601,8 @@ export default function AdminColaboradores() {
                             setColaboradorToDelete(colaborador);
                             setDeleteDialogOpen(true);
                           }}
+                          disabled={!podeEditar}
+                          title={!podeEditar ? "Você não tem permissão para excluir" : "Excluir"}
                         >
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>

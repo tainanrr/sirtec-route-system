@@ -75,6 +75,7 @@ import {
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import { ExportButton } from "@/components/ui/export-button";
 
 function formatCurrencyBRL(value: number | null | undefined) {
   if (value == null || Number.isNaN(Number(value))) return "-";
@@ -641,6 +642,24 @@ export default function CatalogoMateriais() {
               <Upload className="h-4 w-4 mr-2" />
               Importar
             </Button>
+            <ExportButton
+              data={filteredMateriais}
+              filename="catalogo_materiais"
+              columns={[
+                { key: "codigo_sap", label: "Código SAP" },
+                { key: "codigo_fabricante", label: "Código Fabricante" },
+                { key: "nome", label: "Nome" },
+                { key: "descricao", label: "Descrição" },
+                { key: "categorias.nome", label: "Categoria" },
+                { key: "unidade_medida", label: "Unidade" },
+                { key: "preco_unitario", label: "Preço Unitário", format: (v: any) => v ? `R$ ${Number(v).toFixed(2)}` : "" },
+                { key: "estoque_minimo", label: "Estoque Mínimo" },
+                { key: "estoque_maximo", label: "Estoque Máximo" },
+                { key: "localizacao_deposito", label: "Localização" },
+                { key: "ativo", label: "Ativo", format: (v: any) => v ? "Sim" : "Não" },
+              ]}
+              disabled={isLoading}
+            />
             <Button onClick={() => handleOpenDialog()}>
               <Plus className="h-4 w-4 mr-2" />
               Novo Material

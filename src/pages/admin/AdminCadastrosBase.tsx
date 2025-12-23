@@ -51,6 +51,7 @@ import {
   filterData,
   FilterConfig,
 } from "@/components/ui/data-table-filters";
+import { ExportButton } from "@/components/ui/export-button";
 
 interface TipoServico {
   id: string;
@@ -578,10 +579,58 @@ export default function AdminCadastrosBase() {
             Configurações base do sistema: tipos de serviço, retornos, intervalos e centros de custo
           </p>
         </div>
-        <Button variant="outline" onClick={fetchData} disabled={loading}>
-          <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-          Atualizar
-        </Button>
+        <div className="flex items-center gap-2">
+          <ExportButton
+            data={
+              activeTab === "tipos-servico" ? tiposServico :
+              activeTab === "retornos-campo" ? retornosCampo :
+              activeTab === "tipos-intervalo" ? tiposIntervalo :
+              centrosCusto
+            }
+            filename={
+              activeTab === "tipos-servico" ? "tipos_servico" :
+              activeTab === "retornos-campo" ? "retornos_campo" :
+              activeTab === "tipos-intervalo" ? "tipos_intervalo" :
+              "centros_custo"
+            }
+            columns={
+              activeTab === "tipos-servico" ? [
+                { key: "codigo", label: "Código" },
+                { key: "nome", label: "Nome" },
+                { key: "descricao", label: "Descrição" },
+                { key: "tempo_medio_minutos", label: "Tempo Médio (min)" },
+                { key: "valor_base", label: "Valor Base", format: (v: any) => v ? `R$ ${Number(v).toFixed(2)}` : "" },
+                { key: "ativo", label: "Ativo", format: (v: any) => v ? "Sim" : "Não" },
+              ] :
+              activeTab === "retornos-campo" ? [
+                { key: "codigo", label: "Código" },
+                { key: "nome", label: "Nome" },
+                { key: "descricao", label: "Descrição" },
+                { key: "requer_foto", label: "Requer Foto", format: (v: any) => v ? "Sim" : "Não" },
+                { key: "requer_assinatura", label: "Requer Assinatura", format: (v: any) => v ? "Sim" : "Não" },
+                { key: "ativo", label: "Ativo", format: (v: any) => v ? "Sim" : "Não" },
+              ] :
+              activeTab === "tipos-intervalo" ? [
+                { key: "codigo", label: "Código" },
+                { key: "nome", label: "Nome" },
+                { key: "descricao", label: "Descrição" },
+                { key: "duracao_padrao_minutos", label: "Duração Padrão (min)" },
+                { key: "remunerado", label: "Remunerado", format: (v: any) => v ? "Sim" : "Não" },
+                { key: "ativo", label: "Ativo", format: (v: any) => v ? "Sim" : "Não" },
+              ] : [
+                { key: "codigo", label: "Código" },
+                { key: "nome", label: "Nome" },
+                { key: "descricao", label: "Descrição" },
+                { key: "ativo", label: "Ativo", format: (v: any) => v ? "Sim" : "Não" },
+              ]
+            }
+            disabled={loading}
+          />
+          <Button variant="outline" onClick={fetchData} disabled={loading}>
+            <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+            Atualizar
+          </Button>
+        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">

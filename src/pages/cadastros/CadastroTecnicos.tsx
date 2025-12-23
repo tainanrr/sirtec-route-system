@@ -23,6 +23,7 @@ import {
   filterData,
   FilterConfig,
 } from "@/components/ui/data-table-filters";
+import { ExportButton } from "@/components/ui/export-button";
 
 type Tecnico = Tables<"tecnicos">;
 
@@ -181,6 +182,24 @@ export default function CadastroTecnicos() {
             })}
           </div>
           <div className="flex items-center gap-2">
+            <ExportButton
+              data={tecnicos || []}
+              filename="tecnicos"
+              columns={[
+                { key: "codigo", label: "Código" },
+                { key: "nome", label: "Nome" },
+                { key: "telefone", label: "Telefone" },
+                { key: "status", label: "Status" },
+                { key: "hora_inicio", label: "Hora Início" },
+                { key: "jornada_horas", label: "Jornada (horas)" },
+                { key: "max_horas_trabalho", label: "Máx Horas Trabalho" },
+                { key: "habilidades", label: "Habilidades", format: (v) => Array.isArray(v) ? v.join(", ") : "" },
+                { key: "color", label: "Cor" },
+                { key: "placa_veiculo", label: "Placa Veículo" },
+                { key: "ativo", label: "Ativo", format: (v) => v ? "Sim" : "Não" },
+              ]}
+              disabled={isLoading}
+            />
             <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
               <RefreshCcw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
               Atualizar

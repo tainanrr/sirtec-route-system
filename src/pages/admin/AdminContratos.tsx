@@ -49,6 +49,7 @@ import {
   filterData,
   FilterConfig,
 } from "@/components/ui/data-table-filters";
+import { ExportButton } from "@/components/ui/export-button";
 
 interface Contrato {
   id: string;
@@ -274,6 +275,22 @@ export default function AdminContratos() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <ExportButton
+            data={contratos}
+            filename="contratos"
+            columns={[
+              { key: "codigo", label: "Código" },
+              { key: "nome", label: "Nome" },
+              { key: "descricao", label: "Descrição" },
+              { key: "cliente", label: "Cliente" },
+              { key: "data_inicio", label: "Data Início", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
+              { key: "data_fim", label: "Data Fim", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
+              { key: "valor", label: "Valor", format: (v) => v ? `R$ ${Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : "" },
+              { key: "status", label: "Status" },
+              { key: "created_at", label: "Criado em", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
+            ]}
+            disabled={loading}
+          />
           <Button variant="outline" onClick={fetchContratos} disabled={loading}>
             <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
             Atualizar

@@ -67,6 +67,7 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import * as XLSX from "xlsx";
 import { SortableTableHead, useSortableTable } from "@/components/ui/sortable-table-head";
+import { ExportButton } from "@/components/ui/export-button";
 import { useAuth } from "@/contexts/AuthContext";
 
 interface RecebimentoItem {
@@ -1778,6 +1779,21 @@ Regras:
               <Sparkles className="h-4 w-4 mr-2" />
               Ler NF (IA/XML)
             </Button>
+            <ExportButton
+              data={filteredRecebimentos}
+              filename="recebimentos"
+              columns={[
+                { key: "numero_documento", label: "Nº Documento" },
+                { key: "data_recebimento", label: "Data", format: (v: any) => v ? format(new Date(v), "dd/MM/yyyy HH:mm") : "" },
+                { key: "fornecedor", label: "Fornecedor" },
+                { key: "recebido_por", label: "Recebido por" },
+                { key: "status", label: "Status" },
+                { key: "canal_entrada", label: "Canal de Entrada" },
+                { key: "chave_nfe", label: "Chave NFe" },
+                { key: "observacoes", label: "Observações" },
+              ]}
+              disabled={isLoading}
+            />
             <Button onClick={() => setDialogOpen(true)}>
               <Plus className="h-4 w-4 mr-2" />
               Novo

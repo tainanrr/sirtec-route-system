@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
+import { useTelaPermissao } from "@/hooks/usePermissoes";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -57,6 +58,7 @@ import {
   filterData,
   FilterConfig,
 } from "@/components/ui/data-table-filters";
+import { ExportButton } from "@/components/ui/export-button";
 
 interface UsuarioWeb {
   id: string;
@@ -91,6 +93,9 @@ interface Perfil {
 }
 
 export default function AdminUsuariosWeb() {
+  // Permissões da tela
+  const { podeEditar } = useTelaPermissao("usuarios_web");
+
   const [usuarios, setUsuarios] = useState<UsuarioWeb[]>([]);
   const [contratos, setContratos] = useState<Contrato[]>([]);
   const [perfis, setPerfis] = useState<Perfil[]>([]);
@@ -394,11 +399,33 @@ export default function AdminUsuariosWeb() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <ExportButton
+            data={usuarios}
+            filename="usuarios_web"
+            columns={[
+              { key: "nome", label: "Nome" },
+              { key: "email", label: "Email" },
+              { key: "telefone", label: "Telefone" },
+              { key: "cargo", label: "Cargo" },
+              { key: "departamento", label: "Departamento" },
+              { key: "centro_custo", label: "Centro de Custo" },
+              { key: "perfis_permissao.nome", label: "Perfil" },
+              { key: "perfis_permissao.is_admin", label: "Admin", format: (v) => v ? "Sim" : "Não" },
+              { key: "ativo", label: "Ativo", format: (v) => v ? "Sim" : "Não" },
+              { key: "ultimo_acesso", label: "Último Acesso", format: (v) => v ? new Date(v).toLocaleString("pt-BR") : "Nunca" },
+              { key: "created_at", label: "Criado em", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
+            ]}
+            disabled={loading}
+          />
           <Button variant="outline" onClick={fetchData} disabled={loading}>
             <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
             Atualizar
           </Button>
-          <Button onClick={handleCreate}>
+          <Button 
+            onClick={handleCreate}
+            disabled={!podeEditar}
+            title={!podeEditar ? "Você não tem permissão para criar" : undefined}
+          >
             <Plus className="h-4 w-4 mr-2" />
             Novo Usuário
           </Button>
@@ -594,6 +621,8 @@ export default function AdminUsuariosWeb() {
                         variant="ghost"
                         size="sm"
                         onClick={() => handleEdit(usuario)}
+                        disabled={!podeEditar}
+                        title={!podeEditar ? "Você não tem permissão para editar" : "Editar"}
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
@@ -604,6 +633,8 @@ export default function AdminUsuariosWeb() {
                           setUsuarioToDelete(usuario);
                           setDeleteDialogOpen(true);
                         }}
+                        disabled={!podeEditar}
+                        title={!podeEditar ? "Você não tem permissão para excluir" : "Excluir"}
                       >
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>

@@ -24,6 +24,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Pencil, Trash2, Search } from "lucide-react";
 import { toast } from "sonner";
+import { ExportButton } from "@/components/ui/export-button";
 import type { Json } from "@/integrations/supabase/types";
 
 interface Poligono {
@@ -150,10 +151,24 @@ export default function CadastroPoligonos() {
     <MainLayout title="Polígonos" subtitle="Gerencie as áreas de atuação">
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <Button onClick={handleAdd}>
-            <Plus className="mr-2 h-4 w-4" />
-            Novo Polígono
-          </Button>
+          <div className="flex items-center gap-2">
+            <ExportButton
+              data={poligonos || []}
+              filename="poligonos"
+              columns={[
+                { key: "nome", label: "Nome" },
+                { key: "cor", label: "Cor" },
+                { key: "coordenadas", label: "Coordenadas", format: (v) => v ? JSON.stringify(v) : "" },
+                { key: "ativo", label: "Ativo", format: (v) => v ? "Sim" : "Não" },
+                { key: "created_at", label: "Criado em", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
+              ]}
+              disabled={isLoading}
+            />
+            <Button onClick={handleAdd}>
+              <Plus className="mr-2 h-4 w-4" />
+              Novo Polígono
+            </Button>
+          </div>
         </div>
 
         <div className="flex items-center gap-4">
