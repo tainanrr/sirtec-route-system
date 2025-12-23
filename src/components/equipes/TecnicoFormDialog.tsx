@@ -28,17 +28,33 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { X, MapPin, Clock, Coffee, Settings, User, Lock, Eye, EyeOff } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { X, MapPin, Clock, Coffee, Settings, Users, Car, Search, Plus, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { criarCredenciaisEquipe } from "@/lib/authUtils";
 import { toast } from "sonner";
 import type { Tables } from "@/integrations/supabase/types";
 
+// Tipos para colaboradores
+interface Colaborador {
+  id: string;
+  cpf: string;
+  nome: string;
+  cargo: string | null;
+  ativo: boolean;
+}
+
+interface EquipeColaborador {
+  id: string;
+  colaborador_id: string;
+  funcao: string;
+  ativo: boolean;
+  colaborador?: Colaborador;
+}
+
 const tecnicoSchema = z.object({
   codigo: z.string().min(1, "Código é obrigatório").max(20),
-  colaborador1: z.string().min(2, "Colaborador 1 é obrigatório").max(100),
-  colaborador2: z.string().max(100).optional(),
-  telefone: z.string().max(20).optional(),
+  nome: z.string().max(200).optional(), // Nome será gerado automaticamente dos colaboradores
   status: z.enum(["disponivel", "em_servico", "pausa", "offline"]),
   hora_inicio: z.string().regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Formato inválido (use HH:mm)"),
   jornada_horas: z.number().min(1).max(24),
@@ -46,8 +62,12 @@ const tecnicoSchema = z.object({
   latitude: z.number().optional(),
   longitude: z.number().optional(),
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, "Cor inválida (use formato hexadecimal)"),
-  usuario: z.string().min(3, "Usuário deve ter pelo menos 3 caracteres").max(50),
-  senha: z.string().min(6, "Senha deve ter pelo menos 6 caracteres").optional(),
+  placa_veiculo: z.string().max(10).optional(),
+  min_colaboradores: z.number().min(1).max(10),
+  max_colaboradores: z.number().min(1).max(10),
+}).refine(data => data.max_colaboradores >= data.min_colaboradores, {
+  message: "Máximo deve ser maior ou igual ao mínimo",
+  path: ["max_colaboradores"],
 });
 
 type TecnicoFormData = z.infer<typeof tecnicoSchema>;
@@ -85,16 +105,19 @@ export function TecnicoFormDialog({
   });
   const [localPartida, setLocalPartida] = useState<{ lat: number; lng: number } | null>(null);
   const [localChegada, setLocalChegada] = useState<{ lat: number; lng: number } | null>(null);
-  const [showPassword, setShowPassword] = useState(false);
   const isEditing = !!tecnico && tecnico.id && !tecnico.id.startsWith("temp-");
+
+  // Estados para colaboradores
+  const [todosColaboradores, setTodosColaboradores] = useState<Colaborador[]>([]);
+  const [colaboradoresEquipe, setColaboradoresEquipe] = useState<EquipeColaborador[]>([]);
+  const [colaboradorSearch, setColaboradorSearch] = useState("");
+  const [loadingColaboradores, setLoadingColaboradores] = useState(false);
 
   const form = useForm<TecnicoFormData>({
     resolver: zodResolver(tecnicoSchema),
     defaultValues: {
       codigo: "",
-      colaborador1: "",
-      colaborador2: "",
-      telefone: "",
+      nome: "",
       status: "disponivel",
       hora_inicio: "07:30",
       jornada_horas: 8,
@@ -102,22 +125,191 @@ export function TecnicoFormDialog({
       latitude: undefined,
       longitude: undefined,
       color: "#3b82f6",
-      usuario: "",
-      senha: "",
+      placa_veiculo: "",
+      min_colaboradores: 1,
+      max_colaboradores: 2,
     },
   });
 
+  // Carregar todos os colaboradores disponíveis
+  const fetchColaboradores = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("colaboradores")
+        .select("id, cpf, nome, cargo, ativo")
+        .eq("ativo", true)
+        .order("nome");
+
+      if (error) throw error;
+      setTodosColaboradores(data || []);
+    } catch (error) {
+      console.error("Erro ao carregar colaboradores:", error);
+    }
+  };
+
+  // Carregar colaboradores da equipe
+  const fetchColaboradoresEquipe = async (equipeId: string) => {
+    if (!equipeId || equipeId.startsWith("temp-")) return;
+    
+    setLoadingColaboradores(true);
+    try {
+      const { data, error } = await supabase
+        .from("equipe_colaboradores")
+        .select(`
+          id,
+          colaborador_id,
+          funcao,
+          ativo,
+          colaboradores:colaborador_id (id, cpf, nome, cargo, ativo)
+        `)
+        .eq("equipe_id", equipeId)
+        .eq("ativo", true);
+
+      if (error) throw error;
+      
+      const mapped = (data || []).map((item: any) => ({
+        id: item.id,
+        colaborador_id: item.colaborador_id,
+        funcao: item.funcao,
+        ativo: item.ativo,
+        colaborador: item.colaboradores,
+      }));
+      
+      setColaboradoresEquipe(mapped);
+    } catch (error) {
+      console.error("Erro ao carregar colaboradores da equipe:", error);
+    } finally {
+      setLoadingColaboradores(false);
+    }
+  };
+
+  // Adicionar colaborador à equipe
+  const addColaborador = async (colaboradorId: string, funcao: string = "membro") => {
+    if (!tecnico?.id || tecnico.id.startsWith("temp-")) {
+      // Se é nova equipe, apenas adicionar na lista local
+      const colaborador = todosColaboradores.find(c => c.id === colaboradorId);
+      if (colaborador && !colaboradoresEquipe.some(ec => ec.colaborador_id === colaboradorId)) {
+        setColaboradoresEquipe(prev => [...prev, {
+          id: `temp-${Date.now()}`,
+          colaborador_id: colaboradorId,
+          funcao,
+          ativo: true,
+          colaborador,
+        }]);
+      }
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from("equipe_colaboradores")
+        .insert({
+          equipe_id: tecnico.id,
+          colaborador_id: colaboradorId,
+          funcao,
+        })
+        .select(`
+          id,
+          colaborador_id,
+          funcao,
+          ativo,
+          colaboradores:colaborador_id (id, cpf, nome, cargo, ativo)
+        `)
+        .single();
+
+      if (error) {
+        if (error.code === "23505") {
+          toast.error("Colaborador já está vinculado a esta equipe");
+        } else {
+          throw error;
+        }
+        return;
+      }
+
+      setColaboradoresEquipe(prev => [...prev, {
+        id: data.id,
+        colaborador_id: data.colaborador_id,
+        funcao: data.funcao,
+        ativo: data.ativo,
+        colaborador: (data as any).colaboradores,
+      }]);
+      
+      toast.success("Colaborador adicionado à equipe");
+    } catch (error: any) {
+      toast.error("Erro ao adicionar colaborador");
+      console.error(error);
+    }
+  };
+
+  // Remover colaborador da equipe
+  const removeColaborador = async (equipeColaboradorId: string) => {
+    if (equipeColaboradorId.startsWith("temp-")) {
+      setColaboradoresEquipe(prev => prev.filter(ec => ec.id !== equipeColaboradorId));
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from("equipe_colaboradores")
+        .update({ ativo: false, data_fim: new Date().toISOString().split("T")[0] })
+        .eq("id", equipeColaboradorId);
+
+      if (error) throw error;
+
+      setColaboradoresEquipe(prev => prev.filter(ec => ec.id !== equipeColaboradorId));
+      toast.success("Colaborador removido da equipe");
+    } catch (error) {
+      toast.error("Erro ao remover colaborador");
+      console.error(error);
+    }
+  };
+
+  // Atualizar função do colaborador
+  const updateFuncaoColaborador = async (equipeColaboradorId: string, novaFuncao: string) => {
+    if (equipeColaboradorId.startsWith("temp-")) {
+      setColaboradoresEquipe(prev => prev.map(ec => 
+        ec.id === equipeColaboradorId ? { ...ec, funcao: novaFuncao } : ec
+      ));
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from("equipe_colaboradores")
+        .update({ funcao: novaFuncao })
+        .eq("id", equipeColaboradorId);
+
+      if (error) throw error;
+
+      setColaboradoresEquipe(prev => prev.map(ec => 
+        ec.id === equipeColaboradorId ? { ...ec, funcao: novaFuncao } : ec
+      ));
+    } catch (error) {
+      toast.error("Erro ao atualizar função");
+      console.error(error);
+    }
+  };
+
+  // Colaboradores filtrados (não vinculados à equipe)
+  const colaboradoresDisponiveis = todosColaboradores.filter(c => 
+    !colaboradoresEquipe.some(ec => ec.colaborador_id === c.id) &&
+    (colaboradorSearch === "" || 
+      c.nome.toLowerCase().includes(colaboradorSearch.toLowerCase()) ||
+      c.cpf.includes(colaboradorSearch))
+  );
+
+  // Carregar colaboradores quando o dialog abrir
+  useEffect(() => {
+    if (open) {
+      fetchColaboradores();
+    }
+  }, [open]);
+
   useEffect(() => {
     if (tecnico) {
-      // Separar nome em colaborador1 e colaborador2 se houver "/" ou ","
-      const nomeCompleto = tecnico.nome || "";
-      const partes = nomeCompleto.split(/[\/,]/).map(p => p.trim());
-      
       form.reset({
         codigo: tecnico.codigo,
-        colaborador1: partes[0] || "",
-        colaborador2: partes[1] || "",
-        telefone: tecnico.telefone || "",
+        nome: tecnico.nome || "",
         status: tecnico.status as TecnicoFormData["status"],
         hora_inicio: (tecnico as any).hora_inicio || "07:30",
         jornada_horas: (tecnico as any).jornada_horas || 8,
@@ -125,8 +317,9 @@ export function TecnicoFormDialog({
         latitude: (tecnico as any).latitude ? Number((tecnico as any).latitude) : undefined,
         longitude: (tecnico as any).longitude ? Number((tecnico as any).longitude) : undefined,
         color: (tecnico as any).color || "#3b82f6",
-        usuario: (tecnico as any).usuario || "",
-        senha: "", // Não carregar senha por segurança
+        placa_veiculo: (tecnico as any).placa_veiculo || "",
+        min_colaboradores: (tecnico as any).min_colaboradores || 1,
+        max_colaboradores: (tecnico as any).max_colaboradores || 2,
       });
       setHabilidades(tecnico.habilidades || []);
       
@@ -142,12 +335,17 @@ export function TecnicoFormDialog({
       if ((tecnico as any).local_chegada) {
         setLocalChegada((tecnico as any).local_chegada);
       }
+
+      // Carregar colaboradores da equipe
+      if (tecnico.id && !tecnico.id.startsWith("temp-")) {
+        fetchColaboradoresEquipe(tecnico.id);
+      } else {
+        setColaboradoresEquipe([]);
+      }
     } else {
       form.reset({
         codigo: "",
-        colaborador1: "",
-        colaborador2: "",
-        telefone: "",
+        nome: "",
         status: "disponivel",
         hora_inicio: "07:30",
         jornada_horas: 8,
@@ -155,13 +353,15 @@ export function TecnicoFormDialog({
         latitude: undefined,
         longitude: undefined,
         color: "#3b82f6",
-        usuario: "",
-        senha: "",
+        placa_veiculo: "",
+        min_colaboradores: 1,
+        max_colaboradores: 2,
       });
       setHabilidades([]);
       setAlmoco({ duracao: 60, janelaInicio: "11:00", janelaFim: "14:00" });
       setLocalPartida(null);
       setLocalChegada(null);
+      setColaboradoresEquipe([]);
     }
   }, [tecnico, form]);
 
@@ -174,15 +374,25 @@ export function TecnicoFormDialog({
   const onSubmit = async (data: TecnicoFormData) => {
     setIsLoading(true);
     try {
-      // Montar nome completo (colaborador1 / colaborador2)
-      const nomeCompleto = data.colaborador2 
-        ? `${data.colaborador1} / ${data.colaborador2}`
-        : data.colaborador1;
+      // Gerar nome da equipe automaticamente dos colaboradores vinculados
+      let nomeEquipe = data.nome || data.codigo;
+      if (colaboradoresEquipe.length > 0) {
+        const nomes = colaboradoresEquipe
+          .slice(0, 2)
+          .map(ec => {
+            const nome = ec.colaborador?.nome || "";
+            // Pegar apenas o primeiro nome
+            return nome.split(" ")[0];
+          })
+          .filter(n => n);
+        if (nomes.length > 0) {
+          nomeEquipe = nomes.join(" / ");
+        }
+      }
 
       const updateData: any = {
         codigo: data.codigo,
-        nome: nomeCompleto,
-        telefone: data.telefone || null,
+        nome: nomeEquipe,
         status: data.status,
         habilidades,
         hora_inicio: data.hora_inicio,
@@ -190,7 +400,10 @@ export function TecnicoFormDialog({
         max_horas_trabalho: data.max_horas_trabalho,
         almoco,
         color: data.color,
-        usuario: data.usuario,
+        placa_veiculo: data.placa_veiculo || null,
+        login_ativo: true, // Habilitar login por código
+        min_colaboradores: data.min_colaboradores,
+        max_colaboradores: data.max_colaboradores,
       };
 
       // Adicionar coordenadas se fornecidas
@@ -217,27 +430,9 @@ export function TecnicoFormDialog({
           .eq("id", tecnico.id);
 
         if (error) throw error;
-
-        // Se senha foi fornecida, atualizar credenciais
-        if (data.senha && data.senha.length >= 6) {
-          const credenciaisResult = await criarCredenciaisEquipe(
-            tecnico.id,
-            data.usuario,
-            data.senha
-          );
-          
-          if (!credenciaisResult.success) {
-            toast.warning(
-              "Equipe atualizada, mas houve erro ao atualizar credenciais",
-              { description: credenciaisResult.message }
-            );
-          }
-        }
-
         toast.success("Equipe atualizada com sucesso!");
       } else {
         // Criar nova equipe
-        // Inserir equipe no banco
         const { data: equipeCriada, error } = await supabase
           .from("tecnicos")
           .insert(updateData)
@@ -248,28 +443,24 @@ export function TecnicoFormDialog({
           throw error;
         }
 
-        // Criar credenciais automaticamente
-        if (equipeCriada && data.senha && data.senha.length >= 6) {
-          const credenciaisResult = await criarCredenciaisEquipe(
-            equipeCriada.id,
-            data.usuario,
-            data.senha
-          );
+        // Se tem colaboradores temporários, vincular à equipe criada
+        if (equipeCriada && colaboradoresEquipe.length > 0) {
+          const colaboradoresParaVincular = colaboradoresEquipe
+            .filter(ec => ec.id.startsWith("temp-"))
+            .map(ec => ({
+              equipe_id: equipeCriada.id,
+              colaborador_id: ec.colaborador_id,
+              funcao: ec.funcao,
+            }));
 
-          if (credenciaisResult.success) {
-            toast.success("Equipe e credenciais criadas com sucesso!");
-          } else {
-            toast.warning(
-              "Equipe criada, mas houve erro ao criar credenciais",
-              {
-                description: credenciaisResult.message || "Tente criar manualmente usando a função criar_credenciais_equipe",
-                duration: 8000,
-              }
-            );
+          if (colaboradoresParaVincular.length > 0) {
+            await supabase
+              .from("equipe_colaboradores")
+              .insert(colaboradoresParaVincular);
           }
-        } else {
-          toast.success("Equipe criada! Configure as credenciais depois.");
         }
+
+        toast.success("Equipe criada com sucesso!");
       }
 
       onSuccess();
@@ -303,9 +494,9 @@ export function TecnicoFormDialog({
                   <Settings className="h-4 w-4 mr-1" />
                   Básico
                 </TabsTrigger>
-                <TabsTrigger value="acesso" className="text-xs">
-                  <Lock className="h-4 w-4 mr-1" />
-                  Acesso
+                <TabsTrigger value="colaboradores" className="text-xs">
+                  <Users className="h-4 w-4 mr-1" />
+                  Equipe
                 </TabsTrigger>
                 <TabsTrigger value="jornada" className="text-xs">
                   <Clock className="h-4 w-4 mr-1" />
@@ -317,7 +508,7 @@ export function TecnicoFormDialog({
                 </TabsTrigger>
                 <TabsTrigger value="localizacao" className="text-xs">
                   <MapPin className="h-4 w-4 mr-1" />
-                  Localização
+                  Local
                 </TabsTrigger>
               </TabsList>
 
@@ -363,50 +554,15 @@ export function TecnicoFormDialog({
                   />
                 </div>
 
-                <FormField
-                  control={form.control}
-                  name="colaborador1"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Colaborador 1 *</FormLabel>
-                      <FormControl>
-                        <Input placeholder="João da Silva" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="colaborador2"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Colaborador 2</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Maria Santos (opcional)" {...field} />
-                      </FormControl>
-                      <FormDescription>
-                        Opcional: Nome do segundo colaborador da dupla
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="telefone"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Telefone</FormLabel>
-                      <FormControl>
-                        <Input placeholder="(11) 99999-9999" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                {/* Informação sobre colaboradores */}
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+                  <p className="text-sm text-blue-900">
+                    <strong>Colaboradores:</strong> Vincule os membros da equipe na aba "Equipe".
+                  </p>
+                  <p className="text-xs text-blue-700 mt-1">
+                    O nome da equipe será gerado automaticamente a partir dos colaboradores vinculados.
+                  </p>
+                </div>
 
                 <div className="space-y-2">
                   <FormLabel>Habilidades / Skills</FormLabel>
@@ -429,77 +585,198 @@ export function TecnicoFormDialog({
                     ))}
                   </div>
                 </div>
-              </TabsContent>
 
-              {/* ABA: Acesso ao App */}
-              <TabsContent value="acesso" className="space-y-4 mt-4">
-                <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4">
-                  <p className="text-sm text-blue-900 dark:text-blue-100">
-                    <strong>Credenciais para acesso ao aplicativo móvel</strong>
-                  </p>
-                  <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
-                    O usuário e senha serão usados para login no app do técnico
-                  </p>
-                </div>
-
+                {/* Campo de Placa do Veículo */}
                 <FormField
                   control={form.control}
-                  name="usuario"
+                  name="placa_veiculo"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Usuário *</FormLabel>
+                      <FormLabel className="flex items-center gap-2">
+                        <Car className="h-4 w-4" />
+                        Placa do Veículo
+                      </FormLabel>
                       <FormControl>
                         <Input 
-                          placeholder="equipe001" 
-                          {...field}
+                          placeholder="ABC-1234" 
+                          {...field} 
+                          className="uppercase"
+                          onChange={(e) => field.onChange(e.target.value.toUpperCase())}
                         />
                       </FormControl>
                       <FormDescription>
-                        Usuário único para login no app
+                        Placa padrão do veículo da equipe (pode ser alterada na abertura do turno)
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
 
-                <FormField
-                  control={form.control}
-                  name="senha"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        {isEditing ? "Nova Senha (deixe em branco para manter)" : "Senha *"}
-                      </FormLabel>
-                      <FormControl>
-                        <div className="relative">
+                {/* Limites de Colaboradores */}
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="min_colaboradores"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="flex items-center gap-2">
+                          <Users className="h-4 w-4" />
+                          Mín. Colaboradores
+                        </FormLabel>
+                        <FormControl>
                           <Input 
-                            type={showPassword ? "text" : "password"}
-                            placeholder={isEditing ? "••••••••" : "Mínimo 6 caracteres"} 
-                            {...field}
-                            className="pr-10"
+                            type="number"
+                            min={1}
+                            max={10}
+                            {...field} 
+                            onChange={(e) => field.onChange(parseInt(e.target.value) || 1)}
                           />
-                          <button
-                            type="button"
-                            onClick={() => setShowPassword(!showPassword)}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                          >
-                            {showPassword ? (
-                              <EyeOff className="h-4 w-4" />
-                            ) : (
-                              <Eye className="h-4 w-4" />
-                            )}
-                          </button>
+                        </FormControl>
+                        <FormDescription>
+                          Mínimo para abrir turno
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="max_colaboradores"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="flex items-center gap-2">
+                          <Users className="h-4 w-4" />
+                          Máx. Colaboradores
+                        </FormLabel>
+                        <FormControl>
+                          <Input 
+                            type="number"
+                            min={1}
+                            max={10}
+                            {...field} 
+                            onChange={(e) => field.onChange(parseInt(e.target.value) || 2)}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Máximo para abrir turno
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </TabsContent>
+
+              {/* ABA: Colaboradores da Equipe */}
+              <TabsContent value="colaboradores" className="space-y-4 mt-4">
+                <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4 mb-4">
+                  <p className="text-sm text-amber-900 dark:text-amber-100">
+                    <strong>Colaboradores da Equipe</strong>
+                  </p>
+                  <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+                    Vincule os colaboradores que fazem parte desta equipe. Eles aparecerão na abertura de turno do aplicativo.
+                  </p>
+                </div>
+
+                {/* Lista de colaboradores da equipe */}
+                <div className="space-y-2">
+                  <FormLabel>Membros da Equipe ({colaboradoresEquipe.length})</FormLabel>
+                  {loadingColaboradores ? (
+                    <div className="text-center py-4 text-muted-foreground">Carregando...</div>
+                  ) : colaboradoresEquipe.length === 0 ? (
+                    <div className="text-center py-4 text-muted-foreground border border-dashed rounded-lg">
+                      <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">Nenhum colaborador vinculado</p>
+                      <p className="text-xs">Use a busca abaixo para adicionar</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {colaboradoresEquipe.map((ec) => (
+                        <div
+                          key={ec.id}
+                          className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium truncate">{ec.colaborador?.nome}</p>
+                            <p className="text-xs text-muted-foreground">
+                              CPF: {ec.colaborador?.cpf} • {ec.colaborador?.cargo || "Sem cargo"}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2 ml-2">
+                            <Select
+                              value={ec.funcao}
+                              onValueChange={(value) => updateFuncaoColaborador(ec.id, value)}
+                            >
+                              <SelectTrigger className="w-28 h-8 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="membro">Membro</SelectItem>
+                                <SelectItem value="lider">Líder</SelectItem>
+                                <SelectItem value="motorista">Motorista</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeColaborador(ec.id)}
+                              className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </div>
-                      </FormControl>
-                      <FormDescription>
-                        {isEditing 
-                          ? "Preencha apenas se desejar alterar a senha"
-                          : "Senha para acesso ao aplicativo móvel"}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
+                      ))}
+                    </div>
                   )}
-                />
+                </div>
+
+                {/* Buscar e adicionar colaboradores */}
+                <div className="space-y-2 pt-4 border-t">
+                  <FormLabel>Adicionar Colaborador</FormLabel>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Buscar por nome ou CPF..."
+                      value={colaboradorSearch}
+                      onChange={(e) => setColaboradorSearch(e.target.value)}
+                      className="pl-9"
+                    />
+                  </div>
+                  
+                  {colaboradorSearch && (
+                    <ScrollArea className="h-40 border rounded-lg">
+                      <div className="p-2 space-y-1">
+                        {colaboradoresDisponiveis.length === 0 ? (
+                          <p className="text-sm text-muted-foreground text-center py-4">
+                            Nenhum colaborador encontrado
+                          </p>
+                        ) : (
+                          colaboradoresDisponiveis.slice(0, 10).map((c) => (
+                            <div
+                              key={c.id}
+                              className="flex items-center justify-between p-2 rounded hover:bg-accent cursor-pointer"
+                              onClick={() => {
+                                addColaborador(c.id);
+                                setColaboradorSearch("");
+                              }}
+                            >
+                              <div>
+                                <p className="text-sm font-medium">{c.nome}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {c.cpf} • {c.cargo || "Sem cargo"}
+                                </p>
+                              </div>
+                              <Plus className="h-4 w-4 text-muted-foreground" />
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </ScrollArea>
+                  )}
+                </div>
               </TabsContent>
 
               {/* ABA: Jornada de Trabalho */}

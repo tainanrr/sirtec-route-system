@@ -338,8 +338,19 @@ export default function AdminPermissoes() {
       }
 
       // Atualizar permissões do perfil
-      await supabase.from("perfil_permissoes").delete().eq("perfil_id", perfilId);
+      console.log("[AdminPermissoes] Deletando permissões antigas do perfil:", perfilId);
+      const { error: deleteError } = await supabase
+        .from("perfil_permissoes")
+        .delete()
+        .eq("perfil_id", perfilId);
 
+      if (deleteError) {
+        console.error("[AdminPermissoes] Erro ao deletar permissões antigas:", deleteError);
+        toast.error(`Erro ao atualizar permissões: ${deleteError.message}`);
+        return;
+      }
+
+      console.log("[AdminPermissoes] Inserindo novas permissões:", perfilForm.permissoes_ids);
       if (perfilForm.permissoes_ids.length > 0) {
         const permsToInsert = perfilForm.permissoes_ids.map((permId) => ({
           perfil_id: perfilId,
@@ -351,8 +362,12 @@ export default function AdminPermissoes() {
           .insert(permsToInsert);
 
         if (permsError) {
-          console.error("Erro ao salvar permissões:", permsError);
+          console.error("[AdminPermissoes] Erro ao inserir permissões:", permsError);
+          toast.error(`Erro ao salvar permissões: ${permsError.message}`);
+          return;
         }
+        
+        console.log("[AdminPermissoes] Permissões salvas com sucesso!");
       }
 
       setPerfilDialogOpen(false);
@@ -945,3 +960,4 @@ export default function AdminPermissoes() {
     </div>
   );
 }
+

@@ -791,3 +791,4 @@ export default function AdminProcedimentos() {
     </div>
   );
 }
+

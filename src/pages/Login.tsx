@@ -1,11 +1,10 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { Zap, Mail, Lock, Eye, EyeOff, User } from "lucide-react";
+import { Zap, Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/hooks/use-toast";
 import { useWebAuth } from "@/contexts/WebAuthContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -16,151 +15,94 @@ const loginSchema = z.object({
   password: z.string().min(1, "Senha é obrigatória"),
 });
 
-const signupSchema = z.object({
-  nomeCompleto: z.string().min(2, "Nome deve ter no mínimo 2 caracteres"),
-  email: z.string().email("Email inválido"),
-  password: z.string().min(6, "Senha deve ter no mínimo 6 caracteres"),
-  confirmPassword: z.string(),
-}).refine((data) => data.password === data.confirmPassword, {
-  message: "Senhas não conferem",
-  path: ["confirmPassword"],
-});
-
 const Login = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { signIn: webSignIn, usuarioWeb, loading: webLoading } = useWebAuth();
-  const { signIn: authSignIn, signUp, user, loading: authLoading } = useAuth();
+  const { signIn: authSignIn, user, loading: authLoading } = useAuth();
   
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState("login");
   
   // Form states
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
-  const [signupName, setSignupName] = useState("");
-  const [signupEmail, setSignupEmail] = useState("");
-  const [signupPassword, setSignupPassword] = useState("");
-  const [signupConfirmPassword, setSignupConfirmPassword] = useState("");
 
   const loading = webLoading || authLoading;
 
-  // Redirect if already logged in (either web user or auth user)
+  // Redirecionar se já estiver autenticado
   useEffect(() => {
-    if ((usuarioWeb || user) && !loading) {
+    if (!loading && (user || usuarioWeb)) {
       const from = location.state?.from?.pathname || "/";
       navigate(from, { replace: true });
     }
-  }, [usuarioWeb, user, loading, navigate, location]);
+  }, [user, usuarioWeb, loading, navigate, location]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("[Login] Iniciando login...", { email: loginEmail });
-    
+    setIsLoading(true);
+
     try {
-      loginSchema.parse({ email: loginEmail, password: loginPassword });
-    } catch (err) {
-      if (err instanceof z.ZodError) {
+      // Validar formulário
+      const validation = loginSchema.safeParse({
+        email: loginEmail,
+        password: loginPassword,
+      });
+
+      if (!validation.success) {
         toast({
           title: "Erro de validação",
-          description: err.errors[0].message,
+          description: validation.error.errors[0].message,
           variant: "destructive",
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      // Primeiro, tenta login com usuarios_web
+      const { error: webError } = await webSignIn(loginEmail, loginPassword);
+      
+      if (!webError) {
+        toast({
+          title: "Login realizado!",
+          description: "Bem-vindo ao SirtecRoute",
         });
         return;
       }
-    }
-    
-    setIsLoading(true);
-    
-    // Primeiro tenta login com usuários web (tabela usuarios_web)
-    console.log("[Login] Tentando login com usuário web...");
-    const webResult = await webSignIn(loginEmail, loginPassword);
-    
-    if (!webResult.error) {
-      console.log("[Login] Login web bem-sucedido:", webResult.usuario?.nome);
+
+      // Se falhou no usuarios_web, tenta no Supabase Auth (fallback)
+      const { error: authError } = await authSignIn(loginEmail, loginPassword);
+      
+      if (authError) {
+        // Ambos falharam
+        toast({
+          title: "Erro ao fazer login",
+          description: webError.message || "Email ou senha incorretos",
+          variant: "destructive",
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      // Login via Supabase Auth funcionou
       toast({
         title: "Login realizado!",
-        description: `Bem-vindo(a), ${webResult.usuario?.nome}`,
+        description: "Bem-vindo ao SirtecRoute",
       });
-      // O redirect acontecerá via useEffect
-      return;
-    }
-    
-    console.log("[Login] Login web falhou, tentando Supabase Auth...");
-    
-    // Se falhar, tenta com Supabase Auth (para manter compatibilidade)
-    const { error } = await authSignIn(loginEmail, loginPassword);
-    console.log("[Login] Resultado Supabase Auth:", { error });
-    
-    if (error) {
-      // Se ambos falharam, mostra erro do login web (mais relevante)
-      let message = webResult.error?.message || "Email ou senha incorretos";
-      
+    } catch (err) {
+      console.error("Erro no login:", err);
       toast({
         title: "Erro",
-        description: message,
+        description: "Ocorreu um erro ao fazer login. Tente novamente.",
         variant: "destructive",
       });
       setIsLoading(false);
-    } else {
-      toast({
-        title: "Login realizado!",
-        description: "Bem-vindo ao SirtecRoute",
-      });
-      // Não definir isLoading=false aqui, pois o redirect vai acontecer
     }
-  };
-
-  const handleSignup = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    try {
-      signupSchema.parse({
-        nomeCompleto: signupName,
-        email: signupEmail,
-        password: signupPassword,
-        confirmPassword: signupConfirmPassword,
-      });
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        toast({
-          title: "Erro de validação",
-          description: err.errors[0].message,
-          variant: "destructive",
-        });
-        return;
-      }
-    }
-    
-    setIsLoading(true);
-    
-    const { error } = await signUp(signupEmail, signupPassword, signupName);
-    
-    if (error) {
-      let message = "Erro ao criar conta";
-      if (error.message.includes("already registered")) {
-        message = "Este email já está cadastrado";
-      }
-      
-      toast({
-        title: "Erro",
-        description: message,
-        variant: "destructive",
-      });
-    } else {
-      toast({
-        title: "Conta criada!",
-        description: "Bem-vindo ao SirtecRoute",
-      });
-    }
-    
-    setIsLoading(false);
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="h-12 w-12 rounded-full border-4 border-primary border-t-transparent animate-spin" />
       </div>
     );
@@ -188,202 +130,129 @@ const Login = () => {
           {/* Abstract Routes Illustration */}
           <div className="relative w-full max-w-md h-48 mt-8">
             <svg viewBox="0 0 400 200" className="w-full h-full">
-              <defs>
-                <linearGradient id="routeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stopColor="white" stopOpacity="0.3" />
-                  <stop offset="100%" stopColor="white" stopOpacity="0.8" />
-                </linearGradient>
-              </defs>
-              <path
-                d="M 20 100 Q 100 20, 200 80 T 380 60"
-                stroke="url(#routeGradient)"
-                strokeWidth="3"
+              {/* Route paths */}
+              <path 
+                d="M50 150 Q 100 50, 200 100 T 350 80" 
+                stroke="rgba(255,255,255,0.3)" 
+                strokeWidth="3" 
                 fill="none"
-                strokeLinecap="round"
+                strokeDasharray="10,5"
               />
-              <path
-                d="M 20 140 Q 120 180, 200 120 T 380 140"
-                stroke="url(#routeGradient)"
-                strokeWidth="2"
+              <path 
+                d="M30 100 Q 150 180, 250 120 T 380 140" 
+                stroke="rgba(255,255,255,0.4)" 
+                strokeWidth="2" 
                 fill="none"
-                strokeLinecap="round"
-                opacity="0.6"
               />
-              <circle cx="20" cy="100" r="8" fill="white" opacity="0.9" />
-              <circle cx="120" cy="55" r="6" fill="white" opacity="0.7" />
-              <circle cx="200" cy="80" r="6" fill="white" opacity="0.7" />
-              <circle cx="300" cy="65" r="6" fill="white" opacity="0.7" />
-              <circle cx="380" cy="60" r="8" fill="white" opacity="0.9" />
+              <path 
+                d="M80 180 Q 180 80, 300 130 T 370 100" 
+                stroke="rgba(255,255,255,0.2)" 
+                strokeWidth="4" 
+                fill="none"
+                strokeDasharray="15,8"
+              />
+              
+              {/* Location markers */}
+              <circle cx="50" cy="150" r="8" fill="rgba(255,255,255,0.8)" />
+              <circle cx="200" cy="100" r="6" fill="rgba(255,255,255,0.6)" />
+              <circle cx="350" cy="80" r="8" fill="rgba(255,255,255,0.8)" />
+              <circle cx="250" cy="120" r="5" fill="rgba(255,255,255,0.5)" />
+              <circle cx="300" cy="130" r="7" fill="rgba(255,255,255,0.7)" />
             </svg>
+          </div>
+          
+          <div className="mt-12 grid grid-cols-3 gap-8 text-white/80">
+            <div className="text-center">
+              <div className="text-3xl font-bold text-white">98%</div>
+              <div className="text-sm">Eficiência</div>
+            </div>
+            <div className="text-center">
+              <div className="text-3xl font-bold text-white">24/7</div>
+              <div className="text-sm">Disponível</div>
+            </div>
+            <div className="text-center">
+              <div className="text-3xl font-bold text-white">500+</div>
+              <div className="text-sm">Rotas/dia</div>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Right Side - Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-white">
-        <div className="w-full max-w-md space-y-6">
+      {/* Right Side - Login Form */}
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-8">
+        <div className="w-full max-w-md space-y-8">
           {/* Mobile Logo */}
-          <div className="flex flex-col items-center lg:hidden mb-8">
-            <div className="flex h-14 w-14 items-center justify-center rounded-xl gradient-primary mb-4">
-              <Zap className="h-7 w-7 text-white" />
+          <div className="lg:hidden text-center mb-8">
+            <div className="flex h-16 w-16 items-center justify-center rounded-xl gradient-primary mx-auto mb-4">
+              <Zap className="h-8 w-8 text-white" />
             </div>
             <h1 className="text-2xl font-bold text-gray-900">SirtecRoute</h1>
           </div>
 
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="login">Entrar</TabsTrigger>
-              <TabsTrigger value="signup">Criar Conta</TabsTrigger>
-            </TabsList>
+          <div className="bg-white p-8 rounded-2xl shadow-xl border border-gray-100">
+            <div className="text-center mb-8">
+              <h2 className="text-2xl font-bold text-gray-900">Bem-vindo de volta</h2>
+              <p className="text-gray-500 mt-2">Faça login para continuar</p>
+            </div>
 
-            <TabsContent value="login" className="space-y-6 mt-6">
-              <div className="text-center lg:text-left">
-                <h2 className="text-2xl font-bold text-gray-900">Bem-vindo de volta</h2>
-                <p className="text-gray-500 mt-2">Faça login para continuar</p>
+            <form onSubmit={handleLogin} className="space-y-6">
+              <div className="space-y-2">
+                <Label htmlFor="login-email" className="text-gray-700">Email</Label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <Input
+                    id="login-email"
+                    type="email"
+                    placeholder="seu@email.com"
+                    className="pl-10 bg-white border-gray-300 text-gray-900 placeholder:text-gray-400"
+                    value={loginEmail}
+                    onChange={(e) => setLoginEmail(e.target.value)}
+                    required
+                  />
+                </div>
               </div>
 
-              <form onSubmit={handleLogin} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="login-email" className="text-gray-700">Email</Label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                    <Input
-                      id="login-email"
-                      type="email"
-                      placeholder="seu@email.com"
-                      className="pl-10 bg-white border-gray-300 text-gray-900 placeholder:text-gray-400"
-                      value={loginEmail}
-                      onChange={(e) => setLoginEmail(e.target.value)}
-                      required
-                    />
-                  </div>
+              <div className="space-y-2">
+                <Label htmlFor="login-password" className="text-gray-700">Senha</Label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <Input
+                    id="login-password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="••••••••"
+                    className="pl-10 pr-10 bg-white border-gray-300 text-gray-900 placeholder:text-gray-400"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                  </button>
                 </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="login-password" className="text-gray-700">Senha</Label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                    <Input
-                      id="login-password"
-                      type={showPassword ? "text" : "password"}
-                      placeholder="••••••••"
-                      className="pl-10 pr-10 bg-white border-gray-300 text-gray-900 placeholder:text-gray-400"
-                      value={loginPassword}
-                      onChange={(e) => setLoginPassword(e.target.value)}
-                      required
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                    >
-                      {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Checkbox id="remember" />
-                    <label htmlFor="remember" className="text-sm text-gray-500 cursor-pointer">
-                      Lembrar de mim
-                    </label>
-                  </div>
-                  <a href="#" className="text-sm text-primary hover:underline">
-                    Esqueci a senha
-                  </a>
-                </div>
-
-                <Button type="submit" className="w-full" size="lg" disabled={isLoading}>
-                  {isLoading ? "Entrando..." : "Entrar"}
-                </Button>
-              </form>
-            </TabsContent>
-
-            <TabsContent value="signup" className="space-y-6 mt-6">
-              <div className="text-center lg:text-left">
-                <h2 className="text-2xl font-bold text-foreground">Criar conta</h2>
-                <p className="text-muted-foreground mt-2">Preencha os dados para começar</p>
               </div>
 
-              <form onSubmit={handleSignup} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="signup-name">Nome completo</Label>
-                  <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                    <Input
-                      id="signup-name"
-                      type="text"
-                      placeholder="João Silva"
-                      className="pl-10"
-                      value={signupName}
-                      onChange={(e) => setSignupName(e.target.value)}
-                      required
-                    />
-                  </div>
+              <div className="flex items-center">
+                <div className="flex items-center space-x-2">
+                  <Checkbox id="remember" />
+                  <label htmlFor="remember" className="text-sm text-gray-500 cursor-pointer">
+                    Lembrar de mim
+                  </label>
                 </div>
+              </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="signup-email">Email</Label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                    <Input
-                      id="signup-email"
-                      type="email"
-                      placeholder="seu@email.com"
-                      className="pl-10"
-                      value={signupEmail}
-                      onChange={(e) => setSignupEmail(e.target.value)}
-                      required
-                    />
-                  </div>
-                </div>
+              <Button type="submit" className="w-full" size="lg" disabled={isLoading}>
+                {isLoading ? "Entrando..." : "Entrar"}
+              </Button>
+            </form>
 
-                <div className="space-y-2">
-                  <Label htmlFor="signup-password">Senha</Label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                    <Input
-                      id="signup-password"
-                      type={showPassword ? "text" : "password"}
-                      placeholder="••••••••"
-                      className="pl-10 pr-10"
-                      value={signupPassword}
-                      onChange={(e) => setSignupPassword(e.target.value)}
-                      required
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="signup-confirm">Confirmar senha</Label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                    <Input
-                      id="signup-confirm"
-                      type="password"
-                      placeholder="••••••••"
-                      className="pl-10"
-                      value={signupConfirmPassword}
-                      onChange={(e) => setSignupConfirmPassword(e.target.value)}
-                      required
-                    />
-                  </div>
-                </div>
-
-                <Button type="submit" className="w-full" size="lg" disabled={isLoading}>
-                  {isLoading ? "Criando..." : "Criar conta"}
-                </Button>
-              </form>
-            </TabsContent>
-          </Tabs>
+            <p className="text-center text-sm text-gray-500 mt-6">
+              Problemas para acessar? Entre em contato com o administrador.
+            </p>
+          </div>
         </div>
       </div>
     </div>

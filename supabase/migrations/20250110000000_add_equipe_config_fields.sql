@@ -37,3 +37,4 @@ COMMENT ON COLUMN public.tecnicos.color IS 'Cor hexadecimal para visualização 
 
 
 
+

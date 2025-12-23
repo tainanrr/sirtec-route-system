@@ -5,3 +5,4 @@ ADD COLUMN IF NOT EXISTS assinatura_confirmacao_equipe TEXT;
 
 
 
+

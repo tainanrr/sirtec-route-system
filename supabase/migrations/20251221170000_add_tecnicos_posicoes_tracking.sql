@@ -140,3 +140,4 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.tecnicos_posicoes;
 
 
 
+

@@ -28,3 +28,4 @@ ON CONFLICT (email) DO UPDATE SET
   senha_hash = EXCLUDED.senha_hash,
   perfil_id = EXCLUDED.perfil_id,
   updated_at = NOW();
+

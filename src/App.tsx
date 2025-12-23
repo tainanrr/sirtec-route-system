@@ -36,6 +36,7 @@ import {
   AdminContratos,
   AdminUsuariosWeb,
   AdminUsuariosApp,
+  AdminColaboradores,
   AdminPermissoes,
   AdminLogs,
   AdminCadastrosBase,
@@ -62,6 +63,7 @@ import AppOrdemDetalhe from "./pages/app/AppOrdemDetalhe";
 import AppAPR from "./pages/app/AppAPR";
 import AppPerfil from "./pages/app/AppPerfil";
 import AppLogin from "./pages/app/AppLogin";
+import AppAbrirTurno from "./pages/app/AppAbrirTurno";
 import AppEstoque from "./pages/app/AppEstoque";
 import AppMateriaisOS from "./pages/app/AppMateriaisOS";
 import AppDevolucoes from "./pages/app/AppDevolucoes";
@@ -124,6 +126,7 @@ const App = () => (
               <Route path="contratos" element={<AdminContratos />} />
               <Route path="usuarios-web" element={<AdminUsuariosWeb />} />
               <Route path="usuarios-app" element={<AdminUsuariosApp />} />
+              <Route path="colaboradores" element={<AdminColaboradores />} />
               <Route path="permissoes" element={<AdminPermissoes />} />
               <Route path="logs" element={<AdminLogs />} />
               <Route path="cadastros-base" element={<AdminCadastrosBase />} />
@@ -147,6 +150,11 @@ const App = () => (
             <Route path="/app/login" element={
               <EquipeAuthProvider>
                 <AppLogin />
+              </EquipeAuthProvider>
+            } />
+            <Route path="/app/abrir-turno" element={
+              <EquipeAuthProvider>
+                <AppAbrirTurno />
               </EquipeAuthProvider>
             } />
             <Route path="/app" element={

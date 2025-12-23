@@ -6,30 +6,41 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Zap, Loader2, Eye, EyeOff, Smartphone } from "lucide-react";
+import { Zap, Loader2, Smartphone, Car, Users } from "lucide-react";
 
 export default function AppLogin() {
   const navigate = useNavigate();
-  const { login, isLoading } = useEquipeAuth();
-  const [usuario, setUsuario] = useState("");
-  const [senha, setSenha] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const { loginEquipe, isLoading } = useEquipeAuth();
+  const [codigoEquipe, setCodigoEquipe] = useState("");
+  const [placaVeiculo, setPlacaVeiculo] = useState("");
+
+  const handlePlacaChange = (value: string) => {
+    // Formatar placa: remover caracteres especiais e converter para maiúsculo
+    const formatted = value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 7);
+    setPlacaVeiculo(formatted);
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!usuario.trim() || !senha.trim()) {
-      toast.error("Preencha usuário e senha");
+    if (!codigoEquipe.trim()) {
+      toast.error("Informe o código da equipe");
       return;
     }
 
-    const success = await login(usuario.trim(), senha);
+    if (!placaVeiculo.trim()) {
+      toast.error("Informe a placa do veículo");
+      return;
+    }
 
-    if (success) {
-      toast.success("Login realizado com sucesso!");
-      navigate("/app");
+    const result = await loginEquipe(codigoEquipe.trim(), placaVeiculo.trim());
+
+    if (result.success) {
+      toast.success("Equipe validada!");
+      // Navegar para tela de abertura de turno
+      navigate("/app/abrir-turno");
     } else {
-      toast.error("Usuário ou senha incorretos");
+      toast.error(result.message || "Código ou placa incorretos");
     }
   };
 
@@ -50,72 +61,78 @@ export default function AppLogin() {
       {/* Card de Login */}
       <Card className="w-full max-w-md shadow-2xl border-0 bg-card/80 backdrop-blur">
         <CardHeader className="text-center pb-2">
-          <CardTitle className="text-xl">Bem-vindo!</CardTitle>
+          <CardTitle className="text-xl">Iniciar Jornada</CardTitle>
           <CardDescription>
-            Entre com suas credenciais de equipe
+            Informe o código da equipe e a placa do veículo
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="usuario">Usuário</Label>
+              <Label htmlFor="codigoEquipe" className="flex items-center gap-2">
+                <Users className="h-4 w-4" />
+                Código da Equipe
+              </Label>
               <Input
-                id="usuario"
+                id="codigoEquipe"
                 type="text"
-                placeholder="equipe1"
-                value={usuario}
-                onChange={(e) => setUsuario(e.target.value)}
+                placeholder="Ex: EQ-001"
+                value={codigoEquipe}
+                onChange={(e) => setCodigoEquipe(e.target.value.toUpperCase())}
                 required
-                autoComplete="username"
-                className="h-12"
+                autoComplete="off"
+                className="h-14 text-lg text-center font-mono tracking-wider"
                 disabled={isLoading}
               />
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="senha">Senha</Label>
-              <div className="relative">
-                <Input
-                  id="senha"
-                  type={showPassword ? "text" : "password"}
-                  placeholder="••••••••"
-                  value={senha}
-                  onChange={(e) => setSenha(e.target.value)}
-                  required
-                  autoComplete="current-password"
-                  className="h-12 pr-12"
-                  disabled={isLoading}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                  disabled={isLoading}
-                >
-                  {showPassword ? (
-                    <EyeOff className="h-5 w-5" />
-                  ) : (
-                    <Eye className="h-5 w-5" />
-                  )}
-                </button>
-              </div>
+              <Label htmlFor="placaVeiculo" className="flex items-center gap-2">
+                <Car className="h-4 w-4" />
+                Placa do Veículo
+              </Label>
+              <Input
+                id="placaVeiculo"
+                type="text"
+                placeholder="ABC1234"
+                value={placaVeiculo}
+                onChange={(e) => handlePlacaChange(e.target.value)}
+                required
+                autoComplete="off"
+                className="h-14 text-lg text-center font-mono tracking-wider"
+                disabled={isLoading}
+                maxLength={7}
+              />
+              <p className="text-xs text-muted-foreground text-center">
+                Placa do veículo utilizado hoje
+              </p>
             </div>
             
             <Button 
               type="submit" 
-              className="w-full h-12 text-base font-semibold" 
+              className="w-full h-14 text-lg font-semibold mt-6" 
               disabled={isLoading}
             >
               {isLoading ? (
                 <>
                   <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                  Entrando...
+                  Validando...
                 </>
               ) : (
-                "Entrar"
+                <>
+                  <Users className="h-5 w-5 mr-2" />
+                  Continuar
+                </>
               )}
             </Button>
           </form>
+          
+          {/* Info sobre próximo passo */}
+          <div className="mt-6 p-3 rounded-lg bg-muted/50 border border-border">
+            <p className="text-xs text-muted-foreground text-center">
+              Na próxima tela, você confirmará os colaboradores que vão trabalhar hoje.
+            </p>
+          </div>
         </CardContent>
       </Card>
 

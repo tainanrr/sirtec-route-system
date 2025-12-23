@@ -86,3 +86,4 @@ COMMENT ON COLUMN public.alertas.snoozed_until IS 'Quando o alerta volta a ficar
 
 
 
+

@@ -226,3 +226,4 @@ DROP POLICY IF EXISTS "coordenadores_supervisores_all" ON public.coordenadores_s
 DROP POLICY IF EXISTS "coordenadores_supervisores_select" ON public.coordenadores_supervisores;
 CREATE POLICY "coordenadores_supervisores_select" ON public.coordenadores_supervisores FOR SELECT TO anon, authenticated USING (true);
 CREATE POLICY "coordenadores_supervisores_all" ON public.coordenadores_supervisores FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+

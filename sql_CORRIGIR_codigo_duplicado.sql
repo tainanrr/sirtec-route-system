@@ -66,3 +66,4 @@ FROM public.ordens_servico
 GROUP BY codigo, numero 
 HAVING COUNT(*) > 1;
 
+

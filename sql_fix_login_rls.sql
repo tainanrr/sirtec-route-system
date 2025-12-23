@@ -314,3 +314,4 @@ END $$;
 SELECT 'Políticas RLS atualizadas com sucesso!' as status;
 SELECT COUNT(*) as total_usuarios FROM public.usuarios_web;
 SELECT COUNT(*) as total_territorios FROM public.territorios;
+

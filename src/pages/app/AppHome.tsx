@@ -22,8 +22,24 @@ import {
   Route,
   Timer,
   AlertTriangle,
-  Loader2
+  Loader2,
+  Power,
+  Users,
+  Car
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
@@ -68,12 +84,14 @@ interface OrdemPlanejada {
 export default function AppHome() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { equipe: equipeAuth } = useEquipeAuth();
+  const { equipe: equipeAuth, turno, encerrarTurno, temTurnoAberto } = useEquipeAuth();
   const { equipe, isLoading: isLoadingEquipe, error: equipeError } = useTecnico();
   const { getState, saveState } = usePageState<{ isRefreshing?: boolean }>("app-home");
   const initialState = getState();
   const [greeting, setGreeting] = useState("Olá");
   const [isRefreshing, setIsRefreshing] = useState(Boolean(initialState?.isRefreshing));
+  const [kmFinal, setKmFinal] = useState("");
+  const [isClosingTurno, setIsClosingTurno] = useState(false);
 
   useEffect(() => {
     const t = window.setTimeout(() => {
@@ -234,7 +252,39 @@ export default function AppHome() {
     }
   };
 
-  const userName = equipe?.nome?.split("/")[0]?.trim() || equipeAuth?.nome?.split("/")[0]?.trim() || "Equipe";
+  // Gerar nome para saudação baseado nos colaboradores do turno
+  const getUserName = () => {
+    // Se tem turno aberto com colaboradores, usar os nomes deles
+    if (turno?.colaboradores && turno.colaboradores.length > 0) {
+      const nomes = turno.colaboradores
+        .slice(0, 2)
+        .map(c => c.nome.split(" ")[0]) // Primeiro nome de cada
+        .join(" e ");
+      return nomes;
+    }
+    // Fallback para nome da equipe
+    return equipe?.nome?.split("/")[0]?.trim() || equipeAuth?.nome?.split("/")[0]?.trim() || "Equipe";
+  };
+  const userName = getUserName();
+
+  // Função para fechar turno
+  const handleFecharTurno = async () => {
+    setIsClosingTurno(true);
+    try {
+      const km = kmFinal ? parseInt(kmFinal) : undefined;
+      const success = await encerrarTurno(km);
+      if (success) {
+        toast.success("Turno encerrado com sucesso!");
+        navigate("/app/login");
+      } else {
+        toast.error("Erro ao encerrar turno");
+      }
+    } catch (error) {
+      toast.error("Erro ao encerrar turno");
+    } finally {
+      setIsClosingTurno(false);
+    }
+  };
 
   // Loading state
   if (isLoadingEquipe) {
@@ -278,12 +328,20 @@ export default function AppHome() {
           <p className="text-muted-foreground">
             {format(new Date(), "EEEE, d 'de' MMMM", { locale: ptBR })}
           </p>
-          {equipe && (
-            <Badge variant="outline" className="mt-2">
-              <Route className="h-3 w-3 mr-1" />
-              Equipe {equipe.codigo}
-            </Badge>
-          )}
+          <div className="flex items-center gap-2 mt-2 flex-wrap">
+            {equipe && (
+              <Badge variant="outline">
+                <Route className="h-3 w-3 mr-1" />
+                Equipe {equipe.codigo}
+              </Badge>
+            )}
+            {turno?.placa_veiculo && (
+              <Badge variant="secondary">
+                <Car className="h-3 w-3 mr-1" />
+                {turno.placa_veiculo}
+              </Badge>
+            )}
+          </div>
         </div>
         <Button 
           variant="ghost" 
@@ -298,6 +356,79 @@ export default function AppHome() {
           )}
         </Button>
       </div>
+
+      {/* Card do Turno Aberto */}
+      {temTurnoAberto && turno && (
+        <Card className="bg-gradient-to-r from-green-500/10 to-emerald-500/10 border-green-500/30">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-full bg-green-500/20 flex items-center justify-center">
+                  <Users className="h-5 w-5 text-green-600" />
+                </div>
+                <div>
+                  <p className="font-medium text-green-700 dark:text-green-400">
+                    Turno em andamento
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {turno.colaboradores?.length || 0} colaborador(es) • Iniciado às {format(new Date(turno.hora_inicio), "HH:mm")}
+                  </p>
+                </div>
+              </div>
+              
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="outline" size="sm" className="text-red-600 border-red-300 hover:bg-red-50">
+                    <Power className="h-4 w-4 mr-1" />
+                    Encerrar
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Encerrar Turno</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Tem certeza que deseja encerrar o turno? Informe o KM final do veículo (opcional).
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <div className="py-4">
+                    <Label htmlFor="kmFinal">KM Final (opcional)</Label>
+                    <Input
+                      id="kmFinal"
+                      type="number"
+                      placeholder="Ex: 45890"
+                      value={kmFinal}
+                      onChange={(e) => setKmFinal(e.target.value)}
+                      className="mt-2"
+                    />
+                    {turno.km_inicial && (
+                      <p className="text-xs text-muted-foreground mt-2">
+                        KM inicial registrado: {turno.km_inicial}
+                      </p>
+                    )}
+                  </div>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction 
+                      onClick={handleFecharTurno}
+                      disabled={isClosingTurno}
+                      className="bg-red-600 hover:bg-red-700"
+                    >
+                      {isClosingTurno ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Encerrando...
+                        </>
+                      ) : (
+                        "Encerrar Turno"
+                      )}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Barra de Progresso */}
       {stats.total > 0 && (

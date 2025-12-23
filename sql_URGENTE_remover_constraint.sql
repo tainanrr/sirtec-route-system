@@ -42,3 +42,4 @@ WHERE c.conrelid = 'public.ordens_servico'::regclass
 -- Depois de encontrar o nome, execute:
 -- ALTER TABLE public.ordens_servico DROP CONSTRAINT "NOME_ENCONTRADO";
 
+

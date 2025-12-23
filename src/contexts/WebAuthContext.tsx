@@ -1,5 +1,11 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, ReactNode, useMemo, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+
+interface Permissao {
+  codigo: string;
+  nome: string;
+  modulo: string;
+}
 
 interface UsuarioWeb {
   id: string;
@@ -13,9 +19,11 @@ interface UsuarioWeb {
   ativo: boolean;
   ultimo_acesso: string | null;
   perfil?: {
+    id: string;
     nome: string;
     is_admin: boolean;
   } | null;
+  permissoes?: Permissao[];
 }
 
 interface WebAuthContextType {
@@ -23,7 +31,12 @@ interface WebAuthContextType {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null; usuario?: UsuarioWeb }>;
   signOut: () => void;
+  refreshPermissoes: () => Promise<void>;
   isAuthenticated: boolean;
+  isAdmin: boolean;
+  hasPermission: (codigo: string) => boolean;
+  hasAnyPermission: (codigos: string[]) => boolean;
+  hasModuleAccess: (modulo: string) => boolean;
 }
 
 const WebAuthContext = createContext<WebAuthContextType | undefined>(undefined);
@@ -33,6 +46,90 @@ const STORAGE_KEY = "usuario_web_session";
 export function WebAuthProvider({ children }: { children: ReactNode }) {
   const [usuarioWeb, setUsuarioWeb] = useState<UsuarioWeb | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Carregar permissões do perfil
+  const loadPermissoes = useCallback(async (perfilId: string): Promise<Permissao[]> => {
+    try {
+      console.log("[WebAuth] ========================================");
+      console.log("[WebAuth] Carregando permissões para perfil_id:", perfilId);
+      
+      // Primeiro, vamos ver se o perfil existe e qual é o nome
+      const { data: perfilInfo, error: perfilError } = await supabase
+        .from("perfis_permissao")
+        .select("id, nome, is_admin")
+        .eq("id", perfilId)
+        .single();
+      
+      console.log("[WebAuth] Info do perfil:", perfilInfo, "Erro:", perfilError);
+      
+      // Agora buscar as permissões vinculadas
+      const { data, error } = await supabase
+        .from("perfil_permissoes")
+        .select(`
+          id,
+          perfil_id,
+          permissao_id,
+          permissoes (
+            id,
+            codigo,
+            nome,
+            modulo
+          )
+        `)
+        .eq("perfil_id", perfilId);
+
+      console.log("[WebAuth] Query perfil_permissoes - Data:", data, "Error:", error);
+
+      if (error) {
+        console.error("[WebAuth] Erro ao carregar permissões:", error);
+        return [];
+      }
+
+      if (!data || data.length === 0) {
+        console.warn("[WebAuth] ATENÇÃO: Nenhuma permissão encontrada para este perfil!");
+        console.warn("[WebAuth] Verifique se existem registros em perfil_permissoes para perfil_id:", perfilId);
+        return [];
+      }
+
+      // Extrair permissões do resultado
+      const permissoes: Permissao[] = [];
+      data?.forEach((item: any) => {
+        console.log("[WebAuth] Item do perfil_permissoes:", item);
+        if (item.permissoes) {
+          permissoes.push(item.permissoes);
+        }
+      });
+
+      console.log("[WebAuth] Permissões extraídas:", permissoes.map(p => p.codigo));
+      console.log("[WebAuth] ========================================");
+      return permissoes;
+    } catch (err) {
+      console.error("[WebAuth] Erro ao carregar permissões:", err);
+      return [];
+    }
+  }, []);
+
+  // Função para recarregar permissões do usuário atual
+  const refreshPermissoes = useCallback(async () => {
+    if (!usuarioWeb?.perfil_id) {
+      console.log("[WebAuth] Sem perfil_id para recarregar permissões");
+      return;
+    }
+
+    // Se for admin, não precisa carregar permissões específicas
+    if (usuarioWeb.perfil?.is_admin) {
+      console.log("[WebAuth] Usuário é admin, não precisa recarregar permissões");
+      return;
+    }
+
+    console.log("[WebAuth] Recarregando permissões...");
+    const permissoes = await loadPermissoes(usuarioWeb.perfil_id);
+    
+    setUsuarioWeb(prev => prev ? {
+      ...prev,
+      permissoes,
+    } : null);
+  }, [usuarioWeb?.perfil_id, usuarioWeb?.perfil?.is_admin, loadPermissoes]);
 
   // Carregar sessão do localStorage ao iniciar
   useEffect(() => {
@@ -47,6 +144,7 @@ export function WebAuthProvider({ children }: { children: ReactNode }) {
             .select(`
               *,
               perfis_permissao (
+                id,
                 nome,
                 is_admin
               )
@@ -56,9 +154,16 @@ export function WebAuthProvider({ children }: { children: ReactNode }) {
             .single();
 
           if (usuario && !error) {
+            // SEMPRE carregar permissões do banco (não usar cache)
+            let permissoes: Permissao[] = [];
+            if (usuario.perfil_id && !usuario.perfis_permissao?.is_admin) {
+              permissoes = await loadPermissoes(usuario.perfil_id);
+            }
+
             setUsuarioWeb({
               ...usuario,
               perfil: usuario.perfis_permissao,
+              permissoes,
             });
           } else {
             // Sessão inválida, limpar
@@ -74,7 +179,20 @@ export function WebAuthProvider({ children }: { children: ReactNode }) {
     };
 
     loadSession();
-  }, []);
+  }, [loadPermissoes]);
+
+  // Recarregar permissões quando a janela ganha foco (útil para quando admin altera permissões)
+  useEffect(() => {
+    const handleFocus = () => {
+      if (usuarioWeb?.perfil_id && !usuarioWeb.perfil?.is_admin) {
+        console.log("[WebAuth] Janela ganhou foco, recarregando permissões...");
+        refreshPermissoes();
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+  }, [usuarioWeb?.perfil_id, usuarioWeb?.perfil?.is_admin, refreshPermissoes]);
 
   const signIn = async (email: string, password: string) => {
     try {
@@ -86,6 +204,7 @@ export function WebAuthProvider({ children }: { children: ReactNode }) {
         .select(`
           *,
           perfis_permissao (
+            id,
             nome,
             is_admin
           )
@@ -118,9 +237,16 @@ export function WebAuthProvider({ children }: { children: ReactNode }) {
         .update({ ultimo_acesso: new Date().toISOString() })
         .eq("id", usuario.id);
 
+      // Carregar permissões se tiver perfil e não for admin
+      let permissoes: Permissao[] = [];
+      if (usuario.perfil_id && !usuario.perfis_permissao?.is_admin) {
+        permissoes = await loadPermissoes(usuario.perfil_id);
+      }
+
       const usuarioLogado: UsuarioWeb = {
         ...usuario,
         perfil: usuario.perfis_permissao,
+        permissoes,
       };
 
       // Salvar sessão no localStorage
@@ -140,6 +266,41 @@ export function WebAuthProvider({ children }: { children: ReactNode }) {
     setUsuarioWeb(null);
   };
 
+  // Verificar se é admin
+  const isAdmin = useMemo(() => {
+    return usuarioWeb?.perfil?.is_admin === true;
+  }, [usuarioWeb]);
+
+  // Verificar se tem permissão específica
+  const hasPermission = useCallback((codigo: string): boolean => {
+    // Admin tem todas as permissões
+    if (usuarioWeb?.perfil?.is_admin) return true;
+    
+    // Verificar nas permissões do usuário
+    const has = usuarioWeb?.permissoes?.some(p => p.codigo === codigo) ?? false;
+    return has;
+  }, [usuarioWeb?.perfil?.is_admin, usuarioWeb?.permissoes]);
+
+  // Verificar se tem alguma das permissões
+  const hasAnyPermission = useCallback((codigos: string[]): boolean => {
+    // Admin tem todas as permissões
+    if (usuarioWeb?.perfil?.is_admin) return true;
+    
+    return codigos.some(codigo => 
+      usuarioWeb?.permissoes?.some(p => p.codigo === codigo) ?? false
+    );
+  }, [usuarioWeb?.perfil?.is_admin, usuarioWeb?.permissoes]);
+
+  // Verificar se tem acesso a um módulo
+  const hasModuleAccess = useCallback((modulo: string): boolean => {
+    // Admin tem acesso a tudo
+    if (usuarioWeb?.perfil?.is_admin) return true;
+    
+    // Verificar se tem alguma permissão do módulo
+    const has = usuarioWeb?.permissoes?.some(p => p.modulo === modulo) ?? false;
+    return has;
+  }, [usuarioWeb?.perfil?.is_admin, usuarioWeb?.permissoes]);
+
   return (
     <WebAuthContext.Provider
       value={{
@@ -147,7 +308,12 @@ export function WebAuthProvider({ children }: { children: ReactNode }) {
         loading,
         signIn,
         signOut,
+        refreshPermissoes,
         isAuthenticated: !!usuarioWeb,
+        isAdmin,
+        hasPermission,
+        hasAnyPermission,
+        hasModuleAccess,
       }}
     >
       {children}
@@ -162,3 +328,4 @@ export function useWebAuth() {
   }
   return context;
 }
+

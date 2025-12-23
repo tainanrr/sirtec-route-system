@@ -34,3 +34,4 @@ ON CONFLICT (codigo) DO UPDATE SET
   data_fim = EXCLUDED.data_fim,
   status = EXCLUDED.status,
   updated_at = NOW();
+

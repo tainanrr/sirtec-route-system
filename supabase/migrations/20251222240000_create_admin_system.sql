@@ -514,3 +514,4 @@ COMMENT ON TABLE public.procedimentos IS 'Procedimentos operacionais para downlo
 COMMENT ON TABLE public.permissoes IS 'Permissões do sistema (telas/funções)';
 COMMENT ON TABLE public.usuarios_web IS 'Usuários do sistema web';
 COMMENT ON TABLE public.logs_sistema IS 'Logs de auditoria do sistema';
+

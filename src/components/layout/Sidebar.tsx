@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -40,52 +40,73 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { useWebAuth } from "@/contexts/WebAuthContext";
 
+interface NavChild {
+  icon: React.ElementType;
+  label: string;
+  href: string;
+  permission?: string; // Permissão necessária
+}
+
 interface NavItem {
   icon: React.ElementType;
   label: string;
   href?: string;
-  children?: { icon: React.ElementType; label: string; href: string }[];
+  children?: NavChild[];
   type?: "divider";
+  permission?: string; // Permissão necessária
+  module?: string; // Módulo (para verificar acesso)
+  requireAdmin?: boolean; // Se requer admin
 }
 
-const navItems: NavItem[] = [
+// Definição dos itens de navegação com permissões
+// NOTA: Os códigos de permissão devem corresponder aos cadastrados em Admin > Permissões
+const navItemsConfig: NavItem[] = [
+  // Dashboard - visível para todos autenticados (sem permissão específica = sempre visível)
   { icon: LayoutDashboard, label: "Dashboard", href: "/" },
   { icon: LayoutDashboard, label: "__divider_1__", type: "divider" },
-  { icon: Radio, label: "Torre de Controle", href: "/torre-controle" },
+  // Torre de Controle
+  { icon: Radio, label: "Torre de Controle", href: "/torre-controle", permission: "roteirizacao.torre_controle" },
   { icon: LayoutDashboard, label: "__divider_2__", type: "divider" },
-  { icon: MapPin, label: "Roteirização", href: "/roteirizacao" },
-  { icon: ListChecks, label: "Acompanhamento de Roteirizações", href: "/acompanhamento-roteirizacoes" },
+  // Roteirização - aceita "criar" OU "visualizar"
+  { icon: MapPin, label: "Roteirização", href: "/roteirizacao", permission: "roteirizacao.visualizar" },
+  { icon: ListChecks, label: "Acompanhamento de Roteirizações", href: "/acompanhamento-roteirizacoes", permission: "roteirizacao.acompanhar" },
   { icon: LayoutDashboard, label: "__divider_3__", type: "divider" },
-  { icon: ClipboardList, label: "Ordens de Serviço", href: "/ordens-servico" },
-  { icon: CheckSquare, label: "Consulta Checklists", href: "/consulta-checklists" },
+  // Ordens de Serviço
+  { icon: ClipboardList, label: "Ordens de Serviço", href: "/ordens-servico", permission: "os.visualizar" },
+  { icon: CheckSquare, label: "Consulta Checklists", href: "/consulta-checklists", permission: "os.checklists" },
   { icon: LayoutDashboard, label: "__divider_4__", type: "divider" },
-  { icon: Package, label: "Materiais", href: "/materiais" },
+  // Materiais - verifica módulo (qualquer permissão do módulo materiais)
+  { icon: Package, label: "Materiais", href: "/materiais", module: "materiais" },
   { icon: LayoutDashboard, label: "__divider_5__", type: "divider" },
+  // Cadastros - menu pai visível se tiver qualquer permissão de cadastros
   {
     icon: FolderOpen,
     label: "Cadastros",
+    // Sem module aqui - a visibilidade é controlada pelos children
     children: [
-      { icon: Users, label: "Equipes", href: "/equipes" },
-      { icon: Wrench, label: "Skills", href: "/cadastros/skills" },
-      { icon: Map, label: "Territórios", href: "/territorios" },
-      { icon: UserCheck, label: "Coordenadores", href: "/cadastros/coordenadores" },
-      { icon: Car, label: "Veículos", href: "/cadastros/veiculos" },
-      { icon: Target, label: "Metas", href: "/cadastros/metas" },
+      { icon: Users, label: "Equipes", href: "/equipes", permission: "cadastros.equipes" },
+      { icon: Wrench, label: "Skills", href: "/cadastros/skills", permission: "cadastros.skills" },
+      { icon: Map, label: "Territórios", href: "/territorios", permission: "cadastros.territorios" },
+      { icon: UserCheck, label: "Coordenadores", href: "/cadastros/coordenadores", permission: "cadastros.coordenadores" },
+      { icon: Car, label: "Veículos", href: "/cadastros/veiculos", permission: "cadastros.veiculos" },
+      { icon: Target, label: "Metas", href: "/cadastros/metas", permission: "cadastros.metas" },
     ],
   },
   { icon: LayoutDashboard, label: "__divider_6__", type: "divider" },
+  // Admin - visível se tiver qualquer permissão admin.* (controlado pelos children)
   {
     icon: Shield,
     label: "Admin",
+    // Removido requireAdmin - agora é controlado pelas permissões dos itens filhos
     children: [
-      { icon: Building2, label: "Contratos", href: "/admin/contratos" },
-      { icon: Users, label: "Usuários Web", href: "/admin/usuarios-web" },
-      { icon: UserCheck, label: "Usuários App", href: "/admin/usuarios-app" },
-      { icon: Lock, label: "Permissões", href: "/admin/permissoes" },
-      { icon: Database, label: "Cadastros Base", href: "/admin/cadastros-base" },
-      { icon: ScrollText, label: "Procedimentos", href: "/admin/procedimentos" },
-      { icon: ClipboardList, label: "Checklists", href: "/admin/checklists" },
-      { icon: History, label: "Logs", href: "/admin/logs" },
+      { icon: Building2, label: "Contratos", href: "/admin/contratos", permission: "admin.contratos" },
+      { icon: Users, label: "Usuários Web", href: "/admin/usuarios-web", permission: "admin.usuarios_web" },
+      { icon: UserCheck, label: "Colaboradores", href: "/admin/colaboradores", permission: "admin.usuarios_app" },
+      { icon: Lock, label: "Permissões", href: "/admin/permissoes", permission: "admin.permissoes" },
+      { icon: Database, label: "Cadastros Base", href: "/admin/cadastros-base", permission: "admin.cadastros_base" },
+      { icon: ScrollText, label: "Procedimentos", href: "/admin/procedimentos", permission: "admin.procedimentos" },
+      { icon: ClipboardList, label: "Checklists", href: "/admin/checklists", permission: "admin.checklists" },
+      { icon: History, label: "Logs", href: "/admin/logs", permission: "admin.logs" },
     ],
   },
 ];
@@ -100,9 +121,50 @@ export function Sidebar({ isDark, setIsDark, collapsed = false }: SidebarProps) 
   const location = useLocation();
   const navigate = useNavigate();
   const { user, signOut: authSignOut } = useAuth();
-  const { usuarioWeb, signOut: webSignOut } = useWebAuth();
+  const { usuarioWeb, signOut: webSignOut, isAdmin, hasPermission, hasModuleAccess } = useWebAuth();
   const [openMenus, setOpenMenus] = useState<Record<string, boolean>>({});
   const [isMobileOpen, setIsMobileOpen] = useState(false);
+
+  // Filtrar itens de navegação baseado nas permissões
+  const navItems = useMemo(() => {
+    return navItemsConfig.filter((item) => {
+      // Divisores sempre aparecem (serão filtrados depois se não tiverem itens adjacentes)
+      if (item.type === "divider") return true;
+      
+      // Se requer admin e não é admin, esconde
+      if (item.requireAdmin && !isAdmin) return false;
+      
+      // Se tem permissão específica, verificar
+      if (item.permission && !hasPermission(item.permission)) return false;
+      
+      // Se tem módulo, verificar acesso ao módulo
+      if (item.module && !hasModuleAccess(item.module)) return false;
+      
+      // Se tem children, filtrar os children também
+      if (item.children) {
+        const visibleChildren = item.children.filter((child) => {
+          if (child.permission && !hasPermission(child.permission)) return false;
+          return true;
+        });
+        // Se não sobrar nenhum child visível, esconde o menu pai
+        if (visibleChildren.length === 0) return false;
+      }
+      
+      return true;
+    }).map((item) => {
+      // Filtrar children das permissões também
+      if (item.children) {
+        return {
+          ...item,
+          children: item.children.filter((child) => {
+            if (child.permission && !hasPermission(child.permission)) return false;
+            return true;
+          }),
+        };
+      }
+      return item;
+    });
+  }, [isAdmin, hasPermission, hasModuleAccess]);
 
   const isActive = (href?: string) => {
     if (!href) return false;
@@ -133,7 +195,7 @@ export function Sidebar({ isDark, setIsDark, collapsed = false }: SidebarProps) 
         }
       }
     });
-  }, [location.pathname]);
+  }, [location.pathname, navItems]);
 
   const handleLogout = async () => {
     // Faz logout de ambos os sistemas
@@ -146,6 +208,7 @@ export function Sidebar({ isDark, setIsDark, collapsed = false }: SidebarProps) 
   const userEmail = usuarioWeb?.email || user?.email || "";
   const userName = usuarioWeb?.nome || user?.user_metadata?.nome_completo || userEmail.split("@")[0];
   const userCargo = usuarioWeb?.cargo || "";
+  const userPerfil = usuarioWeb?.perfil?.nome || "";
   const userInitials = userName
     .split(" ")
     .map((n: string) => n[0])
@@ -173,13 +236,21 @@ export function Sidebar({ isDark, setIsDark, collapsed = false }: SidebarProps) 
 
       {/* Navigation */}
       <nav className="flex-1 space-y-1 overflow-y-auto p-3">
-        {navItems.map((item) => {
+        {navItems.map((item, index) => {
           if (item.type === "divider") {
+            // Verificar se há itens visíveis antes e depois do divisor
+            const prevItem = navItems[index - 1];
+            const nextItem = navItems[index + 1];
+            
+            // Esconder divisor se não há itens adjacentes visíveis
+            if (!prevItem || prevItem.type === "divider" || !nextItem || nextItem.type === "divider") {
+              return null;
+            }
+            
             return (
               <div
                 key={item.label}
                 className={cn(
-                  // Divisória mais visível: linha mais espessa e com mais contraste
                   "my-4 h-[1px] bg-sidebar-border",
                   collapsed ? "mx-2" : "mx-3"
                 )}
@@ -248,20 +319,33 @@ export function Sidebar({ isDark, setIsDark, collapsed = false }: SidebarProps) 
             );
           }
 
+          if (collapsed) {
+            return (
+              <Link
+                key={item.href}
+                to={item.href || "/"}
+                className={cn(
+                  "nav-item justify-center text-sidebar-foreground",
+                  isActive(item.href) && "active"
+                )}
+                title={item.label}
+              >
+                <item.icon className="h-5 w-5" />
+              </Link>
+            );
+          }
           return (
             <Link
               key={item.href}
-              to={item.href!}
+              to={item.href || "/"}
               onClick={() => setIsMobileOpen(false)}
               className={cn(
                 "nav-item text-sidebar-foreground",
-                collapsed && "justify-center",
                 isActive(item.href) && "active"
               )}
-              title={collapsed ? item.label : undefined}
             >
               <item.icon className="h-5 w-5" />
-              {!collapsed && item.label}
+              {item.label}
             </Link>
           );
         })}
@@ -269,13 +353,13 @@ export function Sidebar({ isDark, setIsDark, collapsed = false }: SidebarProps) 
 
       {/* Footer */}
       <div className={cn(
-        "border-t border-sidebar-border space-y-3",
-        collapsed ? "p-2" : "p-3"
+        "border-t border-sidebar-border p-3 space-y-3",
+        collapsed && "flex flex-col items-center"
       )}>
         <button
           onClick={() => setIsDark(!isDark)}
           className={cn(
-            "nav-item w-full text-sidebar-foreground",
+            "nav-item text-sidebar-foreground w-full",
             collapsed && "justify-center"
           )}
           title={collapsed ? (isDark ? "Tema Claro" : "Tema Escuro") : undefined}
@@ -295,7 +379,7 @@ export function Sidebar({ isDark, setIsDark, collapsed = false }: SidebarProps) 
             <>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-sidebar-foreground truncate">{userName}</p>
-            <p className="text-xs text-muted-foreground truncate">{userCargo || userEmail}</p>
+            <p className="text-xs text-muted-foreground truncate">{userPerfil || userCargo || userEmail}</p>
           </div>
           <button
             onClick={handleLogout}
