@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useLogSistema } from "@/hooks/useLogSistema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -121,6 +122,7 @@ const getFileIcon = (tipo: string) => {
 };
 
 export default function AdminProcedimentos() {
+  const { logCriar, logEditar, logExcluir } = useLogSistema();
   const [procedimentos, setProcedimentos] = useState<Procedimento[]>([]);
   const [contratos, setContratos] = useState<Contrato[]>([]);
   const [loading, setLoading] = useState(true);
@@ -458,6 +460,11 @@ export default function AdminProcedimentos() {
 
         if (error) throw error;
         procedimentoId = editingProcedimento.id;
+        
+        // Log de edição
+        logEditar("procedimentos", "procedimentos", procedimentoId, editingProcedimento, payload,
+          `Editou procedimento ${payload.titulo} (${payload.categoria})`);
+        
         toast.success("Procedimento atualizado com sucesso");
       } else {
         const { data, error } = await supabase
@@ -468,6 +475,11 @@ export default function AdminProcedimentos() {
 
         if (error) throw error;
         procedimentoId = data.id;
+        
+        // Log de criação
+        logCriar("procedimentos", "procedimentos", procedimentoId, payload,
+          `Criou procedimento ${payload.titulo} (${payload.categoria})`);
+        
         toast.success("Procedimento criado com sucesso");
       }
 
@@ -516,6 +528,10 @@ export default function AdminProcedimentos() {
         .eq("id", procedimentoToDelete.id);
 
       if (error) throw error;
+
+      // Log de exclusão
+      logExcluir("procedimentos", "procedimentos", procedimentoToDelete.id, procedimentoToDelete,
+        `Excluiu procedimento ${procedimentoToDelete.titulo} (${procedimentoToDelete.categoria})`);
 
       toast.success("Procedimento excluído com sucesso");
       setDeleteDialogOpen(false);

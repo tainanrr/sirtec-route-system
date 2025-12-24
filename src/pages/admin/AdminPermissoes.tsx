@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { useLogSistema } from "@/hooks/useLogSistema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -135,6 +136,7 @@ const sistemaTelas = [
 ];
 
 export default function AdminPermissoes() {
+  const { logCriar, logEditar, logExcluir } = useLogSistema();
   const [perfis, setPerfis] = useState<PerfilPermissao[]>([]);
   const [loading, setLoading] = useState(true);
   const [perfilDialogOpen, setPerfilDialogOpen] = useState(false);
@@ -249,13 +251,25 @@ export default function AdminPermissoes() {
           .eq("id", editingPerfil.id);
 
         if (error) throw error;
+        
+        // Log de edição
+        logEditar("admin", "perfis_permissao", editingPerfil.id, editingPerfil, payload,
+          `Editou perfil ${payload.nome}${payload.is_admin ? ' (Admin)' : ''}`);
+        
         toast.success("Perfil atualizado com sucesso");
       } else {
-        const { error } = await supabase
+        const { data: newData, error } = await supabase
           .from("perfis_permissao")
-          .insert(payload);
+          .insert(payload)
+          .select("id")
+          .single();
 
         if (error) throw error;
+        
+        // Log de criação
+        logCriar("admin", "perfis_permissao", newData?.id || "", payload,
+          `Criou perfil ${payload.nome}${payload.is_admin ? ' (Admin)' : ''}`);
+        
         toast.success("Perfil criado com sucesso");
       }
 
@@ -280,6 +294,11 @@ export default function AdminPermissoes() {
         .eq("id", perfilToDelete.id);
 
       if (error) throw error;
+      
+      // Log de exclusão
+      logExcluir("admin", "perfis_permissao", perfilToDelete.id, perfilToDelete,
+        `Excluiu perfil ${perfilToDelete.nome}`);
+      
       toast.success("Perfil excluído com sucesso");
 
       setDeleteDialogOpen(false);

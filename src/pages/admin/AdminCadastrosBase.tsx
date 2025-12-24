@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
+import { useLogSistema } from "@/hooks/useLogSistema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -117,6 +118,7 @@ interface UsuarioWeb {
 }
 
 export default function AdminCadastrosBase() {
+  const { logCriar, logEditar, logExcluir } = useLogSistema();
   const [tiposServico, setTiposServico] = useState<TipoServico[]>([]);
   const [tiposIntervalo, setTiposIntervalo] = useState<TipoIntervalo[]>([]);
   const [centrosCusto, setCentrosCusto] = useState<CentroCusto[]>([]);
@@ -469,11 +471,25 @@ export default function AdminCadastrosBase() {
           .eq("id", editingItem.id);
 
         if (error) throw error;
+        
+        // Log de edição
+        logEditar("cadastros_base", table, editingItem.id, editingItem, payload,
+          `Editou ${currentFormType} ${payload.codigo || payload.nome}`);
+        
         toast.success("Registro atualizado com sucesso");
       } else {
-        const { error } = await supabase.from(table).insert(payload);
+        const { data: newData, error } = await supabase
+          .from(table)
+          .insert(payload)
+          .select("id")
+          .single();
 
         if (error) throw error;
+        
+        // Log de criação
+        logCriar("cadastros_base", table, newData?.id || "", payload,
+          `Criou ${currentFormType} ${payload.codigo || payload.nome}`);
+        
         toast.success("Registro criado com sucesso");
       }
 
@@ -500,6 +516,10 @@ export default function AdminCadastrosBase() {
       const { error } = await supabase.from(table).delete().eq("id", itemToDelete.id);
 
       if (error) throw error;
+
+      // Log de exclusão
+      logExcluir("cadastros_base", table, itemToDelete.id, itemToDelete,
+        `Excluiu ${currentFormType} ${(itemToDelete as any).codigo || (itemToDelete as any).nome}`);
 
       toast.success("Registro excluído com sucesso");
       setDeleteDialogOpen(false);

@@ -1,13 +1,14 @@
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
-import { Home, ClipboardList, User, LogOut, Wifi, WifiOff, Package } from "lucide-react";
+import { Home, Route, User, LogOut, Wifi, WifiOff, Package, MessageCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
 import { Badge } from "@/components/ui/badge";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { ScrollRestoreProvider } from "@/contexts/ScrollRestoreContext";
+import { supabase } from "@/integrations/supabase/client";
 
-type AppSection = "home" | "ordens" | "estoque" | "perfil";
+type AppSection = "home" | "ordens" | "estoque" | "chat" | "perfil";
 
 export default function AppLayout() {
   const location = useLocation();
@@ -15,6 +16,74 @@ export default function AppLayout() {
   const { logout } = useEquipeAuth();
   const { equipe } = useTecnico();
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [chatNaoLidas, setChatNaoLidas] = useState(0);
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+
+  // Buscar mensagens não lidas do chat
+  const carregarMensagensNaoLidas = useCallback(async () => {
+    if (!equipe?.id) return;
+    
+    try {
+      const { data } = await supabase
+        .from("chat_conversas")
+        .select("nao_lidas_equipe")
+        .eq("equipe_id", equipe.id)
+        .eq("status", "ativo");
+      
+      const total = (data || []).reduce((acc, conv) => acc + (conv.nao_lidas_equipe || 0), 0);
+      setChatNaoLidas(total);
+    } catch (error) {
+      console.error("Erro ao carregar mensagens não lidas:", error);
+    }
+  }, [equipe?.id]);
+
+  // Carregar e escutar atualizações de chat
+  useEffect(() => {
+    if (!equipe?.id) return;
+
+    // Carregar inicialmente
+    carregarMensagensNaoLidas();
+
+    // Limpar canal anterior se existir
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+    }
+
+    // Escutar novas mensagens em tempo real
+    channelRef.current = supabase
+      .channel(`app-chat-badge-${equipe.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "chat_conversas",
+          filter: `equipe_id=eq.${equipe.id}`
+        },
+        () => {
+          carregarMensagensNaoLidas();
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "chat_mensagens"
+        },
+        () => {
+          carregarMensagensNaoLidas();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
+    };
+  }, [equipe?.id, carregarMensagensNaoLidas]);
 
   const sectionKey = (section: AppSection) => `app_last_route_${section}`;
 
@@ -22,6 +91,7 @@ export default function AppLayout() {
     if (pathname === "/app") return "home";
     if (pathname.startsWith("/app/ordens")) return "ordens";
     if (pathname.startsWith("/app/estoque")) return "estoque";
+    if (pathname.startsWith("/app/chat")) return "chat";
     if (pathname.startsWith("/app/perfil")) return "perfil";
     return null;
   };
@@ -34,6 +104,8 @@ export default function AppLayout() {
         return "/app/ordens";
       case "estoque":
         return "/app/estoque";
+      case "chat":
+        return "/app/chat";
       case "perfil":
         return "/app/perfil";
     }
@@ -88,6 +160,7 @@ export default function AppLayout() {
       sessionStorage.removeItem(sectionKey("home"));
       sessionStorage.removeItem(sectionKey("ordens"));
       sessionStorage.removeItem(sectionKey("estoque"));
+      sessionStorage.removeItem(sectionKey("chat"));
       sessionStorage.removeItem(sectionKey("perfil"));
     } catch {
       // ignore
@@ -97,8 +170,9 @@ export default function AppLayout() {
 
   const navItems = [
     { icon: Home, label: "Início", section: "home" as const },
-    { icon: ClipboardList, label: "Minhas OS", section: "ordens" as const },
+    { icon: Route, label: "Rota", section: "ordens" as const },
     { icon: Package, label: "Estoque", section: "estoque" as const },
+    { icon: MessageCircle, label: "Chat", section: "chat" as const },
     { icon: User, label: "Perfil", section: "perfil" as const },
   ];
 
@@ -180,21 +254,35 @@ export default function AppLayout() {
           {navItems.map((item) => {
             const active = isActive(item.section);
             const to = getRememberedHref(item.section);
+            const showBadge = item.section === "chat" && chatNaoLidas > 0;
+            
             return (
               <Link
                 key={item.section}
                 to={to}
                 className={cn(
-                  "flex flex-col items-center justify-center gap-1 px-6 py-2 rounded-xl transition-all",
+                  "flex flex-col items-center justify-center gap-1 px-6 py-2 rounded-xl transition-all relative",
                   active
                     ? "text-primary bg-primary/10"
                     : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
                 )}
               >
-                <item.icon className={cn("h-5 w-5", active && "scale-110")} />
+                <div className="relative">
+                  <item.icon className={cn("h-5 w-5", active && "scale-110")} />
+                  {showBadge && (
+                    <span className={cn(
+                      "absolute -top-2 -right-2 min-w-[18px] h-[18px] flex items-center justify-center",
+                      "bg-red-500 text-white text-[10px] font-bold rounded-full px-1",
+                      "animate-pulse shadow-lg"
+                    )}>
+                      {chatNaoLidas > 99 ? "99+" : chatNaoLidas}
+                    </span>
+                  )}
+                </div>
                 <span className={cn(
                   "text-xs font-medium",
-                  active && "font-semibold"
+                  active && "font-semibold",
+                  showBadge && !active && "text-red-500 font-semibold"
                 )}>
                   {item.label}
                 </span>

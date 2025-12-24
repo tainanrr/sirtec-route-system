@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { useTelaPermissao } from "@/hooks/usePermissoes";
+import { useLogSistema } from "@/hooks/useLogSistema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -90,6 +91,7 @@ const tipoEquipeConfig = {
 const Equipes = () => {
   // Permissões da tela
   const { podeEditar, apenasLeitura } = useTelaPermissao("equipes");
+  const { logCriar, logEditar, logExcluir } = useLogSistema();
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -229,6 +231,10 @@ const Equipes = () => {
         if (updateError) {
           toast.error("Erro ao desativar equipe");
         } else {
+          // Log de desativação
+          logEditar("equipes", "tecnicos", tecnicoToDelete.id, tecnicoToDelete, { status: "offline" },
+            `Desativou equipe ${tecnicoToDelete.codigo} - ${tecnicoToDelete.nome} (possui OS concluídas)`);
+          
           toast.info("Equipe desativada (possui OS concluídas no histórico)");
           fetchTecnicos();
         }
@@ -262,10 +268,18 @@ const Equipes = () => {
           if (updateError) {
             toast.error("Erro ao excluir/desativar equipe");
           } else {
+            // Log de desativação
+            logEditar("equipes", "tecnicos", tecnicoToDelete.id, tecnicoToDelete, { status: "offline" },
+              `Desativou equipe ${tecnicoToDelete.codigo} - ${tecnicoToDelete.nome}`);
+            
             toast.info("Equipe desativada (não foi possível excluir)");
             fetchTecnicos();
           }
         } else {
+          // Log de exclusão
+          logExcluir("equipes", "tecnicos", tecnicoToDelete.id, tecnicoToDelete,
+            `Excluiu equipe ${tecnicoToDelete.codigo} - ${tecnicoToDelete.nome}`);
+          
           toast.success("Equipe excluída com sucesso");
           fetchTecnicos();
         }

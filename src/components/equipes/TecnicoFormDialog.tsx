@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useLogSistema } from "@/hooks/useLogSistema";
 import {
   Dialog,
   DialogContent,
@@ -103,6 +104,7 @@ export function TecnicoFormDialog({
 }: TecnicoFormDialogProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [habilidades, setHabilidades] = useState<string[]>([]);
+  const { logCriar, logEditar } = useLogSistema();
   const [skillsDisponiveis, setSkillsDisponiveis] = useState<Skill[]>([]);
   const [almoco, setAlmoco] = useState({
     duracao: 60,
@@ -481,6 +483,11 @@ export function TecnicoFormDialog({
           .eq("id", tecnico.id);
 
         if (error) throw error;
+        
+        // Log de edição
+        logEditar("equipes", "tecnicos", tecnico.id, tecnico, updateData,
+          `Editou equipe ${updateData.codigo} - ${updateData.nome}`);
+        
         toast.success("Equipe atualizada com sucesso!");
       } else {
         // Criar nova equipe
@@ -510,6 +517,10 @@ export function TecnicoFormDialog({
               .insert(colaboradoresParaVincular);
           }
         }
+
+        // Log de criação
+        logCriar("equipes", "tecnicos", equipeCriada?.id || "", updateData,
+          `Criou equipe ${updateData.codigo} - ${updateData.nome}`);
 
         toast.success("Equipe criada com sucesso!");
       }

@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
+import { useLogSistema } from "@/hooks/useLogSistema";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -60,6 +61,7 @@ interface EquipeUsuario {
 }
 
 export default function AdminUsuariosApp() {
+  const { logCriar, logEditar, logExcluir } = useLogSistema();
   const [equipes, setEquipes] = useState<EquipeUsuario[]>([]);
   const [contratos, setContratos] = useState<{ id: string; codigo: string; nome: string }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -207,6 +209,12 @@ export default function AdminUsuariosApp() {
         .eq("id", editingEquipe.id);
 
       if (error) throw error;
+
+      // Log de edição
+      const payloadSemSenha = { ...payload };
+      delete payloadSemSenha.senha_hash;
+      logEditar("admin", "equipes", editingEquipe.id, editingEquipe, payloadSemSenha,
+        `Editou usuário app equipe ${editingEquipe.codigo} - ${editingEquipe.nome}`);
 
       toast.success("Usuário atualizado com sucesso");
       setDialogOpen(false);

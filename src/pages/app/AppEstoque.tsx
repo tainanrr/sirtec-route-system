@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
+import { logApp } from "@/lib/logUtils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -513,6 +514,23 @@ export default function AppEstoque() {
         status: "completo",
         respostas: data.respostas,
       });
+      
+      // Log do sistema
+      logApp(
+        "criar",
+        "app",
+        "materiais_entregas",
+        data.entrega_id,
+        {
+          id: equipeId || "",
+          nome: equipe?.codigo || equipeAuth?.codigo || "",
+          equipeId: equipeId || "",
+          equipeCodigo: equipe?.codigo || equipeAuth?.codigo || ""
+        },
+        null,
+        { status: "confirmado", data_confirmacao: dataConfirmacao },
+        `Confirmou recebimento de materiais (entrega ${data.entrega_id})`
+      );
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["entregas-pendentes-equipe"] });

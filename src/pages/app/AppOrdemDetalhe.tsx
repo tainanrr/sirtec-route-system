@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
+import { logApp } from "@/lib/logUtils";
 import { usePageState } from "@/contexts/ScrollRestoreContext";
 import { getAppParentRoute } from "@/lib/appNavigation";
 import { Button } from "@/components/ui/button";
@@ -358,6 +359,7 @@ export default function AppOrdemDetalhe() {
 
       // Registrar no log
       const equipeId = equipe?.id || equipeAuth?.id;
+      const equipeCodigo = equipe?.codigo || equipeAuth?.codigo || "";
       if (equipeId) {
         await supabase.from("planejamento_logs").insert({
           ordem_servico_id: id,
@@ -367,6 +369,23 @@ export default function AppOrdemDetalhe() {
           dados_novos: { status: newStatus, timestamp: now },
           created_by: equipeId,
         });
+        
+        // Log do sistema
+        logApp(
+          "editar",
+          "ordens",
+          "ordens_servico",
+          id || "",
+          {
+            id: equipeId,
+            nome: equipeCodigo,
+            equipeId,
+            equipeCodigo
+          },
+          { status: ordem?.status },
+          { status: newStatus, timestamp: now },
+          `Alterou OS ${ordem?.numero || id} para ${statusConfig[newStatus]?.label || newStatus}`
+        );
       }
     },
     onSuccess: (_, newStatus) => {

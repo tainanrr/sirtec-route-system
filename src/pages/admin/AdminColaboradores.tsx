@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { useTelaPermissao } from "@/hooks/usePermissoes";
+import { useLogSistema } from "@/hooks/useLogSistema";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -124,6 +125,7 @@ const validateCPF = (cpf: string): boolean => {
 export default function AdminColaboradores() {
   // Permissões da tela
   const { podeEditar } = useTelaPermissao("colaboradores");
+  const { logCriar, logEditar, logExcluir } = useLogSistema();
 
   const [colaboradores, setColaboradores] = useState<Colaborador[]>([]);
   const [loading, setLoading] = useState(true);
@@ -316,9 +318,18 @@ export default function AdminColaboradores() {
           .eq("id", editingColaborador.id);
 
         if (error) throw error;
+        
+        // Log de edição
+        logEditar("admin", "colaboradores", editingColaborador.id, editingColaborador, payload,
+          `Editou colaborador ${payload.nome} (CPF: ${payload.cpf})`);
+        
         toast.success("Colaborador atualizado com sucesso");
       } else {
-        const { error } = await supabase.from("colaboradores").insert(payload);
+        const { data: newData, error } = await supabase
+          .from("colaboradores")
+          .insert(payload)
+          .select("id")
+          .single();
 
         if (error) {
           if (error.code === "23505") {
@@ -327,6 +338,11 @@ export default function AdminColaboradores() {
           }
           throw error;
         }
+        
+        // Log de criação
+        logCriar("admin", "colaboradores", newData?.id || "", payload,
+          `Criou colaborador ${payload.nome} (CPF: ${payload.cpf})`);
+        
         toast.success("Colaborador cadastrado com sucesso");
       }
 
@@ -350,6 +366,11 @@ export default function AdminColaboradores() {
         .eq("id", colaboradorToDelete.id);
 
       if (error) throw error;
+      
+      // Log de exclusão
+      logExcluir("admin", "colaboradores", colaboradorToDelete.id, colaboradorToDelete,
+        `Excluiu colaborador ${colaboradorToDelete.nome} (CPF: ${colaboradorToDelete.cpf})`);
+      
       toast.success("Colaborador excluído com sucesso");
       setDeleteDialogOpen(false);
       setColaboradorToDelete(null);

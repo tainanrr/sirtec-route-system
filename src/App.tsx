@@ -70,6 +70,7 @@ import AppMateriaisOS from "./pages/app/AppMateriaisOS";
 import AppDevolucoes from "./pages/app/AppDevolucoes";
 import AppProcedimentos from "./pages/app/AppProcedimentos";
 import AppProcedimentoDetalhe from "./pages/app/AppProcedimentoDetalhe";
+import AppChat from "./pages/app/AppChat";
 
 const queryClient = new QueryClient();
 
@@ -179,6 +180,7 @@ const App = () => (
               <Route path="estoque/devolucoes" element={<AppDevolucoes />} />
               <Route path="procedimentos" element={<AppProcedimentos />} />
               <Route path="procedimentos/:id" element={<AppProcedimentoDetalhe />} />
+              <Route path="chat" element={<AppChat />} />
               <Route path="perfil" element={<AppPerfil />} />
             </Route>
 

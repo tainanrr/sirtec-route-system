@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { useTelaPermissao } from "@/hooks/usePermissoes";
+import { useLogSistema } from "@/hooks/useLogSistema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -187,6 +188,7 @@ const initialFormData: FormData = {
 export default function CatalogoMateriais() {
   // Permissões da tela
   const { podeEditar } = useTelaPermissao("materiais");
+  const { logCriar, logEditar, logExcluir } = useLogSistema();
 
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState("");
@@ -436,11 +438,21 @@ export default function CatalogoMateriais() {
           });
           if (rpcErr) throw rpcErr;
         }
+        
+        // Log de edição
+        logEditar("materiais", "materiais", selectedMaterial.id, selectedMaterial, payload,
+          `Editou material ${payload.codigo} - ${payload.nome}`);
       } else {
-        const { error } = await supabase
+        const { data: newData, error } = await supabase
           .from("materiais")
-          .insert(payload);
+          .insert(payload)
+          .select("id")
+          .single();
         if (error) throw error;
+        
+        // Log de criação
+        logCriar("materiais", "materiais", newData?.id || "", payload,
+          `Criou material ${payload.codigo} - ${payload.nome}`);
       }
     },
     onSuccess: () => {
@@ -461,12 +473,16 @@ export default function CatalogoMateriais() {
 
   // Mutation para excluir material
   const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
+    mutationFn: async (material: Material) => {
       const { error } = await supabase
         .from("materiais")
         .delete()
-        .eq("id", id);
+        .eq("id", material.id);
       if (error) throw error;
+      
+      // Log de exclusão
+      logExcluir("materiais", "materiais", material.id, material,
+        `Excluiu material ${material.codigo} - ${material.nome}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["materiais"] });
@@ -1347,7 +1363,7 @@ export default function CatalogoMateriais() {
             <AlertDialogFooter>
               <AlertDialogCancel>Cancelar</AlertDialogCancel>
               <AlertDialogAction
-                onClick={() => selectedMaterial && deleteMutation.mutate(selectedMaterial.id)}
+                onClick={() => selectedMaterial && deleteMutation.mutate(selectedMaterial)}
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               >
                 Excluir

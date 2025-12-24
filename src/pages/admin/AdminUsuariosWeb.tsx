@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { useTelaPermissao } from "@/hooks/usePermissoes";
+import { useLogSistema } from "@/hooks/useLogSistema";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -95,6 +96,7 @@ interface Perfil {
 export default function AdminUsuariosWeb() {
   // Permissões da tela
   const { podeEditar } = useTelaPermissao("usuarios_web");
+  const { logCriar, logEditar, logExcluir } = useLogSistema();
 
   const [usuarios, setUsuarios] = useState<UsuarioWeb[]>([]);
   const [contratos, setContratos] = useState<Contrato[]>([]);
@@ -315,6 +317,13 @@ export default function AdminUsuariosWeb() {
 
         if (error) throw error;
         usuarioId = editingUsuario.id;
+        
+        // Log de edição
+        const payloadSemSenha = { ...payload };
+        delete payloadSemSenha.senha_hash;
+        logEditar("admin", "usuarios_web", usuarioId, editingUsuario, payloadSemSenha,
+          `Editou usuário web ${payload.nome} (${payload.email})`);
+        
         toast.success("Usuário atualizado com sucesso");
       } else {
         const { data, error } = await supabase
@@ -325,6 +334,13 @@ export default function AdminUsuariosWeb() {
 
         if (error) throw error;
         usuarioId = data.id;
+        
+        // Log de criação
+        const payloadSemSenha = { ...payload };
+        delete payloadSemSenha.senha_hash;
+        logCriar("admin", "usuarios_web", usuarioId, payloadSemSenha,
+          `Criou usuário web ${payload.nome} (${payload.email})`);
+        
         toast.success("Usuário criado com sucesso");
       }
 
@@ -369,6 +385,12 @@ export default function AdminUsuariosWeb() {
         .eq("id", usuarioToDelete.id);
 
       if (error) throw error;
+
+      // Log de exclusão
+      const dadosParaLog = { ...usuarioToDelete };
+      delete (dadosParaLog as any).senha_hash;
+      logExcluir("admin", "usuarios_web", usuarioToDelete.id, dadosParaLog,
+        `Excluiu usuário web ${usuarioToDelete.nome} (${usuarioToDelete.email})`);
 
       toast.success("Usuário excluído com sucesso");
       setDeleteDialogOpen(false);

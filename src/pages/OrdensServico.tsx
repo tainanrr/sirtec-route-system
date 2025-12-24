@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { useTelaPermissao } from "@/hooks/usePermissoes";
+import { useLogSistema } from "@/hooks/useLogSistema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -81,6 +82,7 @@ type OrdemWithTecnico = Tables<"ordens_servico"> & {
 const OrdensServico = () => {
   // Permissões da tela
   const { podeEditar } = useTelaPermissao("ordens_servico");
+  const { logCriar, logEditar, logExcluir } = useLogSistema();
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -136,6 +138,10 @@ const OrdensServico = () => {
     if (error) {
       toast.error("Erro ao excluir ordem de serviço");
     } else {
+      // Log de exclusão
+      logExcluir("ordens", "ordens_servico", ordemToDelete.id, ordemToDelete, 
+        `Excluiu OS ${ordemToDelete.numero} - ${ordemToDelete.tipo} - ${ordemToDelete.cliente_nome || 'Sem cliente'}`);
+      
       toast.success("Ordem de serviço excluída");
       fetchOrdens();
     }
@@ -184,6 +190,10 @@ const OrdensServico = () => {
           .from("planejamento_ordens")
           .delete()
           .not("ordem_servico_id", "is", null);
+
+        // Log de cancelamento em massa
+        logEditar("ordens", "ordens_servico", "all", null, { status: "cancelada" }, 
+          `Cancelou todas as ${count} ordens de serviço em massa`);
 
         toast.success(`${count} ordem(ns) de serviço cancelada(s) com sucesso!`);
       }

@@ -5,6 +5,7 @@ import { format } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
+import { logApp } from "@/lib/logUtils";
 import { usePageState } from "@/contexts/ScrollRestoreContext";
 import { getAppParentRoute } from "@/lib/appNavigation";
 import { Button } from "@/components/ui/button";
@@ -921,6 +922,23 @@ export default function AppAPR() {
           dados_novos: { checklist_id: checklist.id, respostas_count: respostasArray.length },
           created_by: equipeId,
         });
+        
+        // Log do sistema
+        logApp(
+          respostaExistente && !aprConcluida ? "editar" : "criar",
+          "app",
+          "checklist_respostas",
+          respostaExistente?.id || "",
+          {
+            id: equipeId,
+            nome: equipe?.codigo || equipeAuth?.codigo || "",
+            equipeId,
+            equipeCodigo: equipe?.codigo || equipeAuth?.codigo || ""
+          },
+          null,
+          payload,
+          `Preencheu APR "${checklist.nome}" para OS ${ordemId}`
+        );
       }
 
       toast.success("APR concluída com sucesso!");

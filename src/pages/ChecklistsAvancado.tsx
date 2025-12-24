@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { useLogSistema } from "@/hooks/useLogSistema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -338,6 +339,7 @@ const CATEGORIAS_PERGUNTA = [
 
 export default function ChecklistsAvancado() {
   const { podeEditar } = useTelaPermissao("checklists");
+  const { logCriar, logEditar, logExcluir } = useLogSistema();
   const location = useLocation();
   
   // Verificar se está dentro do layout Admin (para evitar duplicação)
@@ -510,8 +512,16 @@ export default function ChecklistsAvancado() {
         pontuacao_minima_aprovacao: checklist.pontuacao_minima_aprovacao,
       };
 
-      const { error } = await supabase.from("checklists").insert(novoChecklist);
+      const { data: newData, error } = await supabase
+        .from("checklists")
+        .insert(novoChecklist)
+        .select("id")
+        .single();
       if (error) throw error;
+
+      // Log de duplicação
+      logCriar("checklists", "checklists", newData?.id || "", novoChecklist,
+        `Duplicou checklist ${checklist.nome} -> ${novoChecklist.nome}`);
 
       toast.success("Checklist duplicado com sucesso!");
       fetchChecklists();
@@ -531,6 +541,10 @@ export default function ChecklistsAvancado() {
         .eq("id", checklistToDelete.id);
 
       if (error) throw error;
+
+      // Log de exclusão
+      logExcluir("checklists", "checklists", checklistToDelete.id, checklistToDelete,
+        `Excluiu checklist ${checklistToDelete.nome} (${checklistToDelete.tipo})`);
 
       toast.success("Checklist excluído!");
       fetchChecklists();
@@ -605,16 +619,27 @@ export default function ChecklistsAvancado() {
         console.log("[DEBUG] Resultado update:", { data, error });
 
         if (error) throw error;
+        
+        // Log de edição
+        logEditar("checklists", "checklists", selectedChecklist.id, selectedChecklist, payload,
+          `Editou checklist ${payload.nome} (${payload.tipo})`);
+        
         toast.success("Checklist atualizado!");
       } else {
         const { data, error } = await supabase
           .from("checklists")
           .insert(payload)
-          .select();
+          .select()
+          .single();
 
         console.log("[DEBUG] Resultado insert:", { data, error });
 
         if (error) throw error;
+        
+        // Log de criação
+        logCriar("checklists", "checklists", data?.id || "", payload,
+          `Criou checklist ${payload.nome} (${payload.tipo})`);
+        
         toast.success("Checklist criado!");
       }
 

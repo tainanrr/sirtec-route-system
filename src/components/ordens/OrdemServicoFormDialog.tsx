@@ -31,6 +31,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import type { Tables } from "@/integrations/supabase/types";
 import { getDadosSkill, fetchSkills } from "@/lib/skillsUtils";
+import { useLogSistema } from "@/hooks/useLogSistema";
 
 /**
  * Converte código da skill (ex: "CORTE") para formato tipo usado no banco (ex: "corte")
@@ -103,6 +104,7 @@ export function OrdemServicoFormDialog({
   const [tecnicos, setTecnicos] = useState<Tables<"tecnicos">[]>([]);
   const [skills, setSkills] = useState<Tables<"skills">[]>([]);
   const isEditing = !!ordem;
+  const { logCriar, logEditar } = useLogSistema();
 
   const form = useForm<OrdemFormData>({
     resolver: zodResolver(ordemSchema),
@@ -299,11 +301,25 @@ export function OrdemServicoFormDialog({
           .eq("id", ordem.id);
 
         if (error) throw error;
+        
+        // Log de edição
+        logEditar("ordens", "ordens_servico", ordem.id, ordem, payload,
+          `Editou OS ${payload.numero} - ${payload.tipo} - ${payload.cliente_nome || 'Sem cliente'}`);
+        
         toast.success("Ordem de serviço atualizada!");
       } else {
-        const { error } = await supabase.from("ordens_servico").insert(payload);
+        const { data: newData, error } = await supabase
+          .from("ordens_servico")
+          .insert(payload)
+          .select("id")
+          .single();
 
         if (error) throw error;
+        
+        // Log de criação
+        logCriar("ordens", "ordens_servico", newData?.id || "", payload,
+          `Criou OS ${payload.numero} - ${payload.tipo} - ${payload.cliente_nome || 'Sem cliente'}`);
+        
         toast.success("Ordem de serviço cadastrada!");
       }
 

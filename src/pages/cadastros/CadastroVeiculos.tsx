@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { useTelaPermissao } from "@/hooks/usePermissoes";
+import { useLogSistema } from "@/hooks/useLogSistema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -93,6 +94,7 @@ const statusOptions = [
 export default function CadastroVeiculos() {
   // Permissões da tela
   const { podeEditar } = useTelaPermissao("veiculos");
+  const { logCriar, logEditar, logExcluir } = useLogSistema();
 
   const [veiculos, setVeiculos] = useState<Veiculo[]>([]);
   const [contratos, setContratos] = useState<Contrato[]>([]);
@@ -267,11 +269,25 @@ export default function CadastroVeiculos() {
           .eq("id", editingVeiculo.id);
 
         if (error) throw error;
+        
+        // Log de edição
+        logEditar("cadastros", "veiculos", editingVeiculo.id, editingVeiculo, payload,
+          `Editou veículo ${payload.placa} - ${payload.modelo}`);
+        
         toast.success("Veículo atualizado com sucesso");
       } else {
-        const { error } = await supabase.from("veiculos").insert(payload);
+        const { data: newData, error } = await supabase
+          .from("veiculos")
+          .insert(payload)
+          .select("id")
+          .single();
 
         if (error) throw error;
+        
+        // Log de criação
+        logCriar("cadastros", "veiculos", newData?.id || "", payload,
+          `Criou veículo ${payload.placa} - ${payload.modelo}`);
+        
         toast.success("Veículo criado com sucesso");
       }
 
@@ -295,6 +311,10 @@ export default function CadastroVeiculos() {
         .eq("id", veiculoToDelete.id);
 
       if (error) throw error;
+
+      // Log de exclusão
+      logExcluir("cadastros", "veiculos", veiculoToDelete.id, veiculoToDelete,
+        `Excluiu veículo ${veiculoToDelete.placa} - ${veiculoToDelete.modelo}`);
 
       toast.success("Veículo excluído com sucesso");
       setDeleteDialogOpen(false);

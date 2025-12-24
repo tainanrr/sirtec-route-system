@@ -100,3 +100,4 @@ ORDER BY ordinal_position;
 SELECT * FROM storage.buckets WHERE id = 'procedimentos';
 
 
+

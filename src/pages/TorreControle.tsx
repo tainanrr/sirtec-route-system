@@ -49,6 +49,7 @@ import MapaTorreControle, { type TorreRouteGeometry, type TorreMapaPoint } from 
 import TorreTimeline from "./components/TorreTimeline";
 import { buscarRotaOSRM } from "@/services/osrm";
 import { toast } from "sonner";
+import { ChatTorreControle } from "@/components/chat/ChatTorreControle";
 
 type OSStatus =
   | "pendente"
@@ -2262,6 +2263,9 @@ const TorreControle = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Chat com Equipes */}
+      <ChatTorreControle />
     </MainLayout>
   );
 };
