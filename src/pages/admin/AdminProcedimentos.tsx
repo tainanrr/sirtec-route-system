@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -40,6 +40,12 @@ import {
   Download,
   Smartphone,
   Link,
+  Upload,
+  File,
+  FileImage,
+  X,
+  Paperclip,
+  ExternalLink,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -54,6 +60,21 @@ import {
   FilterConfig,
 } from "@/components/ui/data-table-filters";
 
+interface Anexo {
+  id: string;
+  procedimento_id: string;
+  nome: string;
+  nome_arquivo: string;
+  tipo_arquivo: string;
+  tamanho_bytes: number;
+  storage_path: string;
+  url_publica: string | null;
+  descricao: string | null;
+  ordem: number;
+  ativo: boolean;
+  created_at: string;
+}
+
 interface Procedimento {
   id: string;
   titulo: string;
@@ -67,6 +88,7 @@ interface Procedimento {
   ordem: number;
   created_at: string;
   contratos?: { codigo: string; nome: string } | null;
+  anexos?: Anexo[];
 }
 
 interface Contrato {
@@ -84,6 +106,20 @@ const categoriaOptions = [
   { value: "outro", label: "Outro" },
 ];
 
+const formatFileSize = (bytes: number): string => {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
+
+const getFileIcon = (tipo: string) => {
+  if (tipo.includes('pdf')) return <FileText className="h-4 w-4 text-red-500" />;
+  if (tipo.includes('image')) return <FileImage className="h-4 w-4 text-blue-500" />;
+  return <File className="h-4 w-4 text-gray-500" />;
+};
+
 export default function AdminProcedimentos() {
   const [procedimentos, setProcedimentos] = useState<Procedimento[]>([]);
   const [contratos, setContratos] = useState<Contrato[]>([]);
@@ -91,10 +127,17 @@ export default function AdminProcedimentos() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [pdfViewerOpen, setPdfViewerOpen] = useState(false);
   const [editingProcedimento, setEditingProcedimento] = useState<Procedimento | null>(null);
   const [viewingProcedimento, setViewingProcedimento] = useState<Procedimento | null>(null);
   const [procedimentoToDelete, setProcedimentoToDelete] = useState<Procedimento | null>(null);
+  const [viewingPdfUrl, setViewingPdfUrl] = useState<string | null>(null);
+  const [viewingPdfName, setViewingPdfName] = useState<string>("");
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [anexos, setAnexos] = useState<Anexo[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Configuração dos filtros
   const filterConfigs: FilterConfig[] = useMemo(() => [
@@ -185,6 +228,24 @@ export default function AdminProcedimentos() {
     }
   };
 
+  // Carregar anexos de um procedimento
+  const fetchAnexos = async (procedimentoId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("procedimentos_anexos")
+        .select("*")
+        .eq("procedimento_id", procedimentoId)
+        .eq("ativo", true)
+        .order("ordem", { ascending: true });
+
+      if (error) throw error;
+      setAnexos(data || []);
+    } catch (error: any) {
+      console.error("Erro ao carregar anexos:", error);
+      setAnexos([]);
+    }
+  };
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -237,10 +298,12 @@ export default function AdminProcedimentos() {
       ativo: true,
       ordem: maxOrdem + 1,
     });
+    setAnexos([]);
+    setPendingFiles([]);
     setDialogOpen(true);
   };
 
-  const handleEdit = (procedimento: Procedimento) => {
+  const handleEdit = async (procedimento: Procedimento) => {
     setEditingProcedimento(procedimento);
     setFormData({
       titulo: procedimento.titulo,
@@ -253,12 +316,116 @@ export default function AdminProcedimentos() {
       ativo: procedimento.ativo,
       ordem: procedimento.ordem,
     });
+    setPendingFiles([]);
+    await fetchAnexos(procedimento.id);
     setDialogOpen(true);
   };
 
-  const handleView = (procedimento: Procedimento) => {
+  const handleView = async (procedimento: Procedimento) => {
     setViewingProcedimento(procedimento);
+    await fetchAnexos(procedimento.id);
     setViewDialogOpen(true);
+  };
+
+  // Upload de arquivos
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    const validFiles: File[] = [];
+    const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/gif', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+    const maxSize = 50 * 1024 * 1024; // 50MB
+
+    Array.from(files).forEach(file => {
+      if (!allowedTypes.includes(file.type)) {
+        toast.error(`Tipo de arquivo não permitido: ${file.name}`);
+        return;
+      }
+      if (file.size > maxSize) {
+        toast.error(`Arquivo muito grande (máx 50MB): ${file.name}`);
+        return;
+      }
+      validFiles.push(file);
+    });
+
+    setPendingFiles(prev => [...prev, ...validFiles]);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const removePendingFile = (index: number) => {
+    setPendingFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const uploadFile = async (file: File, procedimentoId: string): Promise<Anexo | null> => {
+    try {
+      const timestamp = Date.now();
+      const ext = file.name.split('.').pop();
+      const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const storagePath = `${procedimentoId}/${timestamp}_${safeName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('procedimentos')
+        .upload(storagePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from('procedimentos')
+        .getPublicUrl(storagePath);
+
+      const anexoData = {
+        procedimento_id: procedimentoId,
+        nome: file.name.replace(`.${ext}`, ''),
+        nome_arquivo: file.name,
+        tipo_arquivo: file.type,
+        tamanho_bytes: file.size,
+        storage_path: storagePath,
+        url_publica: urlData.publicUrl,
+        ordem: anexos.length + 1,
+      };
+
+      const { data: insertedAnexo, error: insertError } = await supabase
+        .from('procedimentos_anexos')
+        .insert(anexoData)
+        .select()
+        .single();
+
+      if (insertError) throw insertError;
+      return insertedAnexo;
+    } catch (error: any) {
+      console.error('Erro ao fazer upload:', error);
+      toast.error(`Erro ao enviar ${file.name}: ${error.message}`);
+      return null;
+    }
+  };
+
+  const handleDeleteAnexo = async (anexo: Anexo) => {
+    try {
+      // Remover do storage
+      const { error: storageError } = await supabase.storage
+        .from('procedimentos')
+        .remove([anexo.storage_path]);
+
+      if (storageError) {
+        console.warn('Erro ao remover do storage:', storageError);
+      }
+
+      // Remover do banco
+      const { error: dbError } = await supabase
+        .from('procedimentos_anexos')
+        .delete()
+        .eq('id', anexo.id);
+
+      if (dbError) throw dbError;
+
+      setAnexos(prev => prev.filter(a => a.id !== anexo.id));
+      toast.success('Anexo removido com sucesso');
+    } catch (error: any) {
+      console.error('Erro ao remover anexo:', error);
+      toast.error(`Erro ao remover anexo: ${error.message}`);
+    }
   };
 
   const handleSave = async () => {
@@ -281,6 +448,8 @@ export default function AdminProcedimentos() {
         ordem: formData.ordem,
       };
 
+      let procedimentoId: string;
+
       if (editingProcedimento) {
         const { error } = await supabase
           .from("procedimentos")
@@ -288,12 +457,32 @@ export default function AdminProcedimentos() {
           .eq("id", editingProcedimento.id);
 
         if (error) throw error;
+        procedimentoId = editingProcedimento.id;
         toast.success("Procedimento atualizado com sucesso");
       } else {
-        const { error } = await supabase.from("procedimentos").insert(payload);
+        const { data, error } = await supabase
+          .from("procedimentos")
+          .insert(payload)
+          .select()
+          .single();
 
         if (error) throw error;
+        procedimentoId = data.id;
         toast.success("Procedimento criado com sucesso");
+      }
+
+      // Upload de arquivos pendentes
+      if (pendingFiles.length > 0) {
+        setUploading(true);
+        let uploadedCount = 0;
+        for (const file of pendingFiles) {
+          const result = await uploadFile(file, procedimentoId);
+          if (result) uploadedCount++;
+        }
+        if (uploadedCount > 0) {
+          toast.success(`${uploadedCount} arquivo(s) anexado(s)`);
+        }
+        setUploading(false);
       }
 
       setDialogOpen(false);
@@ -310,6 +499,17 @@ export default function AdminProcedimentos() {
     if (!procedimentoToDelete) return;
 
     try {
+      // Primeiro, buscar e remover anexos do storage
+      const { data: anexosData } = await supabase
+        .from('procedimentos_anexos')
+        .select('storage_path')
+        .eq('procedimento_id', procedimentoToDelete.id);
+
+      if (anexosData && anexosData.length > 0) {
+        const paths = anexosData.map(a => a.storage_path);
+        await supabase.storage.from('procedimentos').remove(paths);
+      }
+
       const { error } = await supabase
         .from("procedimentos")
         .delete()
@@ -325,6 +525,22 @@ export default function AdminProcedimentos() {
       console.error("Erro ao excluir:", error);
       toast.error(`Erro ao excluir: ${error.message}`);
     }
+  };
+
+  const handleViewPdf = (url: string, nome: string) => {
+    setViewingPdfUrl(url);
+    setViewingPdfName(nome);
+    setPdfViewerOpen(true);
+  };
+
+  const handleDownloadFile = (url: string, nome: string) => {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = nome;
+    link.target = '_blank';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
@@ -426,7 +642,7 @@ export default function AdminProcedimentos() {
                 sortConfig={sortConfig}
                 onSort={handleSort}
               />
-              <TableHead>Arquivo</TableHead>
+              <TableHead>Anexos</TableHead>
               <SortableTableHead
                 column="visivel_app"
                 label="App"
@@ -496,15 +712,10 @@ export default function AdminProcedimentos() {
                   </TableCell>
                   <TableCell>
                     {proc.arquivo_url ? (
-                      <a
-                        href={proc.arquivo_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1 text-sm text-primary hover:underline"
-                      >
-                        <Link className="h-3 w-3" />
-                        Arquivo
-                      </a>
+                      <Badge variant="secondary" className="gap-1">
+                        <Paperclip className="h-3 w-3" />
+                        Link
+                      </Badge>
                     ) : (
                       <span className="text-muted-foreground text-sm">-</span>
                     )}
@@ -567,7 +778,7 @@ export default function AdminProcedimentos() {
 
       {/* Dialog de Criar/Editar */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {editingProcedimento ? "Editar Procedimento" : "Novo Procedimento"}
@@ -641,7 +852,7 @@ export default function AdminProcedimentos() {
               </div>
 
               <div className="space-y-2">
-                <Label>URL do Arquivo</Label>
+                <Label>URL do Arquivo (opcional)</Label>
                 <Input
                   value={formData.arquivo_url}
                   onChange={(e) =>
@@ -669,6 +880,124 @@ export default function AdminProcedimentos() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              {/* Seção de Anexos */}
+              <div className="col-span-2 space-y-3">
+                <Label className="flex items-center gap-2">
+                  <Paperclip className="h-4 w-4" />
+                  Documentos Anexos (PDFs, Imagens, Word)
+                </Label>
+                
+                {/* Área de upload */}
+                <div 
+                  className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-primary/50 transition-colors cursor-pointer"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept=".pdf,.jpg,.jpeg,.png,.gif,.doc,.docx"
+                    onChange={handleFileSelect}
+                    className="hidden"
+                  />
+                  <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                  <p className="text-sm text-muted-foreground">
+                    Clique para selecionar ou arraste arquivos aqui
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    PDF, Imagens, Word (máx. 50MB cada)
+                  </p>
+                </div>
+
+                {/* Arquivos pendentes para upload */}
+                {pendingFiles.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-muted-foreground">
+                      Arquivos a enviar ({pendingFiles.length}):
+                    </p>
+                    <div className="space-y-1">
+                      {pendingFiles.map((file, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-center justify-between p-2 bg-muted/50 rounded-lg"
+                        >
+                          <div className="flex items-center gap-2">
+                            {getFileIcon(file.type)}
+                            <span className="text-sm truncate max-w-[300px]">
+                              {file.name}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              ({formatFileSize(file.size)})
+                            </span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removePendingFile(idx)}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Anexos já salvos */}
+                {anexos.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-muted-foreground">
+                      Anexos salvos ({anexos.length}):
+                    </p>
+                    <div className="space-y-1">
+                      {anexos.map((anexo) => (
+                        <div
+                          key={anexo.id}
+                          className="flex items-center justify-between p-2 bg-green-500/10 border border-green-500/20 rounded-lg"
+                        >
+                          <div className="flex items-center gap-2">
+                            {getFileIcon(anexo.tipo_arquivo)}
+                            <span className="text-sm truncate max-w-[250px]">
+                              {anexo.nome_arquivo}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              ({formatFileSize(anexo.tamanho_bytes)})
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {anexo.tipo_arquivo.includes('pdf') && anexo.url_publica && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleViewPdf(anexo.url_publica!, anexo.nome_arquivo)}
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {anexo.url_publica && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDownloadFile(anexo.url_publica!, anexo.nome_arquivo)}
+                              >
+                                <Download className="h-4 w-4" />
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteAnexo(anexo)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-6 col-span-2 p-3 rounded-lg border border-border">
@@ -703,9 +1032,9 @@ export default function AdminProcedimentos() {
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleSave} disabled={saving}>
-              {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Salvar
+            <Button onClick={handleSave} disabled={saving || uploading}>
+              {(saving || uploading) && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {uploading ? "Enviando arquivos..." : "Salvar"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -757,7 +1086,7 @@ export default function AdminProcedimentos() {
               {viewingProcedimento.arquivo_url && (
                 <div>
                   <p className="text-sm text-muted-foreground font-medium mb-1">
-                    Arquivo
+                    Link Externo
                   </p>
                   <a
                     href={viewingProcedimento.arquivo_url}
@@ -765,9 +1094,58 @@ export default function AdminProcedimentos() {
                     rel="noopener noreferrer"
                     className="flex items-center gap-2 text-primary hover:underline"
                   >
-                    <Download className="h-4 w-4" />
-                    Baixar arquivo
+                    <ExternalLink className="h-4 w-4" />
+                    Abrir link
                   </a>
+                </div>
+              )}
+
+              {/* Anexos na visualização */}
+              {anexos.length > 0 && (
+                <div>
+                  <p className="text-sm text-muted-foreground font-medium mb-2">
+                    Documentos Anexos ({anexos.length})
+                  </p>
+                  <div className="grid gap-2">
+                    {anexos.map((anexo) => (
+                      <div
+                        key={anexo.id}
+                        className="flex items-center justify-between p-3 bg-muted/50 rounded-lg border"
+                      >
+                        <div className="flex items-center gap-3">
+                          {getFileIcon(anexo.tipo_arquivo)}
+                          <div>
+                            <p className="text-sm font-medium">{anexo.nome}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {anexo.nome_arquivo} • {formatFileSize(anexo.tamanho_bytes)}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {anexo.tipo_arquivo.includes('pdf') && anexo.url_publica && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleViewPdf(anexo.url_publica!, anexo.nome_arquivo)}
+                            >
+                              <Eye className="h-4 w-4 mr-1" />
+                              Visualizar
+                            </Button>
+                          )}
+                          {anexo.url_publica && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleDownloadFile(anexo.url_publica!, anexo.nome_arquivo)}
+                            >
+                              <Download className="h-4 w-4 mr-1" />
+                              Baixar
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -782,6 +1160,46 @@ export default function AdminProcedimentos() {
         </DialogContent>
       </Dialog>
 
+      {/* Dialog de Visualização de PDF */}
+      <Dialog open={pdfViewerOpen} onOpenChange={setPdfViewerOpen}>
+        <DialogContent className="max-w-5xl h-[90vh]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5 text-red-500" />
+              {viewingPdfName}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 h-full min-h-0">
+            {viewingPdfUrl && (
+              <iframe
+                src={viewingPdfUrl}
+                className="w-full h-[calc(90vh-120px)] rounded-lg border"
+                title={viewingPdfName}
+              />
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => viewingPdfUrl && handleDownloadFile(viewingPdfUrl, viewingPdfName)}
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Baixar
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => viewingPdfUrl && window.open(viewingPdfUrl, '_blank')}
+            >
+              <ExternalLink className="h-4 w-4 mr-2" />
+              Abrir em nova aba
+            </Button>
+            <Button onClick={() => setPdfViewerOpen(false)}>
+              Fechar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Dialog de Confirmação de Exclusão */}
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <DialogContent>
@@ -793,6 +1211,10 @@ export default function AdminProcedimentos() {
             <DialogDescription>
               Tem certeza que deseja excluir o procedimento{" "}
               <strong>{procedimentoToDelete?.titulo}</strong>?
+              <br />
+              <span className="text-destructive">
+                Todos os anexos também serão removidos.
+              </span>
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -808,4 +1230,3 @@ export default function AdminProcedimentos() {
     </div>
   );
 }
-

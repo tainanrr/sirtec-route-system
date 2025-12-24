@@ -319,6 +319,38 @@ export default function PrecificacaoServicos() {
     }
   };
 
+  // Função para buscar valor em um objeto por múltiplas chaves possíveis (flexível)
+  const findValue = (row: any, ...possibleKeys: string[]): any => {
+    // Primeiro, tenta encontrar diretamente
+    for (const key of possibleKeys) {
+      if (row[key] !== undefined && row[key] !== null && row[key] !== "") {
+        return row[key];
+      }
+    }
+    
+    // Depois, tenta encontrar por chave normalizada (case insensitive, sem acentos)
+    const rowEntries = Object.entries(row);
+    for (const targetKey of possibleKeys) {
+      const targetNormalized = targetKey.toLowerCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]/g, "");
+      
+      for (const [key, value] of rowEntries) {
+        const keyNormalized = String(key).toLowerCase()
+          .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-z0-9]/g, "");
+        
+        if (keyNormalized === targetNormalized || keyNormalized.includes(targetNormalized) || targetNormalized.includes(keyNormalized)) {
+          if (value !== undefined && value !== null && value !== "") {
+            return value;
+          }
+        }
+      }
+    }
+    
+    return undefined;
+  };
+
   // Importar dados do arquivo
   const handleImport = async () => {
     if (!importFile) {
@@ -334,112 +366,226 @@ export default function PrecificacaoServicos() {
       const worksheet = workbook.Sheets[sheetName];
       const jsonData: any[] = XLSX.utils.sheet_to_json(worksheet);
       
+      if (jsonData.length === 0) {
+        toast.error("Arquivo vazio ou sem dados válidos");
+        setImporting(false);
+        return;
+      }
+
+      // Mostrar colunas encontradas para debug
+      const firstRow = jsonData[0];
+      console.log("Colunas encontradas:", Object.keys(firstRow));
+      console.log("Primeira linha:", firstRow);
+      
+      // Pré-carregar dados de referência para evitar múltiplas consultas
+      const { data: contratosData } = await supabase.from("contratos").select("id, codigo");
+      const { data: unidadesData } = await supabase.from("unidades_medida").select("id, codigo");
+      const { data: gruposData } = await supabase.from("grupos_servico").select("id, codigo");
+      const { data: territoriosData } = await supabase.from("territorios").select("id, nome");
+      
+      const contratosMap = new Map(contratosData?.map(c => [c.codigo?.toUpperCase(), c.id]) || []);
+      const unidadesMap = new Map(unidadesData?.map(u => [u.codigo?.toUpperCase(), u.id]) || []);
+      const gruposMap = new Map(gruposData?.map(g => [g.codigo?.toUpperCase(), g.id]) || []);
+      const territoriosMap = new Map(territoriosData?.map(t => [t.nome?.toUpperCase(), t.id]) || []);
+      
       let successCount = 0;
       let errorCount = 0;
       const errors: string[] = [];
+      const payloads: any[] = [];
       
-      for (const row of jsonData) {
+      for (let i = 0; i < jsonData.length; i++) {
+        const row = jsonData[i];
+        const lineNum = i + 2; // +2 porque linha 1 é cabeçalho
+        
+        // Debug da primeira linha
+        if (i === 0) {
+          console.log("Linha original:", row);
+          console.log("Chaves:", Object.keys(row));
+        }
+        
         try {
+          // Extrair valores usando busca flexível
+          const codigoServico = findValue(row, "codigo_servico", "Código Serviço", "codigo", "cod_servico", "cod", "servico");
+          const descricao = findValue(row, "descricao", "Descrição Serviço", "descricao_servico", "desc", "descr", "nome");
+          const valorUnitario = findValue(row, "valor_unitario", "Valor Unit.(R$)", "valor", "preco", "valor_unit", "Valor Unit");
+          const contratoCodigo = findValue(row, "contrato_codigo", "Contrato", "contrato", "cod_contrato", "codigo_contrato");
+          const dataInicio = findValue(row, "data_inicio", "Data Vigência Inicial", "data_ini", "dt_inicio", "vigencia_inicio", "Data Início");
+          
           // Validar campos obrigatórios
-          if (!row.codigo_servico || !row.descricao || !row.valor_unitario || !row.contrato_codigo || !row.data_inicio) {
-            errors.push(`Linha ${successCount + errorCount + 1}: Campos obrigatórios faltando`);
+          if (!codigoServico) {
+            errors.push(`Linha ${lineNum}: Campo "codigo_servico" não encontrado ou vazio`);
+            errorCount++;
+            continue;
+          }
+          if (!descricao) {
+            errors.push(`Linha ${lineNum}: Campo "descricao" não encontrado ou vazio`);
+            errorCount++;
+            continue;
+          }
+          if (!valorUnitario && valorUnitario !== 0) {
+            errors.push(`Linha ${lineNum}: Campo "valor_unitario" não encontrado ou vazio`);
+            errorCount++;
+            continue;
+          }
+          if (!contratoCodigo) {
+            errors.push(`Linha ${lineNum}: Campo "contrato_codigo" não encontrado ou vazio`);
+            errorCount++;
+            continue;
+          }
+          if (!dataInicio) {
+            errors.push(`Linha ${lineNum}: Campo "data_inicio" não encontrado ou vazio`);
             errorCount++;
             continue;
           }
           
-          // Buscar contrato pelo código
-          const { data: contratoData } = await supabase
-            .from("contratos")
-            .select("id")
-            .eq("codigo", row.contrato_codigo)
-            .single();
+          // Buscar contrato pelo código (flexível - aceita código completo ou parcial)
+          let contratoId = contratosMap.get(String(contratoCodigo).toUpperCase());
           
-          if (!contratoData) {
-            errors.push(`Linha ${successCount + errorCount + 1}: Contrato "${row.contrato_codigo}" não encontrado`);
+          // Se não encontrou, tenta extrair apenas a parte numérica inicial (ex: "4600075652-STC_Oeste_2024" -> "4600075652")
+          if (!contratoId && contratoCodigo) {
+            const codigoNumerico = String(contratoCodigo).split("-")[0].split("_")[0].trim().toUpperCase();
+            contratoId = contratosMap.get(codigoNumerico);
+            
+            // Se ainda não encontrou, tenta buscar contrato que contenha o código
+            if (!contratoId) {
+              for (const [codigo, id] of contratosMap.entries()) {
+                if (codigo.includes(codigoNumerico) || codigoNumerico.includes(codigo)) {
+                  contratoId = id;
+                  break;
+                }
+              }
+            }
+          }
+          
+          if (!contratoId) {
+            errors.push(`Linha ${lineNum}: Contrato "${contratoCodigo}" não encontrado. Contratos disponíveis: ${Array.from(contratosMap.keys()).join(", ")}`);
             errorCount++;
             continue;
           }
           
-          // Buscar unidade pelo código (opcional)
-          let unidadeId = null;
-          if (row.unidade_codigo) {
-            const { data: unidadeData } = await supabase
-              .from("unidades_medida")
-              .select("id")
-              .eq("codigo", row.unidade_codigo)
-              .single();
-            unidadeId = unidadeData?.id || null;
+          // Buscar referências opcionais
+          const unidadeCodigo = findValue(row, "unidade_codigo", "Unidade", "unidade", "unid");
+          const grupoCodigo = findValue(row, "grupo_codigo", "Grupo", "grupo");
+          const territorioNome = findValue(row, "territorio_nome", "Territorio", "territorio", "zona");
+          
+          const unidadeId = unidadeCodigo ? unidadesMap.get(String(unidadeCodigo).toUpperCase()) : null;
+          const grupoId = grupoCodigo ? gruposMap.get(String(grupoCodigo).toUpperCase()) : null;
+          const territorioId = territorioNome ? territoriosMap.get(String(territorioNome).toUpperCase()) : null;
+          
+          // Converter valor - aceita string com vírgula ou ponto
+          let valorNumerico = 0;
+          if (typeof valorUnitario === "number") {
+            valorNumerico = valorUnitario;
+          } else {
+            valorNumerico = parseFloat(String(valorUnitario).replace(",", ".")) || 0;
           }
           
-          // Buscar grupo pelo código (opcional)
-          let grupoId = null;
-          if (row.grupo_codigo) {
-            const { data: grupoData } = await supabase
-              .from("grupos_servico")
-              .select("id")
-              .eq("codigo", row.grupo_codigo)
-              .single();
-            grupoId = grupoData?.id || null;
+          // Converter data - aceita diversos formatos
+          let dataInicioFormatada = dataInicio;
+          if (typeof dataInicio === "number") {
+            // Data Excel (dias desde 1900)
+            const date = XLSX.SSF.parse_date_code(dataInicio);
+            dataInicioFormatada = `${date.y}-${String(date.m).padStart(2, "0")}-${String(date.d).padStart(2, "0")}`;
+          } else if (dataInicio && dataInicio.includes("/")) {
+            // DD/MM/YYYY
+            const parts = dataInicio.split("/");
+            if (parts.length === 3) {
+              dataInicioFormatada = `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+            }
           }
           
-          // Buscar território pelo nome (opcional)
-          let territorioId = null;
-          if (row.territorio_nome) {
-            const { data: territorioData } = await supabase
-              .from("territorios")
-              .select("id")
-              .eq("nome", row.territorio_nome)
-              .single();
-            territorioId = territorioData?.id || null;
-          }
+          // Extrair campos adicionais
+          const fatorK = findValue(row, "fator_k", "Fator K", "fator", "fatork");
+          const coeficiente = findValue(row, "coeficiente", "Coeficiente", "coef");
+          const casasDecimais = findValue(row, "casas_decimais", "Nº Casas Decimais", "casas", "decimais");
+          const dataFim = findValue(row, "data_fim", "Data Vigência Final", "data_final", "dt_fim");
+          const codigoReferencia = findValue(row, "codigo_referencia", "Código Referência", "referencia", "cod_referencia");
+          const permiteMaior = findValue(row, "permite_maior_previsto", "Permite Maior");
+          const qtdMaior = findValue(row, "qtd_maior_previsto", "Qtd Maior");
+          const fracaoPreco = findValue(row, "fracao_preco_pai", "Fração Preço Pai");
+          const ativoValue = findValue(row, "ativo", "Ativo", "status");
+          
+          const ativo = ativoValue === undefined || ativoValue === null || 
+                        ativoValue === "SIM" || ativoValue === "Sim" || ativoValue === "sim" ||
+                        ativoValue === true || ativoValue === 1 || ativoValue === "1" ||
+                        ativoValue === "S" || ativoValue === "s" || ativoValue === "Ativo";
           
           const payload = {
-            codigo_servico: String(row.codigo_servico).toUpperCase(),
-            codigo_referencia: row.codigo_referencia || null,
-            descricao: row.descricao,
-            fator_k: parseFloat(row.fator_k) || 1.0,
-            valor_unitario: parseFloat(row.valor_unitario),
-            coeficiente: parseFloat(row.coeficiente) || 1.0,
-            data_inicio: row.data_inicio,
-            data_fim: row.data_fim || null,
-            casas_decimais: parseInt(row.casas_decimais) || 2,
-            permite_maior_previsto: row.permite_maior_previsto === "SIM" || row.permite_maior_previsto === true,
-            qtd_maior_previsto: parseFloat(row.qtd_maior_previsto) || 999999.9999999,
-            fracao_preco_pai: parseFloat(row.fracao_preco_pai) || 0,
-            unidade_id: unidadeId,
-            grupo_id: grupoId,
-            contrato_id: contratoData.id,
-            territorio_id: territorioId,
-            ativo: row.ativo !== "NÃO" && row.ativo !== false,
+            codigo_servico: String(codigoServico).toUpperCase().trim(),
+            codigo_referencia: codigoReferencia || null,
+            descricao: String(descricao).trim(),
+            fator_k: parseFloat(String(fatorK || 1).replace(",", ".")) || 1.0,
+            valor_unitario: valorNumerico,
+            coeficiente: parseFloat(String(coeficiente || 1).replace(",", ".")) || 1.0,
+            data_inicio: dataInicioFormatada,
+            data_fim: dataFim || null,
+            casas_decimais: parseInt(String(casasDecimais || 2)) || 2,
+            permite_maior_previsto: permiteMaior === "SIM" || permiteMaior === true,
+            qtd_maior_previsto: parseFloat(String(qtdMaior || 999999.9999999).replace(",", ".")) || 999999.9999999,
+            fracao_preco_pai: parseFloat(String(fracaoPreco || 0).replace(",", ".")) || 0,
+            unidade_id: unidadeId || null,
+            grupo_id: grupoId || null,
+            contrato_id: contratoId,
+            territorio_id: territorioId || null,
+            ativo: ativo,
           };
           
-          // Verificar se já existe (upsert)
-          const { data: existing } = await supabase
-            .from("precificacao_servicos")
-            .select("id")
-            .eq("codigo_servico", payload.codigo_servico)
-            .eq("contrato_id", payload.contrato_id)
-            .single();
-          
-          if (existing) {
-            await supabase.from("precificacao_servicos").update(payload).eq("id", existing.id);
-          } else {
-            await supabase.from("precificacao_servicos").insert(payload);
-          }
-          
+          payloads.push({ payload, lineNum });
           successCount++;
         } catch (err: any) {
-          errors.push(`Linha ${successCount + errorCount + 1}: ${err.message}`);
+          errors.push(`Linha ${lineNum}: ${err.message}`);
           errorCount++;
         }
       }
       
-      if (successCount > 0) {
-        toast.success(`${successCount} registros importados com sucesso!`);
+      // Inserir em lote
+      if (payloads.length > 0) {
+        let insertedCount = 0;
+        let updatedCount = 0;
+        
+        for (const { payload, lineNum } of payloads) {
+          try {
+            // Verificar se já existe
+            const { data: existing } = await supabase
+              .from("precificacao_servicos")
+              .select("id")
+              .eq("codigo_servico", payload.codigo_servico)
+              .eq("contrato_id", payload.contrato_id)
+              .maybeSingle();
+            
+            if (existing) {
+              const { error } = await supabase.from("precificacao_servicos").update(payload).eq("id", existing.id);
+              if (error) throw error;
+              updatedCount++;
+            } else {
+              const { error } = await supabase.from("precificacao_servicos").insert(payload);
+              if (error) throw error;
+              insertedCount++;
+            }
+          } catch (err: any) {
+            errors.push(`Linha ${lineNum}: Erro ao salvar - ${err.message}`);
+            successCount--;
+            errorCount++;
+          }
+        }
+        
+        if (insertedCount > 0 || updatedCount > 0) {
+          toast.success(`✅ ${insertedCount} inseridos, ${updatedCount} atualizados!`);
+        }
       }
+      
       if (errorCount > 0) {
-        toast.error(`${errorCount} registros com erro. Verifique o console.`);
-        console.error("Erros de importação:", errors);
+        toast.error(`⚠️ ${errorCount} registros com erro. Verifique o console (F12).`);
+        console.error("=== ERROS DE IMPORTAÇÃO ===");
+        errors.slice(0, 20).forEach(e => console.error(e));
+        if (errors.length > 20) {
+          console.error(`... e mais ${errors.length - 20} erros`);
+        }
+      }
+      
+      if (successCount === 0 && errorCount > 0) {
+        // Não fechar o dialog se todos falharam
+        return;
       }
       
       setImportDialogOpen(false);

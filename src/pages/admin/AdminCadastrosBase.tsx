@@ -194,13 +194,8 @@ export default function AdminCadastrosBase() {
   });
 
   const [centroCustoForm, setCentroCustoForm] = useState({
-    codigo: "",
     nome: "",
     descricao: "",
-    contrato_id: "todos",
-    responsavel_id: "nenhum",
-    orcamento_previsto: "",
-    centro_pai_id: "raiz",
     ativo: true,
   });
 
@@ -438,13 +433,8 @@ export default function AdminCadastrosBase() {
       });
     } else if (type === "centro-custo") {
       setCentroCustoForm({
-        codigo: "",
         nome: "",
         descricao: "",
-        contrato_id: "todos",
-        responsavel_id: "nenhum",
-        orcamento_previsto: "",
-        centro_pai_id: "raiz",
         ativo: true,
       });
     }
@@ -489,13 +479,8 @@ export default function AdminCadastrosBase() {
       });
     } else if (type === "centro-custo") {
       setCentroCustoForm({
-        codigo: item.codigo,
         nome: item.nome,
         descricao: item.descricao || "",
-        contrato_id: item.contrato_id || "todos",
-        responsavel_id: item.responsavel_id || "nenhum",
-        orcamento_previsto: item.orcamento_previsto?.toString() || "",
-        centro_pai_id: item.centro_pai_id || "raiz",
         ativo: item.ativo,
       });
     }
@@ -559,20 +544,15 @@ export default function AdminCadastrosBase() {
           ativo: tipoIntervaloForm.ativo,
         };
       } else if (currentFormType === "centro-custo") {
-        if (!centroCustoForm.codigo || !centroCustoForm.nome) {
-          toast.error("Preencha os campos obrigatórios");
+        if (!centroCustoForm.nome) {
+          toast.error("Preencha o nome");
           setSaving(false);
           return;
         }
         table = "centros_custo";
         payload = {
-          codigo: centroCustoForm.codigo,
           nome: centroCustoForm.nome,
           descricao: centroCustoForm.descricao || null,
-          contrato_id: centroCustoForm.contrato_id && centroCustoForm.contrato_id !== "todos" ? centroCustoForm.contrato_id : null,
-          responsavel_id: centroCustoForm.responsavel_id && centroCustoForm.responsavel_id !== "nenhum" ? centroCustoForm.responsavel_id : null,
-          orcamento_previsto: centroCustoForm.orcamento_previsto ? parseFloat(centroCustoForm.orcamento_previsto) : null,
-          centro_pai_id: centroCustoForm.centro_pai_id && centroCustoForm.centro_pai_id !== "raiz" ? centroCustoForm.centro_pai_id : null,
           ativo: centroCustoForm.ativo,
         };
       }
@@ -705,11 +685,8 @@ export default function AdminCadastrosBase() {
                 data={centrosCusto}
                 filename="centros_custo"
                 columns={[
-                  { key: "codigo", label: "Código" },
                   { key: "nome", label: "Nome" },
                   { key: "descricao", label: "Descrição" },
-                  { key: "orcamento_previsto", label: "Orçamento Previsto", format: (v: any) => v ? `R$ ${Number(v).toFixed(2)}` : "" },
-                  { key: "orcamento_utilizado", label: "Orçamento Utilizado", format: (v: any) => v ? `R$ ${Number(v).toFixed(2)}` : "" },
                   { key: "ativo", label: "Ativo", format: (v: any) => v ? "Sim" : "Não" },
                 ]}
               />
@@ -724,12 +701,8 @@ export default function AdminCadastrosBase() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <SortableTableHead column="codigo" label="Código" sortConfig={centroSortConfig} onSort={handleCentroSort} />
                   <SortableTableHead column="nome" label="Nome" sortConfig={centroSortConfig} onSort={handleCentroSort} />
-                  <TableHead>Responsável</TableHead>
-                  <SortableTableHead column="contratos.codigo" label="Contrato" sortConfig={centroSortConfig} onSort={handleCentroSort} />
-                  <TableHead>Orçamento Prev.</TableHead>
-                  <TableHead>Orçamento Util.</TableHead>
+                  <TableHead>Descrição</TableHead>
                   <SortableTableHead column="ativo" label="Status" sortConfig={centroSortConfig} onSort={handleCentroSort} />
                   <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
@@ -737,13 +710,13 @@ export default function AdminCadastrosBase() {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8">
+                    <TableCell colSpan={4} className="text-center py-8">
                       <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
                     </TableCell>
                   </TableRow>
                 ) : sortedCentrosCusto?.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8">
+                    <TableCell colSpan={4} className="text-center py-8">
                       <Building className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                       <p className="text-muted-foreground">
                         {hasActiveFilters ? "Nenhum resultado" : "Nenhum centro cadastrado"}
@@ -753,28 +726,9 @@ export default function AdminCadastrosBase() {
                 ) : (
                   sortedCentrosCusto?.map((item) => (
                     <TableRow key={item.id} className="group">
-                      <TableCell className="font-mono">{item.codigo}</TableCell>
                       <TableCell className="font-medium">{item.nome}</TableCell>
-                      <TableCell className="text-sm">
-                        {(item as any).usuarios_web?.nome || "-"}
-                      </TableCell>
-                      <TableCell>
-                        {item.contratos ? (
-                          <Badge variant="secondary">{item.contratos.codigo}</Badge>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>{formatCurrency(item.orcamento_previsto)}</TableCell>
-                      <TableCell>
-                        {item.orcamento_utilizado != null && item.orcamento_previsto ? (
-                          <div className="flex items-center gap-2">
-                            <span>{formatCurrency(item.orcamento_utilizado)}</span>
-                            <Badge variant={item.orcamento_utilizado > item.orcamento_previsto ? "destructive" : "outline"} className="text-xs">
-                              {((item.orcamento_utilizado / item.orcamento_previsto) * 100).toFixed(0)}%
-                            </Badge>
-                          </div>
-                        ) : "-"}
+                      <TableCell className="text-sm text-muted-foreground max-w-md truncate">
+                        {item.descricao || "-"}
                       </TableCell>
                       <TableCell>
                         <Badge variant={item.ativo ? "default" : "secondary"}>
@@ -1407,74 +1361,13 @@ export default function AdminCadastrosBase() {
             {/* Form para Centro de Custo */}
             {currentFormType === "centro-custo" && (
               <>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Código *</Label>
-                    <Input
-                      value={centroCustoForm.codigo}
-                      onChange={(e) => setCentroCustoForm({ ...centroCustoForm, codigo: e.target.value.toUpperCase() })}
-                      placeholder="Ex: CC001"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Contrato</Label>
-                    <Select
-                      value={centroCustoForm.contrato_id}
-                      onValueChange={(v) => setCentroCustoForm({ ...centroCustoForm, contrato_id: v })}
-                    >
-                      <SelectTrigger><SelectValue placeholder="Todos" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="todos">Todos</SelectItem>
-                        {contratos.map((c) => (<SelectItem key={c.id} value={c.id}>{c.codigo}</SelectItem>))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
                 <div className="space-y-2">
                   <Label>Nome *</Label>
                   <Input
                     value={centroCustoForm.nome}
                     onChange={(e) => setCentroCustoForm({ ...centroCustoForm, nome: e.target.value })}
-                    placeholder="Nome do centro"
+                    placeholder="Nome do centro de custo"
                   />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Responsável</Label>
-                    <Select
-                      value={centroCustoForm.responsavel_id}
-                      onValueChange={(v) => setCentroCustoForm({ ...centroCustoForm, responsavel_id: v })}
-                    >
-                      <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="nenhum">Nenhum</SelectItem>
-                        {usuarios.map((u) => (<SelectItem key={u.id} value={u.id}>{u.nome}</SelectItem>))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Orçamento Previsto</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={centroCustoForm.orcamento_previsto}
-                      onChange={(e) => setCentroCustoForm({ ...centroCustoForm, orcamento_previsto: e.target.value })}
-                      placeholder="0.00"
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>Centro de Custo Pai</Label>
-                  <Select
-                    value={centroCustoForm.centro_pai_id}
-                    onValueChange={(v) => setCentroCustoForm({ ...centroCustoForm, centro_pai_id: v })}
-                  >
-                    <SelectTrigger><SelectValue placeholder="Nenhum (raiz)" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="raiz">Nenhum (raiz)</SelectItem>
-                      {centrosCusto.filter(c => c.id !== editingItem?.id).map((c) => (<SelectItem key={c.id} value={c.id}>{c.codigo} - {c.nome}</SelectItem>))}
-                    </SelectContent>
-                  </Select>
                 </div>
                 <div className="space-y-2">
                   <Label>Descrição</Label>
@@ -1482,7 +1375,7 @@ export default function AdminCadastrosBase() {
                     value={centroCustoForm.descricao}
                     onChange={(e) => setCentroCustoForm({ ...centroCustoForm, descricao: e.target.value })}
                     placeholder="Descrição..."
-                    rows={2}
+                    rows={3}
                   />
                 </div>
                 <div className="flex items-center gap-2">
