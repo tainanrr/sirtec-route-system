@@ -41,3 +41,4 @@ SELECT
 FROM public.tecnicos
 ORDER BY codigo;
 
+

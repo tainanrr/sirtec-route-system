@@ -6,6 +6,7 @@ const pathLabels: Record<string, string> = {
   "contratos": "Contratos",
   "usuarios-web": "Usuários Web",
   "usuarios-app": "Usuários App",
+  "colaboradores": "Colaboradores",
   "permissoes": "Permissões",
   "cadastros-base": "Cadastros Base",
   "procedimentos": "Procedimentos",

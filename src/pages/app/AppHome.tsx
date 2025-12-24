@@ -5,10 +5,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
 import { usePageState } from "@/contexts/ScrollRestoreContext";
+import { useSyncProcedimentos } from "@/hooks/useSyncProcedimentos";
+import { formatCacheSize } from "@/hooks/useOfflineCache";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Progress } from "@/components/ui/progress";
 import { 
   MapPin, 
   Clock, 
@@ -25,7 +28,12 @@ import {
   Loader2,
   Power,
   Users,
-  Car
+  Car,
+  BookOpen,
+  CloudOff,
+  Download,
+  Check,
+  HardDrive,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -92,6 +100,20 @@ export default function AppHome() {
   const [isRefreshing, setIsRefreshing] = useState(Boolean(initialState?.isRefreshing));
   const [kmFinal, setKmFinal] = useState("");
   const [isClosingTurno, setIsClosingTurno] = useState(false);
+
+  // Sincronização automática de procedimentos
+  const { status: syncStatus, startAutoSync, isSupported: syncSupported } = useSyncProcedimentos(
+    equipe?.contrato_id || equipeAuth?.contrato_id
+  );
+
+  // Iniciar sincronização automática quando a equipe estiver carregada
+  useEffect(() => {
+    if ((equipe?.id || equipeAuth?.id) && syncSupported) {
+      console.log("[SYNC] Iniciando sincronização automática de procedimentos...");
+      const cleanup = startAutoSync();
+      return cleanup;
+    }
+  }, [equipe?.id, equipeAuth?.id, syncSupported, startAutoSync]);
 
   useEffect(() => {
     const t = window.setTimeout(() => {
@@ -605,6 +627,67 @@ export default function AppHome() {
           </CardContent>
         </Card>
       )}
+
+      {/* Card de Procedimentos com Status de Sync */}
+      <Card 
+        className="cursor-pointer hover:shadow-lg transition-all bg-gradient-to-br from-violet-500/10 to-purple-500/10 border-violet-500/30 overflow-hidden"
+        onClick={() => navigate("/app/procedimentos")}
+      >
+        <CardContent className="p-4">
+          <div className="flex items-center gap-4">
+            <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-violet-500 to-purple-500 flex items-center justify-center shadow-lg relative">
+              <BookOpen className="h-6 w-6 text-white" />
+              {/* Indicador de offline */}
+              {syncStatus.totalCached > 0 && !syncStatus.issyncing && (
+                <div className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full bg-green-500 flex items-center justify-center border-2 border-background">
+                  <CloudOff className="h-3 w-3 text-white" />
+                </div>
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-foreground">Procedimentos</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                {syncStatus.issyncing ? (
+                  <span className="text-sm text-violet-600 dark:text-violet-400 flex items-center gap-1">
+                    <Download className="h-3 w-3 animate-bounce" />
+                    Baixando {syncStatus.progress.current}/{syncStatus.progress.total}...
+                  </span>
+                ) : syncStatus.totalCached > 0 ? (
+                  <>
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-green-500/10 text-green-600 border-green-500/30">
+                      <Check className="h-2.5 w-2.5 mr-0.5" />
+                      Offline
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">
+                      {syncStatus.totalCached} arquivos • {formatCacheSize(syncStatus.totalSize)}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-sm text-muted-foreground">
+                    Acesse manuais e documentos
+                  </span>
+                )}
+              </div>
+            </div>
+            <ChevronRight className="h-5 w-5 text-muted-foreground" />
+          </div>
+          
+          {/* Barra de progresso durante sincronização */}
+          {syncStatus.issyncing && (
+            <div className="mt-3 space-y-1">
+              <Progress 
+                value={(syncStatus.progress.current / Math.max(syncStatus.progress.total, 1)) * 100} 
+                className="h-1.5" 
+              />
+              {syncStatus.progress.currentFile && (
+                <p className="text-[10px] text-muted-foreground truncate">
+                  {syncStatus.progress.currentFile}
+                </p>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Ver Todas */}
       <Button

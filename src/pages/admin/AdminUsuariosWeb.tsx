@@ -390,46 +390,38 @@ export default function AdminUsuariosWeb() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">Usuários Web</h2>
-          <p className="text-muted-foreground">
-            Gerencie os usuários do sistema web e seus acessos
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <ExportButton
-            data={usuarios}
-            filename="usuarios_web"
-            columns={[
-              { key: "nome", label: "Nome" },
-              { key: "email", label: "Email" },
-              { key: "telefone", label: "Telefone" },
-              { key: "cargo", label: "Cargo" },
-              { key: "departamento", label: "Departamento" },
-              { key: "centro_custo", label: "Centro de Custo" },
-              { key: "perfis_permissao.nome", label: "Perfil" },
-              { key: "perfis_permissao.is_admin", label: "Admin", format: (v) => v ? "Sim" : "Não" },
-              { key: "ativo", label: "Ativo", format: (v) => v ? "Sim" : "Não" },
-              { key: "ultimo_acesso", label: "Último Acesso", format: (v) => v ? new Date(v).toLocaleString("pt-BR") : "Nunca" },
-              { key: "created_at", label: "Criado em", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
-            ]}
-            disabled={loading}
-          />
-          <Button variant="outline" onClick={fetchData} disabled={loading}>
-            <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-            Atualizar
-          </Button>
-          <Button 
-            onClick={handleCreate}
-            disabled={!podeEditar}
-            title={!podeEditar ? "Você não tem permissão para criar" : undefined}
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Novo Usuário
-          </Button>
-        </div>
+      {/* Ações */}
+      <div className="flex items-center justify-end gap-2">
+        <ExportButton
+          data={usuarios}
+          filename="usuarios_web"
+          columns={[
+            { key: "nome", label: "Nome" },
+            { key: "email", label: "Email" },
+            { key: "telefone", label: "Telefone" },
+            { key: "cargo", label: "Cargo" },
+            { key: "departamento", label: "Departamento" },
+            { key: "centro_custo", label: "Centro de Custo" },
+            { key: "perfis_permissao.nome", label: "Perfil" },
+            { key: "perfis_permissao.is_admin", label: "Admin", format: (v) => v ? "Sim" : "Não" },
+            { key: "ativo", label: "Ativo", format: (v) => v ? "Sim" : "Não" },
+            { key: "ultimo_acesso", label: "Último Acesso", format: (v) => v ? new Date(v).toLocaleString("pt-BR") : "Nunca" },
+            { key: "created_at", label: "Criado em", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
+          ]}
+          disabled={loading}
+        />
+        <Button variant="outline" onClick={fetchData} disabled={loading}>
+          <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+          Atualizar
+        </Button>
+        <Button 
+          onClick={handleCreate}
+          disabled={!podeEditar}
+          title={!podeEditar ? "Você não tem permissão para criar" : undefined}
+        >
+          <Plus className="h-4 w-4 mr-2" />
+          Novo Usuário
+        </Button>
       </div>
 
       {/* Filtros */}

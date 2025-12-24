@@ -545,15 +545,8 @@ export default function AdminProcedimentos() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">Procedimentos</h2>
-          <p className="text-muted-foreground">
-            Gerencie os procedimentos operacionais disponíveis no aplicativo
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+      {/* Ações */}
+      <div className="flex items-center justify-end gap-2">
           <ExportButton
             data={procedimentos}
             filename="procedimentos"
@@ -575,10 +568,9 @@ export default function AdminProcedimentos() {
             Atualizar
           </Button>
           <Button onClick={handleCreate}>
-            <Plus className="h-4 w-4 mr-2" />
-            Novo Procedimento
-          </Button>
-        </div>
+          <Plus className="h-4 w-4 mr-2" />
+          Novo Procedimento
+        </Button>
       </div>
 
       {/* Filtros */}

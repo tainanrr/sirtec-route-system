@@ -70,3 +70,4 @@ FROM information_schema.columns
 WHERE table_name = 'centros_custo'
 ORDER BY ordinal_position;
 
+

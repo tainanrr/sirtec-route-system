@@ -28,6 +28,22 @@ ALTER TABLE procedimentos ADD COLUMN IF NOT EXISTS arquivo_url TEXT;
 ALTER TABLE procedimentos ADD COLUMN IF NOT EXISTS contrato_id UUID REFERENCES contratos(id);
 ALTER TABLE procedimentos ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
 
+-- Corrigir coluna 'codigo' - tornar opcional (pode não existir em tabelas novas)
+DO $$
+BEGIN
+    -- Verificar se a coluna 'codigo' existe
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'procedimentos' AND column_name = 'codigo'
+    ) THEN
+        -- Remover constraint NOT NULL da coluna 'codigo'
+        ALTER TABLE procedimentos ALTER COLUMN codigo DROP NOT NULL;
+        
+        -- Remover constraint UNIQUE se existir
+        ALTER TABLE procedimentos DROP CONSTRAINT IF EXISTS procedimentos_codigo_key;
+    END IF;
+END $$;
+
 -- Desabilitar RLS para evitar problemas de permissão
 ALTER TABLE procedimentos DISABLE ROW LEVEL SECURITY;
 
@@ -49,4 +65,5 @@ SELECT column_name, data_type, is_nullable, column_default
 FROM information_schema.columns
 WHERE table_name = 'procedimentos'
 ORDER BY ordinal_position;
+
 

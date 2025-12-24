@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useMemo, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { logLogin, logLogout, setUsuarioCache, limparCacheUsuario } from "@/lib/logUtils";
 
 interface Permissao {
   codigo: string;
@@ -292,6 +293,15 @@ export function WebAuthProvider({ children }: { children: ReactNode }) {
       
       setUsuarioWeb(usuarioLogado);
 
+      // Registrar log de login
+      const usuarioContexto = {
+        id: usuario.id,
+        nome: usuario.nome,
+        email: usuario.email
+      };
+      setUsuarioCache(usuarioContexto);
+      logLogin("web", usuarioContexto, `Login web - ${usuario.nome}`);
+
       return { error: null, usuario: usuarioLogado };
     } catch (err: any) {
       console.error("[WebAuth] Erro no login:", err);
@@ -300,6 +310,15 @@ export function WebAuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = () => {
+    // Registrar log de logout antes de limpar dados
+    if (usuarioWeb) {
+      logLogout("web", {
+        id: usuarioWeb.id,
+        nome: usuarioWeb.nome,
+        email: usuarioWeb.email
+      }, `Logout web - ${usuarioWeb.nome}`);
+    }
+    limparCacheUsuario();
     localStorage.removeItem(STORAGE_KEY);
     setUsuarioWeb(null);
   };

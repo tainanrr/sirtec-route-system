@@ -68,6 +68,8 @@ import AppAbrirTurno from "./pages/app/AppAbrirTurno";
 import AppEstoque from "./pages/app/AppEstoque";
 import AppMateriaisOS from "./pages/app/AppMateriaisOS";
 import AppDevolucoes from "./pages/app/AppDevolucoes";
+import AppProcedimentos from "./pages/app/AppProcedimentos";
+import AppProcedimentoDetalhe from "./pages/app/AppProcedimentoDetalhe";
 
 const queryClient = new QueryClient();
 
@@ -175,6 +177,8 @@ const App = () => (
               <Route path="ordens/:id/materiais" element={<AppMateriaisOS />} />
               <Route path="estoque" element={<AppEstoque />} />
               <Route path="estoque/devolucoes" element={<AppDevolucoes />} />
+              <Route path="procedimentos" element={<AppProcedimentos />} />
+              <Route path="procedimentos/:id" element={<AppProcedimentoDetalhe />} />
               <Route path="perfil" element={<AppPerfil />} />
             </Route>
 

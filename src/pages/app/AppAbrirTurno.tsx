@@ -19,8 +19,18 @@ import {
   AlertCircle,
   Gauge,
   Crown,
-  Trash2
+  Trash2,
+  AlertTriangle,
+  Phone,
+  X
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { ColaboradorEquipe } from "@/lib/authUtils";
 
@@ -42,6 +52,13 @@ export default function AppAbrirTurno() {
   const [buscaColaborador, setBuscaColaborador] = useState("");
   const [showAddColaborador, setShowAddColaborador] = useState(false);
   const [loadingColaboradores, setLoadingColaboradores] = useState(false);
+  
+  // Estado para dialog de erro
+  const [erroDialog, setErroDialog] = useState<{ open: boolean; titulo: string; mensagem: string }>({
+    open: false,
+    titulo: "",
+    mensagem: ""
+  });
 
   // Redirecionar se não estiver logado
   useEffect(() => {
@@ -156,27 +173,41 @@ export default function AppAbrirTurno() {
     const colaboradoresIds = colaboradoresTurno.map(c => c.id);
     
     try {
-      const { data: turnosAbertos, error: erroVerificacao } = await supabase
-        .from("turnos")
+      // Buscar turnos abertos de outras equipes através da tabela turno_colaboradores
+      const { data: turnosColaboradores, error: erroVerificacao } = await supabase
+        .from("turno_colaboradores")
         .select(`
-          id,
-          equipe_id,
-          colaboradores_ids,
-          tecnicos:equipe_id (codigo, nome)
+          turno_id,
+          colaborador_id,
+          turnos!inner (id, equipe_id, status)
         `)
-        .eq("status", "aberto")
-        .neq("equipe_id", equipe?.id);
+        .in("colaborador_id", colaboradoresIds)
+        .eq("turnos.status", "aberto")
+        .neq("turnos.equipe_id", equipe?.id);
 
-      if (turnosAbertos && turnosAbertos.length > 0) {
-        // Verificar se algum colaborador está em turno aberto
-        for (const turno of turnosAbertos) {
-          const colabsNoTurno = (turno as any).colaboradores_ids || [];
-          const colaboradorEmOutroTurno = colaboradoresTurno.find(c => colabsNoTurno.includes(c.id));
+      if (erroVerificacao) {
+        // Se a tabela não existir ou der erro, apenas logar e continuar
+        console.log("Verificação de colaboradores em outros turnos não disponível:", erroVerificacao.message);
+      } else if (turnosColaboradores && turnosColaboradores.length > 0) {
+        // Colaborador já está em outro turno
+        const colaboradorEmOutroTurno = colaboradoresTurno.find(
+          c => turnosColaboradores.some(tc => tc.colaborador_id === c.id)
+        );
+        
+        if (colaboradorEmOutroTurno) {
+          const turnoInfo = turnosColaboradores.find(tc => tc.colaborador_id === colaboradorEmOutroTurno.id);
+          const equipeId = (turnoInfo?.turnos as any)?.equipe_id;
           
-          if (colaboradorEmOutroTurno) {
-            const equipeDoTurno = (turno as any).tecnicos;
+          // Buscar nome da equipe
+          if (equipeId) {
+            const { data: equipeData } = await supabase
+              .from("equipes")
+              .select("codigo, nome")
+              .eq("id", equipeId)
+              .single();
+            
             toast.error(
-              `${colaboradorEmOutroTurno.nome} já está com turno aberto na equipe ${equipeDoTurno?.codigo || ''} (${equipeDoTurno?.nome || ''})`,
+              `${colaboradorEmOutroTurno.nome} já está com turno aberto na equipe ${equipeData?.codigo || ''} (${equipeData?.nome || ''})`,
               { duration: 5000 }
             );
             return;
@@ -184,17 +215,39 @@ export default function AppAbrirTurno() {
         }
       }
     } catch (error) {
-      console.error("Erro ao verificar turnos:", error);
+      // Não bloquear a abertura de turno por erro na verificação
+      console.log("Erro na verificação de turnos (não bloqueante):", error);
     }
 
     // Passar a lista completa de colaboradores para o contexto
-    const success = await iniciarTurno(colaboradoresIds, km, colaboradoresTurno);
+    const result = await iniciarTurno(colaboradoresIds, km, colaboradoresTurno);
 
-    if (success) {
+    if (result.success) {
       toast.success("Turno iniciado com sucesso!");
       navigate("/app");
     } else {
-      toast.error("Erro ao iniciar turno");
+      // Tratar mensagens de erro específicas
+      const mensagemErro = result.message || "Erro ao iniciar turno";
+      
+      if (mensagemErro.toLowerCase().includes("já existe um turno aberto")) {
+        setErroDialog({
+          open: true,
+          titulo: "Turno já em andamento",
+          mensagem: "Identificamos que já existe um turno aberto para esta equipe hoje. Isso pode acontecer quando o turno anterior não foi fechado corretamente.\n\nPor favor, entre em contato com o suporte para verificar a situação e liberar o acesso."
+        });
+      } else if (mensagemErro.toLowerCase().includes("colaborador") && mensagemErro.toLowerCase().includes("turno aberto")) {
+        setErroDialog({
+          open: true,
+          titulo: "Colaborador em outro turno",
+          mensagem: mensagemErro + "\n\nVerifique se o colaborador encerrou o turno anterior ou entre em contato com o suporte."
+        });
+      } else {
+        setErroDialog({
+          open: true,
+          titulo: "Não foi possível abrir o turno",
+          mensagem: mensagemErro + "\n\nSe o problema persistir, entre em contato com o suporte."
+        });
+      }
     }
   };
 
@@ -239,7 +292,7 @@ export default function AppAbrirTurno() {
             </div>
             <div>
               <CardTitle className="text-lg">{equipe.nome}</CardTitle>
-              <CardDescription className="flex items-center gap-2">
+              <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground">
                 <Badge variant="outline" className="text-xs">
                   {equipe.codigo}
                 </Badge>
@@ -247,7 +300,7 @@ export default function AppAbrirTurno() {
                   <Car className="h-3 w-3" />
                   {equipe.placa_veiculo}
                 </span>
-              </CardDescription>
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -493,6 +546,48 @@ export default function AppAbrirTurno() {
       <p className="text-xs text-muted-foreground mt-8">
         v1.0.0 • © {new Date().getFullYear()} Sirtec
       </p>
+
+      {/* Dialog de Erro */}
+      <Dialog open={erroDialog.open} onOpenChange={(open) => setErroDialog(prev => ({ ...prev, open }))}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="p-2 rounded-full bg-red-100">
+                <AlertTriangle className="h-6 w-6 text-red-600" />
+              </div>
+              <DialogTitle className="text-lg">{erroDialog.titulo}</DialogTitle>
+            </div>
+            <DialogDescription asChild>
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground whitespace-pre-line">
+                  {erroDialog.mensagem}
+                </p>
+                
+                {/* Card de Contato Suporte */}
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Phone className="h-4 w-4 text-blue-600" />
+                    <span className="font-medium text-blue-900">Contato Suporte</span>
+                  </div>
+                  <div className="space-y-1 text-sm text-blue-800">
+                    <p>📞 WhatsApp: <strong>(11) 99999-9999</strong></p>
+                    <p>📧 Email: <strong>suporte@sirtec.com.br</strong></p>
+                  </div>
+                </div>
+
+                {/* Botão Fechar */}
+                <Button 
+                  onClick={() => setErroDialog(prev => ({ ...prev, open: false }))}
+                  className="w-full"
+                  variant="outline"
+                >
+                  Entendi
+                </Button>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

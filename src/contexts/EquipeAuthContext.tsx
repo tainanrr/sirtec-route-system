@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { autenticarEquipe, EquipeAuthResult, validarLoginEquipe, ColaboradorEquipe, abrirTurno, fecharTurno } from "@/lib/authUtils";
 import { supabase } from "@/integrations/supabase/client";
+import { logApp } from "@/lib/logUtils";
 
 interface Equipe {
   id: string;
@@ -40,7 +41,7 @@ interface EquipeAuthContextType {
     message?: string;
   }>;
   // Abrir turno com colaboradores selecionados
-  iniciarTurno: (colaboradoresIds: string[], kmInicial?: number, colaboradoresFull?: ColaboradorEquipe[]) => Promise<boolean>;
+  iniciarTurno: (colaboradoresIds: string[], kmInicial?: number, colaboradoresFull?: ColaboradorEquipe[]) => Promise<{ success: boolean; message?: string }>;
   // Fechar turno
   encerrarTurno: (kmFinal?: number, observacoes?: string) => Promise<boolean>;
   logout: () => void;
@@ -135,6 +136,22 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
         setColaboradoresPendentes(result.colaboradores || []);
         localStorage.setItem("equipe_auth", JSON.stringify(equipeData));
         
+        // Registrar log de login no app
+        const colaboradoresNomes = (result.colaboradores || []).map(c => c.nome).join(", ");
+        const lider = (result.colaboradores || []).find(c => c.funcao === "lider");
+        logApp(
+          "login",
+          "app",
+          `Login app - Equipe ${codigoEquipe} (${placaVeiculo}) - Colaboradores: ${colaboradoresNomes}`,
+          { 
+            id: lider?.id,
+            nome: lider?.nome || colaboradoresNomes,
+            equipeId: result.id,
+            equipeCodigo: codigoEquipe
+          },
+          { equipeId: result.id, equipeCodigo: codigoEquipe }
+        );
+        
         return {
           success: true,
           colaboradores: result.colaboradores || [],
@@ -158,10 +175,10 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
   };
 
   // Iniciar turno com colaboradores selecionados
-  const iniciarTurno = async (colaboradoresIds: string[], kmInicial?: number, colaboradoresFull?: ColaboradorEquipe[]): Promise<boolean> => {
+  const iniciarTurno = async (colaboradoresIds: string[], kmInicial?: number, colaboradoresFull?: ColaboradorEquipe[]): Promise<{ success: boolean; message?: string }> => {
     if (!equipe) {
       setError("Equipe não autenticada");
-      return false;
+      return { success: false, message: "Equipe não autenticada" };
     }
 
     setIsLoading(true);
@@ -193,14 +210,39 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
         setTurno(turnoData);
         localStorage.setItem("turno_auth", JSON.stringify(turnoData));
         setColaboradoresPendentes([]);
-        return true;
+        
+        // Registrar log de abertura de turno
+        const colaboradoresNomes = colaboradoresTurno.map(c => c.nome).join(", ");
+        const liderTurno = colaboradoresTurno.find(c => c.funcao === "lider");
+        logApp(
+          "abrir_turno",
+          "turnos",
+          `Turno aberto - Equipe ${equipe.codigo} - KM: ${kmInicial || 'N/A'} - Colaboradores: ${colaboradoresNomes}`,
+          { 
+            id: liderTurno?.id,
+            nome: liderTurno?.nome || colaboradoresNomes,
+            equipeId: equipe.id,
+            equipeCodigo: equipe.codigo
+          },
+          { 
+            equipeId: equipe.id, 
+            equipeCodigo: equipe.codigo,
+            tabela: "turnos",
+            registroId: result.turnoId,
+            dadosNovos: { km_inicial: kmInicial, colaboradores: colaboradoresIds }
+          }
+        );
+        
+        return { success: true };
       } else {
-        setError(result.message || "Erro ao iniciar turno");
-        return false;
+        const errorMessage = result.message || "Erro ao iniciar turno";
+        setError(errorMessage);
+        return { success: false, message: errorMessage };
       }
     } catch (err: any) {
-      setError(err.message || "Erro ao iniciar turno");
-      return false;
+      const errorMessage = err.message || "Erro ao iniciar turno";
+      setError(errorMessage);
+      return { success: false, message: errorMessage };
     } finally {
       setIsLoading(false);
     }
@@ -220,6 +262,28 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
       const result = await fecharTurno(turno.id, kmFinal, observacoes);
 
       if (result.success) {
+        // Registrar log de fechamento de turno
+        const colaboradoresNomes = turno.colaboradores?.map(c => c.nome).join(", ") || "";
+        const liderTurno = turno.colaboradores?.find(c => c.funcao === "lider");
+        logApp(
+          "fechar_turno",
+          "turnos",
+          `Turno fechado - Equipe ${equipe?.codigo} - KM Final: ${kmFinal || 'N/A'} - Colaboradores: ${colaboradoresNomes}`,
+          { 
+            id: liderTurno?.id,
+            nome: liderTurno?.nome || colaboradoresNomes,
+            equipeId: equipe?.id,
+            equipeCodigo: equipe?.codigo
+          },
+          { 
+            equipeId: equipe?.id, 
+            equipeCodigo: equipe?.codigo,
+            tabela: "turnos",
+            registroId: turno.id,
+            dadosNovos: { km_final: kmFinal, observacoes }
+          }
+        );
+        
         setTurno(null);
         localStorage.removeItem("turno_auth");
         return true;
@@ -236,6 +300,24 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
+    // Registrar log de logout do app
+    if (equipe) {
+      const colaboradoresNomes = turno?.colaboradores?.map(c => c.nome).join(", ") || "";
+      const lider = turno?.colaboradores?.find(c => c.funcao === "lider");
+      logApp(
+        "logout",
+        "app",
+        `Logout app - Equipe ${equipe.codigo}`,
+        { 
+          id: lider?.id,
+          nome: lider?.nome || colaboradoresNomes || equipe.nome,
+          equipeId: equipe.id,
+          equipeCodigo: equipe.codigo
+        },
+        { equipeId: equipe.id, equipeCodigo: equipe.codigo }
+      );
+    }
+    
     setEquipe(null);
     setTurno(null);
     setColaboradoresPendentes([]);

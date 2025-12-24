@@ -77,18 +77,6 @@ interface TipoServico {
   created_at: string;
 }
 
-interface RetornoCampo {
-  id: string;
-  codigo: string;
-  nome: string;
-  descricao: string | null;
-  tipo: string;
-  requer_foto: boolean;
-  requer_assinatura: boolean;
-  ativo: boolean;
-  created_at: string;
-}
-
 interface TipoIntervalo {
   id: string;
   codigo: string;
@@ -128,16 +116,8 @@ interface UsuarioWeb {
   nome: string;
 }
 
-const tipoRetornoOptions = [
-  { value: "executado", label: "Executado", color: "bg-green-500" },
-  { value: "nao_executado", label: "Não Executado", color: "bg-red-500" },
-  { value: "parcial", label: "Parcial", color: "bg-amber-500" },
-  { value: "reagendado", label: "Reagendado", color: "bg-blue-500" },
-];
-
 export default function AdminCadastrosBase() {
   const [tiposServico, setTiposServico] = useState<TipoServico[]>([]);
-  const [retornosCampo, setRetornosCampo] = useState<RetornoCampo[]>([]);
   const [tiposIntervalo, setTiposIntervalo] = useState<TipoIntervalo[]>([]);
   const [centrosCusto, setCentrosCusto] = useState<CentroCusto[]>([]);
   const [contratos, setContratos] = useState<Contrato[]>([]);
@@ -172,16 +152,6 @@ export default function AdminCadastrosBase() {
     regulada: false,
     icone: "",
     cor: "#3b82f6",
-    ativo: true,
-  });
-
-  const [retornoCampoForm, setRetornoCampoForm] = useState({
-    codigo: "",
-    nome: "",
-    descricao: "",
-    tipo: "executado",
-    requer_foto: false,
-    requer_assinatura: false,
     ativo: true,
   });
 
@@ -253,9 +223,8 @@ export default function AdminCadastrosBase() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [tiposRes, retornosRes, intervalosRes, centrosRes, contratosRes, usuariosRes] = await Promise.all([
+      const [tiposRes, intervalosRes, centrosRes, contratosRes, usuariosRes] = await Promise.all([
         supabase.from("skills").select("*").order("codigo"),
-        supabase.from("retornos_campo").select("*").order("codigo"),
         supabase.from("tipos_intervalo").select("*").order("codigo"),
         supabase.from("centros_custo").select("*, contratos(codigo, nome), usuarios_web:responsavel_id(nome)").order("codigo"),
         supabase.from("contratos").select("id, codigo, nome").eq("status", "ativo").order("codigo"),
@@ -263,13 +232,11 @@ export default function AdminCadastrosBase() {
       ]);
 
       if (tiposRes.error) throw tiposRes.error;
-      if (retornosRes.error) throw retornosRes.error;
       if (intervalosRes.error) throw intervalosRes.error;
       if (centrosRes.error) throw centrosRes.error;
       if (contratosRes.error) throw contratosRes.error;
 
       setTiposServico(tiposRes.data || []);
-      setRetornosCampo(retornosRes.data || []);
       setTiposIntervalo(intervalosRes.data || []);
       setCentrosCusto(centrosRes.data || []);
       setContratos(contratosRes.data || []);
@@ -317,32 +284,6 @@ export default function AdminCadastrosBase() {
 
   const { sortConfig: tipoServicoSortConfig, handleSort: handleTipoServicoSort, sortedData: sortedTiposServico } =
     useSortableTable(filteredTiposServico, { column: "codigo", direction: "asc" });
-
-  // Filtrar e ordenar dados para retornos de campo
-  const filteredRetornosCampo = useMemo(() => {
-    return filterData(
-      retornosCampo,
-      filterValues,
-      genericFilterConfigs,
-      {
-        search: (item, value) => {
-          const searchTerm = value.toLowerCase();
-          return (
-            item.codigo.toLowerCase().includes(searchTerm) ||
-            item.nome.toLowerCase().includes(searchTerm)
-          );
-        },
-        status: (item, value) => {
-          if (value === "ativo") return item.ativo;
-          if (value === "inativo") return !item.ativo;
-          return true;
-        },
-      }
-    );
-  }, [retornosCampo, filterValues, genericFilterConfigs]);
-
-  const { sortConfig: retornoSortConfig, handleSort: handleRetornoSort, sortedData: sortedRetornosCampo } =
-    useSortableTable(filteredRetornosCampo, { column: "codigo", direction: "asc" });
 
   // Filtrar e ordenar dados para tipos de intervalo
   const filteredTiposIntervalo = useMemo(() => {
@@ -413,16 +354,6 @@ export default function AdminCadastrosBase() {
         cor: "#3b82f6",
         ativo: true,
       });
-    } else if (type === "retorno-campo") {
-      setRetornoCampoForm({
-        codigo: "",
-        nome: "",
-        descricao: "",
-        tipo: "executado",
-        requer_foto: false,
-        requer_assinatura: false,
-        ativo: true,
-      });
     } else if (type === "tipo-intervalo") {
       setTipoIntervaloForm({
         codigo: "",
@@ -457,16 +388,6 @@ export default function AdminCadastrosBase() {
         regulada: item.regulada || false,
         icone: item.icone || "",
         cor: item.cor || "#3b82f6",
-        ativo: item.ativo,
-      });
-    } else if (type === "retorno-campo") {
-      setRetornoCampoForm({
-        codigo: item.codigo,
-        nome: item.nome,
-        descricao: item.descricao || "",
-        tipo: item.tipo,
-        requer_foto: item.requer_foto,
-        requer_assinatura: item.requer_assinatura,
         ativo: item.ativo,
       });
     } else if (type === "tipo-intervalo") {
@@ -512,22 +433,6 @@ export default function AdminCadastrosBase() {
           icone: tipoServicoForm.icone || null,
           cor: tipoServicoForm.cor || "#3b82f6",
           ativo: tipoServicoForm.ativo,
-        };
-      } else if (currentFormType === "retorno-campo") {
-        if (!retornoCampoForm.codigo || !retornoCampoForm.nome) {
-          toast.error("Preencha os campos obrigatórios");
-          setSaving(false);
-          return;
-        }
-        table = "retornos_campo";
-        payload = {
-          codigo: retornoCampoForm.codigo,
-          nome: retornoCampoForm.nome,
-          descricao: retornoCampoForm.descricao || null,
-          tipo: retornoCampoForm.tipo,
-          requer_foto: retornoCampoForm.requer_foto,
-          requer_assinatura: retornoCampoForm.requer_assinatura,
-          ativo: retornoCampoForm.ativo,
         };
       } else if (currentFormType === "tipo-intervalo") {
         if (!tipoIntervaloForm.codigo || !tipoIntervaloForm.nome || !tipoIntervaloForm.tempo_minutos) {
@@ -589,7 +494,6 @@ export default function AdminCadastrosBase() {
     try {
       let table = "";
       if (currentFormType === "tipo-servico") table = "skills";
-      else if (currentFormType === "retorno-campo") table = "retornos_campo";
       else if (currentFormType === "tipo-intervalo") table = "tipos_intervalo";
       else if (currentFormType === "centro-custo") table = "centros_custo";
 
@@ -620,24 +524,16 @@ export default function AdminCadastrosBase() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">Cadastros Base</h2>
-          <p className="text-muted-foreground">
-            Configurações base do sistema: precificação, centros de custo, unidades, feriados e mais
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={fetchData} disabled={loading}>
-            <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-            Atualizar
-          </Button>
-        </div>
+      {/* Ações */}
+      <div className="flex items-center justify-end gap-2">
+        <Button variant="outline" onClick={fetchData} disabled={loading}>
+          <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+          Atualizar
+        </Button>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-6">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="precificacao" className="flex items-center gap-2">
             <DollarSign className="h-4 w-4" />
             Precificação
@@ -649,10 +545,6 @@ export default function AdminCadastrosBase() {
           <TabsTrigger value="tipos-servico" className="flex items-center gap-2">
             <Tag className="h-4 w-4" />
             Tipos de Serviço
-          </TabsTrigger>
-          <TabsTrigger value="retornos-campo" className="flex items-center gap-2">
-            <Database className="h-4 w-4" />
-            Retornos
           </TabsTrigger>
           <TabsTrigger value="tipos-intervalo" className="flex items-center gap-2">
             <Clock className="h-4 w-4" />
@@ -905,115 +797,6 @@ export default function AdminCadastrosBase() {
           </div>
         </TabsContent>
 
-        {/* Tab de Retornos de Campo */}
-        <TabsContent value="retornos-campo" className="space-y-4 mt-6">
-          <div className="flex justify-between items-center">
-            <div className="rounded-xl border border-border bg-card p-4 flex-1 mr-4">
-              <DataTableFilters
-                filters={genericFilterConfigs}
-                values={filterValues}
-                onChange={setFilterValues}
-                onClear={clearFilters}
-              />
-            </div>
-            <div className="flex gap-2">
-              <ExportButton
-                data={retornosCampo}
-                filename="retornos_campo"
-                columns={[
-                  { key: "codigo", label: "Código" },
-                  { key: "nome", label: "Nome" },
-                  { key: "tipo", label: "Tipo" },
-                  { key: "requer_foto", label: "Requer Foto", format: (v: any) => v ? "Sim" : "Não" },
-                  { key: "requer_assinatura", label: "Requer Assinatura", format: (v: any) => v ? "Sim" : "Não" },
-                  { key: "ativo", label: "Ativo", format: (v: any) => v ? "Sim" : "Não" },
-                ]}
-              />
-              <Button onClick={() => handleCreate("retorno-campo")}>
-                <Plus className="h-4 w-4 mr-2" />
-                Novo Retorno
-              </Button>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-border bg-card overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <SortableTableHead column="codigo" label="Código" sortConfig={retornoSortConfig} onSort={handleRetornoSort} />
-                  <SortableTableHead column="nome" label="Nome" sortConfig={retornoSortConfig} onSort={handleRetornoSort} />
-                  <SortableTableHead column="tipo" label="Tipo" sortConfig={retornoSortConfig} onSort={handleRetornoSort} />
-                  <TableHead>Requisitos</TableHead>
-                  <SortableTableHead column="ativo" label="Status" sortConfig={retornoSortConfig} onSort={handleRetornoSort} />
-                  <TableHead className="text-right">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8">
-                      <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
-                    </TableCell>
-                  </TableRow>
-                ) : sortedRetornosCampo?.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8">
-                      <Database className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                      <p className="text-muted-foreground">
-                        {hasActiveFilters ? "Nenhum resultado" : "Nenhum retorno cadastrado"}
-                      </p>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  sortedRetornosCampo?.map((item) => {
-                    const tipoOpt = tipoRetornoOptions.find((t) => t.value === item.tipo);
-                    return (
-                      <TableRow key={item.id} className="group">
-                        <TableCell className="font-mono">{item.codigo}</TableCell>
-                        <TableCell className="font-medium">{item.nome}</TableCell>
-                        <TableCell>
-                          <Badge className={`${tipoOpt?.color} text-white`}>
-                            {tipoOpt?.label || item.tipo}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-1">
-                            {item.requer_foto && <Badge variant="outline">📷 Foto</Badge>}
-                            {item.requer_assinatura && <Badge variant="outline">✍️ Assinatura</Badge>}
-                            {!item.requer_foto && !item.requer_assinatura && (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={item.ativo ? "default" : "secondary"}>
-                            {item.ativo ? "Ativo" : "Inativo"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Button variant="ghost" size="sm" onClick={() => handleEdit("retorno-campo", item)}>
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="sm" onClick={() => confirmDelete("retorno-campo", item)}>
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
-                )}
-              </TableBody>
-            </Table>
-            {sortedRetornosCampo && sortedRetornosCampo.length > 0 && (
-              <div className="px-4 py-3 border-t border-border bg-muted/30 text-sm text-muted-foreground">
-                Mostrando {sortedRetornosCampo.length} de {retornosCampo.length} registros
-              </div>
-            )}
-          </div>
-        </TabsContent>
-
         {/* Tab de Tipos de Intervalo */}
         <TabsContent value="tipos-intervalo" className="space-y-4 mt-6">
           <div className="flex justify-between items-center">
@@ -1131,7 +914,6 @@ export default function AdminCadastrosBase() {
             <DialogTitle>
               {editingItem ? "Editar" : "Novo"}{" "}
               {currentFormType === "tipo-servico" && "Tipo de Serviço"}
-              {currentFormType === "retorno-campo" && "Retorno de Campo"}
               {currentFormType === "tipo-intervalo" && "Tipo de Intervalo"}
               {currentFormType === "centro-custo" && "Centro de Custo"}
             </DialogTitle>
@@ -1263,56 +1045,6 @@ export default function AdminCadastrosBase() {
               </>
             )}
 
-            {/* Form para Retorno de Campo */}
-            {currentFormType === "retorno-campo" && (
-              <>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Código *</Label>
-                    <Input
-                      value={retornoCampoForm.codigo}
-                      onChange={(e) => setRetornoCampoForm({ ...retornoCampoForm, codigo: e.target.value.toUpperCase() })}
-                      placeholder="Ex: RET001"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Tipo *</Label>
-                    <Select
-                      value={retornoCampoForm.tipo}
-                      onValueChange={(v) => setRetornoCampoForm({ ...retornoCampoForm, tipo: v })}
-                    >
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {tipoRetornoOptions.map((t) => (<SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>Nome *</Label>
-                  <Input
-                    value={retornoCampoForm.nome}
-                    onChange={(e) => setRetornoCampoForm({ ...retornoCampoForm, nome: e.target.value })}
-                    placeholder="Nome do retorno"
-                  />
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2">
-                    <Switch checked={retornoCampoForm.requer_foto} onCheckedChange={(v) => setRetornoCampoForm({ ...retornoCampoForm, requer_foto: v })} />
-                    <Label>Requer Foto</Label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Switch checked={retornoCampoForm.requer_assinatura} onCheckedChange={(v) => setRetornoCampoForm({ ...retornoCampoForm, requer_assinatura: v })} />
-                    <Label>Requer Assinatura</Label>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Switch checked={retornoCampoForm.ativo} onCheckedChange={(v) => setRetornoCampoForm({ ...retornoCampoForm, ativo: v })} />
-                  <Label>Ativo</Label>
-                </div>
-              </>
-            )}
-
             {/* Form para Tipo de Intervalo */}
             {currentFormType === "tipo-intervalo" && (
               <>
@@ -1417,3 +1149,4 @@ export default function AdminCadastrosBase() {
     </div>
   );
 }
+

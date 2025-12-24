@@ -99,3 +99,4 @@ ORDER BY ordinal_position;
 -- Verificar bucket criado
 SELECT * FROM storage.buckets WHERE id = 'procedimentos';
 
+

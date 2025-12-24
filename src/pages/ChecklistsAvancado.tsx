@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useLocation } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -337,6 +338,10 @@ const CATEGORIAS_PERGUNTA = [
 
 export default function ChecklistsAvancado() {
   const { podeEditar } = useTelaPermissao("checklists");
+  const location = useLocation();
+  
+  // Verificar se está dentro do layout Admin (para evitar duplicação)
+  const isInsideAdmin = location.pathname.startsWith("/admin");
   
   // Estados principais
   const [searchTerm, setSearchTerm] = useState("");
@@ -847,12 +852,9 @@ export default function ChecklistsAvancado() {
     return checklist.grupos?.reduce((acc, g) => acc + g.perguntas.length, 0) || 0;
   };
 
-  return (
-    <MainLayout
-      title="Checklists Avançado"
-      subtitle="Sistema completo de criação de formulários e checklists"
-      breadcrumbs={[{ label: "Cadastros" }, { label: "Checklists" }]}
-    >
+  // Conteúdo principal do componente
+  const content = (
+    <>
       {/* Barra de Ações */}
       <div className="rounded-xl border border-border bg-card p-4 mb-6">
         <div className="flex flex-col lg:flex-row gap-4">
@@ -912,7 +914,7 @@ export default function ChecklistsAvancado() {
         </div>
       </div>
 
-      {/* Lista de Checklists */}
+      {/* Lista de Checklists em Tabela */}
       {loading ? (
         <div className="text-center py-12 text-muted-foreground">
           <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2" />
@@ -925,114 +927,173 @@ export default function ChecklistsAvancado() {
           <p className="text-sm">Clique em "Novo Checklist" para criar.</p>
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {filteredChecklists.map((checklist) => {
-            const tipoConfig = TIPOS_CHECKLIST.find(t => t.value === checklist.tipo);
-            const totalPerguntas = getTotalPerguntas(checklist);
-            const totalGrupos = checklist.grupos?.length || 0;
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b bg-muted/50">
+                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">Checklist</th>
+                <th className="text-left px-4 py-3 text-sm font-medium text-muted-foreground">Tipo</th>
+                <th className="text-center px-4 py-3 text-sm font-medium text-muted-foreground">Versão</th>
+                <th className="text-center px-4 py-3 text-sm font-medium text-muted-foreground">Seções</th>
+                <th className="text-center px-4 py-3 text-sm font-medium text-muted-foreground">Perguntas</th>
+                <th className="text-center px-4 py-3 text-sm font-medium text-muted-foreground">Recursos</th>
+                <th className="text-center px-4 py-3 text-sm font-medium text-muted-foreground">Status</th>
+                <th className="text-right px-4 py-3 text-sm font-medium text-muted-foreground">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {filteredChecklists.map((checklist) => {
+                const tipoConfig = TIPOS_CHECKLIST.find(t => t.value === checklist.tipo);
+                const totalPerguntas = getTotalPerguntas(checklist);
+                const totalGrupos = checklist.grupos?.length || 0;
 
-            return (
-              <Card key={checklist.id} className="hover:shadow-md transition-shadow">
-                <CardHeader className="pb-2">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
+                return (
+                  <tr key={checklist.id} className="hover:bg-muted/30 transition-colors">
+                    {/* Nome e Descrição */}
+                    <td className="px-4 py-3">
+                      <div className="flex items-start gap-3">
                         <div 
-                          className="h-3 w-3 rounded-full" 
+                          className="h-3 w-3 rounded-full mt-1.5 flex-shrink-0" 
                           style={{ backgroundColor: tipoConfig?.cor || "#6b7280" }} 
                         />
-                        <Badge variant="outline" className="text-xs">
-                          v{checklist.versao}
-                        </Badge>
+                        <div className="min-w-0">
+                          <div className="font-medium text-sm truncate max-w-[300px]">{checklist.nome}</div>
+                          <div className="text-xs text-muted-foreground truncate max-w-[300px]">
+                            {checklist.descricao || "Sem descrição"}
+                          </div>
+                        </div>
                       </div>
-                      <CardTitle className="text-lg">{checklist.nome}</CardTitle>
-                      <CardDescription className="mt-1 line-clamp-2">
-                        {checklist.descricao || "Sem descrição"}
-                      </CardDescription>
-                    </div>
-                    <Badge variant={checklist.ativo ? "default" : "secondary"}>
-                      {checklist.ativo ? "Ativo" : "Inativo"}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Tipo:</span>
-                      <Badge variant="outline">{tipoConfig?.label || checklist.tipo}</Badge>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Seções:</span>
-                      <span className="font-medium">{totalGrupos}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Perguntas:</span>
-                      <span className="font-medium">{totalPerguntas}</span>
-                    </div>
+                    </td>
 
-                    {/* Indicadores de recursos */}
-                    <div className="flex flex-wrap gap-1 pt-2">
-                      {checklist.exige_localizacao && (
-                        <Badge variant="outline" className="text-xs">
-                          <MapPin className="h-3 w-3 mr-1" />GPS
-                        </Badge>
-                      )}
-                      {checklist.exige_assinatura && (
-                        <Badge variant="outline" className="text-xs">
-                          <FileSignature className="h-3 w-3 mr-1" />Assinatura
-                        </Badge>
-                      )}
-                      {checklist.usa_pontuacao && (
-                        <Badge variant="outline" className="text-xs">
-                          <Star className="h-3 w-3 mr-1" />Pontuação
-                        </Badge>
-                      )}
-                    </div>
-
-                    <div className="flex gap-2 pt-2 border-t">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1"
-                        onClick={() => handlePreview(checklist)}
-                      >
-                        <Eye className="h-4 w-4 mr-1" />
-                        Preview
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleEdit(checklist)}
-                        disabled={!podeEditar}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleDuplicate(checklist)}
-                        disabled={!podeEditar}
-                      >
-                        <Copy className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => {
-                          setChecklistToDelete(checklist);
-                          setDeleteDialogOpen(true);
+                    {/* Tipo */}
+                    <td className="px-4 py-3">
+                      <Badge 
+                        variant="outline" 
+                        className="text-xs whitespace-nowrap"
+                        style={{ 
+                          borderColor: tipoConfig?.cor || "#6b7280",
+                          color: tipoConfig?.cor || "#6b7280"
                         }}
-                        disabled={!podeEditar}
                       >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+                        {tipoConfig?.label?.replace("APR - ", "").replace("Checklist de ", "") || checklist.tipo}
+                      </Badge>
+                    </td>
+
+                    {/* Versão */}
+                    <td className="px-4 py-3 text-center">
+                      <Badge variant="secondary" className="text-xs">
+                        v{checklist.versao}
+                      </Badge>
+                    </td>
+
+                    {/* Seções */}
+                    <td className="px-4 py-3 text-center">
+                      <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-700 text-sm font-medium">
+                        {totalGrupos}
+                      </span>
+                    </td>
+
+                    {/* Perguntas */}
+                    <td className="px-4 py-3 text-center">
+                      <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-purple-100 text-purple-700 text-sm font-medium">
+                        {totalPerguntas}
+                      </span>
+                    </td>
+
+                    {/* Recursos */}
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-center gap-1">
+                        {checklist.exige_localizacao && (
+                          <div className="p-1.5 rounded bg-green-100 text-green-700" title="Requer GPS">
+                            <MapPin className="h-3 w-3" />
+                          </div>
+                        )}
+                        {checklist.exige_assinatura && (
+                          <div className="p-1.5 rounded bg-orange-100 text-orange-700" title="Requer Assinatura">
+                            <FileSignature className="h-3 w-3" />
+                          </div>
+                        )}
+                        {checklist.usa_pontuacao && (
+                          <div className="p-1.5 rounded bg-yellow-100 text-yellow-700" title="Usa Pontuação">
+                            <Star className="h-3 w-3" />
+                          </div>
+                        )}
+                        {(checklist.exige_foto_inicial || checklist.exige_foto_final) && (
+                          <div className="p-1.5 rounded bg-cyan-100 text-cyan-700" title="Requer Foto">
+                            <Camera className="h-3 w-3" />
+                          </div>
+                        )}
+                        {!checklist.exige_localizacao && !checklist.exige_assinatura && !checklist.usa_pontuacao && !checklist.exige_foto_inicial && !checklist.exige_foto_final && (
+                          <span className="text-xs text-muted-foreground">-</span>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* Status */}
+                    <td className="px-4 py-3 text-center">
+                      <Badge 
+                        variant={checklist.ativo ? "default" : "secondary"}
+                        className={cn(
+                          "text-xs",
+                          checklist.ativo ? "bg-green-600 hover:bg-green-600" : ""
+                        )}
+                      >
+                        {checklist.ativo ? "Ativo" : "Inativo"}
+                      </Badge>
+                    </td>
+
+                    {/* Ações */}
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                          onClick={() => handlePreview(checklist)}
+                          title="Visualizar"
+                        >
+                          <Eye className="h-4 w-4 text-muted-foreground" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                          onClick={() => handleEdit(checklist)}
+                          disabled={!podeEditar}
+                          title="Editar"
+                        >
+                          <Edit className="h-4 w-4 text-muted-foreground" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                          onClick={() => handleDuplicate(checklist)}
+                          disabled={!podeEditar}
+                          title="Duplicar"
+                        >
+                          <Copy className="h-4 w-4 text-muted-foreground" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                          onClick={() => {
+                            setChecklistToDelete(checklist);
+                            setDeleteDialogOpen(true);
+                          }}
+                          disabled={!podeEditar}
+                          title="Excluir"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -1664,6 +1725,22 @@ export default function ChecklistsAvancado() {
           toast.success("Checklist importado! Revise e salve para confirmar.");
         }}
       />
+    </>
+  );
+
+  // Se estiver dentro do Admin, não usa MainLayout (já está envolvido pelo AdminLayout)
+  if (isInsideAdmin) {
+    return content;
+  }
+
+  // Se não estiver dentro do Admin, envolve com MainLayout
+  return (
+    <MainLayout
+      title="Checklists Avançado"
+      subtitle="Sistema completo de criação de formulários e checklists"
+      breadcrumbs={[{ label: "Cadastros" }, { label: "Checklists" }]}
+    >
+      {content}
     </MainLayout>
   );
 }

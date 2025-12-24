@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { useTelaPermissao } from "@/hooks/usePermissoes";
+import { useLogSistema } from "@/hooks/useLogSistema";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -92,6 +93,7 @@ const filterConfigs: FilterConfig[] = [
 export default function AdminContratos() {
   // Permissões da tela
   const { podeEditar } = useTelaPermissao("contratos");
+  const { logCriar, logEditar, logExcluir } = useLogSistema();
 
   const [contratos, setContratos] = useState<Contrato[]>([]);
   const [loading, setLoading] = useState(true);
@@ -228,11 +230,25 @@ export default function AdminContratos() {
           .eq("id", editingContrato.id);
 
         if (error) throw error;
+        
+        // Log de edição
+        logEditar("admin", "contratos", editingContrato.id, editingContrato, payload, 
+          `Editou contrato ${payload.codigo} - ${payload.nome}`);
+        
         toast.success("Contrato atualizado com sucesso");
       } else {
-        const { error } = await supabase.from("contratos").insert(payload);
+        const { data: newData, error } = await supabase
+          .from("contratos")
+          .insert(payload)
+          .select("id")
+          .single();
 
         if (error) throw error;
+        
+        // Log de criação
+        logCriar("admin", "contratos", newData?.id || "", payload, 
+          `Criou contrato ${payload.codigo} - ${payload.nome}`);
+        
         toast.success("Contrato criado com sucesso");
       }
 
@@ -258,6 +274,10 @@ export default function AdminContratos() {
 
       if (error) throw error;
 
+      // Log de exclusão
+      logExcluir("admin", "contratos", contratoToDelete.id, contratoToDelete, 
+        `Excluiu contrato ${contratoToDelete.codigo} - ${contratoToDelete.nome}`);
+
       toast.success("Contrato excluído com sucesso");
       setDeleteDialogOpen(false);
       setContratoToDelete(null);
@@ -270,44 +290,36 @@ export default function AdminContratos() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">Contratos</h2>
-          <p className="text-muted-foreground">
-            Gerencie os contratos de prestação de serviço
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <ExportButton
-            data={contratos}
-            filename="contratos"
-            columns={[
-              { key: "codigo", label: "Código" },
-              { key: "nome", label: "Nome" },
-              { key: "descricao", label: "Descrição" },
-              { key: "cliente", label: "Cliente" },
-              { key: "data_inicio", label: "Data Início", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
-              { key: "data_fim", label: "Data Fim", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
-              { key: "valor", label: "Valor", format: (v) => v ? `R$ ${Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : "" },
-              { key: "status", label: "Status" },
-              { key: "created_at", label: "Criado em", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
-            ]}
-            disabled={loading}
-          />
-          <Button variant="outline" onClick={fetchContratos} disabled={loading}>
-            <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-            Atualizar
-          </Button>
-          <Button 
-            onClick={handleCreate}
-            disabled={!podeEditar}
-            title={!podeEditar ? "Você não tem permissão para criar" : undefined}
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Novo Contrato
-          </Button>
-        </div>
+      {/* Ações */}
+      <div className="flex items-center justify-end gap-2">
+        <ExportButton
+          data={contratos}
+          filename="contratos"
+          columns={[
+            { key: "codigo", label: "Código" },
+            { key: "nome", label: "Nome" },
+            { key: "descricao", label: "Descrição" },
+            { key: "cliente", label: "Cliente" },
+            { key: "data_inicio", label: "Data Início", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
+            { key: "data_fim", label: "Data Fim", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
+            { key: "valor", label: "Valor", format: (v) => v ? `R$ ${Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : "" },
+            { key: "status", label: "Status" },
+            { key: "created_at", label: "Criado em", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
+          ]}
+          disabled={loading}
+        />
+        <Button variant="outline" onClick={fetchContratos} disabled={loading}>
+          <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+          Atualizar
+        </Button>
+        <Button 
+          onClick={handleCreate}
+          disabled={!podeEditar}
+          title={!podeEditar ? "Você não tem permissão para criar" : undefined}
+        >
+          <Plus className="h-4 w-4 mr-2" />
+          Novo Contrato
+        </Button>
       </div>
 
       {/* Filtros */}

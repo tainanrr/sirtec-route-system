@@ -368,45 +368,37 @@ export default function AdminColaboradores() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">Colaboradores</h2>
-          <p className="text-muted-foreground">
-            Cadastro de colaboradores (usuários do aplicativo de campo)
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <ExportButton
-            data={colaboradores}
-            filename="colaboradores"
-            columns={[
-              { key: "cpf", label: "CPF" },
-              { key: "nome", label: "Nome" },
-              { key: "telefone", label: "Telefone" },
-              { key: "email", label: "Email" },
-              { key: "cargo", label: "Cargo" },
-              { key: "data_admissao", label: "Data Admissão", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
-              { key: "data_demissao", label: "Data Demissão", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
-              { key: "ativo", label: "Ativo", format: (v) => v ? "Sim" : "Não" },
-              { key: "observacoes", label: "Observações" },
-              { key: "created_at", label: "Criado em", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
-            ]}
-            disabled={loading}
-          />
-          <Button variant="outline" onClick={fetchData} disabled={loading}>
-            <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-            Atualizar
-          </Button>
-          <Button 
-            onClick={handleCreate}
-            disabled={!podeEditar}
-            title={!podeEditar ? "Você não tem permissão para criar" : undefined}
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Novo Colaborador
-          </Button>
-        </div>
+      {/* Ações */}
+      <div className="flex items-center justify-end gap-2">
+        <ExportButton
+          data={colaboradores}
+          filename="colaboradores"
+          columns={[
+            { key: "cpf", label: "CPF" },
+            { key: "nome", label: "Nome" },
+            { key: "telefone", label: "Telefone" },
+            { key: "email", label: "Email" },
+            { key: "cargo", label: "Cargo" },
+            { key: "data_admissao", label: "Data Admissão", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
+            { key: "data_demissao", label: "Data Demissão", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
+            { key: "ativo", label: "Ativo", format: (v) => v ? "Sim" : "Não" },
+            { key: "observacoes", label: "Observações" },
+            { key: "created_at", label: "Criado em", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
+          ]}
+          disabled={loading}
+        />
+        <Button variant="outline" onClick={fetchData} disabled={loading}>
+          <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+          Atualizar
+        </Button>
+        <Button 
+          onClick={handleCreate}
+          disabled={!podeEditar}
+          title={!podeEditar ? "Você não tem permissão para criar" : undefined}
+        >
+          <Plus className="h-4 w-4 mr-2" />
+          Novo Colaborador
+        </Button>
       </div>
 
       {/* Info */}

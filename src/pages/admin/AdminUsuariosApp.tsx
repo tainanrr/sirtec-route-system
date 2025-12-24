@@ -221,32 +221,24 @@ export default function AdminUsuariosApp() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">Usuários App</h2>
-          <p className="text-muted-foreground">
-            Configure os usuários do aplicativo móvel (equipes de campo)
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <ExportButton
-            data={equipes}
-            filename="usuarios_app"
-            columns={[
-              { key: "codigo", label: "Código" },
-              { key: "nome", label: "Nome" },
-              { key: "usuario", label: "Usuário" },
-              { key: "contratos.codigo", label: "Contrato" },
-              { key: "ativo", label: "Ativo", format: (v) => v ? "Sim" : "Não" },
-            ]}
-            disabled={loading}
-          />
-          <Button variant="outline" onClick={fetchData} disabled={loading}>
-            <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-            Atualizar
-          </Button>
-        </div>
+      {/* Ações */}
+      <div className="flex items-center justify-end gap-2">
+        <ExportButton
+          data={equipes}
+          filename="usuarios_app"
+          columns={[
+            { key: "codigo", label: "Código" },
+            { key: "nome", label: "Nome" },
+            { key: "usuario", label: "Usuário" },
+            { key: "contratos.codigo", label: "Contrato" },
+            { key: "ativo", label: "Ativo", format: (v) => v ? "Sim" : "Não" },
+          ]}
+          disabled={loading}
+        />
+        <Button variant="outline" onClick={fetchData} disabled={loading}>
+          <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+          Atualizar
+        </Button>
       </div>
 
       {/* Info */}

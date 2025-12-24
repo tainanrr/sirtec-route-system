@@ -386,36 +386,28 @@ export default function AdminPermissoes() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">Permissões e Perfis</h2>
-          <p className="text-muted-foreground">
-            Gerencie os perfis de acesso e suas permissões por tela
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <ExportButton
-            data={perfis}
-            filename="perfis_permissao"
-            columns={[
-              { key: "nome", label: "Nome" },
-              { key: "descricao", label: "Descrição" },
-              { key: "is_admin", label: "Admin", format: (v) => v ? "Sim" : "Não" },
-              { key: "ativo", label: "Ativo", format: (v) => v ? "Sim" : "Não" },
-              { key: "created_at", label: "Criado em", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
-            ]}
-            disabled={loading}
-          />
-          <Button variant="outline" onClick={fetchData} disabled={loading}>
-            <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-            Atualizar
-          </Button>
-          <Button onClick={handleCreatePerfil}>
-            <Plus className="h-4 w-4 mr-2" />
-            Novo Perfil
-          </Button>
-        </div>
+      {/* Ações */}
+      <div className="flex items-center justify-end gap-2">
+        <ExportButton
+          data={perfis}
+          filename="perfis_permissao"
+          columns={[
+            { key: "nome", label: "Nome" },
+            { key: "descricao", label: "Descrição" },
+            { key: "is_admin", label: "Admin", format: (v) => v ? "Sim" : "Não" },
+            { key: "ativo", label: "Ativo", format: (v) => v ? "Sim" : "Não" },
+            { key: "created_at", label: "Criado em", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
+          ]}
+          disabled={loading}
+        />
+        <Button variant="outline" onClick={fetchData} disabled={loading}>
+          <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+          Atualizar
+        </Button>
+        <Button onClick={handleCreatePerfil}>
+          <Plus className="h-4 w-4 mr-2" />
+          Novo Perfil
+        </Button>
       </div>
 
       {/* Estatísticas */}
