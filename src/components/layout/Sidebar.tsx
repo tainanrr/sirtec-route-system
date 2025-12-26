@@ -62,6 +62,7 @@ interface NavItem {
 const navItemsConfig: NavItem[] = [
   // Dashboard - visível para todos autenticados (sem permissão específica = sempre visível)
   { icon: LayoutDashboard, label: "Dashboard", href: "/" },
+  { icon: Target, label: "Produção x Meta", href: "/dashboard/producao-meta" },
   { icon: LayoutDashboard, label: "__divider_1__", type: "divider" },
   // Torre de Controle
   { icon: Radio, label: "Torre de Controle", href: "/torre-controle", permission: "roteirizacao.torre_controle" },
