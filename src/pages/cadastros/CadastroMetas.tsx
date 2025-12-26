@@ -72,7 +72,15 @@ interface Equipe {
   codigo: string;
   nome: string;
   centro_custo_id?: string;
+  tipo_equipe?: string;
 }
+
+// Labels para tipos de equipe
+const tipoEquipeLabels: Record<string, { label: string; color: string }> = {
+  normal: { label: "Normal", color: "bg-gray-500" },
+  gaviao: { label: "Gavião", color: "bg-orange-500" },
+  kit: { label: "Kit", color: "bg-purple-500" },
+};
 
 interface Contrato {
   id: string;
@@ -323,7 +331,7 @@ export default function CadastroMetas() {
 
       const [metasRes, equipesRes, contratosRes, feriadosRes, centrosRes] = await Promise.all([
         supabase.from("metas").select("*").gte("data", periodoInicio).lte("data", periodoFim).order("data"),
-        supabase.from("tecnicos").select("id, codigo, nome, centro_custo_id").neq("status", "offline").order("codigo"),
+        supabase.from("tecnicos").select("id, codigo, nome, centro_custo_id, tipo_equipe").neq("status", "offline").order("codigo"),
         supabase.from("contratos").select("id, codigo, nome").eq("status", "ativo").order("codigo"),
         supabase.from("feriados").select("*, centros_custo(codigo, nome)").eq("ativo", true).order("data"),
         supabase.from("centros_custo").select("id, codigo, nome").eq("ativo", true).order("codigo"),
@@ -1024,7 +1032,7 @@ export default function CadastroMetas() {
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-muted/50">
-                          <TableHead className="sticky left-0 z-20 bg-muted/50 w-32 text-xs font-bold">
+                          <TableHead className="sticky left-0 z-20 bg-muted/50 w-40 text-xs font-bold">
                             Equipe
                           </TableHead>
                           <TableHead className="text-center text-xs w-16 font-bold">Total</TableHead>
@@ -1072,10 +1080,20 @@ export default function CadastroMetas() {
                                   >
                                     ✓
                                   </Button>
-                                  <div className="truncate max-w-24">
+                                  <div className="truncate max-w-32">
                                     <span className="font-bold text-xs">{equipe.codigo}</span>
+                                    {equipe.tipo_equipe && equipe.tipo_equipe !== "normal" && (
+                                      <Badge 
+                                        className={cn(
+                                          "ml-1 text-[8px] px-1 py-0 h-4",
+                                          tipoEquipeLabels[equipe.tipo_equipe]?.color || "bg-gray-500"
+                                        )}
+                                      >
+                                        {tipoEquipeLabels[equipe.tipo_equipe]?.label || equipe.tipo_equipe}
+                                      </Badge>
+                                    )}
                                     <span className="text-[10px] text-muted-foreground ml-1 hidden xl:inline">
-                                      {equipe.nome.slice(0, 15)}
+                                      {equipe.nome.slice(0, 12)}
                                     </span>
                                   </div>
                                 </div>
