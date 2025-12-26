@@ -181,6 +181,7 @@ export default function CadastroMetas() {
   const [feriadoDialogOpen, setFeriadoDialogOpen] = useState(false);
   const [copyDialogOpen, setCopyDialogOpen] = useState(false);
   const [bulkValueDialogOpen, setBulkValueDialogOpen] = useState(false);
+  const [distribuirDialogOpen, setDistribuirDialogOpen] = useState(false);
   const [editingFeriado, setEditingFeriado] = useState<Feriado | null>(null);
 
   // Form state para criação em massa
@@ -194,6 +195,19 @@ export default function CadastroMetas() {
     tipo_meta: "producao",
     excluir_feriados: true,
   });
+
+  // Form state para distribuir meta total
+  const [distribuirData, setDistribuirData] = useState({
+    equipes_ids: [] as string[],
+    contrato_id: "nenhum",
+    data_inicio: periodoPadrao.inicio,
+    data_fim: periodoPadrao.fim,
+    dias_semana: [1, 2, 3, 4, 5] as number[],
+    valor_total: "",
+    tipo_meta: "producao",
+    excluir_feriados: true,
+  });
+  const [equipeBuscaDistribuir, setEquipeBuscaDistribuir] = useState("");
 
   // Form state para feriado
   const [feriadoForm, setFeriadoForm] = useState({
@@ -548,6 +562,100 @@ export default function CadastroMetas() {
     }
   };
 
+  // Calcular quantidade de dias válidos para distribuição
+  const calcularDiasDistribuicao = useMemo(() => {
+    if (!distribuirData.data_inicio || !distribuirData.data_fim) return { dias: [], quantidade: 0 };
+    
+    const inicioData = new Date(distribuirData.data_inicio + "T12:00:00");
+    const fimData = new Date(distribuirData.data_fim + "T12:00:00");
+    let dias = eachDayOfInterval({ start: inicioData, end: fimData });
+
+    // Filtrar dias da semana
+    dias = dias.filter(dia => distribuirData.dias_semana.includes(getDay(dia)));
+
+    // Excluir feriados se marcado
+    if (distribuirData.excluir_feriados) {
+      dias = dias.filter(dia => !feriadosPorData.has(format(dia, "yyyy-MM-dd")));
+    }
+
+    return { dias, quantidade: dias.length };
+  }, [distribuirData.data_inicio, distribuirData.data_fim, distribuirData.dias_semana, distribuirData.excluir_feriados, feriadosPorData]);
+
+  // Valor calculado por dia
+  const valorPorDia = useMemo(() => {
+    const valorTotal = parseFloat(distribuirData.valor_total) || 0;
+    const qtdDias = calcularDiasDistribuicao.quantidade;
+    if (qtdDias === 0 || valorTotal === 0) return 0;
+    return valorTotal / qtdDias;
+  }, [distribuirData.valor_total, calcularDiasDistribuicao.quantidade]);
+
+  // Distribuir meta total pelos dias
+  const handleDistribuirMeta = async () => {
+    if (!distribuirData.equipes_ids.length || !distribuirData.data_inicio || !distribuirData.data_fim || !distribuirData.valor_total) {
+      toast.error("Preencha os campos obrigatórios");
+      return;
+    }
+
+    const { dias, quantidade } = calcularDiasDistribuicao;
+    
+    if (quantidade === 0) {
+      toast.error("Nenhum dia válido no período selecionado");
+      return;
+    }
+
+    const valorTotal = parseFloat(distribuirData.valor_total);
+    const valorDia = valorTotal / quantidade;
+
+    setSaving(true);
+    try {
+      let criadas = 0;
+      let atualizadas = 0;
+
+      for (const equipeId of distribuirData.equipes_ids) {
+        for (const dia of dias) {
+          const dataStr = format(dia, "yyyy-MM-dd");
+          const key = getCellKey(equipeId, dataStr);
+          const metaExistente = metasPorEquipeData.get(key);
+
+          if (metaExistente) {
+            const { error } = await supabase
+              .from("metas")
+              .update({ 
+                valor_meta: valorDia,
+                tipo_meta: distribuirData.tipo_meta,
+                contrato_id: distribuirData.contrato_id !== "nenhum" ? distribuirData.contrato_id : null,
+              })
+              .eq("id", metaExistente.id);
+            
+            if (error) throw error;
+            atualizadas++;
+          } else {
+            const { error } = await supabase
+              .from("metas")
+              .insert({
+                equipe_id: equipeId,
+                contrato_id: distribuirData.contrato_id !== "nenhum" ? distribuirData.contrato_id : null,
+                data: dataStr,
+                valor_meta: valorDia,
+                tipo_meta: distribuirData.tipo_meta,
+              });
+            
+            if (error) throw error;
+            criadas++;
+          }
+        }
+      }
+
+      toast.success(`Meta total R$ ${valorTotal.toLocaleString("pt-BR")} distribuída em ${quantidade} dias (R$ ${valorDia.toFixed(2)}/dia) - ${criadas} criadas, ${atualizadas} atualizadas`);
+      setDistribuirDialogOpen(false);
+      fetchData();
+    } catch (error: any) {
+      toast.error(`Erro: ${error.message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // Copiar metas
   const handleCopyMetas = async () => {
     if (!copyData.equipeOrigem || !copyData.equipesDestino.length) {
@@ -780,17 +888,30 @@ export default function CadastroMetas() {
                     <Button variant="outline" size="sm" className="h-7" onClick={() => setCopyDialogOpen(true)}>
                       <Copy className="h-3 w-3 mr-1" /> Copiar
                     </Button>
-                    <Button size="sm" className="h-7" onClick={() => {
+                    <Button variant="outline" size="sm" className="h-7" onClick={() => {
                       setBulkData({
                         ...bulkData,
-                        data_inicio: format(startOfMonth(currentMonth), "yyyy-MM-dd"),
-                        data_fim: format(endOfMonth(currentMonth), "yyyy-MM-dd"),
+                        data_inicio: dataInicio,
+                        data_fim: dataFim,
                         equipes_ids: [],
                       });
                       setEquipeBuscaBulk("");
                       setBulkDialogOpen(true);
                     }}>
                       <Zap className="h-3 w-3 mr-1" /> Em Massa
+                    </Button>
+                    <Button size="sm" className="h-7 bg-green-600 hover:bg-green-700" onClick={() => {
+                      setDistribuirData({
+                        ...distribuirData,
+                        data_inicio: dataInicio,
+                        data_fim: dataFim,
+                        equipes_ids: [],
+                        valor_total: "",
+                      });
+                      setEquipeBuscaDistribuir("");
+                      setDistribuirDialogOpen(true);
+                    }}>
+                      <Target className="h-3 w-3 mr-1" /> Distribuir
                     </Button>
                   </>
                 )}
@@ -1252,6 +1373,172 @@ export default function CadastroMetas() {
               <Button onClick={handleBulkCreate} disabled={saving}>
                 {saving && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
                 Criar Metas
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Dialog Distribuir Meta Total */}
+        <Dialog open={distribuirDialogOpen} onOpenChange={setDistribuirDialogOpen}>
+          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Target className="h-5 w-5 text-green-600" /> Distribuir Meta Total
+              </DialogTitle>
+              <DialogDescription>
+                Informe o valor total do período e o sistema dividirá automaticamente pelos dias
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              {/* Valor Total */}
+              <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+                <Label className="text-sm font-medium text-green-800">Valor Total do Período (R$)</Label>
+                <Input
+                  type="number"
+                  value={distribuirData.valor_total}
+                  onChange={e => setDistribuirData({ ...distribuirData, valor_total: e.target.value })}
+                  placeholder="Ex: 50000"
+                  className="h-12 text-xl font-bold mt-2"
+                />
+              </div>
+
+              {/* Período */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-sm">Data Início</Label>
+                  <Input
+                    type="date"
+                    value={distribuirData.data_inicio}
+                    onChange={e => setDistribuirData({ ...distribuirData, data_inicio: e.target.value })}
+                    className="h-9"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-sm">Data Fim</Label>
+                  <Input
+                    type="date"
+                    value={distribuirData.data_fim}
+                    onChange={e => setDistribuirData({ ...distribuirData, data_fim: e.target.value })}
+                    className="h-9"
+                  />
+                </div>
+              </div>
+
+              {/* Dias da semana */}
+              <div className="space-y-1">
+                <Label className="text-sm">Dias da Semana</Label>
+                <div className="flex flex-wrap gap-1">
+                  {diasSemana.map(d => (
+                    <button
+                      key={d.value}
+                      type="button"
+                      onClick={() => setDistribuirData(prev => ({
+                        ...prev,
+                        dias_semana: prev.dias_semana.includes(d.value)
+                          ? prev.dias_semana.filter(x => x !== d.value)
+                          : [...prev.dias_semana, d.value].sort()
+                      }))}
+                      className={cn(
+                        "px-2 py-1 rounded border text-xs",
+                        distribuirData.dias_semana.includes(d.value)
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "border-border hover:border-primary/50"
+                      )}
+                    >
+                      {d.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Excluir feriados */}
+              <div className="flex items-center justify-between p-3 bg-amber-50 rounded border border-amber-200">
+                <div className="flex items-center gap-2">
+                  <CalendarOff className="h-4 w-4 text-amber-600" />
+                  <span className="text-sm">Excluir feriados</span>
+                </div>
+                <Switch
+                  checked={distribuirData.excluir_feriados}
+                  onCheckedChange={v => setDistribuirData({ ...distribuirData, excluir_feriados: v })}
+                />
+              </div>
+
+              {/* Equipes */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm">Equipes ({distribuirData.equipes_ids.length})</Label>
+                  <div className="flex gap-1">
+                    <Button variant="outline" size="sm" className="h-6 text-xs" onClick={() => setDistribuirData(p => ({ ...p, equipes_ids: equipes.map(e => e.id) }))}>
+                      Todas
+                    </Button>
+                    <Button variant="outline" size="sm" className="h-6 text-xs" onClick={() => setDistribuirData(p => ({ ...p, equipes_ids: [] }))}>
+                      Limpar
+                    </Button>
+                  </div>
+                </div>
+                <div className="relative">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+                  <Input
+                    placeholder="Buscar..."
+                    value={equipeBuscaDistribuir}
+                    onChange={e => setEquipeBuscaDistribuir(e.target.value)}
+                    className="pl-7 h-8 text-sm"
+                  />
+                </div>
+                <ScrollArea className="h-32 border rounded">
+                  <div className="p-1 space-y-0.5">
+                    {equipes
+                      .filter(e => !equipeBuscaDistribuir || e.codigo.toLowerCase().includes(equipeBuscaDistribuir.toLowerCase()) || e.nome.toLowerCase().includes(equipeBuscaDistribuir.toLowerCase()))
+                      .map(eq => (
+                        <div
+                          key={eq.id}
+                          className={cn("flex items-center gap-2 p-1.5 rounded cursor-pointer hover:bg-muted text-sm", distribuirData.equipes_ids.includes(eq.id) && "bg-primary/10")}
+                          onClick={() => setDistribuirData(prev => ({
+                            ...prev,
+                            equipes_ids: prev.equipes_ids.includes(eq.id)
+                              ? prev.equipes_ids.filter(id => id !== eq.id)
+                              : [...prev.equipes_ids, eq.id]
+                          }))}
+                        >
+                          <Checkbox checked={distribuirData.equipes_ids.includes(eq.id)} className="h-4 w-4" />
+                          <span className="font-medium">{eq.codigo}</span>
+                          <span className="text-muted-foreground truncate">{eq.nome}</span>
+                        </div>
+                      ))}
+                  </div>
+                </ScrollArea>
+              </div>
+
+              {/* Preview do cálculo */}
+              <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <p className="font-medium text-blue-800 mb-2">📊 Cálculo Automático</p>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div className="text-blue-700">
+                    <span className="text-muted-foreground">Dias com meta:</span>
+                    <span className="font-bold ml-2">{calcularDiasDistribuicao.quantidade}</span>
+                  </div>
+                  <div className="text-blue-700">
+                    <span className="text-muted-foreground">Equipes:</span>
+                    <span className="font-bold ml-2">{distribuirData.equipes_ids.length}</span>
+                  </div>
+                  <div className="text-blue-700">
+                    <span className="text-muted-foreground">Valor total:</span>
+                    <span className="font-bold ml-2">R$ {parseFloat(distribuirData.valor_total || "0").toLocaleString("pt-BR")}</span>
+                  </div>
+                  <div className="text-green-700">
+                    <span className="text-muted-foreground">Valor/dia:</span>
+                    <span className="font-bold ml-2">R$ {valorPorDia.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDistribuirDialogOpen(false)}>Cancelar</Button>
+              <Button onClick={handleDistribuirMeta} disabled={saving} className="bg-green-600 hover:bg-green-700">
+                {saving && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+                Distribuir Metas
               </Button>
             </DialogFooter>
           </DialogContent>
