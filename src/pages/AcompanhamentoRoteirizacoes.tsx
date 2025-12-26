@@ -694,20 +694,21 @@ const AcompanhamentoRoteirizacoes = () => {
       subtitle="Acompanhe e gerencie todas as roteirizações planejadas"
       breadcrumbs={[{ label: "Acompanhamento de Roteirizações" }]}
     >
-      {/* Filtros - Linha compacta */}
-      <div className="flex items-center gap-2 mb-2 flex-wrap">
+      {/* Filtros e Estatísticas - Layout compacto */}
+      <div className="flex items-center gap-2 mb-3 p-2 rounded-lg border bg-card flex-wrap">
+        {/* Filtros */}
         <div className="relative">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
           <Input
             placeholder="Buscar..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="h-7 w-36 pl-7 text-xs"
+            className="h-7 w-28 pl-7 text-xs"
           />
         </div>
 
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="h-7 w-24 text-xs">
+          <SelectTrigger className="h-7 w-[85px] text-xs">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -722,18 +723,18 @@ const AcompanhamentoRoteirizacoes = () => {
           type="date"
           value={dataInicioFilter}
           onChange={(e) => setDataInicioFilter(e.target.value)}
-          className="h-7 w-32 text-xs"
+          className="h-7 w-[120px] text-xs"
         />
-        <span className="text-xs text-muted-foreground">até</span>
+        <span className="text-xs text-muted-foreground">-</span>
         <Input
           type="date"
           value={dataFimFilter}
           onChange={(e) => setDataFimFilter(e.target.value)}
-          className="h-7 w-32 text-xs"
+          className="h-7 w-[120px] text-xs"
         />
 
         <Select value={equipeFilter} onValueChange={setEquipeFilter}>
-          <SelectTrigger className="h-7 w-32 text-xs">
+          <SelectTrigger className="h-7 w-[90px] text-xs">
             <SelectValue placeholder="Equipe" />
           </SelectTrigger>
           <SelectContent>
@@ -746,20 +747,20 @@ const AcompanhamentoRoteirizacoes = () => {
           </SelectContent>
         </Select>
 
-        <div className="flex items-center gap-1 border-l pl-2">
-          <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={() => {
+        <div className="flex items-center gap-0.5 border-l pl-2">
+          <Button variant="ghost" size="sm" className="h-6 px-1.5 text-[10px]" onClick={() => {
             const hoje = new Date().toISOString().split('T')[0];
             setDataInicioFilter(hoje);
             setDataFimFilter(hoje);
           }}>Hoje</Button>
-          <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={() => {
+          <Button variant="ghost" size="sm" className="h-6 px-1.5 text-[10px]" onClick={() => {
             const hoje = new Date();
             const ontem = new Date(hoje);
             ontem.setDate(ontem.getDate() - 1);
             setDataInicioFilter(ontem.toISOString().split('T')[0]);
             setDataFimFilter(ontem.toISOString().split('T')[0]);
           }}>Ontem</Button>
-          <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={() => {
+          <Button variant="ghost" size="sm" className="h-6 px-1.5 text-[10px]" onClick={() => {
             const hoje = new Date();
             const ultimos7 = new Date(hoje);
             ultimos7.setDate(ultimos7.getDate() - 7);
@@ -769,62 +770,59 @@ const AcompanhamentoRoteirizacoes = () => {
         </div>
 
         {hasActiveFilters && (
-          <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={clearAllFilters}>
+          <Button variant="ghost" size="sm" className="h-6 px-1" onClick={clearAllFilters}>
             <X className="h-3 w-3" />
           </Button>
         )}
 
-        <Button variant="outline" size="sm" className="h-7 px-2 ml-auto" onClick={fetchPlanejamentos} disabled={loading}>
-          {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCcw className="h-3 w-3" />}
-        </Button>
-      </div>
+        {/* Separador */}
+        <div className="h-5 w-px bg-border mx-1" />
 
-      {/* Estatísticas - Linha compacta */}
-      <div className="flex items-center gap-3 mb-3 flex-wrap">
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-card">
-          <Calendar className="h-4 w-4 text-primary" />
-          <span className="text-xs text-muted-foreground">Planejamentos</span>
+        {/* Estatísticas inline */}
+        <div className="flex items-center gap-1 text-xs">
+          <Calendar className="h-3 w-3 text-primary" />
           <span className="font-bold">{planejamentos.length}</span>
         </div>
         
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-card">
-          <Car className="h-4 w-4 text-blue-500" />
-          <span className="text-xs text-muted-foreground">Rotas</span>
+        <div className="flex items-center gap-1 text-xs">
+          <Car className="h-3 w-3 text-blue-500" />
           <span className="font-bold">{getGroupedData().length}</span>
         </div>
         
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-card">
-          <MapPin className="h-4 w-4 text-green-500" />
-          <span className="text-xs text-muted-foreground">OSs</span>
+        <div className="flex items-center gap-1 text-xs">
+          <MapPin className="h-3 w-3 text-green-500" />
           <span className="font-bold">{planejamentos.reduce((acc, p) => acc + p.total_ordens, 0)}</span>
+          <span className="text-muted-foreground">OSs</span>
         </div>
         
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-card">
-          <DollarSign className="h-4 w-4 text-amber-500" />
-          <span className="text-xs text-muted-foreground">Valor Prev.</span>
+        <div className="flex items-center gap-1 text-xs">
+          <DollarSign className="h-3 w-3 text-amber-500" />
+          <span className="text-muted-foreground">Prev:</span>
           <span className="font-bold text-green-600">
-            R$ {planejamentos.reduce((acc, p) => acc + (p.faturamento_total || 0), 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            R$ {planejamentos.reduce((acc, p) => acc + (p.faturamento_total || 0), 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
           </span>
         </div>
         
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-card">
-          <DollarSign className="h-4 w-4 text-green-600" />
-          <span className="text-xs text-muted-foreground">Valor Prod.</span>
+        <div className="flex items-center gap-1 text-xs">
+          <DollarSign className="h-3 w-3 text-green-600" />
+          <span className="text-muted-foreground">Prod:</span>
           <span className="font-bold text-green-600">
-            R$ {Object.values(producaoMap).reduce((acc, val) => acc + val, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            R$ {Object.values(producaoMap).reduce((acc, val) => acc + val, 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
           </span>
         </div>
         
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-1">
+          <Button variant="outline" size="sm" className="h-7 px-2" onClick={fetchPlanejamentos} disabled={loading}>
+            {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCcw className="h-3 w-3" />}
+          </Button>
           <Button
             variant="outline"
             size="sm"
-            className="h-7 text-xs"
+            className="h-7 px-2"
             onClick={handleExportar}
             disabled={planejamentos.length === 0}
           >
-            <Download className="h-4 w-4 mr-1" />
-            Exportar
+            <Download className="h-3 w-3" />
           </Button>
         </div>
       </div>
