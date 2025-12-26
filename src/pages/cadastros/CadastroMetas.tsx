@@ -1037,32 +1037,32 @@ export default function CadastroMetas() {
                         <TableHead className="sticky left-[160px] z-20 bg-muted border-r shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] text-center text-xs w-16 font-bold">
                           Total
                         </TableHead>
-                          {diasDoMes.map(dia => {
-                            const dataStr = format(dia, "yyyy-MM-dd");
-                            const feriado = feriadosPorData.get(dataStr);
-                            const isWknd = isWeekend(dia);
-                            return (
-                              <TableHead
-                                key={dataStr}
-                                className={cn(
-                                  "text-center text-[10px] p-0.5 w-10",
-                                  isWknd && "bg-gray-100",
-                                  feriado && "bg-amber-100"
-                                )}
-                                title={feriado ? getFeriadoNome(feriado) : undefined}
-                              >
-                                <div className="font-normal text-muted-foreground">
-                                  {format(dia, "EEE", { locale: ptBR }).charAt(0).toUpperCase()}
-                                </div>
-                                <div className={cn("font-bold", feriado && "text-amber-700")}>
-                                  {format(dia, "dd")}
-                                </div>
-                              </TableHead>
-                            );
-                          })}
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
+                        {diasDoMes.map(dia => {
+                          const dataStr = format(dia, "yyyy-MM-dd");
+                          const feriado = feriadosPorData.get(dataStr);
+                          const isWknd = isWeekend(dia);
+                          return (
+                            <TableHead
+                              key={dataStr}
+                              className={cn(
+                                "text-center text-[10px] p-0.5 w-10",
+                                isWknd && "bg-gray-100",
+                                feriado && "bg-amber-100"
+                              )}
+                              title={feriado ? getFeriadoNome(feriado) : undefined}
+                            >
+                              <div className="font-normal text-muted-foreground">
+                                {format(dia, "EEE", { locale: ptBR }).charAt(0).toUpperCase()}
+                              </div>
+                              <div className={cn("font-bold", feriado && "text-amber-700")}>
+                                {format(dia, "dd")}
+                              </div>
+                            </TableHead>
+                          );
+                        })}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                         {equipesFiltradas.map(equipe => {
                           const totalEquipe = metas
                             .filter(m => m.equipe_id === equipe.id)
@@ -1156,7 +1156,6 @@ export default function CadastroMetas() {
                     </Table>
                   </div>
                 </div>
-              </div>
             )}
 
             {/* Legenda */}
