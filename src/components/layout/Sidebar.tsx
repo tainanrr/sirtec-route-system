@@ -28,6 +28,7 @@ import {
   Database,
   ScrollText,
   History,
+  Clock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -74,6 +75,7 @@ const navItemsConfig: NavItem[] = [
   { icon: LayoutDashboard, label: "__divider_3__", type: "divider" },
   // Ordens de Serviço
   { icon: ClipboardList, label: "Ordens de Serviço", href: "/ordens-servico", permission: "os.visualizar" },
+  { icon: Clock, label: "Consulta Turnos", href: "/consulta-turnos", permission: "os.turnos" },
   { icon: CheckSquare, label: "Consulta Checklists", href: "/consulta-checklists", permission: "os.checklists" },
   { icon: LayoutDashboard, label: "__divider_4__", type: "divider" },
   // Materiais - verifica módulo (qualquer permissão do módulo materiais)

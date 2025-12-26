@@ -32,6 +32,7 @@ import ChecklistsAvancado from "./pages/ChecklistsAvancado";
 import CadastroTerritorios from "./pages/CadastroTerritorios";
 import ConsultaChecklists from "./pages/ConsultaChecklists";
 import ChecklistDetalhes from "./pages/ChecklistDetalhes";
+import ConsultaTurnos from "./pages/ConsultaTurnos";
 
 // Módulo Admin
 import {
@@ -114,6 +115,7 @@ const App = () => (
             <Route path="/acompanhamento-roteirizacoes" element={<ProtectedRoute><AcompanhamentoRoteirizacoes /></ProtectedRoute>} />
             <Route path="/torre-controle" element={<ProtectedRoute><TorreControle /></ProtectedRoute>} />
             <Route path="/ordens-servico" element={<ProtectedRoute><OrdensServico /></ProtectedRoute>} />
+            <Route path="/consulta-turnos" element={<ProtectedRoute><ConsultaTurnos /></ProtectedRoute>} />
             <Route path="/equipes" element={<ProtectedRoute><Equipes /></ProtectedRoute>} />
             <Route path="/relatorios" element={<ProtectedRoute><Relatorios /></ProtectedRoute>} />
             <Route path="/cadastros/pontos-saida" element={<ProtectedRoute><CadastroPontosSaida /></ProtectedRoute>} />
