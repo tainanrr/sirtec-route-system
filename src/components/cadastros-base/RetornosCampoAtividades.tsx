@@ -412,8 +412,6 @@ export default function RetornosCampoAtividades() {
         return <Badge className="bg-green-500">Executado</Badge>;
       case "impedimento":
         return <Badge className="bg-red-500">Impedimento</Badge>;
-      case "parcial":
-        return <Badge className="bg-yellow-500">Parcial</Badge>;
       default:
         return <Badge variant="outline">{tipo}</Badge>;
     }
@@ -715,7 +713,6 @@ export default function RetornosCampoAtividades() {
                       <SelectContent>
                         <SelectItem value="executado">✅ Executado</SelectItem>
                         <SelectItem value="impedimento">❌ Impedimento</SelectItem>
-                        <SelectItem value="parcial">⚠️ Parcial</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -954,5 +951,4 @@ export default function RetornosCampoAtividades() {
     </div>
   );
 }
-
 

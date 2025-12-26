@@ -11,12 +11,18 @@ import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Target,
   TrendingUp,
   TrendingDown,
   CheckCircle2,
   XCircle,
-  AlertTriangle,
   Award,
   Calendar,
   DollarSign,
@@ -26,19 +32,18 @@ import {
   BarChart3,
   PieChart,
   Zap,
-  Clock,
   ArrowUp,
   ArrowDown,
   Minus,
-  ChevronRight,
+  Filter,
 } from "lucide-react";
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, parseISO, subMonths, setDate, getDate, addMonths } from "date-fns";
+import { format, eachDayOfInterval, parseISO, subMonths, setDate, getDate, addMonths, isAfter, isBefore, isEqual } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-// Função para calcular período padrão (26 a 25)
-const calcularPeriodoPadrao = (dataRef: Date = new Date()) => {
+// Função para calcular período do ciclo (26 a 25)
+const calcularPeriodoCiclo = (dataRef: Date = new Date()) => {
   const diaAtual = getDate(dataRef);
   
   let inicio: Date;
@@ -58,15 +63,39 @@ const calcularPeriodoPadrao = (dataRef: Date = new Date()) => {
   };
 };
 
+// Função para calcular período até hoje
+const calcularPeriodoAteHoje = (dataRef: Date = new Date()) => {
+  const diaAtual = getDate(dataRef);
+  
+  let inicio: Date;
+  
+  if (diaAtual >= 26) {
+    inicio = setDate(dataRef, 26);
+  } else {
+    inicio = setDate(subMonths(dataRef, 1), 26);
+  }
+  
+  return {
+    inicio: format(inicio, "yyyy-MM-dd"),
+    fim: format(dataRef, "yyyy-MM-dd"),
+  };
+};
+
 export default function AppResultados() {
   const { equipe: equipeAuth, logout } = useEquipeAuth();
   const { equipe, isLoading: isLoadingEquipe, refetch: refetchEquipe } = useTecnico();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState("resumo");
+  const [filtroTipoServico, setFiltroTipoServico] = useState("todos");
 
-  const periodoPadrao = calcularPeriodoPadrao();
-  const [dataInicio] = useState(periodoPadrao.inicio);
-  const [dataFim] = useState(periodoPadrao.fim);
+  // Períodos
+  const periodoCiclo = calcularPeriodoCiclo();
+  const periodoAteHoje = calcularPeriodoAteHoje();
+  
+  // Usar período do ciclo completo para busca de dados
+  const dataInicio = periodoCiclo.inicio;
+  const dataFim = periodoCiclo.fim;
+  const dataHoje = format(new Date(), "yyyy-MM-dd");
 
   // Buscar metas da equipe
   const { data: metas, isLoading: isLoadingMetas, refetch: refetchMetas } = useQuery({
@@ -97,7 +126,8 @@ export default function AppResultados() {
         .from("producao_equipes")
         .select(`
           *,
-          retornos_campo:retorno_campo_id (id, codigo, descricao, tipo)
+          retornos_campo:retorno_campo_id (id, codigo, descricao, tipo),
+          ordens_servico:ordem_servico_id (tipo)
         `)
         .eq("equipe_id", equipe.id)
         .gte("created_at", dataInicio + "T00:00:00")
@@ -109,13 +139,36 @@ export default function AppResultados() {
     enabled: !!equipe?.id,
   });
 
-  // Calcular dados de meta vs produção
-  const dadosMetaProducao = useMemo(() => {
-    const totalMeta = metas?.reduce((acc, m) => acc + (m.valor_meta || 0), 0) || 0;
-    const totalProducao = producoes?.reduce((acc, p) => acc + (p.valor_total || 0), 0) || 0;
-    const percentual = totalMeta > 0 ? (totalProducao / totalMeta) * 100 : 0;
+  // Tipos de serviço únicos
+  const tiposServico = useMemo(() => {
+    const tipos = new Set<string>();
+    producoes?.forEach(p => {
+      if (p.ordens_servico?.tipo) {
+        tipos.add(p.ordens_servico.tipo);
+      }
+    });
+    return Array.from(tipos).sort();
+  }, [producoes]);
+
+  // Produções filtradas por tipo
+  const producoesFiltradas = useMemo(() => {
+    if (filtroTipoServico === "todos") return producoes || [];
+    return (producoes || []).filter(p => p.ordens_servico?.tipo === filtroTipoServico);
+  }, [producoes, filtroTipoServico]);
+
+  // Calcular dados para um período específico
+  const calcularDadosPeriodo = (inicio: string, fim: string) => {
+    const metasPeriodo = metas?.filter(m => m.data >= inicio && m.data <= fim) || [];
+    const producoesPeriodo = producoesFiltradas.filter(p => {
+      const dataProducao = p.created_at.substring(0, 10);
+      return dataProducao >= inicio && dataProducao <= fim;
+    });
+    
+    const totalMeta = metasPeriodo.reduce((acc, m) => acc + (m.valor_meta || 0), 0);
+    const totalProducao = producoesPeriodo.reduce((acc, p) => acc + (p.valor_total || 0), 0);
+    const percentual = totalMeta > 0 ? (totalProducao / totalMeta) * 100 : (totalProducao > 0 ? 100 : 0);
     const diferenca = totalProducao - totalMeta;
-    const diasComMeta = metas?.length || 0;
+    const diasComMeta = metasPeriodo.length;
     
     return {
       totalMeta,
@@ -126,46 +179,79 @@ export default function AppResultados() {
       mediaMeta: diasComMeta > 0 ? totalMeta / diasComMeta : 0,
       mediaProducao: diasComMeta > 0 ? totalProducao / diasComMeta : 0,
     };
-  }, [metas, producoes]);
+  };
+
+  // Dados até hoje (foco principal)
+  const dadosAteHoje = useMemo(() => {
+    return calcularDadosPeriodo(periodoAteHoje.inicio, periodoAteHoje.fim);
+  }, [metas, producoesFiltradas, periodoAteHoje]);
+
+  // Dados do ciclo completo
+  const dadosCiclo = useMemo(() => {
+    return calcularDadosPeriodo(periodoCiclo.inicio, periodoCiclo.fim);
+  }, [metas, producoesFiltradas, periodoCiclo]);
 
   // Calcular dados de assertividade
   const dadosAssertividade = useMemo(() => {
-    const totalVisitas = producoes?.length || 0;
-    const executadas = producoes?.filter(p => p.retornos_campo?.tipo === "executado").length || 0;
-    const impedimentos = producoes?.filter(p => p.retornos_campo?.tipo === "impedimento").length || 0;
-    const parciais = producoes?.filter(p => p.retornos_campo?.tipo === "parcial").length || 0;
-    const semRetorno = totalVisitas - executadas - impedimentos - parciais;
+    const producoesPeriodo = producoesFiltradas.filter(p => {
+      const dataProducao = p.created_at.substring(0, 10);
+      return dataProducao >= periodoAteHoje.inicio && dataProducao <= periodoAteHoje.fim;
+    });
+    
+    const totalVisitas = producoesPeriodo.length;
+    const executadas = producoesPeriodo.filter(p => p.retornos_campo?.tipo === "executado").length;
+    const impedimentos = producoesPeriodo.filter(p => p.retornos_campo?.tipo === "impedimento").length;
+    const semRetorno = totalVisitas - executadas - impedimentos;
     
     const percentualExecutado = totalVisitas > 0 ? (executadas / totalVisitas) * 100 : 0;
     const percentualImpedimento = totalVisitas > 0 ? (impedimentos / totalVisitas) * 100 : 0;
-    const percentualParcial = totalVisitas > 0 ? (parciais / totalVisitas) * 100 : 0;
+    
+    // Por tipo de serviço
+    const porTipo: Record<string, { total: number; executadas: number; impedimentos: number }> = {};
+    producoesPeriodo.forEach(p => {
+      const tipo = p.ordens_servico?.tipo || "outros";
+      if (!porTipo[tipo]) {
+        porTipo[tipo] = { total: 0, executadas: 0, impedimentos: 0 };
+      }
+      porTipo[tipo].total++;
+      if (p.retornos_campo?.tipo === "executado") porTipo[tipo].executadas++;
+      if (p.retornos_campo?.tipo === "impedimento") porTipo[tipo].impedimentos++;
+    });
+    
+    const assertividadePorTipo = Object.entries(porTipo).map(([tipo, dados]) => ({
+      tipo,
+      ...dados,
+      assertividade: dados.total > 0 ? (dados.executadas / dados.total) * 100 : 0,
+    })).sort((a, b) => b.assertividade - a.assertividade);
     
     return {
       totalVisitas,
       executadas,
       impedimentos,
-      parciais,
       semRetorno,
       percentualExecutado,
       percentualImpedimento,
-      percentualParcial,
       assertividade: percentualExecutado,
+      porTipo: assertividadePorTipo,
     };
-  }, [producoes]);
+  }, [producoesFiltradas, periodoAteHoje]);
 
-  // Dados por dia para gráfico simplificado
+  // Dados por dia (incluindo dias sem meta)
   const dadosDiarios = useMemo(() => {
     const dias = eachDayOfInterval({
       start: parseISO(dataInicio),
       end: parseISO(dataFim),
     });
 
+    const hoje = new Date();
+
     return dias.map(dia => {
       const dataStr = format(dia, "yyyy-MM-dd");
       const metaDia = metas?.find(m => m.data === dataStr)?.valor_meta || 0;
-      const producaoDia = producoes
-        ?.filter(p => p.created_at.startsWith(dataStr))
-        .reduce((acc, p) => acc + (p.valor_total || 0), 0) || 0;
+      const producoesDia = producoesFiltradas.filter(p => p.created_at.startsWith(dataStr));
+      const producaoDia = producoesDia.reduce((acc, p) => acc + (p.valor_total || 0), 0);
+      const isFuturo = isAfter(dia, hoje);
+      const isHoje = format(hoje, "yyyy-MM-dd") === dataStr;
       
       return {
         data: format(dia, "dd/MM"),
@@ -173,10 +259,14 @@ export default function AppResultados() {
         diaSemana: format(dia, "EEE", { locale: ptBR }),
         meta: metaDia,
         producao: producaoDia,
-        percentual: metaDia > 0 ? (producaoDia / metaDia) * 100 : 0,
+        percentual: metaDia > 0 ? (producaoDia / metaDia) * 100 : (producaoDia > 0 ? 100 : 0),
+        isFuturo,
+        isHoje,
+        temMeta: metaDia > 0,
+        temProducao: producaoDia > 0,
       };
-    }).filter(d => d.meta > 0 || d.producao > 0);
-  }, [dataInicio, dataFim, metas, producoes]);
+    });
+  }, [dataInicio, dataFim, metas, producoesFiltradas]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -207,12 +297,6 @@ export default function AppResultados() {
     return "text-red-600";
   };
 
-  const getPercentualBg = (percentual: number) => {
-    if (percentual >= 100) return "bg-green-500";
-    if (percentual >= 80) return "bg-amber-500";
-    return "bg-red-500";
-  };
-
   if (isLoadingEquipe) {
     return (
       <div className="p-4 space-y-4">
@@ -231,7 +315,7 @@ export default function AppResultados() {
           <div>
             <h1 className="text-lg font-bold">Meus Resultados</h1>
             <p className="text-xs text-muted-foreground">
-              {format(parseISO(dataInicio), "dd/MM")} - {format(parseISO(dataFim), "dd/MM/yyyy")}
+              Até hoje: {format(parseISO(periodoAteHoje.inicio), "dd/MM")} - {format(new Date(), "dd/MM/yyyy")}
             </p>
           </div>
           <Button
@@ -251,24 +335,24 @@ export default function AppResultados() {
 
       {/* Conteúdo */}
       <div className="flex-1 p-4 space-y-4 pb-24">
-        {/* Card Principal - Meta vs Produção */}
+        {/* Card Principal - Meta vs Produção (até hoje) */}
         <Card className="overflow-hidden border-0 shadow-lg">
           <div className={cn(
             "p-4",
-            dadosMetaProducao.percentual >= 100 
+            dadosAteHoje.percentual >= 100 
               ? "bg-gradient-to-br from-green-500 to-green-600"
-              : dadosMetaProducao.percentual >= 80
+              : dadosAteHoje.percentual >= 80
                 ? "bg-gradient-to-br from-amber-500 to-amber-600"
                 : "bg-gradient-to-br from-red-500 to-red-600"
           )}>
             <div className="flex items-center justify-between text-white mb-2">
               <div className="flex items-center gap-2">
                 <Target className="h-5 w-5" />
-                <span className="font-medium">Meta do Ciclo</span>
+                <span className="font-medium">Até Hoje</span>
               </div>
-              {dadosMetaProducao.percentual >= 100 ? (
+              {dadosAteHoje.percentual >= 100 ? (
                 <Award className="h-6 w-6" />
-              ) : dadosMetaProducao.percentual >= 80 ? (
+              ) : dadosAteHoje.percentual >= 80 ? (
                 <TrendingUp className="h-6 w-6" />
               ) : (
                 <TrendingDown className="h-6 w-6" />
@@ -277,12 +361,12 @@ export default function AppResultados() {
             
             <div className="text-center py-4">
               <div className="text-5xl font-bold text-white mb-1">
-                {dadosMetaProducao.percentual.toFixed(0)}%
+                {dadosAteHoje.percentual.toFixed(0)}%
               </div>
               <p className="text-white/80 text-sm">
-                {dadosMetaProducao.percentual >= 100 
+                {dadosAteHoje.percentual >= 100 
                   ? "🎉 Meta atingida!" 
-                  : dadosMetaProducao.percentual >= 80 
+                  : dadosAteHoje.percentual >= 80 
                     ? "Quase lá!"
                     : "Continue focado!"}
               </p>
@@ -292,31 +376,31 @@ export default function AppResultados() {
               <div className="bg-white/20 rounded-lg p-3 text-center">
                 <p className="text-white/70 text-xs">Meta</p>
                 <p className="text-white font-bold text-lg">
-                  {formatCurrency(dadosMetaProducao.totalMeta)}
+                  {formatCurrency(dadosAteHoje.totalMeta)}
                 </p>
               </div>
               <div className="bg-white/20 rounded-lg p-3 text-center">
                 <p className="text-white/70 text-xs">Produzido</p>
                 <p className="text-white font-bold text-lg">
-                  {formatCurrency(dadosMetaProducao.totalProducao)}
+                  {formatCurrency(dadosAteHoje.totalProducao)}
                 </p>
               </div>
             </div>
 
-            {dadosMetaProducao.diferenca !== 0 && (
+            {dadosAteHoje.diferenca !== 0 && (
               <div className="mt-3 text-center">
                 <span className={cn(
                   "inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium",
-                  dadosMetaProducao.diferenca >= 0 ? "bg-white/30" : "bg-black/20"
+                  dadosAteHoje.diferenca >= 0 ? "bg-white/30" : "bg-black/20"
                 )}>
-                  {dadosMetaProducao.diferenca >= 0 ? (
+                  {dadosAteHoje.diferenca >= 0 ? (
                     <ArrowUp className="h-4 w-4" />
                   ) : (
                     <ArrowDown className="h-4 w-4" />
                   )}
                   <span className="text-white">
-                    {formatCurrency(Math.abs(dadosMetaProducao.diferenca))}
-                    {dadosMetaProducao.diferenca >= 0 ? " acima" : " faltando"}
+                    {formatCurrency(Math.abs(dadosAteHoje.diferenca))}
+                    {dadosAteHoje.diferenca >= 0 ? " acima" : " faltando"}
                   </span>
                 </span>
               </div>
@@ -326,13 +410,37 @@ export default function AppResultados() {
           {/* Barra de progresso */}
           <div className="p-4 bg-card">
             <div className="flex justify-between text-xs text-muted-foreground mb-2">
-              <span>Progresso</span>
-              <span>{dadosMetaProducao.diasComMeta} dias com meta</span>
+              <span>Progresso até hoje</span>
+              <span>{dadosAteHoje.diasComMeta} dias com meta</span>
             </div>
             <Progress 
-              value={Math.min(dadosMetaProducao.percentual, 100)} 
+              value={Math.min(dadosAteHoje.percentual, 100)} 
               className="h-2"
             />
+          </div>
+        </Card>
+
+        {/* Card do Ciclo Completo (visão adicional) */}
+        <Card className="p-3 bg-muted/50">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">
+                Ciclo: {format(parseISO(periodoCiclo.inicio), "dd/MM")} - {format(parseISO(periodoCiclo.fim), "dd/MM")}
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="text-right">
+                <p className="text-xs text-muted-foreground">Meta</p>
+                <p className="font-medium text-sm">{formatCurrency(dadosCiclo.totalMeta)}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-muted-foreground">Projeção</p>
+                <p className={cn("font-medium text-sm", getPercentualColor(dadosCiclo.percentual))}>
+                  {dadosCiclo.percentual.toFixed(0)}%
+                </p>
+              </div>
+            </div>
           </div>
         </Card>
 
@@ -344,7 +452,7 @@ export default function AppResultados() {
               Resumo
             </TabsTrigger>
             <TabsTrigger value="assertividade" className="text-xs">
-              <PieChart className="h-4 w-4 mr-1" />
+              <Zap className="h-4 w-4 mr-1" />
               Assertividade
             </TabsTrigger>
             <TabsTrigger value="diario" className="text-xs">
@@ -363,7 +471,7 @@ export default function AppResultados() {
                   <span className="text-xs">Média Meta/Dia</span>
                 </div>
                 <p className="text-xl font-bold">
-                  {formatCurrency(dadosMetaProducao.mediaMeta)}
+                  {formatCurrency(dadosAteHoje.mediaMeta)}
                 </p>
               </Card>
               <Card className="p-4">
@@ -371,8 +479,8 @@ export default function AppResultados() {
                   <DollarSign className="h-4 w-4" />
                   <span className="text-xs">Média Prod./Dia</span>
                 </div>
-                <p className={cn("text-xl font-bold", getPercentualColor(dadosMetaProducao.percentual))}>
-                  {formatCurrency(dadosMetaProducao.mediaProducao)}
+                <p className={cn("text-xl font-bold", getPercentualColor(dadosAteHoje.percentual))}>
+                  {formatCurrency(dadosAteHoje.mediaProducao)}
                 </p>
               </Card>
             </div>
@@ -381,7 +489,7 @@ export default function AppResultados() {
             <Card className="p-4">
               <h3 className="font-medium mb-4 flex items-center gap-2">
                 <Activity className="h-4 w-4" />
-                Estatísticas do Período
+                Estatísticas até Hoje
               </h3>
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -390,12 +498,12 @@ export default function AppResultados() {
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Dias trabalhados</span>
-                  <span className="font-medium">{dadosDiarios.filter(d => d.producao > 0).length}</span>
+                  <span className="font-medium">{dadosDiarios.filter(d => d.temProducao && !d.isFuturo).length}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Valor total produzido</span>
                   <span className="font-medium text-green-600">
-                    {formatCurrency(dadosMetaProducao.totalProducao)}
+                    {formatCurrency(dadosAteHoje.totalProducao)}
                   </span>
                 </div>
               </div>
@@ -404,20 +512,20 @@ export default function AppResultados() {
             {/* Status */}
             <Card className={cn(
               "p-4",
-              dadosMetaProducao.percentual >= 100 
+              dadosAteHoje.percentual >= 100 
                 ? "border-green-200 bg-green-50/50"
-                : dadosMetaProducao.percentual >= 80
+                : dadosAteHoje.percentual >= 80
                   ? "border-amber-200 bg-amber-50/50"
                   : "border-red-200 bg-red-50/50"
             )}>
               <div className="flex items-center gap-3">
-                {dadosMetaProducao.percentual >= 100 ? (
+                {dadosAteHoje.percentual >= 100 ? (
                   <div className="h-12 w-12 rounded-full bg-green-500 flex items-center justify-center">
                     <CheckCircle2 className="h-6 w-6 text-white" />
                   </div>
-                ) : dadosMetaProducao.percentual >= 80 ? (
+                ) : dadosAteHoje.percentual >= 80 ? (
                   <div className="h-12 w-12 rounded-full bg-amber-500 flex items-center justify-center">
-                    <AlertTriangle className="h-6 w-6 text-white" />
+                    <TrendingUp className="h-6 w-6 text-white" />
                   </div>
                 ) : (
                   <div className="h-12 w-12 rounded-full bg-red-500 flex items-center justify-center">
@@ -426,16 +534,16 @@ export default function AppResultados() {
                 )}
                 <div>
                   <p className="font-medium">
-                    {dadosMetaProducao.percentual >= 100 
+                    {dadosAteHoje.percentual >= 100 
                       ? "Excelente trabalho!"
-                      : dadosMetaProducao.percentual >= 80
+                      : dadosAteHoje.percentual >= 80
                         ? "Bom desempenho"
                         : "Atenção necessária"}
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    {dadosMetaProducao.percentual >= 100 
-                      ? "Você superou a meta do ciclo!"
-                      : `Faltam ${formatCurrency(Math.abs(dadosMetaProducao.diferenca))} para atingir a meta`}
+                    {dadosAteHoje.percentual >= 100 
+                      ? "Você superou a meta até hoje!"
+                      : `Faltam ${formatCurrency(Math.abs(dadosAteHoje.diferenca))} para atingir a meta`}
                   </p>
                 </div>
               </div>
@@ -444,6 +552,22 @@ export default function AppResultados() {
 
           {/* Tab Assertividade */}
           <TabsContent value="assertividade" className="mt-4 space-y-4">
+            {/* Filtro por tipo de serviço */}
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-muted-foreground" />
+              <Select value={filtroTipoServico} onValueChange={setFiltroTipoServico}>
+                <SelectTrigger className="flex-1 h-9">
+                  <SelectValue placeholder="Tipo de Serviço" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos os Tipos</SelectItem>
+                  {tiposServico.map(tipo => (
+                    <SelectItem key={tipo} value={tipo}>{tipo.toUpperCase()}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             {/* Card principal de assertividade */}
             <Card className="overflow-hidden border-0 shadow-lg">
               <div className={cn(
@@ -516,46 +640,39 @@ export default function AppResultados() {
                   </div>
                   <Progress value={dadosAssertividade.percentualImpedimento} className="h-2 [&>div]:bg-red-500" />
                 </div>
+              </div>
+            </Card>
 
-                {/* Parciais */}
-                {dadosAssertividade.parciais > 0 && (
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
+            {/* Assertividade por Tipo de Serviço */}
+            {dadosAssertividade.porTipo.length > 0 && (
+              <Card className="p-4">
+                <h3 className="font-medium mb-4 flex items-center gap-2">
+                  <PieChart className="h-4 w-4" />
+                  Por Tipo de Serviço
+                </h3>
+                <div className="space-y-3">
+                  {dadosAssertividade.porTipo.map(item => (
+                    <div key={item.tipo} className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <div className="h-3 w-3 rounded-full bg-amber-500" />
-                        <span className="text-sm">Parciais</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">{dadosAssertividade.parciais}</span>
-                        <Badge variant="outline" className="text-amber-600">
-                          {dadosAssertividade.percentualParcial.toFixed(0)}%
+                        <Badge variant="outline" className="text-xs">
+                          {item.tipo.toUpperCase()}
                         </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          {item.executadas}/{item.total}
+                        </span>
                       </div>
+                      <span className={cn(
+                        "font-medium text-sm",
+                        item.assertividade >= 90 ? "text-green-600" :
+                        item.assertividade >= 70 ? "text-amber-600" : "text-red-600"
+                      )}>
+                        {item.assertividade.toFixed(0)}%
+                      </span>
                     </div>
-                    <Progress value={dadosAssertividade.percentualParcial} className="h-2 [&>div]:bg-amber-500" />
-                  </div>
-                )}
-              </div>
-            </Card>
-
-            {/* Dica */}
-            <Card className="p-4 bg-blue-50/50 border-blue-200">
-              <div className="flex items-start gap-3">
-                <div className="h-8 w-8 rounded-full bg-blue-500 flex items-center justify-center flex-shrink-0">
-                  <Zap className="h-4 w-4 text-white" />
+                  ))}
                 </div>
-                <div>
-                  <p className="font-medium text-sm">Dica de Assertividade</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {dadosAssertividade.assertividade >= 90 
-                      ? "Excelente! Mantenha esse padrão de visitas produtivas."
-                      : dadosAssertividade.assertividade >= 70
-                        ? "Bom trabalho! Tente reduzir os impedimentos para aumentar a assertividade."
-                        : "Atenção aos impedimentos. Verifique se há padrões que possam ser evitados."}
-                  </p>
-                </div>
-              </div>
-            </Card>
+              </Card>
+            )}
           </TabsContent>
 
           {/* Tab Diário */}
@@ -574,16 +691,19 @@ export default function AppResultados() {
             ) : (
               <ScrollArea className="h-[400px]">
                 <div className="space-y-2 pr-4">
-                  {dadosDiarios.map((dia) => (
+                  {dadosDiarios.filter(d => !d.isFuturo).reverse().map((dia) => (
                     <Card 
                       key={dia.dataCompleta} 
                       className={cn(
                         "p-3 transition-all",
-                        dia.producao >= dia.meta && dia.meta > 0
+                        dia.isHoje && "ring-2 ring-primary",
+                        dia.temProducao && dia.producao >= dia.meta && dia.temMeta
                           ? "border-green-200 bg-green-50/30"
-                          : dia.producao > 0 && dia.producao < dia.meta
+                          : dia.temProducao && dia.producao < dia.meta
                             ? "border-amber-200 bg-amber-50/30"
-                            : ""
+                            : !dia.temMeta && dia.temProducao
+                              ? "border-blue-200 bg-blue-50/30"
+                              : ""
                       )}
                     >
                       <div className="flex items-center justify-between">
@@ -596,18 +716,31 @@ export default function AppResultados() {
                           <div>
                             <div className="flex items-center gap-2">
                               <span className="text-sm text-muted-foreground">Meta:</span>
-                              <span className="font-medium">{formatCurrency(dia.meta)}</span>
+                              <span className={cn("font-medium", !dia.temMeta && "text-muted-foreground")}>
+                                {dia.temMeta ? formatCurrency(dia.meta) : "Sem meta"}
+                              </span>
                             </div>
                             <div className="flex items-center gap-2">
                               <span className="text-sm text-muted-foreground">Prod:</span>
-                              <span className={cn("font-medium", getPercentualColor(dia.percentual))}>
-                                {formatCurrency(dia.producao)}
+                              <span className={cn(
+                                "font-medium",
+                                dia.temProducao ? getPercentualColor(dia.percentual) : "text-muted-foreground"
+                              )}>
+                                {dia.temProducao ? formatCurrency(dia.producao) : "-"}
                               </span>
                             </div>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          {dia.meta > 0 && (
+                          {dia.isHoje && (
+                            <Badge className="text-xs">Hoje</Badge>
+                          )}
+                          {!dia.temMeta && dia.temProducao && (
+                            <Badge variant="outline" className="text-xs text-blue-600 border-blue-300">
+                              Extra
+                            </Badge>
+                          )}
+                          {dia.temMeta && (
                             <Badge 
                               variant="outline" 
                               className={cn(
@@ -620,9 +753,9 @@ export default function AppResultados() {
                               {dia.percentual.toFixed(0)}%
                             </Badge>
                           )}
-                          {dia.producao >= dia.meta && dia.meta > 0 ? (
+                          {dia.temProducao && dia.producao >= dia.meta && dia.temMeta ? (
                             <CheckCircle2 className="h-5 w-5 text-green-500" />
-                          ) : dia.producao > 0 ? (
+                          ) : dia.temProducao ? (
                             <Minus className="h-5 w-5 text-muted-foreground" />
                           ) : null}
                         </div>
@@ -649,4 +782,3 @@ export default function AppResultados() {
     </div>
   );
 }
-

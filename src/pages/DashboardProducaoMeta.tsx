@@ -425,12 +425,10 @@ export default function DashboardProducaoMeta() {
     const totalVisitas = producoesFiltradas.length;
     const executadas = producoesFiltradas.filter(p => p.retornos_campo?.tipo === "executado").length;
     const impedimentos = producoesFiltradas.filter(p => p.retornos_campo?.tipo === "impedimento").length;
-    const parciais = producoesFiltradas.filter(p => p.retornos_campo?.tipo === "parcial").length;
-    const semRetorno = totalVisitas - executadas - impedimentos - parciais;
+    const semRetorno = totalVisitas - executadas - impedimentos;
     
     const percentualExecutado = totalVisitas > 0 ? (executadas / totalVisitas) * 100 : 0;
     const percentualImpedimento = totalVisitas > 0 ? (impedimentos / totalVisitas) * 100 : 0;
-    const percentualParcial = totalVisitas > 0 ? (parciais / totalVisitas) * 100 : 0;
     
     // Assertividade por equipe
     const porEquipe = equipesFiltradas.map(equipe => {
@@ -438,14 +436,12 @@ export default function DashboardProducaoMeta() {
       const total = producoesEquipe.length;
       const exec = producoesEquipe.filter(p => p.retornos_campo?.tipo === "executado").length;
       const imped = producoesEquipe.filter(p => p.retornos_campo?.tipo === "impedimento").length;
-      const parc = producoesEquipe.filter(p => p.retornos_campo?.tipo === "parcial").length;
       
       return {
         equipe,
         totalVisitas: total,
         executadas: exec,
         impedimentos: imped,
-        parciais: parc,
         assertividade: total > 0 ? (exec / total) * 100 : 0,
         valorExecutado: producoesEquipe
           .filter(p => p.retornos_campo?.tipo === "executado")
@@ -457,16 +453,15 @@ export default function DashboardProducaoMeta() {
     }).filter(e => e.totalVisitas > 0).sort((a, b) => b.assertividade - a.assertividade);
     
     // Assertividade por tipo de equipe
-    const porTipo: Record<string, { total: number; executadas: number; impedimentos: number; parciais: number }> = {};
+    const porTipo: Record<string, { total: number; executadas: number; impedimentos: number }> = {};
     porEquipe.forEach(e => {
       const tipo = e.equipe.tipo_equipe || "normal";
       if (!porTipo[tipo]) {
-        porTipo[tipo] = { total: 0, executadas: 0, impedimentos: 0, parciais: 0 };
+        porTipo[tipo] = { total: 0, executadas: 0, impedimentos: 0 };
       }
       porTipo[tipo].total += e.totalVisitas;
       porTipo[tipo].executadas += e.executadas;
       porTipo[tipo].impedimentos += e.impedimentos;
-      porTipo[tipo].parciais += e.parciais;
     });
     
     const assertividadePorTipo = Object.entries(porTipo).map(([tipo, dados]) => ({
@@ -481,11 +476,9 @@ export default function DashboardProducaoMeta() {
       totalVisitas,
       executadas,
       impedimentos,
-      parciais,
       semRetorno,
       percentualExecutado,
       percentualImpedimento,
-      percentualParcial,
       assertividadeGeral: percentualExecutado,
       porEquipe,
       porTipo: assertividadePorTipo,
@@ -1297,16 +1290,6 @@ export default function DashboardProducaoMeta() {
                 </CardContent>
               </Card>
 
-              <Card className="bg-gradient-to-br from-amber-500/10 to-amber-600/5">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <AlertTriangle className="h-4 w-4 text-amber-500" />
-                    <span className="text-xs text-muted-foreground">Parciais</span>
-                  </div>
-                  <div className="text-2xl font-bold text-amber-600">{dadosAssertividade.parciais}</div>
-                  <div className="text-[10px] text-muted-foreground">{dadosAssertividade.percentualParcial.toFixed(1)}%</div>
-                </CardContent>
-              </Card>
             </div>
 
             {/* Gráficos de Assertividade */}
@@ -1324,7 +1307,6 @@ export default function DashboardProducaoMeta() {
                           data={[
                             { name: "Executadas", value: dadosAssertividade.executadas, fill: "#10b981" },
                             { name: "Impedimentos", value: dadosAssertividade.impedimentos, fill: "#ef4444" },
-                            { name: "Parciais", value: dadosAssertividade.parciais, fill: "#f59e0b" },
                             { name: "Sem Retorno", value: dadosAssertividade.semRetorno, fill: "#9ca3af" },
                           ].filter(d => d.value > 0)}
                           cx="50%"
@@ -1393,7 +1375,6 @@ export default function DashboardProducaoMeta() {
                         <TableHead className="text-center">Total</TableHead>
                         <TableHead className="text-center">Exec.</TableHead>
                         <TableHead className="text-center">Imped.</TableHead>
-                        <TableHead className="text-center">Parc.</TableHead>
                         <TableHead className="text-right">Assertividade</TableHead>
                         <TableHead className="w-[100px]"></TableHead>
                       </TableRow>
@@ -1417,7 +1398,6 @@ export default function DashboardProducaoMeta() {
                           <TableCell className="text-center">{d.totalVisitas}</TableCell>
                           <TableCell className="text-center text-green-600 font-medium">{d.executadas}</TableCell>
                           <TableCell className="text-center text-red-600 font-medium">{d.impedimentos}</TableCell>
-                          <TableCell className="text-center text-amber-600 font-medium">{d.parciais}</TableCell>
                           <TableCell className="text-right">
                             <span className={cn(
                               "font-bold",
