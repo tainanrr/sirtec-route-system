@@ -634,8 +634,20 @@ export default function CadastroMetas() {
   };
 
   const formatValorCompacto = (valor: number) => {
-    if (valor >= 1000) return `${(valor / 1000).toFixed(0)}k`;
-    return valor.toString();
+    if (valor >= 1000) {
+      const valorK = valor / 1000;
+      // Se for número inteiro em k, não mostrar decimais
+      if (valorK === Math.floor(valorK)) {
+        return `${valorK.toFixed(0)}k`;
+      }
+      // Caso contrário, mostrar 2 casas decimais
+      return `${valorK.toFixed(2).replace('.', ',')}k`;
+    }
+    // Valores menores que 1000, mostrar inteiro ou com decimais se tiver
+    if (valor === Math.floor(valor)) {
+      return valor.toString();
+    }
+    return valor.toFixed(2).replace('.', ',');
   };
 
   // Equipes com metas no mês (para copiar)
