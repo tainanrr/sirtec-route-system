@@ -15,3 +15,4 @@ SELECT 'Conversas restantes:' as info, COUNT(*) as total FROM chat_conversas;
 
 -- Pronto! Agora as equipes podem iniciar novas conversas limpas.
 
+

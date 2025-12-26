@@ -112,3 +112,4 @@ COMMENT ON COLUMN public.metas.meta_valor IS 'Meta de valor (R$)';
 COMMENT ON COLUMN public.metas.tipo_meta IS 'Tipo da meta: producao, qualidade, faturamento';
 
 
+

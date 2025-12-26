@@ -13,3 +13,4 @@ COMMENT ON COLUMN public.ordens_servico.observacoes_equipe IS 'Observações da 
 -- CREATE INDEX IF NOT EXISTS idx_ordens_servico_obs_equipe ON public.ordens_servico(observacoes_equipe) WHERE observacoes_equipe IS NOT NULL;
 
 
+

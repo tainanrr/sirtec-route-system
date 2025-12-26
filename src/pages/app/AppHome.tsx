@@ -36,6 +36,8 @@ import {
   LogOut,
   CheckCircle2,
   AlertTriangle,
+  Timer,
+  Zap,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -119,6 +121,9 @@ export default function AppHome() {
   const [intervaloObs, setIntervaloObs] = useState("");
   const [isStartingIntervalo, setIsStartingIntervalo] = useState(false);
   const [isEndingIntervalo, setIsEndingIntervalo] = useState(false);
+  
+  // Estado para contador de ociosidade (usa localStorage para persistência)
+  const [tempoOcioso, setTempoOcioso] = useState(0);
 
   // Período do ciclo atual
   const periodoCiclo = calcularPeriodoCiclo();
@@ -239,6 +244,64 @@ export default function AppHome() {
     enabled: !!equipe?.id,
     refetchInterval: 10000,
   });
+
+  // Verificar se equipe está ociosa (turno aberto, sem OS em andamento, sem intervalo)
+  const estaOcioso = useMemo(() => {
+    return temTurnoAberto && !intervaloAtivo && !osEmAndamento;
+  }, [temTurnoAberto, intervaloAtivo, osEmAndamento]);
+
+  // Chave para localStorage do início da ociosidade
+  const OCIOSIDADE_KEY = `ociosidade_inicio_${equipe?.id}`;
+
+  // Gerenciar início da ociosidade com localStorage (persistente entre telas)
+  useEffect(() => {
+    if (!equipe?.id) return;
+    
+    if (estaOcioso) {
+      // Verificar se já tem um início salvo
+      const inicioSalvo = localStorage.getItem(OCIOSIDADE_KEY);
+      if (!inicioSalvo) {
+        localStorage.setItem(OCIOSIDADE_KEY, new Date().toISOString());
+      }
+    } else {
+      localStorage.removeItem(OCIOSIDADE_KEY);
+      setTempoOcioso(0);
+    }
+  }, [estaOcioso, equipe?.id, OCIOSIDADE_KEY]);
+
+  // Atualizar contador de ociosidade a cada segundo (lê do localStorage)
+  useEffect(() => {
+    if (!estaOcioso || !equipe?.id) return;
+    
+    const atualizarTempo = () => {
+      const inicioSalvo = localStorage.getItem(OCIOSIDADE_KEY);
+      if (inicioSalvo) {
+        const inicio = new Date(inicioSalvo);
+        const agora = new Date();
+        const diffMs = agora.getTime() - inicio.getTime();
+        setTempoOcioso(Math.floor(diffMs / 1000));
+      }
+    };
+    
+    atualizarTempo();
+    const interval = setInterval(atualizarTempo, 1000);
+    
+    return () => clearInterval(interval);
+  }, [estaOcioso, equipe?.id, OCIOSIDADE_KEY]);
+
+  // Formatar tempo de ociosidade
+  const formatarTempoOcioso = (segundos: number) => {
+    const horas = Math.floor(segundos / 3600);
+    const minutos = Math.floor((segundos % 3600) / 60);
+    const segs = segundos % 60;
+    
+    if (horas > 0) {
+      return `${horas}h ${minutos.toString().padStart(2, '0')}m ${segs.toString().padStart(2, '0')}s`;
+    } else if (minutos > 0) {
+      return `${minutos}m ${segs.toString().padStart(2, '0')}s`;
+    }
+    return `${segs}s`;
+  };
 
   // Buscar produção e meta do ciclo (até hoje)
   const { data: producaoCiclo } = useQuery({
@@ -523,6 +586,70 @@ export default function AppHome() {
           </div>
         </Card>
 
+        {/* Card de Ociosidade - Contador com destaque */}
+        {estaOcioso && (
+          <Card className={cn(
+            "overflow-hidden border-0 shadow-md transition-all",
+            tempoOcioso > 300 
+              ? "bg-gradient-to-r from-red-500/10 via-orange-500/10 to-red-500/10 border border-red-500/30"
+              : "bg-gradient-to-r from-amber-500/10 via-yellow-500/10 to-amber-500/10 border border-amber-500/30"
+          )}>
+            <div className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={cn(
+                    "h-12 w-12 rounded-full flex items-center justify-center relative",
+                    tempoOcioso > 300 ? "bg-red-500/20" : "bg-amber-500/20"
+                  )}>
+                    <Timer className={cn(
+                      "h-6 w-6",
+                      tempoOcioso > 300 ? "text-red-600" : "text-amber-600"
+                    )} />
+                    <span className="absolute -top-0.5 -right-0.5 flex h-3 w-3">
+                      <span className={cn(
+                        "animate-ping absolute inline-flex h-full w-full rounded-full opacity-75",
+                        tempoOcioso > 300 ? "bg-red-500" : "bg-amber-500"
+                      )}></span>
+                      <span className={cn(
+                        "relative inline-flex rounded-full h-3 w-3",
+                        tempoOcioso > 300 ? "bg-red-600" : "bg-amber-600"
+                      )}></span>
+                    </span>
+                  </div>
+                  <div>
+                    <p className={cn(
+                      "font-semibold",
+                      tempoOcioso > 300 ? "text-red-700 dark:text-red-400" : "text-amber-700 dark:text-amber-400"
+                    )}>
+                      Equipe Ociosa
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Inicie uma OS ou intervalo
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className={cn(
+                    "text-2xl font-bold tabular-nums",
+                    tempoOcioso > 300 ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"
+                  )}>
+                    {formatarTempoOcioso(tempoOcioso)}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">tempo ocioso</p>
+                </div>
+              </div>
+              {tempoOcioso > 300 && (
+                <div className="mt-3 pt-3 border-t border-red-500/20">
+                  <div className="flex items-center gap-2 text-xs text-red-600 dark:text-red-400">
+                    <Zap className="h-3 w-3" />
+                    <span>Atenção: mais de 5 minutos sem atividade</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </Card>
+        )}
+
         {/* Card Ciclo Resumido */}
         <Card className="p-4 bg-muted/50">
           <div className="flex items-center justify-between">
@@ -695,10 +822,10 @@ export default function AppHome() {
       </div>
 
       {/* Rodapé fixo com botão de sair */}
-      <div className="fixed bottom-20 left-0 right-0 px-4 pb-4 bg-gradient-to-t from-background via-background to-transparent pt-6">
+      <div className="fixed bottom-20 left-0 right-0 px-4 pb-4 bg-gradient-to-t from-background via-background to-transparent pt-6 z-10 pointer-events-none">
         <Button 
           variant="outline" 
-          className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
+          className="w-full text-destructive hover:text-destructive hover:bg-destructive/10 pointer-events-auto"
           onClick={logout}
         >
           <LogOut className="h-4 w-4 mr-2" />

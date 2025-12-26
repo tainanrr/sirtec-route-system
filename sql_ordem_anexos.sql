@@ -82,3 +82,4 @@ COMMENT ON COLUMN public.ordem_anexos.latitude IS 'Latitude onde a foto foi tira
 COMMENT ON COLUMN public.ordem_anexos.longitude IS 'Longitude onde a foto foi tirada (geolocalização)';
 
 
+

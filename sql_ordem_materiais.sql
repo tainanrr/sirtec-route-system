@@ -123,3 +123,4 @@ COMMENT ON COLUMN public.ordem_materiais_aplicados.numero_serie IS 'Número de s
 COMMENT ON COLUMN public.ordem_materiais_retirados.motivo_retirada IS 'Motivo da retirada (defeito, substituição, etc.)';
 
 
+

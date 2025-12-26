@@ -65,6 +65,7 @@ const navItemsConfig: NavItem[] = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/" },
   { icon: Target, label: "Produção x Meta", href: "/dashboard/producao-meta" },
   { icon: Zap, label: "Assertividade", href: "/dashboard/assertividade" },
+  { icon: Clock, label: "Tempo Ocioso", href: "/dashboard/tempo-ocioso" },
   { icon: LayoutDashboard, label: "__divider_1__", type: "divider" },
   // Torre de Controle
   { icon: Radio, label: "Torre de Controle", href: "/torre-controle", permission: "roteirizacao.torre_controle" },

@@ -80,12 +80,15 @@ import {
   TrendingUp,
   ExternalLink,
   X,
+  Activity,
 } from "lucide-react";
 import { format, parseISO, differenceInMinutes, differenceInHours } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
+import { OrdemServicoDetalhesDialog } from "@/components/ordens/OrdemServicoDetalhesDialog";
+import { ChecklistDetalhesDialog } from "@/components/checklists/ChecklistDetalhesDialog";
 
 interface Turno {
   id: string;
@@ -179,6 +182,7 @@ export default function ConsultaTurnos() {
   const [encerrarDialogOpen, setEncerrarDialogOpen] = useState(false);
   const [cancelarDialogOpen, setCancelarDialogOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [actionSuccess, setActionSuccess] = useState(false);
   
   // Estados para visualizar OS e Checklist
   const [osDialogOpen, setOsDialogOpen] = useState(false);
@@ -344,59 +348,6 @@ export default function ConsultaTurnos() {
     enabled: !!selectedTurno,
   });
 
-  // Buscar detalhes da OS selecionada
-  const { data: osDetalhes, isLoading: isLoadingOS } = useQuery({
-    queryKey: ["os-detalhes", selectedOsId],
-    queryFn: async () => {
-      if (!selectedOsId) return null;
-      const { data, error } = await supabase
-        .from("ordens_servico")
-        .select(`
-          *,
-          tipos_servico:tipo_servico_id (codigo, descricao),
-          retornos_campo:retorno_campo_id (codigo, descricao, tipo)
-        `)
-        .eq("id", selectedOsId)
-        .single();
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!selectedOsId,
-  });
-
-  // Buscar detalhes do checklist selecionado
-  const { data: checklistDetalhes, isLoading: isLoadingChecklist } = useQuery({
-    queryKey: ["checklist-detalhes", selectedChecklistId],
-    queryFn: async () => {
-      if (!selectedChecklistId) return null;
-      
-      // Buscar dados do checklist respondido
-      const { data: resposta, error: respostaError } = await supabase
-        .from("checklist_respostas")
-        .select(`
-          *,
-          checklists:checklist_id (id, nome, tipo, descricao),
-          ordens_servico:ordem_servico_id (id, numero, tipo, endereco)
-        `)
-        .eq("id", selectedChecklistId)
-        .single();
-      
-      if (respostaError) throw respostaError;
-      
-      // Buscar itens respondidos
-      const { data: itens } = await supabase
-        .from("checklist_item_respostas")
-        .select(`
-          *,
-          checklist_itens:checklist_item_id (pergunta, tipo, obrigatorio, ordem)
-        `)
-        .eq("checklist_resposta_id", selectedChecklistId)
-        .order("id");
-      
-      return { ...resposta, itens: itens || [] };
-    },
-    enabled: !!selectedChecklistId,
-  });
 
   // Calcular estatísticas do turno
   const estatisticasTurno = useMemo(() => {
@@ -404,6 +355,7 @@ export default function ConsultaTurnos() {
     
     const producoes = turnoDetalhes.producoes;
     const intervalos = turnoDetalhes.intervalos;
+    const checklists = turnoDetalhes.checklists;
     
     // Valor total produzido
     const valorTotal = producoes.reduce((acc, p) => acc + (p.valor_total || 0), 0);
@@ -430,6 +382,21 @@ export default function ConsultaTurnos() {
     // KM percorridos
     const kmPercorridos = (selectedTurno.km_final || 0) - (selectedTurno.km_inicial || 0);
     
+    // Cálculo de tempo ocioso
+    // Tempo médio estimado por OS (execução + deslocamento): ~45 min por OS
+    const tempoEstimadoOSs = qtdOSs * 45;
+    // Tempo de APR: ~5 min por checklist APR
+    const aprs = checklists.filter(c => c.checklists?.tipo === "apr");
+    const tempoAPR = aprs.length * 5;
+    
+    // Tempo medido = tempo em OSs + intervalos + APRs
+    const tempoMedido = tempoEstimadoOSs + tempoIntervalos + tempoAPR;
+    
+    // Tempo ocioso = tempo total - tempo medido (mínimo 0)
+    const tempoOcioso = Math.max(0, duracaoTotal - tempoMedido);
+    const percentualOcioso = duracaoTotal > 0 ? (tempoOcioso / duracaoTotal) * 100 : 0;
+    const percentualProdutivo = 100 - percentualOcioso;
+    
     return {
       valorTotal,
       qtdOSs,
@@ -440,6 +407,12 @@ export default function ConsultaTurnos() {
       duracaoTrabalhada,
       kmPercorridos,
       assertividade: qtdOSs > 0 ? (osExecutadas / qtdOSs) * 100 : 0,
+      // Novos campos de tempo ocioso
+      tempoOcioso,
+      percentualOcioso,
+      percentualProdutivo,
+      tempoAPR,
+      tempoEstimadoOSs,
     };
   }, [selectedTurno, turnoDetalhes]);
 
@@ -503,8 +476,8 @@ export default function ConsultaTurnos() {
       if (error) throw error;
       
       toast.success("Turno encerrado com sucesso!");
+      setActionSuccess(true);
       setEncerrarDialogOpen(false);
-      setDetalhesOpen(false);
       refetch();
     } catch (error: any) {
       toast.error("Erro ao encerrar turno: " + error.message);
@@ -530,8 +503,8 @@ export default function ConsultaTurnos() {
       if (error) throw error;
       
       toast.success("Turno cancelado!");
+      setActionSuccess(true);
       setCancelarDialogOpen(false);
-      setDetalhesOpen(false);
       refetch();
     } catch (error: any) {
       toast.error("Erro ao cancelar turno: " + error.message);
@@ -757,7 +730,7 @@ export default function ConsultaTurnos() {
 
         {/* Dialog de Detalhes do Turno */}
         <Dialog open={detalhesOpen} onOpenChange={setDetalhesOpen}>
-          <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogContent className="max-w-5xl max-h-[90vh] flex flex-col">
             <DialogHeader>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -777,7 +750,7 @@ export default function ConsultaTurnos() {
               </div>
             </DialogHeader>
 
-            <ScrollArea className="flex-1 -mx-6 px-6">
+            <ScrollArea className="flex-1 -mx-6 px-6 overflow-y-auto" style={{ maxHeight: 'calc(90vh - 180px)' }}>
               {isLoadingDetalhes ? (
                 <div className="space-y-4 py-4">
                   <Skeleton className="h-24 w-full" />
@@ -841,6 +814,56 @@ export default function ConsultaTurnos() {
                       </CardContent>
                     </Card>
                   </div>
+
+                  {/* Card de Eficiência / Tempo Ocioso */}
+                  <Card className={cn(
+                    "border-2 border-dashed",
+                    estatisticasTurno.percentualProdutivo >= 80 
+                      ? "border-green-500/50 bg-green-50/30" 
+                      : estatisticasTurno.percentualProdutivo >= 60
+                        ? "border-amber-500/50 bg-amber-50/30"
+                        : "border-red-500/50 bg-red-50/30"
+                  )}>
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className={cn(
+                            "h-12 w-12 rounded-xl flex items-center justify-center",
+                            estatisticasTurno.percentualProdutivo >= 80 
+                              ? "bg-green-100 text-green-600" 
+                              : estatisticasTurno.percentualProdutivo >= 60
+                                ? "bg-amber-100 text-amber-600"
+                                : "bg-red-100 text-red-600"
+                          )}>
+                            <Activity className="h-6 w-6" />
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">Eficiência do Turno</p>
+                            <p className="text-2xl font-bold">
+                              {estatisticasTurno.percentualProdutivo.toFixed(0)}%
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-muted-foreground">Tempo Ocioso</p>
+                          <p className={cn(
+                            "text-lg font-semibold",
+                            estatisticasTurno.percentualOcioso > 30 ? "text-red-600" : 
+                            estatisticasTurno.percentualOcioso > 20 ? "text-amber-600" : "text-green-600"
+                          )}>
+                            {formatDuracao(estatisticasTurno.tempoOcioso)}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            ({estatisticasTurno.percentualOcioso.toFixed(1)}% do turno)
+                          </p>
+                        </div>
+                      </div>
+                      <Progress 
+                        value={estatisticasTurno.percentualProdutivo} 
+                        className="h-2 mt-3"
+                      />
+                    </CardContent>
+                  </Card>
 
                   {/* Informações Gerais */}
                   <Card>
@@ -1134,13 +1157,19 @@ export default function ConsultaTurnos() {
                 <div className="flex gap-2 w-full justify-end">
                   <Button
                     variant="outline"
-                    onClick={() => setCancelarDialogOpen(true)}
+                    onClick={() => {
+                      setDetalhesOpen(false);
+                      setTimeout(() => setCancelarDialogOpen(true), 100);
+                    }}
                     className="text-destructive hover:text-destructive"
                   >
                     <XCircle className="h-4 w-4 mr-2" />
                     Cancelar Turno
                   </Button>
-                  <Button onClick={() => setEncerrarDialogOpen(true)}>
+                  <Button onClick={() => {
+                    setDetalhesOpen(false);
+                    setTimeout(() => setEncerrarDialogOpen(true), 100);
+                  }}>
                     <Power className="h-4 w-4 mr-2" />
                     Encerrar Turno
                   </Button>
@@ -1151,7 +1180,16 @@ export default function ConsultaTurnos() {
         </Dialog>
 
         {/* Dialog de Confirmar Encerramento */}
-        <AlertDialog open={encerrarDialogOpen} onOpenChange={setEncerrarDialogOpen}>
+        <AlertDialog open={encerrarDialogOpen} onOpenChange={(open) => {
+          setEncerrarDialogOpen(open);
+          if (!open && !actionSuccess) {
+            // Reabrir detalhes apenas se o usuário cancelou (não se foi sucesso)
+            setTimeout(() => setDetalhesOpen(true), 100);
+          }
+          if (!open && actionSuccess) {
+            setActionSuccess(false);
+          }
+        }}>
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>Encerrar Turno</AlertDialogTitle>
@@ -1170,7 +1208,16 @@ export default function ConsultaTurnos() {
         </AlertDialog>
 
         {/* Dialog de Confirmar Cancelamento */}
-        <AlertDialog open={cancelarDialogOpen} onOpenChange={setCancelarDialogOpen}>
+        <AlertDialog open={cancelarDialogOpen} onOpenChange={(open) => {
+          setCancelarDialogOpen(open);
+          if (!open && !actionSuccess) {
+            // Reabrir detalhes apenas se o usuário cancelou (não se foi sucesso)
+            setTimeout(() => setDetalhesOpen(true), 100);
+          }
+          if (!open && actionSuccess) {
+            setActionSuccess(false);
+          }
+        }}>
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>Cancelar Turno</AlertDialogTitle>
@@ -1192,234 +1239,25 @@ export default function ConsultaTurnos() {
           </AlertDialogContent>
         </AlertDialog>
 
-        {/* Dialog de Visualização da OS */}
-        <Dialog open={osDialogOpen} onOpenChange={(open) => {
-          setOsDialogOpen(open);
-          if (!open) setSelectedOsId(null);
-        }}>
-          <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <FileText className="h-5 w-5" />
-                Detalhes da Ordem de Serviço
-              </DialogTitle>
-            </DialogHeader>
-            
-            {isLoadingOS ? (
-              <div className="space-y-4 py-4">
-                <Skeleton className="h-8 w-full" />
-                <Skeleton className="h-24 w-full" />
-                <Skeleton className="h-24 w-full" />
-              </div>
-            ) : osDetalhes ? (
-              <div className="space-y-4">
-                {/* Cabeçalho da OS */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-2xl font-bold">{osDetalhes.numero}</p>
-                    <p className="text-muted-foreground">{osDetalhes.tipos_servico?.descricao || osDetalhes.tipo}</p>
-                  </div>
-                  <Badge 
-                    variant={osDetalhes.status === "concluida" ? "default" : "outline"}
-                    className={cn(
-                      osDetalhes.status === "concluida" && "bg-green-500",
-                      osDetalhes.status === "em_execucao" && "bg-blue-500",
-                      osDetalhes.status === "pendente" && "bg-yellow-500"
-                    )}
-                  >
-                    {osDetalhes.status?.replace(/_/g, " ").toUpperCase()}
-                  </Badge>
-                </div>
+        {/* Dialog de Visualização da OS - usando componente completo */}
+        <OrdemServicoDetalhesDialog
+          open={osDialogOpen}
+          onOpenChange={(open) => {
+            setOsDialogOpen(open);
+            if (!open) setSelectedOsId(null);
+          }}
+          ordemId={selectedOsId}
+        />
 
-                <Separator />
-
-                {/* Informações do Cliente */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Cliente</p>
-                    <p className="font-medium">{osDetalhes.cliente_nome || "-"}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Instalação</p>
-                    <p className="font-medium">{osDetalhes.instalacao || "-"}</p>
-                  </div>
-                </div>
-
-                {/* Endereço */}
-                <div>
-                  <p className="text-sm text-muted-foreground">Endereço</p>
-                  <p className="font-medium">{osDetalhes.endereco || "-"}</p>
-                  {osDetalhes.bairro && <p className="text-sm text-muted-foreground">{osDetalhes.bairro} - {osDetalhes.cidade}</p>}
-                </div>
-
-                {/* Datas e Valores */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Prazo</p>
-                    <p className="font-medium">
-                      {osDetalhes.prazo ? format(parseISO(osDetalhes.prazo), "dd/MM/yyyy HH:mm") : "-"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Execução</p>
-                    <p className="font-medium">
-                      {osDetalhes.data_execucao ? format(parseISO(osDetalhes.data_execucao), "dd/MM/yyyy HH:mm") : "-"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Valor Prev.</p>
-                    <p className="font-medium">{formatCurrency(osDetalhes.valor_previsto || 0)}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Valor Prod.</p>
-                    <p className="font-medium text-green-600">{formatCurrency(osDetalhes.valor_producao || 0)}</p>
-                  </div>
-                </div>
-
-                {/* Retorno de Campo */}
-                {osDetalhes.retornos_campo && (
-                  <div>
-                    <p className="text-sm text-muted-foreground">Retorno de Campo</p>
-                    <Badge 
-                      variant="outline"
-                      className={cn(
-                        osDetalhes.retornos_campo.tipo === "executado" && "border-green-500 text-green-700 bg-green-50",
-                        osDetalhes.retornos_campo.tipo === "impedimento" && "border-red-500 text-red-700 bg-red-50"
-                      )}
-                    >
-                      {osDetalhes.retornos_campo.descricao}
-                    </Badge>
-                  </div>
-                )}
-
-                {/* Observações */}
-                {(osDetalhes.observacoes_coelba || osDetalhes.observacoes_equipe) && (
-                  <div className="space-y-2">
-                    {osDetalhes.observacoes_coelba && (
-                      <div>
-                        <p className="text-sm text-muted-foreground">Observações Coelba</p>
-                        <p className="text-sm bg-muted p-2 rounded">{osDetalhes.observacoes_coelba}</p>
-                      </div>
-                    )}
-                    {osDetalhes.observacoes_equipe && (
-                      <div>
-                        <p className="text-sm text-muted-foreground">Observações Equipe</p>
-                        <p className="text-sm bg-muted p-2 rounded">{osDetalhes.observacoes_equipe}</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <p className="text-center text-muted-foreground py-8">OS não encontrada</p>
-            )}
-          </DialogContent>
-        </Dialog>
-
-        {/* Dialog de Visualização do Checklist */}
-        <Dialog open={checklistDialogOpen} onOpenChange={(open) => {
-          setChecklistDialogOpen(open);
-          if (!open) setSelectedChecklistId(null);
-        }}>
-          <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <ClipboardCheck className="h-5 w-5" />
-                Detalhes do Checklist
-              </DialogTitle>
-            </DialogHeader>
-            
-            {isLoadingChecklist ? (
-              <div className="space-y-4 py-4">
-                <Skeleton className="h-8 w-full" />
-                <Skeleton className="h-24 w-full" />
-                <Skeleton className="h-24 w-full" />
-              </div>
-            ) : checklistDetalhes ? (
-              <div className="space-y-4">
-                {/* Cabeçalho */}
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xl font-bold">{checklistDetalhes.checklists?.nome}</p>
-                    <p className="text-muted-foreground">{checklistDetalhes.checklists?.descricao}</p>
-                  </div>
-                  <Badge variant={checklistDetalhes.checklists?.tipo === "apr" ? "default" : "outline"}>
-                    {checklistDetalhes.checklists?.tipo?.toUpperCase()}
-                  </Badge>
-                </div>
-
-                <Separator />
-
-                {/* Info da OS se existir */}
-                {checklistDetalhes.ordens_servico && (
-                  <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
-                    <FileText className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">OS: </span>
-                    <span className="font-mono font-medium">{checklistDetalhes.ordens_servico.numero}</span>
-                    <span className="text-muted-foreground">•</span>
-                    <span className="text-sm text-muted-foreground">{checklistDetalhes.ordens_servico.tipo}</span>
-                  </div>
-                )}
-
-                {/* Data de preenchimento */}
-                <div>
-                  <p className="text-sm text-muted-foreground">Preenchido em</p>
-                  <p className="font-medium">
-                    {format(parseISO(checklistDetalhes.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
-                  </p>
-                </div>
-
-                {/* Respostas */}
-                <div>
-                  <p className="font-medium mb-3">Respostas ({checklistDetalhes.itens?.length || 0})</p>
-                  <div className="space-y-3">
-                    {checklistDetalhes.itens?.map((item: any, index: number) => (
-                      <div key={item.id} className="border rounded-lg p-3">
-                        <div className="flex items-start gap-2">
-                          <span className="text-xs text-muted-foreground w-6">{index + 1}.</span>
-                          <div className="flex-1">
-                            <p className="text-sm font-medium">{item.checklist_itens?.pergunta}</p>
-                            <div className="mt-1 flex items-center gap-2">
-                              {item.checklist_itens?.tipo === "sim_nao" ? (
-                                <Badge 
-                                  variant={item.valor === "sim" ? "default" : "destructive"}
-                                  className={item.valor === "sim" ? "bg-green-500" : ""}
-                                >
-                                  {item.valor === "sim" ? "Sim" : "Não"}
-                                </Badge>
-                              ) : item.checklist_itens?.tipo === "texto" ? (
-                                <p className="text-sm bg-muted p-2 rounded w-full">{item.valor || "-"}</p>
-                              ) : item.checklist_itens?.tipo === "numero" ? (
-                                <p className="text-sm font-mono bg-muted p-2 rounded">{item.valor || "-"}</p>
-                              ) : item.checklist_itens?.tipo === "foto" ? (
-                                item.valor ? (
-                                  <img 
-                                    src={item.valor} 
-                                    alt="Foto" 
-                                    className="max-w-xs rounded border"
-                                  />
-                                ) : (
-                                  <span className="text-sm text-muted-foreground">Sem foto</span>
-                                )
-                              ) : (
-                                <p className="text-sm">{item.valor || "-"}</p>
-                              )}
-                            </div>
-                            {item.observacao && (
-                              <p className="text-xs text-muted-foreground mt-1">Obs: {item.observacao}</p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <p className="text-center text-muted-foreground py-8">Checklist não encontrado</p>
-            )}
-          </DialogContent>
-        </Dialog>
+        {/* Dialog de Visualização do Checklist - usando componente completo */}
+        <ChecklistDetalhesDialog
+          open={checklistDialogOpen}
+          onOpenChange={(open) => {
+            setChecklistDialogOpen(open);
+            if (!open) setSelectedChecklistId(null);
+          }}
+          checklistId={selectedChecklistId}
+        />
       </div>
     </MainLayout>
   );

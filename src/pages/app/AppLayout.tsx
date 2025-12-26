@@ -1,23 +1,139 @@
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
-import { Home, Route, LogOut, Wifi, WifiOff, Package, MessageCircle, BarChart3 } from "lucide-react";
+import { Home, Route, LogOut, Wifi, WifiOff, Package, MessageCircle, BarChart3, Timer } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
 import { Badge } from "@/components/ui/badge";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { ScrollRestoreProvider } from "@/contexts/ScrollRestoreContext";
 import { supabase } from "@/integrations/supabase/client";
+import { useQuery } from "@tanstack/react-query";
+import { format } from "date-fns";
 
 type AppSection = "home" | "ordens" | "estoque" | "chat" | "resultados";
 
 export default function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { logout } = useEquipeAuth();
+  const { logout, temTurnoAberto, turno } = useEquipeAuth();
   const { equipe } = useTecnico();
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [chatNaoLidas, setChatNaoLidas] = useState(0);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  
+  // Estado para contador de ociosidade
+  const [tempoOcioso, setTempoOcioso] = useState(0);
+  
+  const dataHoje = format(new Date(), "yyyy-MM-dd");
+
+  // Buscar intervalo ativo (não finalizado)
+  const { data: intervaloAtivo } = useQuery({
+    queryKey: ["intervalo-ativo-layout", equipe?.id, turno?.id],
+    queryFn: async () => {
+      if (!equipe?.id) return null;
+      
+      const { data, error } = await supabase
+        .from("intervalos_equipe")
+        .select("id, hora_inicio")
+        .eq("equipe_id", equipe.id)
+        .is("hora_fim", null)
+        .order("hora_inicio", { ascending: false })
+        .limit(1)
+        .single();
+      
+      if (error && error.code !== "PGRST116") throw error;
+      return data;
+    },
+    enabled: !!equipe?.id,
+    refetchInterval: 15000,
+  });
+
+  // Verificar se há OS em andamento
+  const { data: osEmAndamento } = useQuery({
+    queryKey: ["os-em-andamento-layout", equipe?.id, dataHoje],
+    queryFn: async () => {
+      if (!equipe?.id) return null;
+      
+      const { data, error } = await supabase
+        .from("planejamento_ordens")
+        .select(`
+          ordem_servico_id,
+          ordens_servico:ordem_servico_id (id, status)
+        `)
+        .eq("equipe_id", equipe.id)
+        .in("ordens_servico.status", ["em_deslocamento", "no_local", "em_andamento", "em_execucao"]);
+      
+      if (error) return null;
+      
+      const osAtivas = data?.filter(d => d.ordens_servico?.status) || [];
+      return osAtivas.length > 0 ? osAtivas[0].ordens_servico : null;
+    },
+    enabled: !!equipe?.id,
+    refetchInterval: 10000,
+  });
+
+  // Verificar se equipe está ociosa
+  const estaOcioso = useMemo(() => {
+    return temTurnoAberto && !intervaloAtivo && !osEmAndamento;
+  }, [temTurnoAberto, intervaloAtivo, osEmAndamento]);
+
+  // Chave para localStorage do início da ociosidade
+  const OCIOSIDADE_KEY = `ociosidade_inicio_${equipe?.id}`;
+
+  // Gerenciar início da ociosidade com localStorage
+  useEffect(() => {
+    if (!equipe?.id) return;
+    
+    if (estaOcioso) {
+      // Verificar se já tem um início salvo
+      const inicioSalvo = localStorage.getItem(OCIOSIDADE_KEY);
+      if (!inicioSalvo) {
+        // Salvar início da ociosidade
+        localStorage.setItem(OCIOSIDADE_KEY, new Date().toISOString());
+      }
+    } else {
+      // Limpar início da ociosidade
+      localStorage.removeItem(OCIOSIDADE_KEY);
+      setTempoOcioso(0);
+    }
+  }, [estaOcioso, equipe?.id, OCIOSIDADE_KEY]);
+
+  // Atualizar contador de ociosidade a cada segundo
+  useEffect(() => {
+    if (!estaOcioso || !equipe?.id) return;
+    
+    const atualizarTempo = () => {
+      const inicioSalvo = localStorage.getItem(OCIOSIDADE_KEY);
+      if (inicioSalvo) {
+        const inicio = new Date(inicioSalvo);
+        const agora = new Date();
+        const diffMs = agora.getTime() - inicio.getTime();
+        setTempoOcioso(Math.floor(diffMs / 1000));
+      }
+    };
+    
+    // Atualizar imediatamente
+    atualizarTempo();
+    
+    // Atualizar a cada segundo
+    const interval = setInterval(atualizarTempo, 1000);
+    
+    return () => clearInterval(interval);
+  }, [estaOcioso, equipe?.id, OCIOSIDADE_KEY]);
+
+  // Formatar tempo de ociosidade
+  const formatarTempoOcioso = (segundos: number) => {
+    const horas = Math.floor(segundos / 3600);
+    const minutos = Math.floor((segundos % 3600) / 60);
+    const segs = segundos % 60;
+    
+    if (horas > 0) {
+      return `${horas}h ${minutos.toString().padStart(2, '0')}m ${segs.toString().padStart(2, '0')}s`;
+    } else if (minutos > 0) {
+      return `${minutos}m ${segs.toString().padStart(2, '0')}s`;
+    }
+    return `${segs}s`;
+  };
 
   // Buscar mensagens não lidas do chat
   const carregarMensagensNaoLidas = useCallback(async () => {
@@ -240,6 +356,49 @@ export default function AppLayout() {
         <div className="bg-amber-500 text-amber-950 px-4 py-2 text-center text-sm font-medium">
           <WifiOff className="h-4 w-4 inline mr-2" />
           Você está offline. Algumas funcionalidades podem não estar disponíveis.
+        </div>
+      )}
+
+      {/* Alerta de Ociosidade - Global sutil */}
+      {estaOcioso && (
+        <div className={cn(
+          "px-4 py-1.5 text-center border-b transition-colors",
+          tempoOcioso > 300 
+            ? "bg-gradient-to-r from-red-500/10 via-orange-500/10 to-red-500/10 border-red-500/30"
+            : "bg-gradient-to-r from-amber-500/10 via-yellow-500/10 to-amber-500/10 border-amber-500/30"
+        )}>
+          <div className="flex items-center justify-center gap-2">
+            <div className="relative flex items-center">
+              <Timer className={cn(
+                "h-3.5 w-3.5",
+                tempoOcioso > 300 ? "text-red-600" : "text-amber-600"
+              )} />
+              <span className="absolute -top-0.5 -right-0.5 flex h-1.5 w-1.5">
+                <span className={cn(
+                  "animate-ping absolute inline-flex h-full w-full rounded-full opacity-75",
+                  tempoOcioso > 300 ? "bg-red-500" : "bg-amber-500"
+                )}></span>
+                <span className={cn(
+                  "relative inline-flex rounded-full h-1.5 w-1.5",
+                  tempoOcioso > 300 ? "bg-red-600" : "bg-amber-600"
+                )}></span>
+              </span>
+            </div>
+            <span className={cn(
+              "text-xs font-medium",
+              tempoOcioso > 300 ? "text-red-700 dark:text-red-400" : "text-amber-700 dark:text-amber-400"
+            )}>
+              Ocioso
+            </span>
+            <span className={cn(
+              "text-xs font-bold tabular-nums px-1.5 py-0.5 rounded-full",
+              tempoOcioso > 300 
+                ? "text-red-800 dark:text-red-300 bg-red-500/20" 
+                : "text-amber-800 dark:text-amber-300 bg-amber-500/20"
+            )}>
+              {formatarTempoOcioso(tempoOcioso)}
+            </span>
+          </div>
         </div>
       )}
 
