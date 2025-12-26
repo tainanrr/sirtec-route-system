@@ -242,6 +242,29 @@ export default function AppOrdemDetalhe() {
     enabled: !!id,
   });
 
+  // Buscar intervalo ativo (para bloquear início de serviço durante intervalo)
+  const { data: intervaloAtivo } = useQuery({
+    queryKey: ["intervalo-ativo-bloqueio", equipe?.id || equipeAuth?.id],
+    queryFn: async () => {
+      const equipeId = equipe?.id || equipeAuth?.id;
+      if (!equipeId) return null;
+      
+      const { data, error } = await supabase
+        .from("intervalos_equipe")
+        .select(`*, tipo_intervalo:tipo_intervalo_id (nome)`)
+        .eq("equipe_id", equipeId)
+        .is("hora_fim", null)
+        .order("hora_inicio", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      
+      if (error && error.code !== "PGRST116") return null;
+      return data;
+    },
+    enabled: !!(equipe?.id || equipeAuth?.id),
+    refetchInterval: 10000,
+  });
+
   // Buscar checklists/APRs
   const { data: checklistsPreenchidos } = useQuery({
     queryKey: ["ordem-checklists", id],
@@ -420,6 +443,13 @@ export default function AppOrdemDetalhe() {
   };
 
   const handleStatusChange = async (newStatus: string) => {
+    // Verificar se há intervalo em andamento (bloqueia início de deslocamento e serviço)
+    if (intervaloAtivo && (newStatus === "em_deslocamento" || newStatus === "em_execucao")) {
+      const nomeIntervalo = intervaloAtivo.tipo_intervalo?.nome || "Intervalo";
+      toast.error(`Finalize o intervalo "${nomeIntervalo}" antes de continuar!`, { duration: 4000 });
+      return;
+    }
+
     if (newStatus === "em_execucao" && !temAprPreenchida) {
       setTentouIniciarSemApr(true);
       toast.error("Preencha a APR antes de iniciar!", { duration: 4000 });
@@ -775,34 +805,41 @@ export default function AppOrdemDetalhe() {
         {/* Fotos */}
         {qtdFotos > 0 && (
           <div id="fotos-section" className="bg-white rounded-xl border p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Image className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">Fotos ({qtdFotos})</span>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Image className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">Fotos ({qtdFotos})</span>
+              </div>
+              {isActive && (
+                <Badge variant="destructive" className="text-xs">Toque no X para excluir</Badge>
+              )}
             </div>
             <div className="grid grid-cols-3 gap-3">
               {anexos?.filter(a => a.tipo === "foto").map((anexo) => (
-                <div key={anexo.id} className="relative">
+                <div key={anexo.id} className="relative p-1">
                   <img
                     src={anexo.url}
                     alt=""
-                    className="w-full aspect-square object-cover rounded-lg cursor-pointer border border-gray-200"
+                    className="w-full aspect-square object-cover rounded-lg cursor-pointer border-2 border-gray-200"
                     onClick={() => window.open(anexo.url, "_blank")}
                   />
                   {isActive && (
-                    <button
+                    <Button
+                      variant="destructive"
+                      size="icon"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleDeleteFoto(anexo.id);
                       }}
                       disabled={deleteFotoMutation.isPending}
-                      className="absolute top-1 right-1 h-5 w-5 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-sm"
+                      className="absolute -top-1 -right-1 h-7 w-7 rounded-full shadow-lg"
                     >
                       {deleteFotoMutation.isPending ? (
                         <Loader2 className="h-3 w-3 animate-spin" />
                       ) : (
-                        <span className="text-xs font-bold">×</span>
+                        <XCircle className="h-4 w-4" />
                       )}
-                    </button>
+                    </Button>
                   )}
                 </div>
               ))}
@@ -833,7 +870,13 @@ export default function AppOrdemDetalhe() {
               )}
               <Button
                 variant="outline"
-                className="w-full h-11 text-sm font-semibold shadow-lg bg-white text-emerald-700 border-2 border-emerald-500 hover:bg-emerald-50"
+                className="w-full h-11 text-sm font-semibold shadow-lg"
+                style={{ 
+                  backgroundColor: '#ffffff', 
+                  color: '#065f46', 
+                  borderColor: '#10b981',
+                  borderWidth: '2px'
+                }}
                 onClick={() => navegarComEstado("/app/ordens")}
               >
                 <List className="h-5 w-5 mr-2" />

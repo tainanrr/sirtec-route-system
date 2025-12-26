@@ -214,6 +214,32 @@ export default function AppHome() {
     enabled: !!equipe?.id,
   });
 
+  // Verificar se há OS em andamento (bloqueia início de intervalo)
+  const { data: osEmAndamento } = useQuery({
+    queryKey: ["os-em-andamento", equipe?.id, dataHoje],
+    queryFn: async () => {
+      if (!equipe?.id) return null;
+      
+      // Buscar OS que estão em andamento para esta equipe
+      const { data, error } = await supabase
+        .from("planejamento_ordens")
+        .select(`
+          ordem_servico_id,
+          ordens_servico:ordem_servico_id (id, numero, status, tipo)
+        `)
+        .eq("equipe_id", equipe.id)
+        .in("ordens_servico.status", ["em_deslocamento", "no_local", "em_andamento", "em_execucao"]);
+      
+      if (error) return null;
+      
+      // Filtrar apenas as que realmente estão em andamento
+      const osAtivas = data?.filter(d => d.ordens_servico?.status) || [];
+      return osAtivas.length > 0 ? osAtivas[0].ordens_servico : null;
+    },
+    enabled: !!equipe?.id,
+    refetchInterval: 10000,
+  });
+
   // Buscar produção e meta do ciclo (até hoje)
   const { data: producaoCiclo } = useQuery({
     queryKey: ["producao-ciclo", equipe?.id, periodoCiclo.inicio, periodoCiclo.fimAteHoje],
@@ -288,6 +314,12 @@ export default function AppHome() {
   const handleIniciarIntervalo = async () => {
     if (!selectedIntervalo || !equipe?.id) {
       toast.error("Selecione um tipo de intervalo");
+      return;
+    }
+    
+    // Verificar se há OS em andamento
+    if (osEmAndamento) {
+      toast.error(`Finalize a OS ${osEmAndamento.numero || ""} antes de iniciar o intervalo!`, { duration: 4000 });
       return;
     }
     
