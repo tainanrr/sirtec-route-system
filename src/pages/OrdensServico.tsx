@@ -38,6 +38,12 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  Filter,
+  ChevronDown,
+  ChevronUp,
+  Calendar,
+  Users,
+  RotateCcw,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -105,6 +111,22 @@ const OrdensServico = () => {
   const [ordemToDelete, setOrdemToDelete] = useState<Tables<"ordens_servico"> | null>(null);
   const [clearAllDialogOpen, setClearAllDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  
+  // Filtros avançados
+  const [showFilters, setShowFilters] = useState(false);
+  const [execucaoInicio, setExecucaoInicio] = useState("");
+  const [execucaoFim, setExecucaoFim] = useState("");
+  const [prazoInicio, setPrazoInicio] = useState("");
+  const [prazoFim, setPrazoFim] = useState("");
+  const [equipeFilter, setEquipeFilter] = useState<string>("all");
+  const [retornoFilter, setRetornoFilter] = useState<string>("all");
+  const [coordenadasFilter, setCoordenadasFilter] = useState<string>("all");
+  const [producaoFilter, setProducaoFilter] = useState<string>("all");
+  
+  // Dados para filtros
+  const [equipes, setEquipes] = useState<{ id: string; codigo: string; nome: string }[]>([]);
+  const [retornos, setRetornos] = useState<{ id: string; codigo: string; descricao: string; tipo: string }[]>([]);
+  const [skills, setSkills] = useState<{ codigo: string; nome: string }[]>([]);
   
   // Paginação e contagem
   const [totalCount, setTotalCount] = useState(0);
@@ -319,9 +341,52 @@ const OrdensServico = () => {
     }
   };
 
+  // Buscar dados para os filtros
+  const fetchFilterData = async () => {
+    const [equipesRes, retornosRes, skillsRes] = await Promise.all([
+      supabase.from("tecnicos").select("id, codigo, nome").neq("status", "offline").order("codigo"),
+      supabase.from("retornos_campo").select("id, codigo, descricao, tipo").eq("ativo", true).order("descricao"),
+      supabase.from("skills").select("codigo, nome").eq("ativo", true).order("nome"),
+    ]);
+    
+    if (equipesRes.data) setEquipes(equipesRes.data);
+    if (retornosRes.data) setRetornos(retornosRes.data);
+    if (skillsRes.data) setSkills(skillsRes.data);
+  };
+
   useEffect(() => {
     fetchOrdens(0, false);
+    fetchFilterData();
   }, []);
+  
+  // Limpar filtros
+  const clearFilters = () => {
+    setSearchTerm("");
+    setStatusFilter("all");
+    setTipoFilter("all");
+    setExecucaoInicio("");
+    setExecucaoFim("");
+    setPrazoInicio("");
+    setPrazoFim("");
+    setEquipeFilter("all");
+    setRetornoFilter("all");
+    setCoordenadasFilter("all");
+    setProducaoFilter("all");
+  };
+  
+  // Contar filtros ativos
+  const activeFiltersCount = [
+    statusFilter !== "all",
+    tipoFilter !== "all",
+    execucaoInicio !== "",
+    execucaoFim !== "",
+    prazoInicio !== "",
+    prazoFim !== "",
+    equipeFilter !== "all",
+    retornoFilter !== "all",
+    coordenadasFilter !== "all",
+    producaoFilter !== "all",
+  ].filter(Boolean).length;
 
   const handleEdit = (ordem: Tables<"ordens_servico">) => {
     setSelectedOrdem(ordem);
@@ -652,14 +717,51 @@ const OrdensServico = () => {
   };
 
   const filteredOrdens = ordens.filter((os) => {
-    const matchesSearch =
+    // Busca textual
+    const matchesSearch = !searchTerm || 
       os.numero.toLowerCase().includes(searchTerm.toLowerCase()) ||
       ((os as any).codigo || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
       os.endereco.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (os.cliente_nome || "").toLowerCase().includes(searchTerm.toLowerCase());
+      (os.cliente_nome || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (os.cliente_cpf || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (os.instalacao || "").toLowerCase().includes(searchTerm.toLowerCase());
+    
+    // Status
     const matchesStatus = statusFilter === "all" || os.status === statusFilter;
+    
+    // Tipo
     const matchesTipo = tipoFilter === "all" || os.tipo === tipoFilter;
-    return matchesSearch && matchesStatus && matchesTipo;
+    
+    // Data de execução
+    const matchesExecucaoInicio = !execucaoInicio || (os.concluido_at && os.concluido_at >= execucaoInicio);
+    const matchesExecucaoFim = !execucaoFim || (os.concluido_at && os.concluido_at <= execucaoFim + "T23:59:59");
+    
+    // Data de prazo
+    const matchesPrazoInicio = !prazoInicio || (os.prazo && os.prazo >= prazoInicio);
+    const matchesPrazoFim = !prazoFim || (os.prazo && os.prazo <= prazoFim + "T23:59:59");
+    
+    // Equipe
+    const matchesEquipe = equipeFilter === "all" || os.tecnicos?.codigo === equipeFilter;
+    
+    // Retorno de campo
+    const matchesRetorno = retornoFilter === "all" || 
+      (retornoFilter === "sem_retorno" && !os.retornos_campo) ||
+      (os.retornos_campo?.id === retornoFilter);
+    
+    // Coordenadas
+    const matchesCoordenadas = coordenadasFilter === "all" ||
+      (coordenadasFilter === "com" && os.latitude && os.longitude) ||
+      (coordenadasFilter === "sem" && (!os.latitude || !os.longitude));
+    
+    // Produção
+    const matchesProducao = producaoFilter === "all" ||
+      (producaoFilter === "com" && os.producao_equipes && os.producao_equipes.length > 0 && os.producao_equipes[0].valor_total > 0) ||
+      (producaoFilter === "sem" && (!os.producao_equipes || os.producao_equipes.length === 0 || !os.producao_equipes[0].valor_total));
+    
+    return matchesSearch && matchesStatus && matchesTipo && 
+           matchesExecucaoInicio && matchesExecucaoFim &&
+           matchesPrazoInicio && matchesPrazoFim &&
+           matchesEquipe && matchesRetorno && matchesCoordenadas && matchesProducao;
   });
 
   // Ordenar as ordens filtradas
@@ -750,44 +852,40 @@ const OrdensServico = () => {
     >
       {/* Actions Bar */}
       <div className="rounded-xl border border-border bg-card p-4 mb-6">
-        <div className="flex flex-col lg:flex-row gap-4">
+        {/* Linha principal de busca e ações */}
+        <div className="flex flex-col lg:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Buscar por número, endereço, cliente..."
+              placeholder="Buscar por número, código, endereço, cliente, CPF, instalação..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-9"
             />
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[140px]">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos Status</SelectItem>
-                {Object.entries(statusLabels).map(([key, label]) => (
-                  <SelectItem key={key} value={key}>{label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select value={tipoFilter} onValueChange={setTipoFilter}>
-              <SelectTrigger className="w-[140px]">
-                <SelectValue placeholder="Tipo" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos Tipos</SelectItem>
-                {Object.entries(tipoLabels).map(([key, label]) => (
-                  <SelectItem key={key} value={key}>{label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
           <div className="flex gap-2 flex-wrap">
+            <Button 
+              variant={showFilters ? "default" : "outline"} 
+              className="gap-2"
+              onClick={() => setShowFilters(!showFilters)}
+            >
+              <Filter className="h-4 w-4" />
+              Filtros
+              {activeFiltersCount > 0 && (
+                <Badge variant="secondary" className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs">
+                  {activeFiltersCount}
+                </Badge>
+              )}
+              {showFilters ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </Button>
+            
+            {activeFiltersCount > 0 && (
+              <Button variant="ghost" size="sm" onClick={clearFilters} className="text-muted-foreground">
+                <RotateCcw className="h-4 w-4 mr-1" />
+                Limpar
+              </Button>
+            )}
             <Button variant="outline" className="gap-2">
               <Download className="h-4 w-4" />
               Exportar
@@ -843,9 +941,181 @@ const OrdensServico = () => {
           </div>
         </div>
 
+        {/* Painel de filtros avançados */}
+        {showFilters && (
+          <div className="mt-4 pt-4 border-t border-border">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+              {/* Status */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Status</label>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Todos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos Status</SelectItem>
+                    {Object.entries(statusLabels).map(([key, label]) => (
+                      <SelectItem key={key} value={key}>{label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Tipo de Serviço */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Tipo de Serviço</label>
+                <Select value={tipoFilter} onValueChange={setTipoFilter}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Todos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos Tipos</SelectItem>
+                    {skills.map((skill) => (
+                      <SelectItem key={skill.codigo} value={skill.codigo.toLowerCase()}>
+                        {skill.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Equipe */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                  <Users className="h-3 w-3" />
+                  Equipe
+                </label>
+                <Select value={equipeFilter} onValueChange={setEquipeFilter}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Todas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas Equipes</SelectItem>
+                    {equipes.map((equipe) => (
+                      <SelectItem key={equipe.id} value={equipe.codigo}>
+                        {equipe.codigo} - {equipe.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Retorno de Campo */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Retorno de Campo</label>
+                <Select value={retornoFilter} onValueChange={setRetornoFilter}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Todos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos Retornos</SelectItem>
+                    <SelectItem value="sem_retorno">Sem Retorno</SelectItem>
+                    {retornos.map((retorno) => (
+                      <SelectItem key={retorno.id} value={retorno.id}>
+                        {retorno.descricao}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Coordenadas */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                  <MapPin className="h-3 w-3" />
+                  Coordenadas
+                </label>
+                <Select value={coordenadasFilter} onValueChange={setCoordenadasFilter}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Todas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas</SelectItem>
+                    <SelectItem value="com">Com Coordenadas</SelectItem>
+                    <SelectItem value="sem">Sem Coordenadas</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Produção */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Produção</label>
+                <Select value={producaoFilter} onValueChange={setProducaoFilter}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Todas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas</SelectItem>
+                    <SelectItem value="com">Com Produção</SelectItem>
+                    <SelectItem value="sem">Sem Produção</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Linha de filtros por data */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-border/50">
+              {/* Data de Execução */}
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                  <Calendar className="h-3 w-3" />
+                  Data de Execução (Conclusão)
+                </label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="date"
+                    value={execucaoInicio}
+                    onChange={(e) => setExecucaoInicio(e.target.value)}
+                    className="h-9"
+                    placeholder="De"
+                  />
+                  <span className="text-muted-foreground text-sm">até</span>
+                  <Input
+                    type="date"
+                    value={execucaoFim}
+                    onChange={(e) => setExecucaoFim(e.target.value)}
+                    className="h-9"
+                    placeholder="Até"
+                  />
+                </div>
+              </div>
+
+              {/* Data de Prazo */}
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                  <Calendar className="h-3 w-3" />
+                  Data de Prazo
+                </label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="date"
+                    value={prazoInicio}
+                    onChange={(e) => setPrazoInicio(e.target.value)}
+                    className="h-9"
+                    placeholder="De"
+                  />
+                  <span className="text-muted-foreground text-sm">até</span>
+                  <Input
+                    type="date"
+                    value={prazoFim}
+                    onChange={(e) => setPrazoFim(e.target.value)}
+                    className="h-9"
+                    placeholder="Até"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="mt-4 text-sm text-muted-foreground flex items-center justify-between">
           <div>
             Mostrando {sortedOrdens.length} de {totalCount > 0 ? totalCount : ordens.length} resultados
+            {activeFiltersCount > 0 && (
+              <span className="ml-2 text-primary font-medium">
+                ({activeFiltersCount} filtro{activeFiltersCount > 1 ? "s" : ""} ativo{activeFiltersCount > 1 ? "s" : ""})
+              </span>
+            )}
             {ordensSemCoordenadas.length > 0 && !geocodingInProgress && (
               <span className="ml-2 text-orange-500">
                 • {ordensSemCoordenadas.length} OS(s) sem coordenadas
