@@ -5,13 +5,13 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Table,
   TableBody,
@@ -20,6 +20,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Target,
   TrendingUp,
@@ -41,6 +48,9 @@ import {
   Minus,
   Download,
   Filter,
+  Search,
+  ChevronDown,
+  X,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -139,9 +149,14 @@ export default function DashboardProducaoMeta() {
   const periodoPadrao = calcularPeriodoPadrao();
   const [dataInicio, setDataInicio] = useState(periodoPadrao.inicio);
   const [dataFim, setDataFim] = useState(periodoPadrao.fim);
-  const [filtroCentroCusto, setFiltroCentroCusto] = useState("todos");
-  const [filtroTipoEquipe, setFiltroTipoEquipe] = useState("todos");
-  const [filtroEquipe, setFiltroEquipe] = useState("todos");
+  const [filtrosCentroCusto, setFiltrosCentroCusto] = useState<string[]>([]);
+  const [filtrosTipoEquipe, setFiltrosTipoEquipe] = useState<string[]>([]);
+  const [filtrosEquipe, setFiltrosEquipe] = useState<string[]>([]);
+  
+  // Busca nos filtros
+  const [buscaCentroCusto, setBuscaCentroCusto] = useState("");
+  const [buscaTipoEquipe, setBuscaTipoEquipe] = useState("");
+  const [buscaEquipe, setBuscaEquipe] = useState("");
 
   // Tab ativa
   const [activeTab, setActiveTab] = useState("visao-geral");
@@ -180,17 +195,66 @@ export default function DashboardProducaoMeta() {
   // Equipes filtradas
   const equipesFiltradas = useMemo(() => {
     let filtered = equipes;
-    if (filtroCentroCusto !== "todos") {
-      filtered = filtered.filter(e => e.centro_custo_id === filtroCentroCusto);
+    if (filtrosCentroCusto.length > 0) {
+      filtered = filtered.filter(e => e.centro_custo_id && filtrosCentroCusto.includes(e.centro_custo_id));
     }
-    if (filtroTipoEquipe !== "todos") {
-      filtered = filtered.filter(e => e.tipo_equipe === filtroTipoEquipe);
+    if (filtrosTipoEquipe.length > 0) {
+      filtered = filtered.filter(e => filtrosTipoEquipe.includes(e.tipo_equipe || "normal"));
     }
-    if (filtroEquipe !== "todos") {
-      filtered = filtered.filter(e => e.id === filtroEquipe);
+    if (filtrosEquipe.length > 0) {
+      filtered = filtered.filter(e => filtrosEquipe.includes(e.id));
     }
     return filtered;
-  }, [equipes, filtroCentroCusto, filtroTipoEquipe, filtroEquipe]);
+  }, [equipes, filtrosCentroCusto, filtrosTipoEquipe, filtrosEquipe]);
+  
+  // Opções filtradas para cada dropdown
+  const centrosCustoFiltrados = useMemo(() => {
+    if (!buscaCentroCusto) return centrosCusto;
+    const termo = buscaCentroCusto.toLowerCase();
+    return centrosCusto.filter(cc => 
+      cc.codigo.toLowerCase().includes(termo) || 
+      cc.nome.toLowerCase().includes(termo)
+    );
+  }, [centrosCusto, buscaCentroCusto]);
+  
+  const equipesFiltradosDropdown = useMemo(() => {
+    if (!buscaEquipe) return equipes;
+    const termo = buscaEquipe.toLowerCase();
+    return equipes.filter(e => 
+      e.codigo.toLowerCase().includes(termo) || 
+      e.nome.toLowerCase().includes(termo)
+    );
+  }, [equipes, buscaEquipe]);
+  
+  // Helpers para toggle de filtros
+  const toggleFiltroCentroCusto = (id: string) => {
+    setFiltrosCentroCusto(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+  
+  const toggleFiltroTipoEquipe = (tipo: string) => {
+    setFiltrosTipoEquipe(prev => 
+      prev.includes(tipo) ? prev.filter(x => x !== tipo) : [...prev, tipo]
+    );
+  };
+  
+  const toggleFiltroEquipe = (id: string) => {
+    setFiltrosEquipe(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+  
+  const limparFiltros = () => {
+    setFiltrosCentroCusto([]);
+    setFiltrosTipoEquipe([]);
+    setFiltrosEquipe([]);
+    setBuscaCentroCusto("");
+    setBuscaTipoEquipe("");
+    setBuscaEquipe("");
+  };
+  
+  const temFiltrosAtivos = filtrosCentroCusto.length > 0 || filtrosTipoEquipe.length > 0 || filtrosEquipe.length > 0;
 
   // Dados calculados por equipe
   const dadosPorEquipe = useMemo(() => {
@@ -494,53 +558,182 @@ export default function DashboardProducaoMeta() {
           className="h-7 w-[115px] text-xs"
         />
 
-        <Select value={filtroCentroCusto} onValueChange={setFiltroCentroCusto}>
-          <SelectTrigger className="h-7 w-[120px] text-xs">
-            <SelectValue>
-              {filtroCentroCusto === "todos" 
-                ? "C.Custo: Todos" 
-                : centrosCusto.find(c => c.id === filtroCentroCusto)?.codigo || filtroCentroCusto}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Todos C.Custos</SelectItem>
-            {centrosCusto.map(cc => (
-              <SelectItem key={cc.id} value={cc.id}>{cc.codigo} - {cc.nome}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* Filtro Centro de Custo - Multi-select */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm" className="h-7 text-xs gap-1 min-w-[120px] justify-between">
+              <span className="truncate">
+                {filtrosCentroCusto.length === 0 
+                  ? "C.Custo: Todos" 
+                  : filtrosCentroCusto.length === 1
+                    ? centrosCusto.find(c => c.id === filtrosCentroCusto[0])?.codigo || "1 selecionado"
+                    : `${filtrosCentroCusto.length} selecionados`}
+              </span>
+              <ChevronDown className="h-3 w-3 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[220px] p-2" align="start">
+            <div className="space-y-2">
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar centro de custo..."
+                  value={buscaCentroCusto}
+                  onChange={e => setBuscaCentroCusto(e.target.value)}
+                  className="h-7 pl-7 text-xs"
+                />
+              </div>
+              <ScrollArea className="h-[180px]">
+                <div className="space-y-1">
+                  {centrosCustoFiltrados.map(cc => (
+                    <label
+                      key={cc.id}
+                      className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer"
+                    >
+                      <Checkbox
+                        checked={filtrosCentroCusto.includes(cc.id)}
+                        onCheckedChange={() => toggleFiltroCentroCusto(cc.id)}
+                        className="h-3.5 w-3.5"
+                      />
+                      <span className="text-xs truncate">{cc.codigo} - {cc.nome}</span>
+                    </label>
+                  ))}
+                  {centrosCustoFiltrados.length === 0 && (
+                    <div className="text-xs text-muted-foreground text-center py-4">Nenhum encontrado</div>
+                  )}
+                </div>
+              </ScrollArea>
+              {filtrosCentroCusto.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full h-6 text-xs"
+                  onClick={() => setFiltrosCentroCusto([])}
+                >
+                  Limpar seleção
+                </Button>
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
 
-        <Select value={filtroTipoEquipe} onValueChange={setFiltroTipoEquipe}>
-          <SelectTrigger className="h-7 w-[110px] text-xs">
-            <SelectValue>
-              {filtroTipoEquipe === "todos" 
-                ? "Tipo: Todos" 
-                : tipoEquipeLabels[filtroTipoEquipe]?.label || filtroTipoEquipe}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Todos Tipos</SelectItem>
-            {Object.entries(tipoEquipeLabels).map(([value, { label }]) => (
-              <SelectItem key={value} value={value}>{label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* Filtro Tipo Equipe - Multi-select */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm" className="h-7 text-xs gap-1 min-w-[100px] justify-between">
+              <span className="truncate">
+                {filtrosTipoEquipe.length === 0 
+                  ? "Tipo: Todos" 
+                  : filtrosTipoEquipe.length === 1
+                    ? tipoEquipeLabels[filtrosTipoEquipe[0]]?.label || "1 selecionado"
+                    : `${filtrosTipoEquipe.length} tipos`}
+              </span>
+              <ChevronDown className="h-3 w-3 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[180px] p-2" align="start">
+            <div className="space-y-1">
+              {Object.entries(tipoEquipeLabels).map(([value, { label, color }]) => (
+                <label
+                  key={value}
+                  className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer"
+                >
+                  <Checkbox
+                    checked={filtrosTipoEquipe.includes(value)}
+                    onCheckedChange={() => toggleFiltroTipoEquipe(value)}
+                    className="h-3.5 w-3.5"
+                  />
+                  <Badge style={{ backgroundColor: color }} className="text-white text-[10px] px-1.5">
+                    {label}
+                  </Badge>
+                </label>
+              ))}
+              {filtrosTipoEquipe.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full h-6 text-xs mt-2"
+                  onClick={() => setFiltrosTipoEquipe([])}
+                >
+                  Limpar seleção
+                </Button>
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
 
-        <Select value={filtroEquipe} onValueChange={setFiltroEquipe}>
-          <SelectTrigger className="h-7 w-[120px] text-xs">
-            <SelectValue>
-              {filtroEquipe === "todos" 
-                ? "Equipe: Todas" 
-                : equipes.find(e => e.id === filtroEquipe)?.codigo || filtroEquipe}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Todas Equipes</SelectItem>
-            {equipes.map(e => (
-              <SelectItem key={e.id} value={e.id}>{e.codigo}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* Filtro Equipe - Multi-select */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm" className="h-7 text-xs gap-1 min-w-[120px] justify-between">
+              <span className="truncate">
+                {filtrosEquipe.length === 0 
+                  ? "Equipe: Todas" 
+                  : filtrosEquipe.length === 1
+                    ? equipes.find(e => e.id === filtrosEquipe[0])?.codigo || "1 selecionada"
+                    : `${filtrosEquipe.length} equipes`}
+              </span>
+              <ChevronDown className="h-3 w-3 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[250px] p-2" align="start">
+            <div className="space-y-2">
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar equipe..."
+                  value={buscaEquipe}
+                  onChange={e => setBuscaEquipe(e.target.value)}
+                  className="h-7 pl-7 text-xs"
+                />
+              </div>
+              <ScrollArea className="h-[200px]">
+                <div className="space-y-1">
+                  {equipesFiltradosDropdown.map(e => (
+                    <label
+                      key={e.id}
+                      className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer"
+                    >
+                      <Checkbox
+                        checked={filtrosEquipe.includes(e.id)}
+                        onCheckedChange={() => toggleFiltroEquipe(e.id)}
+                        className="h-3.5 w-3.5"
+                      />
+                      <span className="text-xs font-medium">{e.codigo}</span>
+                      <span className="text-xs text-muted-foreground truncate">{e.nome}</span>
+                    </label>
+                  ))}
+                  {equipesFiltradosDropdown.length === 0 && (
+                    <div className="text-xs text-muted-foreground text-center py-4">Nenhuma encontrada</div>
+                  )}
+                </div>
+              </ScrollArea>
+              {filtrosEquipe.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full h-6 text-xs"
+                  onClick={() => setFiltrosEquipe([])}
+                >
+                  Limpar seleção ({filtrosEquipe.length})
+                </Button>
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
+        
+        {/* Limpar todos os filtros */}
+        {temFiltrosAtivos && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-muted-foreground"
+            onClick={limparFiltros}
+          >
+            <X className="h-3 w-3 mr-1" />
+            Limpar
+          </Button>
+        )}
 
         <Button variant="outline" size="sm" className="h-7 px-2" onClick={fetchData} disabled={loading}>
           {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCcw className="h-3 w-3" />}
