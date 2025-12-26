@@ -634,7 +634,8 @@ const AcompanhamentoRoteirizacoes = () => {
                   minute: '2-digit'
                 }) : "-",
                 "Regulada": os?.regulada ? "Sim" : "Não",
-                "Valor": valorOS,
+                "Valor Prev.": valorOS,
+                "Valor Prod.": Number(os?.valor_produzido) || 0,
                 "Distância (km)": distancia,
                 "Tempo Estimado (min)": Math.round(tempoMinutos),
                 "Hora Início": po.hora_inicio_estimada || "-",
@@ -1161,7 +1162,7 @@ const AcompanhamentoRoteirizacoes = () => {
                                   </div>
                                 </div>
                                 <div>
-                                  <div className="text-sm text-muted-foreground">Valor</div>
+                                  <div className="text-sm text-muted-foreground">Valor Prev.</div>
                                   <div className="font-medium">
                                     {(() => {
                                       const totalValor = group.ordens.reduce((acc, o) => {
@@ -1200,6 +1201,18 @@ const AcompanhamentoRoteirizacoes = () => {
                                         return acc + valor;
                                       }, 0);
                                       return totalValor > 0 ? `R$ ${totalValor.toFixed(2)}` : "-";
+                                    })()}
+                                  </div>
+                                </div>
+                                <div>
+                                  <div className="text-sm text-muted-foreground">Valor Prod.</div>
+                                  <div className="font-medium">
+                                    {(() => {
+                                      const totalValorProd = group.ordens.reduce((acc, o) => {
+                                        const os = o.ordens_servico;
+                                        return acc + (Number(os?.valor_produzido) || 0);
+                                      }, 0);
+                                      return totalValorProd > 0 ? `R$ ${totalValorProd.toFixed(2)}` : "-";
                                     })()}
                                   </div>
                                 </div>
@@ -1250,7 +1263,8 @@ const AcompanhamentoRoteirizacoes = () => {
                                 <TableHead>Distância</TableHead>
                                 <TableHead>Hora Início</TableHead>
                                 <TableHead>Hora Fim</TableHead>
-                                <TableHead>Valor</TableHead>
+                                <TableHead>Valor Prev.</TableHead>
+                                <TableHead>Valor Prod.</TableHead>
                                 <TableHead className="text-right">Ações</TableHead>
                               </TableRow>
                             </TableHeader>
@@ -1339,6 +1353,9 @@ const AcompanhamentoRoteirizacoes = () => {
                                           
                                           return `R$ ${valor.toFixed(2)}`;
                                         })()}
+                                      </TableCell>
+                                      <TableCell>
+                                        {os?.valor_produzido ? `R$ ${Number(os.valor_produzido).toFixed(2)}` : "-"}
                                       </TableCell>
                                       <TableCell className="text-right">
                                         <div className="flex gap-1 justify-end">
