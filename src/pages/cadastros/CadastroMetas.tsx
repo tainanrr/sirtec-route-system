@@ -133,6 +133,11 @@ export default function CadastroMetas() {
   // Estado do mês atual para visualização
   const [currentMonth, setCurrentMonth] = useState(new Date());
   
+  // Filtros de data personalizados
+  const [usarPeriodoCustom, setUsarPeriodoCustom] = useState(false);
+  const [dataInicio, setDataInicio] = useState(format(startOfMonth(new Date()), "yyyy-MM-dd"));
+  const [dataFim, setDataFim] = useState(format(endOfMonth(new Date()), "yyyy-MM-dd"));
+  
   // Estados para edição
   const [editMode, setEditMode] = useState(false);
   const [editValues, setEditValues] = useState<Record<string, number>>({});
@@ -183,13 +188,19 @@ export default function CadastroMetas() {
   // Valor para aplicar em massa
   const [bulkValue, setBulkValue] = useState("");
 
-  // Dias do mês atual
+  // Dias do período (mês ou customizado)
   const diasDoMes = useMemo(() => {
+    if (usarPeriodoCustom && dataInicio && dataFim) {
+      return eachDayOfInterval({
+        start: parseISO(dataInicio),
+        end: parseISO(dataFim),
+      });
+    }
     return eachDayOfInterval({
       start: startOfMonth(currentMonth),
       end: endOfMonth(currentMonth),
     });
-  }, [currentMonth]);
+  }, [currentMonth, usarPeriodoCustom, dataInicio, dataFim]);
 
   // Mapa de feriados por data
   const feriadosPorData = useMemo(() => {
@@ -256,16 +267,30 @@ export default function CadastroMetas() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const monthStart = format(startOfMonth(currentMonth), "yyyy-MM-dd");
-      const monthEnd = format(endOfMonth(currentMonth), "yyyy-MM-dd");
+      // Determinar período de busca
+      let periodoInicio: string;
+      let periodoFim: string;
+      
+      if (usarPeriodoCustom && dataInicio && dataFim) {
+        periodoInicio = dataInicio;
+        periodoFim = dataFim;
+      } else {
+        periodoInicio = format(startOfMonth(currentMonth), "yyyy-MM-dd");
+        periodoFim = format(endOfMonth(currentMonth), "yyyy-MM-dd");
+      }
+
+      console.log("Buscando metas de", periodoInicio, "até", periodoFim);
 
       const [metasRes, equipesRes, contratosRes, feriadosRes, centrosRes] = await Promise.all([
-        supabase.from("metas").select("*").gte("data", monthStart).lte("data", monthEnd).order("data"),
+        supabase.from("metas").select("*").gte("data", periodoInicio).lte("data", periodoFim).order("data"),
         supabase.from("tecnicos").select("id, codigo, nome, centro_custo_id").neq("status", "offline").order("codigo"),
         supabase.from("contratos").select("id, codigo, nome").eq("status", "ativo").order("codigo"),
         supabase.from("feriados").select("*, centros_custo(codigo, nome)").eq("ativo", true).order("data"),
         supabase.from("centros_custo").select("id, codigo, nome").eq("ativo", true).order("codigo"),
       ]);
+
+      console.log("Metas encontradas:", metasRes.data?.length || 0);
+      console.log("Equipes encontradas:", equipesRes.data?.length || 0);
 
       setMetas(metasRes.data || []);
       setEquipes(equipesRes.data || []);
@@ -278,11 +303,19 @@ export default function CadastroMetas() {
     } finally {
       setLoading(false);
     }
-  }, [currentMonth]);
+  }, [currentMonth, usarPeriodoCustom, dataInicio, dataFim]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+  
+  // Atualizar período quando mudar o mês
+  useEffect(() => {
+    if (!usarPeriodoCustom) {
+      setDataInicio(format(startOfMonth(currentMonth), "yyyy-MM-dd"));
+      setDataFim(format(endOfMonth(currentMonth), "yyyy-MM-dd"));
+    }
+  }, [currentMonth, usarPeriodoCustom]);
 
   // Handlers de célula
   const getCellKey = (equipeId: string, data: string) => `${equipeId}${KEY_SEP}${data}`;
@@ -421,9 +454,9 @@ export default function CadastroMetas() {
 
     setSaving(true);
     try {
-      const dataInicio = new Date(bulkData.data_inicio + "T12:00:00");
-      const dataFim = new Date(bulkData.data_fim + "T12:00:00");
-      let dias = eachDayOfInterval({ start: dataInicio, end: dataFim });
+      const inicioData = new Date(bulkData.data_inicio + "T12:00:00");
+      const fimData = new Date(bulkData.data_fim + "T12:00:00");
+      let dias = eachDayOfInterval({ start: inicioData, end: fimData });
 
       // Filtrar dias da semana
       dias = dias.filter(dia => bulkData.dias_semana.includes(getDay(dia)));
@@ -433,28 +466,52 @@ export default function CadastroMetas() {
         dias = dias.filter(dia => !feriadosPorData.has(format(dia, "yyyy-MM-dd")));
       }
 
-      const metasToInsert: any[] = [];
-      for (const equipeId of bulkData.equipes_ids) {
-        for (const dia of dias) {
-          metasToInsert.push({
-            equipe_id: equipeId,
-            contrato_id: bulkData.contrato_id !== "nenhum" ? bulkData.contrato_id : null,
-            data: format(dia, "yyyy-MM-dd"),
-            meta_valor: parseFloat(bulkData.meta_valor),
-            tipo_meta: bulkData.tipo_meta,
-          });
-        }
-      }
-
-      if (metasToInsert.length === 0) {
-        toast.error("Nenhuma meta para criar");
+      if (dias.length === 0) {
+        toast.error("Nenhum dia válido no período selecionado");
         return;
       }
 
-      const { error } = await supabase.from("metas").upsert(metasToInsert, { onConflict: "equipe_id,data" });
-      if (error) throw error;
+      let criadas = 0;
+      let atualizadas = 0;
 
-      toast.success(`${metasToInsert.length} metas criadas/atualizadas`);
+      for (const equipeId of bulkData.equipes_ids) {
+        for (const dia of dias) {
+          const dataStr = format(dia, "yyyy-MM-dd");
+          const key = getCellKey(equipeId, dataStr);
+          const metaExistente = metasPorEquipeData.get(key);
+
+          if (metaExistente) {
+            // Atualizar meta existente
+            const { error } = await supabase
+              .from("metas")
+              .update({ 
+                meta_valor: parseFloat(bulkData.meta_valor),
+                tipo_meta: bulkData.tipo_meta,
+                contrato_id: bulkData.contrato_id !== "nenhum" ? bulkData.contrato_id : null,
+              })
+              .eq("id", metaExistente.id);
+            
+            if (error) throw error;
+            atualizadas++;
+          } else {
+            // Criar nova meta
+            const { error } = await supabase
+              .from("metas")
+              .insert({
+                equipe_id: equipeId,
+                contrato_id: bulkData.contrato_id !== "nenhum" ? bulkData.contrato_id : null,
+                data: dataStr,
+                meta_valor: parseFloat(bulkData.meta_valor),
+                tipo_meta: bulkData.tipo_meta,
+              });
+            
+            if (error) throw error;
+            criadas++;
+          }
+        }
+      }
+
+      toast.success(`${criadas} metas criadas, ${atualizadas} atualizadas`);
       setBulkDialogOpen(false);
       fetchData();
     } catch (error: any) {
@@ -609,23 +666,58 @@ export default function CadastroMetas() {
           <TabsContent value="metas" className="space-y-3 mt-3">
             {/* Header compacto */}
             <div className="flex items-center justify-between gap-2 flex-wrap">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <Target className="h-5 w-5 text-primary" />
                 <h2 className="text-lg font-bold">Metas</h2>
-                <div className="flex items-center gap-1">
-                  <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}>
-                    <ChevronLeft className="h-4 w-4" />
-                  </Button>
-                  <span className="text-sm font-medium min-w-[110px] text-center">
-                    {format(currentMonth, "MMMM/yyyy", { locale: ptBR })}
-                  </span>
-                  <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setCurrentMonth(new Date())}>
-                    Hoje
-                  </Button>
+                
+                {/* Navegação por mês */}
+                {!usarPeriodoCustom && (
+                  <div className="flex items-center gap-1">
+                    <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}>
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <span className="text-sm font-medium min-w-[110px] text-center">
+                      {format(currentMonth, "MMMM/yyyy", { locale: ptBR })}
+                    </span>
+                    <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setCurrentMonth(new Date())}>
+                      Hoje
+                    </Button>
+                  </div>
+                )}
+                
+                {/* Toggle período customizado */}
+                <div className="flex items-center gap-1 ml-2">
+                  <label className="flex items-center gap-1 cursor-pointer text-xs">
+                    <Checkbox
+                      checked={usarPeriodoCustom}
+                      onCheckedChange={v => setUsarPeriodoCustom(!!v)}
+                      className="h-3 w-3"
+                    />
+                    Período
+                  </label>
                 </div>
+                
+                {/* Filtros de data customizados */}
+                {usarPeriodoCustom && (
+                  <div className="flex items-center gap-1">
+                    <Input
+                      type="date"
+                      value={dataInicio}
+                      onChange={e => setDataInicio(e.target.value)}
+                      className="h-7 w-32 text-xs"
+                    />
+                    <span className="text-xs">até</span>
+                    <Input
+                      type="date"
+                      value={dataFim}
+                      onChange={e => setDataFim(e.target.value)}
+                      className="h-7 w-32 text-xs"
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-2">
