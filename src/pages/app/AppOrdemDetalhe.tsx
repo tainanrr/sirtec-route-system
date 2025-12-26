@@ -775,41 +775,34 @@ export default function AppOrdemDetalhe() {
         {/* Fotos */}
         {qtdFotos > 0 && (
           <div id="fotos-section" className="bg-white rounded-xl border p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <Image className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium">Fotos ({qtdFotos})</span>
-              </div>
-              {isActive && (
-                <Badge variant="destructive" className="text-xs">Toque no X para excluir</Badge>
-              )}
+            <div className="flex items-center gap-2 mb-3">
+              <Image className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Fotos ({qtdFotos})</span>
             </div>
             <div className="grid grid-cols-3 gap-3">
               {anexos?.filter(a => a.tipo === "foto").map((anexo) => (
-                <div key={anexo.id} className="relative p-1">
+                <div key={anexo.id} className="relative">
                   <img
                     src={anexo.url}
                     alt=""
-                    className="w-full aspect-square object-cover rounded-lg cursor-pointer border-2 border-gray-200"
+                    className="w-full aspect-square object-cover rounded-lg cursor-pointer border border-gray-200"
                     onClick={() => window.open(anexo.url, "_blank")}
                   />
                   {isActive && (
-                    <Button
-                      variant="destructive"
-                      size="icon"
+                    <button
                       onClick={(e) => {
                         e.stopPropagation();
                         handleDeleteFoto(anexo.id);
                       }}
                       disabled={deleteFotoMutation.isPending}
-                      className="absolute -top-1 -right-1 h-7 w-7 rounded-full shadow-lg"
+                      className="absolute top-1 right-1 h-5 w-5 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center shadow-sm"
                     >
                       {deleteFotoMutation.isPending ? (
                         <Loader2 className="h-3 w-3 animate-spin" />
                       ) : (
-                        <XCircle className="h-4 w-4" />
+                        <span className="text-xs font-bold">×</span>
                       )}
-                    </Button>
+                    </button>
                   )}
                 </div>
               ))}
@@ -840,13 +833,7 @@ export default function AppOrdemDetalhe() {
               )}
               <Button
                 variant="outline"
-                className="w-full h-11 text-sm font-semibold shadow-lg"
-                style={{ 
-                  backgroundColor: '#ffffff', 
-                  color: '#065f46', 
-                  borderColor: '#10b981',
-                  borderWidth: '2px'
-                }}
+                className="w-full h-11 text-sm font-semibold shadow-lg bg-white text-emerald-700 border-2 border-emerald-500 hover:bg-emerald-50"
                 onClick={() => navegarComEstado("/app/ordens")}
               >
                 <List className="h-5 w-5 mr-2" />

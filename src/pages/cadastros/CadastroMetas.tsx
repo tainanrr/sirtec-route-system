@@ -472,11 +472,32 @@ export default function CadastroMetas() {
         return;
       }
 
-      const { error } = await supabase.from("metas").upsert(metasToInsert, {
-        onConflict: "equipe_id,data",
-      });
-
-      if (error) throw error;
+      // Inserir metas uma a uma para evitar problemas de constraint
+      for (const meta of metasToInsert) {
+        // Verificar se já existe meta para esta equipe/data
+        const { data: existente } = await supabase
+          .from("metas")
+          .select("id")
+          .eq("equipe_id", meta.equipe_id)
+          .eq("data", meta.data)
+          .maybeSingle();
+        
+        if (existente) {
+          // Atualizar
+          await supabase
+            .from("metas")
+            .update({
+              contrato_id: meta.contrato_id,
+              meta_valor: meta.meta_valor,
+              tipo_meta: meta.tipo_meta,
+            })
+            .eq("id", existente.id);
+        } else {
+          // Inserir
+          const { error } = await supabase.from("metas").insert(meta);
+          if (error) throw error;
+        }
+      }
 
       const diasExcluidos = feriadosNoPeriodo.length;
       toast.success(

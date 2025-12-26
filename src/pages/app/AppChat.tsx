@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
@@ -87,16 +87,19 @@ export default function AppChat() {
     return () => clearTimeout(timer);
   }, [mensagens]);
 
-  // Iniciar conversa automaticamente ao montar
+  // Iniciar conversa automaticamente ao montar (apenas uma vez)
+  const conversaIniciadaRef = useRef(false);
+  
   useEffect(() => {
-    if (equipeId && !conversaAtiva) {
+    if (equipeId && !conversaIniciadaRef.current) {
+      conversaIniciadaRef.current = true;
       obterOuCriarConversa({
         id: equipeId,
         codigo: equipeCodigo,
         nome: equipeCodigo
       });
     }
-  }, [equipeId, equipeCodigo, conversaAtiva, obterOuCriarConversa]);
+  }, [equipeId, equipeCodigo, obterOuCriarConversa]);
 
   const handleEnviar = async () => {
     if (selectedImage) {

@@ -486,7 +486,7 @@ export function TecnicoFormDialog({
         login_ativo: true, // Habilitar login por código
         min_colaboradores: data.min_colaboradores,
         max_colaboradores: data.max_colaboradores,
-        centro_custo_id: data.centro_custo_id || null,
+        centro_custo_id: (data.centro_custo_id && data.centro_custo_id !== "_none_") ? data.centro_custo_id : null,
       };
 
       // Adicionar coordenadas se fornecidas
@@ -743,14 +743,14 @@ export function TecnicoFormDialog({
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Centro de Custo</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value || ""}>
+                      <Select onValueChange={(val) => field.onChange(val === "_none_" ? "" : val)} value={field.value || "_none_"}>
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Selecione um centro de custo" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="">Nenhum</SelectItem>
+                          <SelectItem value="_none_">Nenhum</SelectItem>
                           {centrosCusto.map((cc) => (
                             <SelectItem key={cc.id} value={cc.id}>
                               {cc.codigo ? `${cc.codigo} - ` : ""}{cc.nome}
