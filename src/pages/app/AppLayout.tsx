@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
-import { Home, Route, User, LogOut, Wifi, WifiOff, Package, MessageCircle } from "lucide-react";
+import { Home, Route, LogOut, Wifi, WifiOff, Package, MessageCircle, BarChart3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
@@ -8,7 +8,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { ScrollRestoreProvider } from "@/contexts/ScrollRestoreContext";
 import { supabase } from "@/integrations/supabase/client";
 
-type AppSection = "home" | "ordens" | "estoque" | "chat" | "perfil";
+type AppSection = "home" | "ordens" | "estoque" | "chat" | "resultados";
 
 export default function AppLayout() {
   const location = useLocation();
@@ -92,7 +92,7 @@ export default function AppLayout() {
     if (pathname.startsWith("/app/ordens")) return "ordens";
     if (pathname.startsWith("/app/estoque")) return "estoque";
     if (pathname.startsWith("/app/chat")) return "chat";
-    if (pathname.startsWith("/app/perfil")) return "perfil";
+    if (pathname.startsWith("/app/resultados")) return "resultados";
     return null;
   };
 
@@ -106,8 +106,8 @@ export default function AppLayout() {
         return "/app/estoque";
       case "chat":
         return "/app/chat";
-      case "perfil":
-        return "/app/perfil";
+      case "resultados":
+        return "/app/resultados";
     }
   };
 
@@ -161,7 +161,7 @@ export default function AppLayout() {
       sessionStorage.removeItem(sectionKey("ordens"));
       sessionStorage.removeItem(sectionKey("estoque"));
       sessionStorage.removeItem(sectionKey("chat"));
-      sessionStorage.removeItem(sectionKey("perfil"));
+      sessionStorage.removeItem(sectionKey("resultados"));
     } catch {
       // ignore
     }
@@ -173,7 +173,7 @@ export default function AppLayout() {
     { icon: Route, label: "Rota", section: "ordens" as const },
     { icon: Package, label: "Estoque", section: "estoque" as const },
     { icon: MessageCircle, label: "Chat", section: "chat" as const },
-    { icon: User, label: "Perfil", section: "perfil" as const },
+    { icon: BarChart3, label: "Resultados", section: "resultados" as const },
   ];
 
   const isActive = (section: AppSection) => {

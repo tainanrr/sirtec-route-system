@@ -63,7 +63,7 @@ import AppHome from "./pages/app/AppHome";
 import AppOrdens from "./pages/app/AppOrdens";
 import AppOrdemDetalhe from "./pages/app/AppOrdemDetalhe";
 import AppAPR from "./pages/app/AppAPR";
-import AppPerfil from "./pages/app/AppPerfil";
+import AppResultados from "./pages/app/AppResultados";
 import AppLogin from "./pages/app/AppLogin";
 import AppAbrirTurno from "./pages/app/AppAbrirTurno";
 import AppEstoque from "./pages/app/AppEstoque";
@@ -183,7 +183,7 @@ const App = () => (
               <Route path="procedimentos" element={<AppProcedimentos />} />
               <Route path="procedimentos/:id" element={<AppProcedimentoDetalhe />} />
               <Route path="chat" element={<AppChat />} />
-              <Route path="perfil" element={<AppPerfil />} />
+              <Route path="resultados" element={<AppResultados />} />
             </Route>
 
             <Route path="*" element={<NotFound />} />

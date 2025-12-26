@@ -51,6 +51,7 @@ import {
   Search,
   ChevronDown,
   X,
+  Zap,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -91,6 +92,12 @@ interface Producao {
   valor_total: number;
   created_at: string;
   numero_os?: string;
+  retornos_campo?: {
+    id: string;
+    codigo: string;
+    descricao: string;
+    tipo: string;
+  } | null;
 }
 
 interface Equipe {
@@ -168,7 +175,7 @@ export default function DashboardProducaoMeta() {
     try {
       const [metasRes, producaoRes, equipesRes, centrosRes] = await Promise.all([
         supabase.from("metas").select("*").gte("data", dataInicio).lte("data", dataFim),
-        supabase.from("producao_equipes").select("*").gte("created_at", dataInicio + "T00:00:00").lte("created_at", dataFim + "T23:59:59"),
+        supabase.from("producao_equipes").select("*, retornos_campo:retorno_campo_id(id, codigo, descricao, tipo)").gte("created_at", dataInicio + "T00:00:00").lte("created_at", dataFim + "T23:59:59"),
         supabase.from("tecnicos").select("id, codigo, nome, centro_custo_id, tipo_equipe").neq("status", "offline").order("codigo"),
         supabase.from("centros_custo").select("id, codigo, nome").order("codigo"),
       ]);
@@ -409,6 +416,81 @@ export default function DashboardProducaoMeta() {
       percentual: dados.meta > 0 ? (dados.producao / dados.meta) * 100 : 0,
     }));
   }, [dadosPorEquipe]);
+
+  // Dados de assertividade
+  const dadosAssertividade = useMemo(() => {
+    const equipeIds = new Set(equipesFiltradas.map(e => e.id));
+    const producoesFiltradas = producoes.filter(p => equipeIds.has(p.equipe_id));
+    
+    const totalVisitas = producoesFiltradas.length;
+    const executadas = producoesFiltradas.filter(p => p.retornos_campo?.tipo === "executado").length;
+    const impedimentos = producoesFiltradas.filter(p => p.retornos_campo?.tipo === "impedimento").length;
+    const parciais = producoesFiltradas.filter(p => p.retornos_campo?.tipo === "parcial").length;
+    const semRetorno = totalVisitas - executadas - impedimentos - parciais;
+    
+    const percentualExecutado = totalVisitas > 0 ? (executadas / totalVisitas) * 100 : 0;
+    const percentualImpedimento = totalVisitas > 0 ? (impedimentos / totalVisitas) * 100 : 0;
+    const percentualParcial = totalVisitas > 0 ? (parciais / totalVisitas) * 100 : 0;
+    
+    // Assertividade por equipe
+    const porEquipe = equipesFiltradas.map(equipe => {
+      const producoesEquipe = producoesFiltradas.filter(p => p.equipe_id === equipe.id);
+      const total = producoesEquipe.length;
+      const exec = producoesEquipe.filter(p => p.retornos_campo?.tipo === "executado").length;
+      const imped = producoesEquipe.filter(p => p.retornos_campo?.tipo === "impedimento").length;
+      const parc = producoesEquipe.filter(p => p.retornos_campo?.tipo === "parcial").length;
+      
+      return {
+        equipe,
+        totalVisitas: total,
+        executadas: exec,
+        impedimentos: imped,
+        parciais: parc,
+        assertividade: total > 0 ? (exec / total) * 100 : 0,
+        valorExecutado: producoesEquipe
+          .filter(p => p.retornos_campo?.tipo === "executado")
+          .reduce((acc, p) => acc + (p.valor_total || 0), 0),
+        valorImpedido: producoesEquipe
+          .filter(p => p.retornos_campo?.tipo === "impedimento")
+          .reduce((acc, p) => acc + (p.valor_total || 0), 0),
+      };
+    }).filter(e => e.totalVisitas > 0).sort((a, b) => b.assertividade - a.assertividade);
+    
+    // Assertividade por tipo de equipe
+    const porTipo: Record<string, { total: number; executadas: number; impedimentos: number; parciais: number }> = {};
+    porEquipe.forEach(e => {
+      const tipo = e.equipe.tipo_equipe || "normal";
+      if (!porTipo[tipo]) {
+        porTipo[tipo] = { total: 0, executadas: 0, impedimentos: 0, parciais: 0 };
+      }
+      porTipo[tipo].total += e.totalVisitas;
+      porTipo[tipo].executadas += e.executadas;
+      porTipo[tipo].impedimentos += e.impedimentos;
+      porTipo[tipo].parciais += e.parciais;
+    });
+    
+    const assertividadePorTipo = Object.entries(porTipo).map(([tipo, dados]) => ({
+      tipo,
+      label: tipoEquipeLabels[tipo]?.label || tipo,
+      color: tipoEquipeLabels[tipo]?.color || "#6b7280",
+      ...dados,
+      assertividade: dados.total > 0 ? (dados.executadas / dados.total) * 100 : 0,
+    }));
+    
+    return {
+      totalVisitas,
+      executadas,
+      impedimentos,
+      parciais,
+      semRetorno,
+      percentualExecutado,
+      percentualImpedimento,
+      percentualParcial,
+      assertividadeGeral: percentualExecutado,
+      porEquipe,
+      porTipo: assertividadePorTipo,
+    };
+  }, [producoes, equipesFiltradas]);
 
   // Exportar dados completos
   const handleExportar = () => {
@@ -792,6 +874,9 @@ export default function DashboardProducaoMeta() {
             <TabsTrigger value="ranking" className="text-xs">
               <Award className="h-4 w-4 mr-1" /> Ranking
             </TabsTrigger>
+            <TabsTrigger value="assertividade" className="text-xs">
+              <Zap className="h-4 w-4 mr-1" /> Assertividade
+            </TabsTrigger>
             <TabsTrigger value="analise" className="text-xs">
               <PieChart className="h-4 w-4 mr-1" /> Análise
             </TabsTrigger>
@@ -1160,6 +1245,199 @@ export default function DashboardProducaoMeta() {
                             ) : (
                               <Minus className="h-5 w-5 text-gray-300 mx-auto" />
                             )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Tab Assertividade */}
+          <TabsContent value="assertividade" className="space-y-4">
+            {/* KPIs de Assertividade */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <Card className="bg-gradient-to-br from-emerald-500/10 to-emerald-600/5">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Zap className="h-4 w-4 text-emerald-500" />
+                    <span className="text-xs text-muted-foreground">Assertividade Geral</span>
+                  </div>
+                  <div className={cn(
+                    "text-2xl font-bold",
+                    dadosAssertividade.assertividadeGeral >= 90 ? "text-green-600" :
+                    dadosAssertividade.assertividadeGeral >= 70 ? "text-amber-600" : "text-red-600"
+                  )}>
+                    {dadosAssertividade.assertividadeGeral.toFixed(1)}%
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-gradient-to-br from-green-500/10 to-green-600/5">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <CheckCircle2 className="h-4 w-4 text-green-500" />
+                    <span className="text-xs text-muted-foreground">Executadas</span>
+                  </div>
+                  <div className="text-2xl font-bold text-green-600">{dadosAssertividade.executadas}</div>
+                  <div className="text-[10px] text-muted-foreground">{dadosAssertividade.percentualExecutado.toFixed(1)}%</div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-gradient-to-br from-red-500/10 to-red-600/5">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <XCircle className="h-4 w-4 text-red-500" />
+                    <span className="text-xs text-muted-foreground">Impedimentos</span>
+                  </div>
+                  <div className="text-2xl font-bold text-red-600">{dadosAssertividade.impedimentos}</div>
+                  <div className="text-[10px] text-muted-foreground">{dadosAssertividade.percentualImpedimento.toFixed(1)}%</div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-gradient-to-br from-amber-500/10 to-amber-600/5">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertTriangle className="h-4 w-4 text-amber-500" />
+                    <span className="text-xs text-muted-foreground">Parciais</span>
+                  </div>
+                  <div className="text-2xl font-bold text-amber-600">{dadosAssertividade.parciais}</div>
+                  <div className="text-[10px] text-muted-foreground">{dadosAssertividade.percentualParcial.toFixed(1)}%</div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Gráficos de Assertividade */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Gráfico de Pizza */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">Distribuição de Visitas</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RechartsPieChart>
+                        <Pie
+                          data={[
+                            { name: "Executadas", value: dadosAssertividade.executadas, fill: "#10b981" },
+                            { name: "Impedimentos", value: dadosAssertividade.impedimentos, fill: "#ef4444" },
+                            { name: "Parciais", value: dadosAssertividade.parciais, fill: "#f59e0b" },
+                            { name: "Sem Retorno", value: dadosAssertividade.semRetorno, fill: "#9ca3af" },
+                          ].filter(d => d.value > 0)}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={60}
+                          outerRadius={100}
+                          paddingAngle={2}
+                          dataKey="value"
+                          label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                        >
+                        </Pie>
+                        <Tooltip formatter={(value: number) => [value, "Visitas"]} />
+                        <Legend />
+                      </RechartsPieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Assertividade por Tipo de Equipe */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">Assertividade por Tipo de Equipe</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={dadosAssertividade.porTipo} layout="vertical" margin={{ top: 20, right: 30, left: 60, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                        <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
+                        <YAxis type="category" dataKey="label" tick={{ fontSize: 11 }} />
+                        <Tooltip formatter={(value: number) => [`${value.toFixed(1)}%`, "Assertividade"]} />
+                        <Bar dataKey="assertividade" name="Assertividade" radius={[0, 4, 4, 0]}>
+                          {dadosAssertividade.porTipo.map((entry, index) => (
+                            <Cell 
+                              key={`cell-${index}`} 
+                              fill={entry.assertividade >= 90 ? "#10b981" : entry.assertividade >= 70 ? "#f59e0b" : "#ef4444"} 
+                            />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Ranking de Assertividade por Equipe */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Zap className="h-4 w-4" />
+                  Ranking de Assertividade por Equipe
+                  <Badge variant="outline" className="font-normal text-[10px]">
+                    Ordenado por % assertividade (melhor → pior)
+                  </Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="max-h-[400px] overflow-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[50px]">#</TableHead>
+                        <TableHead>Equipe</TableHead>
+                        <TableHead className="text-center">Total</TableHead>
+                        <TableHead className="text-center">Exec.</TableHead>
+                        <TableHead className="text-center">Imped.</TableHead>
+                        <TableHead className="text-center">Parc.</TableHead>
+                        <TableHead className="text-right">Assertividade</TableHead>
+                        <TableHead className="w-[100px]"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {dadosAssertividade.porEquipe.slice(0, 20).map((d, idx) => (
+                        <TableRow key={d.equipe.id}>
+                          <TableCell className="font-medium">{idx + 1}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Badge 
+                                variant="outline" 
+                                className="text-[10px]"
+                                style={{ borderColor: tipoEquipeLabels[d.equipe.tipo_equipe || "normal"]?.color }}
+                              >
+                                {d.equipe.codigo}
+                              </Badge>
+                              <span className="text-sm truncate max-w-[150px]">{d.equipe.nome}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-center">{d.totalVisitas}</TableCell>
+                          <TableCell className="text-center text-green-600 font-medium">{d.executadas}</TableCell>
+                          <TableCell className="text-center text-red-600 font-medium">{d.impedimentos}</TableCell>
+                          <TableCell className="text-center text-amber-600 font-medium">{d.parciais}</TableCell>
+                          <TableCell className="text-right">
+                            <span className={cn(
+                              "font-bold",
+                              d.assertividade >= 90 ? "text-green-600" :
+                              d.assertividade >= 70 ? "text-amber-600" : "text-red-600"
+                            )}>
+                              {d.assertividade.toFixed(1)}%
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <div className="w-16 h-2 bg-muted rounded-full overflow-hidden">
+                              <div 
+                                className={cn(
+                                  "h-full transition-all",
+                                  d.assertividade >= 90 ? "bg-green-500" :
+                                  d.assertividade >= 70 ? "bg-amber-500" : "bg-red-500"
+                                )}
+                                style={{ width: `${Math.min(d.assertividade, 100)}%` }}
+                              />
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
