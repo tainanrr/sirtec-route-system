@@ -64,25 +64,26 @@ import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-// Função para calcular período do ciclo (26 a 25)
+// Função para calcular período do ciclo (26 a 25) - retorna início, fim completo e fim até hoje
 const calcularPeriodoCiclo = () => {
   const hoje = new Date();
   const diaAtual = getDate(hoje);
   
   let inicio: Date;
-  let fim: Date;
+  let fimCiclo: Date;
   
   if (diaAtual >= 26) {
     inicio = setDate(hoje, 26);
-    fim = setDate(addMonths(hoje, 1), 25);
+    fimCiclo = setDate(addMonths(hoje, 1), 25);
   } else {
     inicio = setDate(subMonths(hoje, 1), 26);
-    fim = setDate(hoje, 25);
+    fimCiclo = setDate(hoje, 25);
   }
   
   return {
     inicio: format(inicio, "yyyy-MM-dd"),
-    fim: format(fim, "yyyy-MM-dd"),
+    fim: format(fimCiclo, "yyyy-MM-dd"),
+    fimAteHoje: format(hoje, "yyyy-MM-dd"), // Até o dia atual
   };
 };
 
@@ -213,9 +214,9 @@ export default function AppHome() {
     enabled: !!equipe?.id,
   });
 
-  // Buscar produção e meta do ciclo
+  // Buscar produção e meta do ciclo (até hoje)
   const { data: producaoCiclo } = useQuery({
-    queryKey: ["producao-ciclo", equipe?.id, periodoCiclo.inicio, periodoCiclo.fim],
+    queryKey: ["producao-ciclo", equipe?.id, periodoCiclo.inicio, periodoCiclo.fimAteHoje],
     queryFn: async () => {
       if (!equipe?.id) return { valor: 0, meta: 0 };
       
@@ -225,13 +226,13 @@ export default function AppHome() {
           .select("valor_total")
           .eq("equipe_id", equipe.id)
           .gte("created_at", periodoCiclo.inicio + "T00:00:00")
-          .lte("created_at", periodoCiclo.fim + "T23:59:59"),
+          .lte("created_at", periodoCiclo.fimAteHoje + "T23:59:59"),
         supabase
           .from("metas")
           .select("valor_meta")
           .eq("equipe_id", equipe.id)
           .gte("data", periodoCiclo.inicio)
-          .lte("data", periodoCiclo.fim),
+          .lte("data", periodoCiclo.fimAteHoje),
       ]);
       
       const valor = (prodRes.data || []).reduce((acc, p) => acc + (p.valor_total || 0), 0);
@@ -495,7 +496,7 @@ export default function AppHome() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Target className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">Ciclo {format(parseISO(periodoCiclo.inicio), "dd/MM")} - {format(parseISO(periodoCiclo.fim), "dd/MM")}</span>
+              <span className="text-sm text-muted-foreground">Ciclo {format(parseISO(periodoCiclo.inicio), "dd/MM")} - {format(parseISO(periodoCiclo.fimAteHoje), "dd/MM")}</span>
             </div>
             <div className="flex items-center gap-4">
               <div className="text-right">
