@@ -90,6 +90,7 @@ interface Producao {
   ordem_servico_id: string;
   valor_total: number;
   created_at: string;
+  numero_os?: string;
 }
 
 interface Equipe {
@@ -176,8 +177,40 @@ export default function DashboardProducaoMeta() {
       if (producaoRes.error) throw producaoRes.error;
       if (equipesRes.error) throw equipesRes.error;
 
+      // Buscar números das OSs para as produções
+      const producoesData = producaoRes.data || [];
+      const osIds = [...new Set(producoesData.map(p => p.ordem_servico_id).filter(Boolean))];
+      
+      let numerosOsMap: Record<string, string> = {};
+      if (osIds.length > 0) {
+        // Buscar em lotes para evitar limite de URL
+        const chunks = [];
+        for (let i = 0; i < osIds.length; i += 50) {
+          chunks.push(osIds.slice(i, i + 50));
+        }
+        
+        for (const chunk of chunks) {
+          const { data: ordensData } = await supabase
+            .from("ordens_servico")
+            .select("id, numero_os")
+            .in("id", chunk);
+          
+          if (ordensData) {
+            ordensData.forEach(o => {
+              numerosOsMap[o.id] = o.numero_os;
+            });
+          }
+        }
+      }
+      
+      // Adicionar numero_os às produções
+      const producoesComNumero = producoesData.map(p => ({
+        ...p,
+        numero_os: numerosOsMap[p.ordem_servico_id] || undefined,
+      }));
+
       setMetas(metasRes.data || []);
-      setProducoes(producaoRes.data || []);
+      setProducoes(producoesComNumero);
       setEquipes(equipesRes.data || []);
       setCentrosCusto(centrosRes.data || []);
     } catch (error: any) {
@@ -422,7 +455,7 @@ export default function DashboardProducaoMeta() {
 
       // ===== ABA 3: EVOLUÇÃO DIÁRIA =====
       const evolucaoDiaria = dadosEvolucaoDiaria.map(d => ({
-        "Data": d.dataCompleta,
+        "Data": format(parseISO(d.dataCompleta), "dd/MM/yyyy"),
         "Dia da Semana": format(parseISO(d.dataCompleta), "EEEE", { locale: ptBR }),
         "Meta do Dia (R$)": d.meta,
         "Produção do Dia (R$)": d.producao,
@@ -434,7 +467,7 @@ export default function DashboardProducaoMeta() {
 
       // ===== ABA 4: EVOLUÇÃO ACUMULADA =====
       const evolucaoAcumulada = dadosAcumulados.map(d => ({
-        "Data": d.dataCompleta,
+        "Data": format(parseISO(d.dataCompleta), "dd/MM/yyyy"),
         "Meta Acumulada (R$)": d.metaAcumulada,
         "Produção Acumulada (R$)": d.producaoAcumulada,
         "Diferença Acumulada (R$)": d.producaoAcumulada - d.metaAcumulada,
@@ -482,7 +515,7 @@ export default function DashboardProducaoMeta() {
             detalhamentoMetas.push({
               "Código Equipe": equipe.codigo,
               "Nome Equipe": equipe.nome,
-              "Data": dataStr,
+              "Data": format(dia, "dd/MM/yyyy"),
               "Dia da Semana": format(dia, "EEE", { locale: ptBR }),
               "Meta (R$)": metaDia?.valor_meta || 0,
               "Produção (R$)": prodDia,
@@ -504,12 +537,13 @@ export default function DashboardProducaoMeta() {
         .map(p => {
           const equipe = equipes.find(e => e.id === p.equipe_id);
           return {
-            "ID Produção": p.id,
+            "Número OS": p.numero_os || "-",
             "Código Equipe": equipe?.codigo || "-",
             "Nome Equipe": equipe?.nome || "-",
-            "ID OS": p.ordem_servico_id,
             "Valor Produzido (R$)": p.valor_total,
             "Data/Hora": format(parseISO(p.created_at), "dd/MM/yyyy HH:mm"),
+            "ID Produção": p.id.substring(0, 8),
+            "ID OS": p.ordem_servico_id.substring(0, 8),
           };
         });
       
@@ -851,12 +885,17 @@ export default function DashboardProducaoMeta() {
             {/* Gráfico Meta x Produção por Equipe */}
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Meta x Produção por Equipe</CardTitle>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  Meta x Produção por Equipe
+                  <Badge variant="outline" className="font-normal text-[10px]">
+                    Ordenado por % atingimento (melhor → pior)
+                  </Badge>
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="h-[350px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={dadosPorEquipe.slice(0, 15)} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+                    <ComposedChart data={dadosPorEquipe.slice(0, 15)} margin={{ top: 20, right: 60, left: 20, bottom: 60 }}>
                       <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                       <XAxis 
                         dataKey="equipe.codigo" 
@@ -865,15 +904,34 @@ export default function DashboardProducaoMeta() {
                         textAnchor="end"
                         height={60}
                       />
-                      <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `R$ ${(v/1000).toFixed(0)}k`} />
+                      <YAxis yAxisId="left" tick={{ fontSize: 10 }} tickFormatter={(v) => `R$ ${(v/1000).toFixed(0)}k`} />
+                      <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10 }} tickFormatter={(v) => `${v}%`} domain={[0, 'auto']} />
                       <Tooltip 
-                        formatter={(value: number) => formatCurrency(value)}
-                        labelFormatter={(label) => `Equipe: ${label}`}
+                        content={({ active, payload, label }) => {
+                          if (active && payload && payload.length) {
+                            const data = payload[0].payload;
+                            return (
+                              <div className="bg-background border rounded-lg shadow-lg p-3 text-sm">
+                                <p className="font-bold mb-2">Equipe: {label}</p>
+                                <p className="text-blue-600">Meta: {formatCurrency(data.totalMeta)}</p>
+                                <p className="text-green-600">Produção: {formatCurrency(data.totalProducao)}</p>
+                                <p className={cn(
+                                  "font-bold mt-1 pt-1 border-t",
+                                  data.percentual >= 100 ? "text-green-600" : data.percentual >= 80 ? "text-amber-600" : "text-red-600"
+                                )}>
+                                  Atingimento: {data.percentual.toFixed(1)}%
+                                </p>
+                              </div>
+                            );
+                          }
+                          return null;
+                        }}
                       />
                       <Legend />
-                      <Bar dataKey="totalMeta" name="Meta" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="totalProducao" name="Produção" fill="#10b981" radius={[4, 4, 0, 0]} />
-                    </BarChart>
+                      <Bar yAxisId="left" dataKey="totalMeta" name="Meta" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                      <Bar yAxisId="left" dataKey="totalProducao" name="Produção" fill="#10b981" radius={[4, 4, 0, 0]} />
+                      <Line yAxisId="right" type="monotone" dataKey="percentual" name="% Atingimento" stroke="#f97316" strokeWidth={2} dot={{ fill: "#f97316", r: 4 }} />
+                    </ComposedChart>
                   </ResponsiveContainer>
                 </div>
               </CardContent>
