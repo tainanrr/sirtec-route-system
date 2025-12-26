@@ -675,18 +675,20 @@ function criarZonasGrid(
   }
   
   for (const os of oss) {
-    let melhorZona = 0;
+    let melhorZona: ZonaTerritorial | null = zonas[0] || null;
     let melhorDist = Infinity;
     
     for (const zona of zonas) {
       const dist = calcularDistancia(os.latitude, os.longitude, zona.centroide.lat, zona.centroide.lng);
       if (dist < melhorDist) {
         melhorDist = dist;
-        melhorZona = zona.id;
+        melhorZona = zona;
       }
     }
     
-    zonas[melhorZona].oss.push(os);
+    if (melhorZona) {
+      melhorZona.oss.push(os);
+    }
   }
   
   for (const zona of zonas) {
@@ -792,18 +794,20 @@ function criarZonasDentroDoPoligono(
   
   // Distribuir OSs pelas zonas (apenas OSs dentro do polígono)
   for (const os of ossDentroDoPoligono) {
-    let melhorZona = 0;
+    let melhorZona: ZonaTerritorial | null = zonas[0] || null;
     let melhorDist = Infinity;
     
     for (const zona of zonas) {
       const dist = calcularDistancia(os.latitude, os.longitude, zona.centroide.lat, zona.centroide.lng);
       if (dist < melhorDist) {
         melhorDist = dist;
-        melhorZona = zona.id;
+        melhorZona = zona;
       }
     }
     
-    zonas[melhorZona].oss.push(os);
+    if (melhorZona) {
+      melhorZona.oss.push(os);
+    }
   }
   
   // Calcular bairros principais de cada zona
@@ -855,11 +859,16 @@ function atribuirZonasEquipes(
       zonasAtribuidas.add(melhorZona);
       rota.zonaId = melhorZona;
       
-      const zona = zonas[melhorZona];
+      // IMPORTANTE: Buscar zona pelo ID, não pelo índice (IDs podem não corresponder aos índices)
+      const zona = zonas.find(z => z.id === melhorZona);
       console.log(`[ROUTING] Zona ${melhorZona} → ${rota.equipe.codigo}`);
-      console.log(`[ROUTING]   Centroide: (${zona.centroide.lat.toFixed(4)}, ${zona.centroide.lng.toFixed(4)})`);
-      console.log(`[ROUTING]   OSs: ${zona.oss.length}`);
-      console.log(`[ROUTING]   Bairros: ${zona.bairrosPrincipais.slice(0, 3).join(', ')}`);
+      if (zona) {
+        console.log(`[ROUTING]   Centroide: (${zona.centroide.lat.toFixed(4)}, ${zona.centroide.lng.toFixed(4)})`);
+        console.log(`[ROUTING]   OSs: ${zona.oss.length}`);
+        console.log(`[ROUTING]   Bairros: ${zona.bairrosPrincipais.slice(0, 3).join(', ')}`);
+      } else {
+        console.warn(`[ROUTING]   ⚠️ Zona ${melhorZona} não encontrada no array de zonas`);
+      }
     } else {
       // V17: Equipe sem zona = equipe de backup (apenas para emergências)
       console.log(`[ROUTING] ${rota.equipe.codigo} → Equipe BACKUP (sem zona atribuída)`);
@@ -1288,17 +1297,19 @@ export async function otimizarRotas(
     for (const os of ossParaZonear) {
       if (!zonasPorOS.has(os.id)) {
         ossSemZona++;
-        let nearestZone = 0;
+        let nearestZone: ZonaTerritorial | null = zonas[0] || null;
         let nearestDist = Infinity;
         for (const zona of zonas) {
           const dist = calcularDistancia(os.latitude, os.longitude, zona.centroide.lat, zona.centroide.lng);
           if (dist < nearestDist) {
             nearestDist = dist;
-            nearestZone = zona.id;
+            nearestZone = zona;
           }
         }
-        zonasPorOS.set(os.id, nearestZone);
-        zonas[nearestZone].oss.push(os);
+        if (nearestZone) {
+          zonasPorOS.set(os.id, nearestZone.id);
+          nearestZone.oss.push(os);
+        }
       }
     }
     

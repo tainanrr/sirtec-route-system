@@ -378,6 +378,38 @@ export default function TipoServicoRetornosConfig({
     }
   };
 
+  const handleAlterarCorRetorno = async (retornoCampoId: string, novaCor: string) => {
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from("retornos_campo")
+        .update({ cor: novaCor })
+        .eq("id", retornoCampoId);
+
+      if (error) throw error;
+
+      // Atualizar estado local
+      setRetornosVinculados(retornosVinculados.map(r => ({
+        ...r,
+        retorno: r.retorno_campo_id === retornoCampoId 
+          ? { ...r.retorno!, cor: novaCor }
+          : r.retorno
+      })));
+
+      setTodosRetornos(todosRetornos.map(r => 
+        r.id === retornoCampoId ? { ...r, cor: novaCor } : r
+      ));
+      
+      toast.success("Cor atualizada");
+
+    } catch (error: any) {
+      console.error("Erro ao alterar cor:", error);
+      toast.error("Erro ao alterar cor");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // Handler para mover item para cima ou para baixo
   const handleMoverRetorno = async (retornoId: string, direcao: 'up' | 'down') => {
     const grupoAtual = Object.entries(retornosAgrupados).find(([_, retornos]) => 
@@ -659,8 +691,8 @@ export default function TipoServicoRetornosConfig({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl max-h-[90vh] flex flex-col">
-        <DialogHeader>
+      <DialogContent className="max-w-5xl h-[90vh] flex flex-col overflow-hidden">
+        <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Settings className="h-5 w-5" />
             Configurar Retornos de Campo
@@ -670,7 +702,7 @@ export default function TipoServicoRetornosConfig({
           </DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="flex-1 pr-4">
+        <div className="flex-1 overflow-y-auto pr-2">
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -893,7 +925,21 @@ export default function TipoServicoRetornosConfig({
                                   <AccordionContent className="px-4 pb-4">
                                     <div className="space-y-4">
                                       {/* Ações do retorno */}
-                                      <div className="flex items-center gap-2 pt-2">
+                                      <div className="flex items-center gap-3 pt-2 flex-wrap">
+                                        {/* Seletor de cor */}
+                                        <div className="flex items-center gap-2">
+                                          <Label className="text-xs text-muted-foreground">Cor:</Label>
+                                          <input
+                                            type="color"
+                                            value={retorno?.cor || "#6b7280"}
+                                            onChange={(e) => handleAlterarCorRetorno(retornoVinculado.retorno_campo_id, e.target.value)}
+                                            className="w-8 h-8 rounded cursor-pointer border border-input"
+                                            title="Alterar cor do retorno"
+                                          />
+                                        </div>
+                                        
+                                        <Separator orientation="vertical" className="h-6" />
+                                        
                                         {!retornoVinculado.padrao && (
                                           <Button
                                             variant="outline"
@@ -1063,9 +1109,9 @@ export default function TipoServicoRetornosConfig({
               )}
             </div>
           )}
-        </ScrollArea>
+        </div>
 
-        <DialogFooter className="mt-4">
+        <DialogFooter className="shrink-0 mt-4 pt-4 border-t">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Fechar
           </Button>

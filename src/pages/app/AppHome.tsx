@@ -235,6 +235,35 @@ export default function AppHome() {
     };
   }, [equipe?.id, queryClient]);
 
+  // Buscar skills para mapear código -> nome
+  const { data: skillsData } = useQuery({
+    queryKey: ["skills-app-home"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("skills")
+        .select("codigo, nome")
+        .eq("ativo", true);
+      
+      if (error) throw error;
+      return data || [];
+    },
+    staleTime: 5 * 60 * 1000, // Cache por 5 minutos
+  });
+
+  // Obter nome do tipo de serviço
+  const getTipoNome = (tipo: string | null | undefined): string => {
+    if (!tipo) return "";
+    if (!skillsData) return tipo;
+    
+    const skill = skillsData.find((s: { codigo: string; nome: string }) => 
+      s.codigo?.toLowerCase() === tipo.toLowerCase() ||
+      s.codigo?.toUpperCase() === tipo.toUpperCase() ||
+      s.codigo?.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() === tipo.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+    );
+    
+    return skill?.nome || tipo;
+  };
+
   // Calcular estatísticas
   const stats = {
     total: ordensPlanejadas?.length || 0,
@@ -570,7 +599,7 @@ export default function AppHome() {
                   </div>
                   
                   <p className="font-semibold text-foreground text-lg">
-                    {proximaOrdem.ordens_servico.tipo}
+                    {getTipoNome(proximaOrdem.ordens_servico.tipo)}
                   </p>
                   
                   <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">

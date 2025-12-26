@@ -664,12 +664,19 @@ const Roteirizacao = () => {
     console.log("[PLANEJAMENTO] Iniciando salvamento...");
 
     try {
-      // Obter usuário atual
+      // Obter usuário atual do localStorage (sistema usa sessão própria, não Supabase Auth)
       console.log("[PLANEJAMENTO] Obtendo usuário...");
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
+      const STORAGE_KEY = "usuario_web_session";
+      const sessionStr = localStorage.getItem(STORAGE_KEY);
+      if (!sessionStr) {
         throw new Error("Usuário não autenticado");
       }
+      const session = JSON.parse(sessionStr);
+      const user = { id: session.id };
+      if (!user.id) {
+        throw new Error("Usuário não autenticado");
+      }
+      console.log("[PLANEJAMENTO] Usuário encontrado:", user.id);
 
       // Calcular totais
       console.log("[PLANEJAMENTO] Calculando totais...");

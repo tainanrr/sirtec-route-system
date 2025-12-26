@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -32,6 +33,9 @@ import {
   Camera,
   DollarSign,
   Timer,
+  Package,
+  TrendingUp,
+  Smartphone,
 } from "lucide-react";
 
 interface OrdemServicoDetalhesDialogProps {
@@ -71,6 +75,38 @@ export function OrdemServicoDetalhesDialog({
   onOpenChange,
   ordemId,
 }: OrdemServicoDetalhesDialogProps) {
+  // Buscar skills para mapear código -> nome
+  const { data: skillsData } = useQuery({
+    queryKey: ["skills-lista"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("skills")
+        .select("codigo, nome")
+        .eq("ativo", true);
+      
+      if (error) throw error;
+      return data || [];
+    },
+    staleTime: 5 * 60 * 1000, // Cache por 5 minutos
+  });
+
+  // Criar mapa de códigos para nomes
+  const skillsMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    if (skillsData) {
+      skillsData.forEach((skill: any) => {
+        if (skill.codigo) {
+          map[skill.codigo.toLowerCase()] = skill.nome;
+          map[skill.codigo.toUpperCase()] = skill.nome;
+          // Normalizar sem acentos
+          const normalizado = skill.codigo.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+          map[normalizado] = skill.nome;
+        }
+      });
+    }
+    return map;
+  }, [skillsData]);
+
   // Buscar detalhes da OS
   const { data: ordem, isLoading: loadingOrdem } = useQuery({
     queryKey: ["ordem-detalhes", ordemId],
@@ -152,6 +188,116 @@ export function OrdemServicoDetalhesDialog({
 
       if (error) throw error;
       return data;
+    },
+    enabled: !!ordemId && open,
+  });
+
+  // Buscar retorno de campo da OS
+  const { data: retornoCampo } = useQuery({
+    queryKey: ["ordem-retorno-campo", ordemId],
+    queryFn: async () => {
+      if (!ordemId) return null;
+
+      // Buscar retorno vinculado à OS
+      const { data: ordem } = await supabase
+        .from("ordens_servico")
+        .select("retorno_campo_id")
+        .eq("id", ordemId)
+        .single();
+
+      if (!ordem?.retorno_campo_id) return null;
+
+      const { data, error } = await supabase
+        .from("retornos_campo")
+        .select("*")
+        .eq("id", ordem.retorno_campo_id)
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!ordemId && open,
+  });
+
+  // Buscar produção da OS
+  const { data: producao, isLoading: loadingProducao } = useQuery({
+    queryKey: ["ordem-producao", ordemId],
+    queryFn: async () => {
+      if (!ordemId) return null;
+
+      const { data, error } = await supabase
+        .from("producao_equipes")
+        .select(`
+          *,
+          retornos_campo (id, codigo, descricao, tipo, cor, gera_producao),
+          producao_atividades (
+            id,
+            quantidade,
+            valor_total,
+            atividades (id, codigo, descricao, valor_unitario, unidade)
+          )
+        `)
+        .eq("ordem_servico_id", ordemId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        console.error("Erro ao buscar produção:", error);
+        return null;
+      }
+      return data;
+    },
+    enabled: !!ordemId && open,
+  });
+
+  // Buscar materiais da OS
+  const { data: materiais, isLoading: loadingMateriais } = useQuery({
+    queryKey: ["ordem-materiais", ordemId],
+    queryFn: async () => {
+      if (!ordemId) return { aplicados: [], retirados: [] };
+
+      // Buscar materiais aplicados/retirados (mesma tabela, diferenciados por tipo)
+      const { data, error } = await supabase
+        .from("materiais_aplicados_os")
+        .select(`
+          *,
+          materiais:material_id (id, codigo, nome, unidade)
+        `)
+        .eq("ordem_servico_id", ordemId)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Erro ao buscar materiais:", error);
+        return { aplicados: [], retirados: [] };
+      }
+
+      // Separar por tipo
+      const aplicados = (data || []).filter((m: any) => m.tipo === "aplicado");
+      const retirados = (data || []).filter((m: any) => m.tipo === "retirado");
+
+      return { aplicados, retirados };
+    },
+    enabled: !!ordemId && open,
+  });
+
+  // Buscar anexos/fotos da OS
+  const { data: anexos, isLoading: loadingAnexos } = useQuery({
+    queryKey: ["ordem-anexos-detalhes", ordemId],
+    queryFn: async () => {
+      if (!ordemId) return [];
+
+      const { data, error } = await supabase
+        .from("ordem_anexos")
+        .select("*")
+        .eq("ordem_servico_id", ordemId)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Erro ao buscar anexos:", error);
+        return [];
+      }
+      return data || [];
     },
     enabled: !!ordemId && open,
   });
@@ -278,9 +424,25 @@ export function OrdemServicoDetalhesDialog({
         ) : ordem ? (
           <ScrollArea className="max-h-[70vh] pr-4">
             <Tabs defaultValue="detalhes" className="w-full">
-              <TabsList className="grid w-full grid-cols-4">
+              <TabsList className="grid w-full grid-cols-6">
                 <TabsTrigger value="detalhes">Detalhes</TabsTrigger>
                 <TabsTrigger value="execucao">Execução</TabsTrigger>
+                <TabsTrigger value="producao">
+                  Produção
+                  {producao && (
+                    <Badge variant="secondary" className="ml-1 bg-green-500 text-white h-5 px-1">
+                      ✓
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="materiais">
+                  Materiais
+                  {materiais && (materiais.aplicados?.length > 0 || materiais.retirados?.length > 0) && (
+                    <Badge variant="secondary" className="ml-1 h-5 w-5 p-0 justify-center">
+                      {(materiais.aplicados?.length || 0) + (materiais.retirados?.length || 0)}
+                    </Badge>
+                  )}
+                </TabsTrigger>
                 <TabsTrigger value="checklists">
                   Checklists
                   {checklists && checklists.length > 0 && (
@@ -308,7 +470,11 @@ export function OrdemServicoDetalhesDialog({
                   <Card>
                     <CardContent className="pt-4 pb-3">
                       <p className="text-xs text-muted-foreground mb-1">Tipo</p>
-                      <p className="font-semibold text-sm">{ordem.tipo}</p>
+                      <p className="font-semibold text-sm">
+                        {skillsMap[ordem.tipo?.toLowerCase()] || 
+                         skillsMap[ordem.tipo?.toUpperCase()] || 
+                         ordem.tipo}
+                      </p>
                     </CardContent>
                   </Card>
                   <Card>
@@ -408,14 +574,23 @@ export function OrdemServicoDetalhesDialog({
                 {/* Valores */}
                 <Card>
                   <CardContent className="pt-4">
-                    <div className="grid grid-cols-3 gap-4 text-sm">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                       <div>
                         <div className="flex items-center gap-2 text-muted-foreground mb-1">
                           <DollarSign className="h-4 w-4" />
-                          Valor
+                          Valor Previsto
                         </div>
                         <p className="font-semibold text-lg">
                           {ordem.valor ? `R$ ${Number(ordem.valor).toFixed(2)}` : "-"}
+                        </p>
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                          <TrendingUp className="h-4 w-4 text-green-600" />
+                          Valor Prod.
+                        </div>
+                        <p className="font-semibold text-lg text-green-600">
+                          {producao?.valor_total ? `R$ ${Number(producao.valor_total).toFixed(2)}` : "-"}
                         </p>
                       </div>
                       <div>
@@ -424,7 +599,11 @@ export function OrdemServicoDetalhesDialog({
                           Tempo Execução
                         </div>
                         <p className="font-semibold">
-                          {formatarTempo(ordem.tempo_execucao)}
+                          {ordem.tempo_execucao 
+                            ? formatarTempo(ordem.tempo_execucao)
+                            : ordem.execucao_iniciada_at && ordem.concluido_at
+                              ? formatarTempo(Math.round((new Date(ordem.concluido_at).getTime() - new Date(ordem.execucao_iniciada_at).getTime()) / 60000))
+                              : "-"}
                         </p>
                       </div>
                       <div>
@@ -433,7 +612,11 @@ export function OrdemServicoDetalhesDialog({
                           Tempo Total
                         </div>
                         <p className="font-semibold">
-                          {formatarTempo(ordem.tempo_total_minutos)}
+                          {ordem.tempo_total_minutos 
+                            ? formatarTempo(ordem.tempo_total_minutos)
+                            : ordem.deslocamento_iniciado_at && ordem.concluido_at
+                              ? formatarTempo(Math.round((new Date(ordem.concluido_at).getTime() - new Date(ordem.deslocamento_iniciado_at).getTime()) / 60000))
+                              : "-"}
                         </p>
                       </div>
                     </div>
@@ -448,6 +631,37 @@ export function OrdemServicoDetalhesDialog({
                     </CardHeader>
                     <CardContent>
                       <p className="text-sm whitespace-pre-wrap">{ordem.observacoes}</p>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Fotos/Anexos */}
+                {anexos && anexos.length > 0 && (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <Camera className="h-4 w-4" />
+                        Fotos ({anexos.filter((a: any) => a.tipo === "foto").length})
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-3 md:grid-cols-4 gap-2">
+                        {anexos.filter((a: any) => a.tipo === "foto").map((foto: any) => (
+                          <div key={foto.id} className="relative aspect-square rounded-lg overflow-hidden border">
+                            <img
+                              src={foto.url}
+                              alt={foto.nome || "Foto"}
+                              className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                              onClick={() => window.open(foto.url, "_blank")}
+                            />
+                            {foto.created_at && (
+                              <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] px-1 py-0.5 truncate">
+                                {format(new Date(foto.created_at), "dd/MM HH:mm")}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </CardContent>
                   </Card>
                 )}
@@ -584,6 +798,233 @@ export function OrdemServicoDetalhesDialog({
                 )}
               </TabsContent>
 
+              {/* Tab Produção */}
+              <TabsContent value="producao" className="space-y-4 mt-4">
+                {loadingProducao ? (
+                  <Skeleton className="h-48 w-full" />
+                ) : producao || retornoCampo ? (
+                  <>
+                    {/* Retorno de Campo - Destaque */}
+                    <Card className={`border-2 ${
+                      (producao?.retornos_campo?.tipo || retornoCampo?.tipo) === 'executado' 
+                        ? 'border-green-500 bg-green-50 dark:bg-green-950' 
+                        : (producao?.retornos_campo?.tipo || retornoCampo?.tipo) === 'impedimento'
+                          ? 'border-red-500 bg-red-50 dark:bg-red-950'
+                          : 'border-yellow-500 bg-yellow-50 dark:bg-yellow-950'
+                    }`}>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm flex items-center gap-2">
+                          <Flag className="h-4 w-4" />
+                          Retorno de Campo
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="flex items-center gap-3">
+                          <div
+                            className="w-4 h-4 rounded-full shrink-0"
+                            style={{ backgroundColor: producao?.retornos_campo?.cor || retornoCampo?.cor || "#6b7280" }}
+                          />
+                          <div>
+                            <p className="font-semibold text-lg">
+                              {producao?.retornos_campo?.descricao || retornoCampo?.descricao || "-"}
+                            </p>
+                            <div className="flex items-center gap-2 mt-1">
+                              <Badge variant="outline" className="font-mono text-xs">
+                                {producao?.retornos_campo?.codigo || retornoCampo?.codigo}
+                              </Badge>
+                              <Badge className={`text-xs ${
+                                (producao?.retornos_campo?.tipo || retornoCampo?.tipo) === 'executado'
+                                  ? 'bg-green-600'
+                                  : (producao?.retornos_campo?.tipo || retornoCampo?.tipo) === 'impedimento'
+                                    ? 'bg-red-600'
+                                    : 'bg-yellow-600'
+                              }`}>
+                                {(producao?.retornos_campo?.tipo || retornoCampo?.tipo)?.toUpperCase()}
+                              </Badge>
+                              {(producao?.retornos_campo?.gera_producao || retornoCampo?.gera_producao) && (
+                                <Badge className="bg-blue-600 text-xs">Gera Produção</Badge>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* Valor Total Produzido */}
+                    {producao && (
+                      <Card className="bg-gradient-to-r from-green-500 to-emerald-600 text-white">
+                        <CardContent className="pt-6 pb-6">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm opacity-90">Valor Total Produzido</p>
+                              <p className="text-3xl font-bold">
+                                R$ {Number(producao.valor_total || 0).toFixed(2)}
+                              </p>
+                            </div>
+                            <TrendingUp className="h-12 w-12 opacity-50" />
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {/* Atividades Realizadas */}
+                    {producao?.producao_atividades && producao.producao_atividades.length > 0 && (
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm flex items-center gap-2">
+                            <Package className="h-4 w-4" />
+                            Atividades Realizadas ({producao.producao_atividades.length})
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-2">
+                            {producao.producao_atividades.map((atv: any) => (
+                              <div
+                                key={atv.id}
+                                className="flex items-center justify-between p-3 bg-muted rounded-lg"
+                              >
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-medium text-sm truncate">
+                                    {atv.atividades?.descricao}
+                                  </p>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <Badge variant="outline" className="font-mono text-xs">
+                                      {atv.atividades?.codigo}
+                                    </Badge>
+                                    <span className="text-xs text-muted-foreground">
+                                      Qtd: {atv.quantidade} {atv.atividades?.unidade}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <p className="font-semibold text-green-600">
+                                    R$ {Number(atv.valor_total || 0).toFixed(2)}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    @ R$ {Number(atv.atividades?.valor_unitario || 0).toFixed(2)}
+                                  </p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                  </>
+                ) : (
+                  <Card>
+                    <CardContent className="py-8 text-center">
+                      <TrendingUp className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+                      <p className="text-muted-foreground">
+                        Nenhum retorno de campo registrado para esta OS
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        A produção será registrada quando a equipe encerrar o serviço
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
+              </TabsContent>
+
+              {/* Tab Materiais */}
+              <TabsContent value="materiais" className="space-y-4 mt-4">
+                {loadingMateriais ? (
+                  <Skeleton className="h-48 w-full" />
+                ) : (
+                  <div className="space-y-4">
+                    {/* Materiais Aplicados */}
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm flex items-center gap-2 text-emerald-700">
+                          <Package className="h-4 w-4" />
+                          Materiais Aplicados ({materiais?.aplicados?.length || 0})
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        {materiais?.aplicados && materiais.aplicados.length > 0 ? (
+                          <div className="space-y-2">
+                            {materiais.aplicados.map((item: any) => (
+                              <div 
+                                key={item.id} 
+                                className="flex items-center justify-between p-2 rounded-lg bg-emerald-50 border border-emerald-100"
+                              >
+                                <div className="flex-1">
+                                  <p className="font-medium text-sm">
+                                    {item.materiais?.nome || item.descricao || "Material"}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground font-mono">
+                                    {item.materiais?.codigo || item.codigo}
+                                  </p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="font-semibold text-emerald-700">
+                                    {item.quantidade} {item.materiais?.unidade || "UN"}
+                                  </p>
+                                  {item.created_at && (
+                                    <p className="text-xs text-muted-foreground">
+                                      {format(new Date(item.created_at), "dd/MM HH:mm")}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground text-center py-4">
+                            Nenhum material aplicado
+                          </p>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    {/* Materiais Retirados */}
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm flex items-center gap-2 text-orange-700">
+                          <Package className="h-4 w-4" />
+                          Materiais Retirados ({materiais?.retirados?.length || 0})
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        {materiais?.retirados && materiais.retirados.length > 0 ? (
+                          <div className="space-y-2">
+                            {materiais.retirados.map((item: any) => (
+                              <div 
+                                key={item.id} 
+                                className="flex items-center justify-between p-2 rounded-lg bg-orange-50 border border-orange-100"
+                              >
+                                <div className="flex-1">
+                                  <p className="font-medium text-sm">
+                                    {item.materiais?.nome || item.descricao || "Material"}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground font-mono">
+                                    {item.materiais?.codigo || item.codigo}
+                                  </p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="font-semibold text-orange-700">
+                                    {item.quantidade} {item.materiais?.unidade || "UN"}
+                                  </p>
+                                  {item.created_at && (
+                                    <p className="text-xs text-muted-foreground">
+                                      {format(new Date(item.created_at), "dd/MM HH:mm")}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground text-center py-4">
+                            Nenhum material retirado
+                          </p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
+              </TabsContent>
+
               {/* Tab Checklists */}
               <TabsContent value="checklists" className="space-y-4 mt-4">
                 {loadingChecklists ? (
@@ -672,31 +1113,172 @@ export function OrdemServicoDetalhesDialog({
               <TabsContent value="historico" className="space-y-4 mt-4">
                 {loadingLogs ? (
                   <Skeleton className="h-48 w-full" />
-                ) : logs && logs.length > 0 ? (
+                ) : (
                   <Card>
                     <CardContent className="pt-4">
-                      <div className="space-y-3">
-                        {logs.map((log: any) => (
-                          <div key={log.id} className="flex items-start gap-3 pb-3 border-b last:border-0">
-                            <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center shrink-0">
-                              <History className="h-4 w-4 text-muted-foreground" />
+                      <div className="space-y-0">
+                        {/* Timeline vertical */}
+                        {(() => {
+                          // Construir histórico completo a partir dos campos de data da OS
+                          const historicoCompleto: { data: Date; descricao: string; tipo: string; icon: React.ReactNode; cor: string }[] = [];
+
+                          // Cadastro no sistema
+                          if (ordem.created_at) {
+                            historicoCompleto.push({
+                              data: new Date(ordem.created_at),
+                              descricao: "OS cadastrada no sistema",
+                              tipo: "cadastro",
+                              icon: <FileText className="h-4 w-4" />,
+                              cor: "bg-blue-100 text-blue-600"
+                            });
+                          }
+
+                          // Roteirização/Planejamento
+                          if (planejamento?.planejamentos?.data_planejamento) {
+                            historicoCompleto.push({
+                              data: new Date(planejamento.created_at || planejamento.planejamentos.data_planejamento + 'T08:00:00'),
+                              descricao: `Roteirizada para equipe ${planejamento.tecnicos?.codigo || ''} - Data: ${format(new Date(planejamento.planejamentos.data_planejamento + 'T12:00:00'), "dd/MM/yyyy")}`,
+                              tipo: "roteirizacao",
+                              icon: <MapPin className="h-4 w-4" />,
+                              cor: "bg-purple-100 text-purple-600"
+                            });
+                          }
+
+                          // Atribuição a técnico
+                          if (ordem.atribuido_at) {
+                            historicoCompleto.push({
+                              data: new Date(ordem.atribuido_at),
+                              descricao: "Atribuída ao técnico/equipe",
+                              tipo: "atribuicao",
+                              icon: <User className="h-4 w-4" />,
+                              cor: "bg-indigo-100 text-indigo-600"
+                            });
+                          }
+
+                          // Recebimento no aplicativo
+                          if (ordem.recebido_at) {
+                            historicoCompleto.push({
+                              data: new Date(ordem.recebido_at),
+                              descricao: "Recebida no aplicativo em campo",
+                              tipo: "recebimento",
+                              icon: <Smartphone className="h-4 w-4" />,
+                              cor: "bg-cyan-100 text-cyan-600"
+                            });
+                          }
+
+                          // Início do deslocamento
+                          if (ordem.deslocamento_iniciado_at) {
+                            historicoCompleto.push({
+                              data: new Date(ordem.deslocamento_iniciado_at),
+                              descricao: "Deslocamento iniciado",
+                              tipo: "deslocamento",
+                              icon: <Truck className="h-4 w-4" />,
+                              cor: "bg-amber-100 text-amber-600"
+                            });
+                          }
+
+                          // Chegada no local
+                          if (ordem.chegada_local_at) {
+                            historicoCompleto.push({
+                              data: new Date(ordem.chegada_local_at),
+                              descricao: "Chegou no local",
+                              tipo: "chegada",
+                              icon: <MapPin className="h-4 w-4" />,
+                              cor: "bg-orange-100 text-orange-600"
+                            });
+                          }
+
+                          // Início da execução
+                          if (ordem.execucao_iniciada_at) {
+                            historicoCompleto.push({
+                              data: new Date(ordem.execucao_iniciada_at),
+                              descricao: "Execução iniciada",
+                              tipo: "execucao",
+                              icon: <Play className="h-4 w-4" />,
+                              cor: "bg-emerald-100 text-emerald-600"
+                            });
+                          }
+
+                          // Pausas (se houver campo)
+                          if ((ordem as any).pausado_at) {
+                            historicoCompleto.push({
+                              data: new Date((ordem as any).pausado_at),
+                              descricao: "Serviço pausado",
+                              tipo: "pausa",
+                              icon: <Pause className="h-4 w-4" />,
+                              cor: "bg-yellow-100 text-yellow-600"
+                            });
+                          }
+
+                          // Conclusão
+                          if (ordem.concluido_at) {
+                            const retornoDesc = ordem.retorno_campo_descricao 
+                              ? ` - Retorno: ${ordem.retorno_campo_descricao}` 
+                              : "";
+                            historicoCompleto.push({
+                              data: new Date(ordem.concluido_at),
+                              descricao: `Serviço concluído${retornoDesc}`,
+                              tipo: "conclusao",
+                              icon: <CheckCircle className="h-4 w-4" />,
+                              cor: "bg-green-100 text-green-600"
+                            });
+                          }
+
+                          // Cancelamento
+                          if (ordem.cancelado_at) {
+                            historicoCompleto.push({
+                              data: new Date(ordem.cancelado_at),
+                              descricao: `Serviço cancelado${ordem.motivo_cancelamento ? `: ${ordem.motivo_cancelamento}` : ''}`,
+                              tipo: "cancelamento",
+                              icon: <XCircle className="h-4 w-4" />,
+                              cor: "bg-red-100 text-red-600"
+                            });
+                          }
+
+                          // Adicionar logs do planejamento
+                          if (logs && logs.length > 0) {
+                            logs.forEach((log: any) => {
+                              historicoCompleto.push({
+                                data: new Date(log.created_at),
+                                descricao: log.descricao,
+                                tipo: "log",
+                                icon: <History className="h-4 w-4" />,
+                                cor: "bg-gray-100 text-gray-600"
+                              });
+                            });
+                          }
+
+                          // Ordenar por data (mais recente primeiro)
+                          historicoCompleto.sort((a, b) => b.data.getTime() - a.data.getTime());
+
+                          if (historicoCompleto.length === 0) {
+                            return (
+                              <div className="py-8 text-center">
+                                <History className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+                                <p className="text-muted-foreground">Nenhum registro no histórico</p>
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium">{log.descricao}</p>
+                            );
+                          }
+
+                          return historicoCompleto.map((item, index) => (
+                            <div key={index} className="flex items-start gap-3 relative">
+                              {/* Linha vertical conectando os eventos */}
+                              {index < historicoCompleto.length - 1 && (
+                                <div className="absolute left-4 top-8 bottom-0 w-0.5 bg-gray-200" style={{ height: "calc(100% - 8px)" }} />
+                              )}
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 z-10 ${item.cor}`}>
+                                {item.icon}
+                              </div>
+                              <div className="flex-1 min-w-0 pb-4">
+                                <p className="text-sm font-medium">{item.descricao}</p>
                               <p className="text-xs text-muted-foreground">
-                                {format(new Date(log.created_at), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+                                  {format(item.data, "dd/MM/yyyy 'às' HH:mm:ss", { locale: ptBR })}
                               </p>
                             </div>
                           </div>
-                        ))}
+                          ));
+                        })()}
                       </div>
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <Card>
-                    <CardContent className="py-8 text-center">
-                      <History className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-                      <p className="text-muted-foreground">Nenhum registro no histórico</p>
                     </CardContent>
                   </Card>
                 )}

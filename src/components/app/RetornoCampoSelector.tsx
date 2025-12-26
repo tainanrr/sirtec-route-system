@@ -510,8 +510,8 @@ export default function RetornoCampoSelector({
                           />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
-                              <span className="font-mono font-semibold text-sm">
-                                {retorno.retorno?.codigo}
+                              <span className="font-medium text-sm">
+                                {retorno.retorno?.descricao}
                               </span>
                               {retorno.padrao && (
                                 <Badge variant="outline" className="text-xs">
@@ -519,9 +519,6 @@ export default function RetornoCampoSelector({
                                 </Badge>
                               )}
                             </div>
-                            <p className="text-sm text-muted-foreground truncate">
-                              {retorno.retorno?.descricao}
-                            </p>
                           </div>
                           <ChevronRight className="h-5 w-5 text-muted-foreground" />
                         </button>

@@ -73,11 +73,11 @@ const statusConfig: Record<string, { label: string; variant: "default" | "second
 const statusFlow: Record<string, string[]> = {
   pendente: ["em_deslocamento"],
   planejada: ["em_deslocamento"],
-  em_deslocamento: ["no_local", "pausada"], // Chegar no local
-  no_local: ["em_execucao", "pausada"], // Iniciar execução
-  em_andamento: ["concluida", "pausada"],
-  em_execucao: ["concluida", "pausada"],
-  pausada: ["em_execucao", "em_deslocamento"],
+  em_deslocamento: ["no_local"], // Chegar no local
+  no_local: ["em_execucao"], // Iniciar execução
+  em_andamento: ["concluida"],
+  em_execucao: ["concluida"],
+  pausada: ["em_execucao", "em_deslocamento"], // Manter para OSs já pausadas poderem retomar
   concluida: [],
   cancelada: [],
 };
@@ -148,6 +148,19 @@ export default function AppOrdemDetalhe() {
   // Estados para Retorno de Campo
   const [retornoCampoOpen, setRetornoCampoOpen] = useState(false);
   const [skillId, setSkillId] = useState<string | null>(null);
+  const [retornoSelecionado, setRetornoSelecionado] = useState<{
+    retorno_campo_id: string;
+    retorno_codigo: string;
+    retorno_descricao: string;
+    gera_producao: boolean;
+    atividades: Array<{
+      atividade_id: string;
+      quantidade: number;
+      atividade: { id: string; codigo: string; descricao: string; valor_unitario: number; unidade: string };
+      qtd_min_fotos: number;
+    }>;
+  } | null>(null);
+  const [tentouIniciarSemApr, setTentouIniciarSemApr] = useState(false);
   const { buscarSkillId, registrarProducao, atualizarOrdemComRetorno } = useRetornoCampo();
 
   const handleBack = () => {
@@ -170,6 +183,35 @@ export default function AppOrdemDetalhe() {
     },
     enabled: !!id,
   });
+
+  // Buscar skills para mapear código -> nome
+  const { data: skillsData } = useQuery({
+    queryKey: ["skills-app-detalhe"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("skills")
+        .select("codigo, nome")
+        .eq("ativo", true);
+      
+      if (error) throw error;
+      return data || [];
+    },
+    staleTime: 5 * 60 * 1000, // Cache por 5 minutos
+  });
+
+  // Obter nome do tipo de serviço
+  const getTipoNome = (tipo: string | null | undefined): string => {
+    if (!tipo) return "";
+    if (!skillsData) return tipo;
+    
+    const skill = skillsData.find((s: { codigo: string; nome: string }) => 
+      s.codigo?.toLowerCase() === tipo.toLowerCase() ||
+      s.codigo?.toUpperCase() === tipo.toUpperCase() ||
+      s.codigo?.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() === tipo.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+    );
+    
+    return skill?.nome || tipo;
+  };
 
   // Buscar dados do planejamento
   const { data: planejamento } = useQuery({
@@ -233,6 +275,38 @@ export default function AppOrdemDetalhe() {
     },
     enabled: !!id,
   });
+
+  // Buscar checklists/APRs preenchidos para esta OS
+  const { data: checklistsPreenchidos } = useQuery({
+    queryKey: ["ordem-checklists", id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("checklist_respostas")
+        .select(`
+          id,
+          checklist_id,
+          created_at,
+          checklists:checklist_id (
+            id,
+            nome,
+            tipo
+          )
+        `)
+        .eq("ordem_servico_id", id);
+
+      if (error) {
+        console.error("Erro ao buscar checklists:", error);
+        return [];
+      }
+      return data || [];
+    },
+    enabled: !!id,
+  });
+
+  // Verificar se tem APR preenchida
+  const temAprPreenchida = checklistsPreenchidos?.some(
+    (c: any) => c.checklists?.tipo === "apr" || c.checklists?.nome?.toLowerCase().includes("apr")
+  ) || false;
 
   // Buscar próxima OS na rota
   const { data: proximaOS } = useQuery({
@@ -470,7 +544,42 @@ export default function AppOrdemDetalhe() {
   const handleStatusChange = async (newStatus: string) => {
     const config = statusConfig[newStatus];
     
+    // Validar APR antes de iniciar serviço (no_local -> em_execucao)
+    if (newStatus === "em_execucao" && !temAprPreenchida) {
+      setTentouIniciarSemApr(true);
+      toast.error("É necessário preencher pelo menos uma APR antes de iniciar o serviço!", {
+        description: "Clique no botão 'APR - Análise de Riscos' para preencher.",
+        duration: 5000,
+      });
+      return;
+    }
+    
     if (newStatus === "concluida") {
+      // Se já temos um retorno de campo selecionado, usar diretamente
+      if (retornoSelecionado) {
+        // Verificar novamente as fotos
+        const qtdFotosExigidas = retornoSelecionado.atividades.reduce((total, atv) => total + (atv.qtd_min_fotos || 0), 0);
+        const qtdFotosAnexadas = anexos?.filter(a => a.tipo === "foto").length || 0;
+        
+        if (qtdFotosExigidas > 0 && qtdFotosAnexadas < qtdFotosExigidas) {
+          toast.error(`São necessárias pelo menos ${qtdFotosExigidas} foto(s) para este retorno. Você tem ${qtdFotosAnexadas} foto(s).`, {
+            description: "Adicione as fotos necessárias e tente novamente.",
+            duration: 5000,
+          });
+          return;
+        }
+        
+        // Registrar produção com o retorno já selecionado
+        const equipeId = equipe?.id || equipeAuth?.id;
+        if (equipeId && ordem?.id) {
+          await registrarProducao(ordem.id, equipeId, retornoSelecionado);
+          await atualizarOrdemComRetorno(ordem.id, retornoSelecionado);
+          setRetornoSelecionado(null); // Limpar o retorno selecionado
+          updateStatusMutation.mutate("concluida");
+        }
+        return;
+      }
+      
       // Verificar se há retornos de campo configurados para este tipo de serviço
       if (ordem?.tipo) {
         const foundSkillId = await buscarSkillId(ordem.tipo);
@@ -509,6 +618,21 @@ export default function AppOrdemDetalhe() {
     
     if (!equipeId || !ordem?.id) {
       toast.error("Erro ao identificar equipe");
+      return;
+    }
+
+    // Verificar quantidade mínima de fotos
+    const qtdFotosExigidas = result.atividades.reduce((total, atv) => total + (atv.qtd_min_fotos || 0), 0);
+    const qtdFotosAnexadas = anexos?.filter(a => a.tipo === "foto").length || 0;
+    
+    if (qtdFotosExigidas > 0 && qtdFotosAnexadas < qtdFotosExigidas) {
+      // Salvar o retorno selecionado para mostrar na tela
+      setRetornoSelecionado(result);
+      toast.error(`São necessárias pelo menos ${qtdFotosExigidas} foto(s) para este retorno. Você tem ${qtdFotosAnexadas} foto(s).`, {
+        description: "Adicione as fotos necessárias e tente novamente.",
+        duration: 5000,
+      });
+      setRetornoCampoOpen(false);
       return;
     }
 
@@ -580,7 +704,7 @@ export default function AppOrdemDetalhe() {
                 <Badge variant="destructive" className="text-xs">URGENTE</Badge>
               )}
             </div>
-            <p className="text-sm text-muted-foreground truncate">{ordem.tipo}</p>
+            <p className="text-sm text-muted-foreground truncate">{getTipoNome(ordem.tipo)}</p>
           </div>
         </div>
         
@@ -883,15 +1007,72 @@ export default function AppOrdemDetalhe() {
           </Card>
         )}
 
+        {/* Retorno de Campo Selecionado - Exibir quando houver retorno pendente */}
+        {retornoSelecionado && status !== "concluida" && status !== "cancelada" && (
+          <Card className="border-2 border-amber-300 bg-amber-50">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2 text-amber-800">
+                <AlertTriangle className="h-4 w-4" />
+                Retorno de Campo Selecionado (Pendente)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div 
+                className="flex items-center justify-between cursor-pointer"
+                onClick={async () => {
+                  if (ordem?.tipo) {
+                    const foundSkillId = await buscarSkillId(ordem.tipo);
+                    if (foundSkillId) {
+                      setSkillId(foundSkillId);
+                      setRetornoCampoOpen(true);
+                    }
+                  }
+                }}
+              >
+                <div>
+                  <p className="font-semibold text-amber-900">{retornoSelecionado.retorno_descricao}</p>
+                  <p className="text-sm text-amber-700">
+                    {retornoSelecionado.atividades.length} atividade(s) selecionada(s)
+                  </p>
+                  <p className="text-xs text-amber-600 mt-1">
+                    Fotos necessárias: {retornoSelecionado.atividades.reduce((t, a) => t + (a.qtd_min_fotos || 0), 0)} | 
+                    Fotos anexadas: {anexos?.filter(a => a.tipo === "foto").length || 0}
+                  </p>
+                </div>
+                <ChevronRight className="h-5 w-5 text-amber-600" />
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Botão APR - Sempre visível quando não concluído/cancelado */}
         {status !== "concluida" && status !== "cancelada" && (
           <Button
-            className="w-full bg-violet-600 hover:bg-violet-700"
+            className={`w-full ${
+              temAprPreenchida 
+                ? "bg-violet-600 hover:bg-violet-700" 
+                : tentouIniciarSemApr 
+                  ? "bg-violet-700 hover:bg-violet-800 animate-pulse ring-2 ring-red-500 ring-offset-2" 
+                  : "bg-violet-600 hover:bg-violet-700"
+            }`}
             size="lg"
-            onClick={() => navigate(`/app/ordens/${id}/apr`)}
+            onClick={() => {
+              setTentouIniciarSemApr(false); // Limpar destaque ao clicar
+              navigate(`/app/ordens/${id}/apr`);
+            }}
           >
             <ClipboardCheck className="h-5 w-5 mr-2" />
             APR - Análise de Riscos
+            {temAprPreenchida && (
+              <Badge variant="secondary" className="ml-2 bg-white text-violet-700">
+                ✓
+              </Badge>
+            )}
+            {!temAprPreenchida && tentouIniciarSemApr && (
+              <Badge variant="destructive" className="ml-2">
+                Obrigatório
+              </Badge>
+            )}
           </Button>
         )}
 
@@ -905,6 +1086,29 @@ export default function AppOrdemDetalhe() {
           >
             <Package className="h-5 w-5 mr-2" />
             Materiais Aplicados/Retirados
+          </Button>
+        )}
+
+        {/* Botão Retorno de Campo - Sempre visível quando em deslocamento ou execução */}
+        {(status === "em_deslocamento" || status === "no_local" || status === "em_andamento" || status === "em_execucao") && (
+          <Button
+            variant="outline"
+            className="w-full border-red-300 text-red-700 hover:bg-red-50"
+            size="lg"
+            onClick={async () => {
+              if (ordem?.tipo) {
+                const foundSkillId = await buscarSkillId(ordem.tipo);
+                if (foundSkillId) {
+                  setSkillId(foundSkillId);
+                  setRetornoCampoOpen(true);
+                } else {
+                  toast.error("Nenhum retorno de campo configurado para este tipo de serviço");
+                }
+              }
+            }}
+          >
+            <StopCircle className="h-5 w-5 mr-2" />
+            Retorno de Campo
           </Button>
         )}
 

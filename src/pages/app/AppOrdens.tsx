@@ -258,6 +258,34 @@ export default function AppOrdens() {
     };
   }, [equipe?.id, queryClient]);
 
+  // Buscar skills para mapear código -> nome
+  const { data: skillsDataList } = useQuery({
+    queryKey: ["skills-app-lista"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("skills")
+        .select("codigo, nome")
+        .eq("ativo", true);
+      
+      if (error) throw error;
+      return data || [];
+    },
+    staleTime: 5 * 60 * 1000, // Cache por 5 minutos
+  });
+
+  // Criar mapa de códigos para nomes
+  const skillsNomes = new Map<string, string>();
+  if (skillsDataList) {
+    skillsDataList.forEach((skill: { codigo: string; nome: string }) => {
+      if (skill.codigo && skill.nome) {
+        skillsNomes.set(skill.codigo.toLowerCase(), skill.nome);
+        skillsNomes.set(skill.codigo.toUpperCase(), skill.nome);
+        const normalizado = skill.codigo.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+        skillsNomes.set(normalizado, skill.nome);
+      }
+    });
+  }
+
   // Filtrar ordens
   const filteredOrdens = ordensPlanejadas?.filter((ordem) => {
     if (!ordem.ordens_servico) return false;
@@ -466,7 +494,11 @@ export default function AppOrdens() {
                           {ordem.ordens_servico.numero}
                       </span>
                     </div>
-                      <p className="font-semibold text-foreground">{ordem.ordens_servico.tipo}</p>
+                      <p className="font-semibold text-foreground">
+                        {skillsNomes.get(ordem.ordens_servico.tipo) || 
+                         skillsNomes.get(ordem.ordens_servico.tipo?.toLowerCase()) ||
+                         ordem.ordens_servico.tipo}
+                      </p>
                       
                       {/* Endereço */}
                     <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">
@@ -591,6 +623,7 @@ function MapaRoteiro({ ordens, equipe }: MapaRoteiroProps) {
   const highlightCircleRef = useRef<any>(null); // Ref para o círculo de destaque
   const [mapLoaded, setMapLoaded] = useState(false);
   const [skillsIcons, setSkillsIcons] = useState<Map<string, string>>(new Map());
+  const [skillsNomes, setSkillsNomes] = useState<Map<string, string>>(new Map());
   const [osSelecionada, setOsSelecionada] = useState<OrdemPlanejada | null>(null);
   
   // Separar ordens com e sem coordenadas
@@ -636,9 +669,9 @@ function MapaRoteiro({ ordens, equipe }: MapaRoteiroProps) {
     return mapeamento[tipoLower] || tipo.toUpperCase();
   };
 
-  // Buscar ícones das Skills quando ordens mudam
+  // Buscar ícones e nomes das Skills quando ordens mudam
   useEffect(() => {
-    const fetchSkillsIcons = async () => {
+    const fetchSkillsData = async () => {
       try {
         const tiposUnicos = new Set<string>();
         ordens.forEach(o => {
@@ -650,24 +683,59 @@ function MapaRoteiro({ ordens, equipe }: MapaRoteiroProps) {
         if (tiposUnicos.size === 0) return;
         
         const codigosSkills = Array.from(tiposUnicos).map(tipo => tipoParaSkillCodigo(tipo));
-        const dadosSkills = await getDadosSkills(codigosSkills);
+        
+        // Buscar skills para ícones e nomes
+        const { data: skillsData } = await supabase
+          .from("skills")
+          .select("codigo, nome, icone")
+          .eq("ativo", true);
         
         const iconsMap = new Map<string, string>();
+        const nomesMap = new Map<string, string>();
+        
+        if (skillsData) {
+          skillsData.forEach((skill: { codigo: string; nome: string; icone: string | null }) => {
+            const codigoLower = skill.codigo?.toLowerCase();
+            const codigoUpper = skill.codigo?.toUpperCase();
+            
+            // Mapear por código (upper e lower case)
+            if (skill.icone) {
+              iconsMap.set(codigoLower, skill.icone);
+              iconsMap.set(codigoUpper, skill.icone);
+            }
+            if (skill.nome) {
+              nomesMap.set(codigoLower, skill.nome);
+              nomesMap.set(codigoUpper, skill.nome);
+              // Também mapear o código normalizado
+              const normalizado = skill.codigo?.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+              nomesMap.set(normalizado, skill.nome);
+            }
+          });
+        }
+        
+        // Adicionar mapeamentos para os tipos que correspondem aos códigos
         tiposUnicos.forEach(tipo => {
           const codigoSkill = tipoParaSkillCodigo(tipo);
-          const dados = dadosSkills.get(codigoSkill);
-          if (dados?.icone) {
-            iconsMap.set(tipo, dados.icone);
+          const tipoLower = tipo.toLowerCase();
+          
+          // Se o icone existe para o código da skill, mapear também para o tipo
+          if (iconsMap.has(codigoSkill)) {
+            iconsMap.set(tipo, iconsMap.get(codigoSkill)!);
+          }
+          if (nomesMap.has(codigoSkill)) {
+            nomesMap.set(tipo, nomesMap.get(codigoSkill)!);
+            nomesMap.set(tipoLower, nomesMap.get(codigoSkill)!);
           }
         });
         
         setSkillsIcons(iconsMap);
+        setSkillsNomes(nomesMap);
       } catch (error) {
-        console.error("[MAPA APP] Erro ao buscar ícones das Skills:", error);
+        console.error("[MAPA APP] Erro ao buscar dados das Skills:", error);
       }
     };
     
-    fetchSkillsIcons();
+    fetchSkillsData();
   }, [ordens]);
 
   // Inicializar mapa Leaflet

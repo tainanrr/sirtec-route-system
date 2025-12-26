@@ -35,6 +35,9 @@ import {
   Globe,
   Loader2,
   X,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -77,6 +80,9 @@ const tipoLabels: Record<string, string> = {
 
 type OrdemWithTecnico = Tables<"ordens_servico"> & {
   tecnicos: Pick<Tables<"tecnicos">, "codigo" | "nome"> | null;
+  retornos_campo: { id: string; codigo: string; descricao: string; tipo: string; cor: string | null } | null;
+  producao_equipes: { id: string; valor_total: number }[] | null;
+  tipo_nome?: string;
 };
 
 const OrdensServico = () => {
@@ -95,6 +101,45 @@ const OrdensServico = () => {
   const [ordemToDelete, setOrdemToDelete] = useState<Tables<"ordens_servico"> | null>(null);
   const [clearAllDialogOpen, setClearAllDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  
+  // Estado para ordenação
+  type SortColumn = "codigo" | "numero" | "tipo" | "status" | "endereco" | "prazo" | "concluido_at" | "equipe" | "retorno" | "valor_prod" | "cliente" | null;
+  type SortDirection = "asc" | "desc";
+  const [sortColumn, setSortColumn] = useState<SortColumn>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+
+  // Função para alternar ordenação
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      // Se já está ordenando por esta coluna, alterna a direção
+      setSortDirection(prev => prev === "asc" ? "desc" : "asc");
+    } else {
+      // Nova coluna, começa em ascendente
+      setSortColumn(column);
+      setSortDirection("asc");
+    }
+  };
+
+  // Componente para cabeçalho ordenável
+  const SortableHeader = ({ column, children, className = "" }: { column: SortColumn; children: React.ReactNode; className?: string }) => (
+    <TableHead 
+      className={`cursor-pointer hover:bg-muted/80 select-none ${className}`}
+      onClick={() => handleSort(column)}
+    >
+      <div className="flex items-center gap-1">
+        {children}
+        {sortColumn === column ? (
+          sortDirection === "asc" ? (
+            <ArrowUp className="h-3 w-3" />
+          ) : (
+            <ArrowDown className="h-3 w-3" />
+          )
+        ) : (
+          <ArrowUpDown className="h-3 w-3 opacity-30" />
+        )}
+      </div>
+    </TableHead>
+  );
   const [geocodingInProgress, setGeocodingInProgress] = useState(false);
   const [geocodingProgress, setGeocodingProgress] = useState({ current: 0, total: 0, endereco: "" });
   const [detalhesOpen, setDetalhesOpen] = useState(false);
@@ -102,20 +147,180 @@ const OrdensServico = () => {
 
   const fetchOrdens = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("ordens_servico")
-      .select(`
-        *,
-        tecnicos:tecnico_id (codigo, nome)
-      `)
-      .order("created_at", { ascending: false });
+    try {
+      // Primeiro, tentar buscar com join do retorno_campo
+      let data: any[] | null = null;
+      let usouJoinRetorno = false;
 
-    if (error) {
+      // Tentar com join de retornos_campo
+      const { data: dataComRetorno, error: errorComRetorno } = await supabase
+        .from("ordens_servico")
+        .select(`
+          *,
+          tecnicos:tecnico_id (codigo, nome),
+          retornos_campo:retorno_campo_id (id, codigo, descricao, tipo, cor)
+        `)
+        .order("created_at", { ascending: false });
+
+      if (!errorComRetorno) {
+        data = dataComRetorno;
+        usouJoinRetorno = true;
+        console.log("[OS] Busca com join de retornos_campo OK");
+      } else {
+        console.warn("[OS] Erro no join de retornos_campo, tentando sem:", errorComRetorno.message);
+        
+        // Tentar sem o join
+        const { data: dataSemRetorno, error: errorSemRetorno } = await supabase
+          .from("ordens_servico")
+          .select(`
+            *,
+            tecnicos:tecnico_id (codigo, nome)
+          `)
+          .order("created_at", { ascending: false });
+
+        if (errorSemRetorno) {
+          console.error("Erro ao carregar ordens:", errorSemRetorno);
+          toast.error("Erro ao carregar ordens de serviço");
+          setLoading(false);
+          return;
+        }
+        
+        data = dataSemRetorno;
+      }
+
+      console.log("[OS] Total de ordens carregadas:", data?.length || 0);
+      processarOrdens(data || []);
+    } catch (err) {
+      console.error("Erro ao carregar ordens:", err);
       toast.error("Erro ao carregar ordens de serviço");
-    } else {
-      setOrdens((data as OrdemWithTecnico[]) || []);
     }
     setLoading(false);
+  };
+
+  // Função auxiliar para dividir array em chunks
+  const chunkArray = <T,>(array: T[], chunkSize: number): T[][] => {
+    const chunks: T[][] = [];
+    for (let i = 0; i < array.length; i += chunkSize) {
+      chunks.push(array.slice(i, i + chunkSize));
+    }
+    return chunks;
+  };
+
+  const processarOrdens = async (data: any[]) => {
+    // Buscar skills para mapear código -> nome
+    const { data: skillsData } = await supabase
+      .from("skills")
+      .select("codigo, nome")
+      .eq("ativo", true);
+
+    const skillsMap: Record<string, string> = {};
+    if (skillsData) {
+      skillsData.forEach((skill: any) => {
+        skillsMap[skill.codigo?.toLowerCase()] = skill.nome;
+        skillsMap[skill.codigo?.toUpperCase()] = skill.nome;
+        // Normalizar sem acentos
+        const normalizado = skill.codigo?.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+        skillsMap[normalizado] = skill.nome;
+      });
+    }
+
+    // Buscar produção separadamente - em lotes para evitar erro 400
+    const ordensIds = data.map(o => o.id);
+    let producaoMap: Record<string, { retorno: any; valor_total: number; equipe_id: string | null }> = {};
+    let equipeMap: Record<string, { codigo: string; nome: string }> = {};
+
+    if (ordensIds.length > 0) {
+      // Dividir em chunks de 100 IDs para evitar erro 400
+      const CHUNK_SIZE = 100;
+      const chunks = chunkArray(ordensIds, CHUNK_SIZE);
+      
+      console.log(`[OS] Buscando produção em ${chunks.length} lote(s) de até ${CHUNK_SIZE} IDs`);
+      
+      // Buscar produção em lotes
+      for (const chunk of chunks) {
+        const { data: producaoData, error: producaoError } = await supabase
+          .from("producao_equipes")
+          .select(`
+            ordem_servico_id,
+            valor_total,
+            equipe_id,
+            retorno_campo_id,
+            retornos_campo:retorno_campo_id (id, codigo, descricao, tipo, cor),
+            tecnicos:equipe_id (codigo, nome)
+          `)
+          .in("ordem_servico_id", chunk);
+
+        if (producaoError) {
+          console.error("[OS] Erro ao buscar produção (lote):", producaoError);
+          continue;
+        }
+
+        if (producaoData && producaoData.length > 0) {
+          producaoData.forEach((p: any) => {
+            producaoMap[p.ordem_servico_id] = {
+              retorno: p.retornos_campo,
+              valor_total: p.valor_total || 0,
+              equipe_id: p.equipe_id
+            };
+            // Mapear equipe da produção
+            if (p.tecnicos) {
+              equipeMap[p.ordem_servico_id] = p.tecnicos;
+            }
+          });
+        }
+      }
+
+      console.log("[OS] Produção encontrada:", Object.keys(producaoMap).length, "registros");
+
+      // Buscar equipes via planejamento_ordens em lotes
+      for (const chunk of chunks) {
+        const { data: planejamentoData, error: planejamentoError } = await supabase
+          .from("planejamento_ordens")
+          .select(`
+            ordem_servico_id,
+            equipe_id,
+            tecnicos:equipe_id (codigo, nome)
+          `)
+          .in("ordem_servico_id", chunk);
+
+        if (planejamentoError) {
+          console.error("[OS] Erro ao buscar planejamento (lote):", planejamentoError);
+          continue;
+        }
+
+        if (planejamentoData) {
+          planejamentoData.forEach((p: any) => {
+            // Só adicionar se não tiver equipe ainda
+            if (!equipeMap[p.ordem_servico_id] && p.tecnicos) {
+              equipeMap[p.ordem_servico_id] = p.tecnicos;
+            }
+          });
+        }
+      }
+    }
+
+    // Combinar dados - preferir retorno direto da OS se existir, senão usar da produção
+    const ordensComProducao = data.map(ordem => {
+      const producao = producaoMap[ordem.id];
+      const equipeExecutora = equipeMap[ordem.id];
+
+      return {
+        ...ordem,
+        tipo_nome: skillsMap[ordem.tipo?.toLowerCase()] || skillsMap[ordem.tipo?.toUpperCase()] || ordem.tipo,
+        retornos_campo: ordem.retornos_campo || producao?.retorno || null,
+        producao_equipes: producao ? [{ id: ordem.id, valor_total: producao.valor_total }] : null,
+        // Usar equipe da ordem se existir, senão usar da produção/planejamento
+        tecnicos: ordem.tecnicos || equipeExecutora || null
+      };
+    });
+
+    console.log("[OS] Processamento concluído:", {
+      total: data.length,
+      comProducao: Object.keys(producaoMap).length,
+      comEquipe: Object.keys(equipeMap).length
+    });
+
+    setOrdens(ordensComProducao as OrdemWithTecnico[]);
   };
 
   useEffect(() => {
@@ -461,6 +666,76 @@ const OrdensServico = () => {
     return matchesSearch && matchesStatus && matchesTipo;
   });
 
+  // Ordenar as ordens filtradas
+  const sortedOrdens = [...filteredOrdens].sort((a, b) => {
+    if (!sortColumn) return 0;
+    
+    let valueA: any;
+    let valueB: any;
+    
+    switch (sortColumn) {
+      case "codigo":
+        valueA = (a as any).codigo || "";
+        valueB = (b as any).codigo || "";
+        break;
+      case "numero":
+        valueA = a.numero || "";
+        valueB = b.numero || "";
+        break;
+      case "tipo":
+        valueA = a.tipo_nome || tipoLabels[a.tipo] || a.tipo || "";
+        valueB = b.tipo_nome || tipoLabels[b.tipo] || b.tipo || "";
+        break;
+      case "status":
+        valueA = statusLabels[a.status] || a.status || "";
+        valueB = statusLabels[b.status] || b.status || "";
+        break;
+      case "endereco":
+        valueA = a.endereco || "";
+        valueB = b.endereco || "";
+        break;
+      case "prazo":
+        valueA = a.prazo ? new Date(a.prazo).getTime() : 0;
+        valueB = b.prazo ? new Date(b.prazo).getTime() : 0;
+        break;
+      case "concluido_at":
+        valueA = a.concluido_at ? new Date(a.concluido_at).getTime() : 0;
+        valueB = b.concluido_at ? new Date(b.concluido_at).getTime() : 0;
+        break;
+      case "equipe":
+        valueA = a.tecnicos?.codigo || "";
+        valueB = b.tecnicos?.codigo || "";
+        break;
+      case "retorno":
+        valueA = a.retornos_campo?.descricao || "";
+        valueB = b.retornos_campo?.descricao || "";
+        break;
+      case "valor_prod":
+        valueA = a.producao_equipes?.[0]?.valor_total || 0;
+        valueB = b.producao_equipes?.[0]?.valor_total || 0;
+        break;
+      case "cliente":
+        valueA = a.cliente_nome || "";
+        valueB = b.cliente_nome || "";
+        break;
+      default:
+        return 0;
+    }
+    
+    // Comparação
+    if (typeof valueA === "number" && typeof valueB === "number") {
+      return sortDirection === "asc" ? valueA - valueB : valueB - valueA;
+    }
+    
+    // Comparação de strings
+    const strA = String(valueA).toLowerCase();
+    const strB = String(valueB).toLowerCase();
+    
+    if (strA < strB) return sortDirection === "asc" ? -1 : 1;
+    if (strA > strB) return sortDirection === "asc" ? 1 : -1;
+    return 0;
+  });
+
   const getStatusVariant = (status: string) => {
     switch (status) {
       case "concluida": return "success";
@@ -573,7 +848,7 @@ const OrdensServico = () => {
         </div>
 
         <div className="mt-4 text-sm text-muted-foreground">
-          Mostrando {filteredOrdens.length} de {ordens.length} resultados
+          Mostrando {sortedOrdens.length} de {ordens.length} resultados
           {ordensSemCoordenadas.length > 0 && !geocodingInProgress && (
             <span className="ml-2 text-orange-500">
               • {ordensSemCoordenadas.length} OS(s) sem coordenadas
@@ -608,7 +883,7 @@ const OrdensServico = () => {
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         {loading ? (
           <div className="text-center py-12 text-muted-foreground">Carregando...</div>
-        ) : filteredOrdens.length === 0 ? (
+        ) : sortedOrdens.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
             Nenhuma ordem de serviço encontrada. Clique em "Nova OS" para cadastrar.
           </div>
@@ -616,19 +891,22 @@ const OrdensServico = () => {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/50">
-                <TableHead className="w-[150px]">Código</TableHead>
-                <TableHead className="w-[120px]">Número OS</TableHead>
-                <TableHead>Tipo</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="hidden md:table-cell">Endereço</TableHead>
-                <TableHead>Prazo</TableHead>
-                <TableHead>Equipe</TableHead>
-                <TableHead className="hidden sm:table-cell">Cliente</TableHead>
+                <SortableHeader column="codigo" className="w-[150px]">Código</SortableHeader>
+                <SortableHeader column="numero" className="w-[120px]">Número OS</SortableHeader>
+                <SortableHeader column="tipo">Tipo</SortableHeader>
+                <SortableHeader column="status">Status</SortableHeader>
+                <SortableHeader column="endereco" className="hidden md:table-cell">Endereço</SortableHeader>
+                <SortableHeader column="prazo">Prazo</SortableHeader>
+                <SortableHeader column="concluido_at" className="hidden md:table-cell">Dt. Execução</SortableHeader>
+                <SortableHeader column="equipe">Equipe</SortableHeader>
+                <SortableHeader column="retorno" className="hidden lg:table-cell">Retorno</SortableHeader>
+                <SortableHeader column="valor_prod" className="hidden lg:table-cell text-right">Valor Prod.</SortableHeader>
+                <SortableHeader column="cliente" className="hidden sm:table-cell">Cliente</SortableHeader>
                 <TableHead className="w-[100px]">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredOrdens.map((os) => (
+              {sortedOrdens.map((os) => (
                 <TableRow key={os.id} className="hover:bg-muted/50 transition-colors">
                   <TableCell className="font-mono text-xs text-muted-foreground">
                     {(os as any).codigo || "-"}
@@ -639,7 +917,7 @@ const OrdensServico = () => {
                       {os.numero}
                     </div>
                   </TableCell>
-                  <TableCell>{tipoLabels[os.tipo] || os.tipo}</TableCell>
+                  <TableCell>{os.tipo_nome || tipoLabels[os.tipo] || os.tipo}</TableCell>
                   <TableCell>
                     <Badge variant={getStatusVariant(os.status) as any}>
                       {statusLabels[os.status] || os.status}
@@ -672,11 +950,62 @@ const OrdensServico = () => {
                       <span className="text-muted-foreground">-</span>
                     )}
                   </TableCell>
+                  <TableCell className="hidden md:table-cell">
+                    {os.concluido_at ? (
+                      <div className="flex flex-col">
+                        <span className="text-sm font-medium text-green-600">
+                          {new Date(os.concluido_at).toLocaleDateString("pt-BR")}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(os.concluido_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-muted-foreground text-xs">-</span>
+                    )}
+                  </TableCell>
                   <TableCell>
                     {os.tecnicos ? (
                       <span className="font-medium">{os.tecnicos.codigo}</span>
                     ) : (
                       <span className="text-muted-foreground">-</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="hidden lg:table-cell">
+                    {os.retornos_campo ? (
+                      <div className="flex items-center gap-2">
+                        <span 
+                          className="w-3 h-3 rounded-full shrink-0" 
+                          style={{ backgroundColor: os.retornos_campo.cor || "#6b7280" }}
+                        />
+                        <Badge 
+                          variant="outline" 
+                          className={`text-xs ${
+                            os.retornos_campo.tipo === 'executado' 
+                              ? 'border-green-500 text-green-700 bg-green-50' 
+                              : os.retornos_campo.tipo === 'impedimento'
+                                ? 'border-red-500 text-red-700 bg-red-50'
+                                : 'border-yellow-500 text-yellow-700 bg-yellow-50'
+                          }`}
+                          title={os.retornos_campo.descricao}
+                        >
+                          {os.retornos_campo.descricao.length > 20 
+                            ? os.retornos_campo.descricao.substring(0, 20) + "..."
+                            : os.retornos_campo.descricao
+                          }
+                        </Badge>
+                      </div>
+                    ) : (
+                      <span className="text-muted-foreground text-xs">-</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="hidden lg:table-cell text-right">
+                    {os.producao_equipes && os.producao_equipes.length > 0 ? (
+                      <span className="font-medium text-green-600">
+                        R$ {Number(os.producao_equipes[0].valor_total || 0).toFixed(2)}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground text-xs">-</span>
                     )}
                   </TableCell>
                   <TableCell className="hidden sm:table-cell">

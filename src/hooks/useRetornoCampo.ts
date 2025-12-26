@@ -76,6 +76,44 @@ export function useRetornoCampo() {
   }, []);
 
   /**
+   * Busca o valor de uma atividade na precificação do contrato
+   */
+  const buscarValorPrecificacao = useCallback(
+    async (codigoAtividade: string, contratoId: string | null): Promise<number> => {
+      if (!contratoId) return 0;
+
+      try {
+        // Buscar na tabela de precificação pelo código da atividade e contrato
+        const { data, error } = await supabase
+          .from("precificacao_servicos")
+          .select("valor_unitario, valor_total")
+          .eq("contrato_id", contratoId)
+          .eq("codigo_servico", codigoAtividade)
+          .eq("ativo", true)
+          .lte("data_inicio", new Date().toISOString().split("T")[0])
+          .or(`data_fim.is.null,data_fim.gte.${new Date().toISOString().split("T")[0]}`)
+          .order("data_inicio", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (error) {
+          console.warn(`[useRetornoCampo] Erro ao buscar precificação para ${codigoAtividade}:`, error);
+          return 0;
+        }
+
+        // Usar valor_total se existir (já considera fator_k), senão valor_unitario
+        const valor = data?.valor_total || data?.valor_unitario || 0;
+        console.log(`[useRetornoCampo] Precificação encontrada para ${codigoAtividade}: R$${valor}`);
+        return Number(valor);
+      } catch (error) {
+        console.error(`[useRetornoCampo] Erro ao buscar precificação:`, error);
+        return 0;
+      }
+    },
+    []
+  );
+
+  /**
    * Registra a produção da equipe com base no retorno de campo selecionado
    */
   const registrarProducao = useCallback(
@@ -86,11 +124,54 @@ export function useRetornoCampo() {
     ): Promise<ProducaoRegistrada | null> => {
       setLoading(true);
       try {
-        // Calcular valor total das atividades
-        let valorTotal = 0;
-        retorno.atividades.forEach((atv) => {
-          valorTotal += (atv.atividade.valor_unitario || 0) * atv.quantidade;
+        console.log("[useRetornoCampo] Registrando produção:", {
+          ordemServicoId,
+          equipeId,
+          retorno_campo_id: retorno.retorno_campo_id,
+          atividades: retorno.atividades.map(a => ({
+            codigo: a.atividade.codigo,
+            qtd: a.quantidade,
+            valor_unit: a.atividade.valor_unitario
+          }))
         });
+
+        // Buscar contrato_id da OS
+        const { data: osData } = await supabase
+          .from("ordens_servico")
+          .select("contrato_id")
+          .eq("id", ordemServicoId)
+          .single();
+
+        const contratoId = osData?.contrato_id || null;
+        console.log("[useRetornoCampo] Contrato da OS:", contratoId);
+
+        // Calcular valor total das atividades (buscando da precificação quando necessário)
+        let valorTotal = 0;
+        const atividadesComValor: AtividadeSelecionada[] = [];
+
+        for (const atv of retorno.atividades) {
+          let valorUnit = atv.atividade.valor_unitario || 0;
+          
+          // Se não tem valor na atividade, buscar na precificação do contrato
+          if (valorUnit === 0 && contratoId) {
+            valorUnit = await buscarValorPrecificacao(atv.atividade.codigo, contratoId);
+          }
+          
+          const subtotal = valorUnit * atv.quantidade;
+          console.log(`[useRetornoCampo] Atividade ${atv.atividade.codigo}: ${atv.quantidade} x R$${valorUnit} = R$${subtotal}`);
+          valorTotal += subtotal;
+
+          // Atualizar atividade com valor encontrado
+          atividadesComValor.push({
+            ...atv,
+            atividade: {
+              ...atv.atividade,
+              valor_unitario: valorUnit
+            }
+          });
+        }
+        
+        console.log("[useRetornoCampo] Valor total calculado:", valorTotal);
 
         // Inserir registro de produção
         const { data: producao, error: producaoError } = await supabase
@@ -117,9 +198,9 @@ export function useRetornoCampo() {
           throw producaoError;
         }
 
-        // Inserir atividades da produção
-        if (retorno.atividades.length > 0 && producao) {
-          const atividadesParaInserir = retorno.atividades.map((atv) => ({
+        // Inserir atividades da produção (usando atividadesComValor que tem os valores corretos)
+        if (atividadesComValor.length > 0 && producao) {
+          const atividadesParaInserir = atividadesComValor.map((atv) => ({
             producao_id: producao.id,
             atividade_id: atv.atividade_id,
             atividade_codigo: atv.atividade.codigo,
@@ -151,7 +232,7 @@ export function useRetornoCampo() {
         setLoading(false);
       }
     },
-    []
+    [buscarValorPrecificacao]
   );
 
   /**
@@ -166,6 +247,7 @@ export function useRetornoCampo() {
         const { error } = await supabase
           .from("ordens_servico")
           .update({
+            retorno_campo_id: retorno.retorno_campo_id,
             retorno_campo_codigo: retorno.retorno_codigo,
             retorno_campo_descricao: retorno.retorno_descricao,
             gera_producao: retorno.gera_producao,
