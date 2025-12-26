@@ -113,6 +113,7 @@ const AcompanhamentoRoteirizacoes = () => {
   const [cancelarRotaDialogOpen, setCancelarRotaDialogOpen] = useState(false);
   const [detalhesOpen, setDetalhesOpen] = useState(false);
   const [ordemDetalhesId, setOrdemDetalhesId] = useState<string | null>(null);
+  const [producaoMap, setProducaoMap] = useState<Record<string, number>>({});
 
   // Debounce do termo de busca para evitar muitas requisições
   useEffect(() => {
@@ -228,6 +229,34 @@ const AcompanhamentoRoteirizacoes = () => {
       const { data, error } = await query;
 
       if (error) throw error;
+
+      // Buscar produções para todas as OSs dos planejamentos
+      const todasOSIds: string[] = [];
+      (data || []).forEach((p: any) => {
+        p.planejamento_ordens?.forEach((po: any) => {
+          if (po.ordem_servico_id) {
+            todasOSIds.push(po.ordem_servico_id);
+          }
+        });
+      });
+
+      // Buscar produções em lotes de 100
+      const producaoMapTemp: Record<string, number> = {};
+      const chunkSize = 100;
+      for (let i = 0; i < todasOSIds.length; i += chunkSize) {
+        const chunk = todasOSIds.slice(i, i + chunkSize);
+        const { data: producaoData } = await supabase
+          .from("producao_equipes")
+          .select("ordem_servico_id, valor_total")
+          .in("ordem_servico_id", chunk);
+
+        if (producaoData) {
+          producaoData.forEach((p: any) => {
+            producaoMapTemp[p.ordem_servico_id] = p.valor_total || 0;
+          });
+        }
+      }
+      setProducaoMap(producaoMapTemp);
 
       // Os filtros de equipe e busca são aplicados no getGroupedData() para filtrar as OSs individualmente
       setPlanejamentos((data || []) as PlanejamentoCompleto[]);
@@ -635,7 +664,7 @@ const AcompanhamentoRoteirizacoes = () => {
                 }) : "-",
                 "Regulada": os?.regulada ? "Sim" : "Não",
                 "Valor Prev.": valorOS,
-                "Valor Prod.": Number(os?.valor_produzido) || 0,
+                "Valor Prod.": producaoMap[po.ordem_servico_id] || 0,
                 "Distância (km)": distancia,
                 "Tempo Estimado (min)": Math.round(tempoMinutos),
                 "Hora Início": po.hora_inicio_estimada || "-",
@@ -941,10 +970,22 @@ const AcompanhamentoRoteirizacoes = () => {
             <div className="p-2 rounded-lg bg-amber-500/10">
               <DollarSign className="h-4 w-4 text-amber-500" />
             </div>
-            <div className="text-sm text-muted-foreground">Faturamento</div>
+            <div className="text-sm text-muted-foreground">Valor Prev.</div>
           </div>
           <div className="text-2xl font-bold text-green-600">
             R$ {planejamentos.reduce((acc, p) => acc + (p.faturamento_total || 0), 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
+        </div>
+        
+        <div className="rounded-lg border border-border bg-card p-4 hover:shadow-md transition-shadow">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="p-2 rounded-lg bg-green-500/10">
+              <DollarSign className="h-4 w-4 text-green-500" />
+            </div>
+            <div className="text-sm text-muted-foreground">Valor Prod.</div>
+          </div>
+          <div className="text-2xl font-bold text-green-600">
+            R$ {Object.values(producaoMap).reduce((acc, val) => acc + val, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
         </div>
       </div>
@@ -1061,7 +1102,7 @@ const AcompanhamentoRoteirizacoes = () => {
                                     <ChevronRight className="h-4 w-4 text-muted-foreground" />
                                   )}
                                 </div>
-                                <div className="flex-1 grid grid-cols-7 gap-4 pr-32">
+                                <div className="flex-1 grid grid-cols-8 gap-4 pr-32">
                                 <div>
                                   <div className="text-sm text-muted-foreground">Data</div>
                                   <div className="font-medium">
@@ -1209,8 +1250,7 @@ const AcompanhamentoRoteirizacoes = () => {
                                   <div className="font-medium">
                                     {(() => {
                                       const totalValorProd = group.ordens.reduce((acc, o) => {
-                                        const os = o.ordens_servico;
-                                        return acc + (Number(os?.valor_produzido) || 0);
+                                        return acc + (producaoMap[o.ordem_servico_id] || 0);
                                       }, 0);
                                       return totalValorProd > 0 ? `R$ ${totalValorProd.toFixed(2)}` : "-";
                                     })()}
@@ -1355,7 +1395,7 @@ const AcompanhamentoRoteirizacoes = () => {
                                         })()}
                                       </TableCell>
                                       <TableCell>
-                                        {os?.valor_produzido ? `R$ ${Number(os.valor_produzido).toFixed(2)}` : "-"}
+                                        {producaoMap[ordem.ordem_servico_id] ? `R$ ${Number(producaoMap[ordem.ordem_servico_id]).toFixed(2)}` : "-"}
                                       </TableCell>
                                       <TableCell className="text-right">
                                         <div className="flex gap-1 justify-end">
