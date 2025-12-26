@@ -163,7 +163,7 @@ export default function CadastroMetas() {
   
   // Estado do mês atual para visualização
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  
+
   // Período padrão 26-25
   const periodoPadrao = calcularPeriodoPadrao();
   
@@ -286,7 +286,7 @@ export default function CadastroMetas() {
       filtered = filtered.filter(e =>
         e.codigo.toLowerCase().includes(termo) ||
         e.nome.toLowerCase().includes(termo)
-      );
+    );
     }
     
     if (showOnlyWithMeta) {
@@ -547,12 +547,12 @@ export default function CadastroMetas() {
             const { error } = await supabase
               .from("metas")
               .insert({
-                equipe_id: equipeId,
+            equipe_id: equipeId,
                 contrato_id: bulkData.contrato_id !== "nenhum" ? bulkData.contrato_id : null,
                 data: dataStr,
                 valor_meta: parseFloat(bulkData.valor_meta),
-                tipo_meta: bulkData.tipo_meta,
-              });
+            tipo_meta: bulkData.tipo_meta,
+          });
             
             if (error) throw error;
             criadas++;
@@ -643,8 +643,8 @@ export default function CadastroMetas() {
   const handleDistribuirMeta = async () => {
     if (!distribuirData.equipes_ids.length || !distribuirData.data_inicio || !distribuirData.data_fim || !distribuirData.valor_total) {
       toast.error("Preencha os campos obrigatórios");
-      return;
-    }
+        return;
+      }
 
     const { dias, quantidade } = calcularDiasDistribuicao;
     
@@ -688,9 +688,9 @@ export default function CadastroMetas() {
                 data: dataStr,
                 valor_meta: valorDia,
                 tipo_meta: distribuirData.tipo_meta,
-              });
-            
-            if (error) throw error;
+      });
+
+      if (error) throw error;
             criadas++;
           }
         }
@@ -871,18 +871,18 @@ export default function CadastroMetas() {
                 {!usarPeriodoCustom && (
                   <div className="flex items-center gap-1">
                     <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}>
-                      <ChevronLeft className="h-4 w-4" />
-                    </Button>
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
                     <span className="text-sm font-medium min-w-[110px] text-center">
                       {format(currentMonth, "MMMM/yyyy", { locale: ptBR })}
                     </span>
                     <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
                     <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setCurrentMonth(new Date())}>
                       Hoje
-                    </Button>
-                  </div>
+                </Button>
+              </div>
                 )}
                 
                 {/* Toggle período customizado */}
@@ -899,7 +899,7 @@ export default function CadastroMetas() {
                 
                 {/* Filtros de data customizados */}
                 {usarPeriodoCustom && (
-                  <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
                     <Input
                       type="date"
                       value={dataInicio}
@@ -939,17 +939,17 @@ export default function CadastroMetas() {
                       <Copy className="h-3 w-3 mr-1" /> Copiar
                     </Button>
                     <Button size="sm" className="h-7 bg-green-600 hover:bg-green-700" onClick={() => {
-                      setBulkData({
+                  setBulkData({
                         ...bulkData,
                         data_inicio: dataInicio,
                         data_fim: dataFim,
-                        equipes_ids: [],
+                    equipes_ids: [],
                       });
                       setEquipeBuscaBulk("");
-                      setBulkDialogOpen(true);
-                    }}>
+                  setBulkDialogOpen(true);
+                }}>
                       <Zap className="h-3 w-3 mr-1" /> Em Massa
-                    </Button>
+                </Button>
                     <Button size="sm" className="h-7 bg-green-600 hover:bg-green-700" onClick={() => {
                       setDistribuirData({
                         ...distribuirData,
@@ -962,7 +962,7 @@ export default function CadastroMetas() {
                       setDistribuirDialogOpen(true);
                     }}>
                       <Target className="h-3 w-3 mr-1" /> Distribuir
-                    </Button>
+                </Button>
                   </>
                 )}
               </div>
@@ -980,7 +980,7 @@ export default function CadastroMetas() {
                     {feriadosDoMes.length} feriado(s)
                   </span>
                 )}
-              </div>
+                </div>
               <div className="flex items-center gap-2">
                 <div className="relative">
                   <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
@@ -990,7 +990,7 @@ export default function CadastroMetas() {
                     onChange={e => setSearchTerm(e.target.value)}
                     className="h-7 w-36 pl-7 text-xs"
                   />
-                </div>
+              </div>
                 <label className="flex items-center gap-1 cursor-pointer">
                   <Checkbox
                     checked={showOnlyWithMeta}
@@ -1012,20 +1012,20 @@ export default function CadastroMetas() {
                 <Button size="sm" variant="ghost" className="h-6" onClick={clearSelection}>
                   <X className="h-3 w-3" /> Limpar
                 </Button>
-              </div>
+                  </div>
             )}
 
             {/* Tabela Calendário */}
-            {loading ? (
+                  {loading ? (
               <div className="flex justify-center py-12">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-              </div>
+                          </div>
             ) : equipesFiltradas.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
                 <Target className="h-12 w-12 mx-auto mb-3" />
                 <p>Nenhuma equipe encontrada</p>
-              </div>
-            ) : (
+                            </div>
+                          ) : (
               <div className="border rounded-lg overflow-hidden">
                 <div className="overflow-x-auto max-w-full" style={{ maxHeight: "calc(100vh - 350px)" }}>
                   <Table className="min-w-max">
@@ -1040,21 +1040,31 @@ export default function CadastroMetas() {
                         {diasDoMes.map(dia => {
                           const dataStr = format(dia, "yyyy-MM-dd");
                           const feriado = feriadosPorData.get(dataStr);
-                          const isWknd = isWeekend(dia);
+                          const dayOfWeek = getDay(dia);
+                          const isSaturday = dayOfWeek === 6;
+                          const isSunday = dayOfWeek === 0;
                           return (
                             <TableHead
                               key={dataStr}
                               className={cn(
                                 "text-center text-[10px] p-0.5 w-10",
-                                isWknd && "bg-gray-100",
+                                isSaturday && "bg-gray-100",
+                                isSunday && "bg-red-100",
                                 feriado && "bg-amber-100"
                               )}
                               title={feriado ? getFeriadoNome(feriado) : undefined}
                             >
-                              <div className="font-normal text-muted-foreground">
+                              <div className={cn(
+                                "font-normal",
+                                isSunday ? "text-red-500" : "text-muted-foreground"
+                              )}>
                                 {format(dia, "EEE", { locale: ptBR }).charAt(0).toUpperCase()}
                               </div>
-                              <div className={cn("font-bold", feriado && "text-amber-700")}>
+                              <div className={cn(
+                                "font-bold",
+                                feriado && "text-amber-700",
+                                isSunday && !feriado && "text-red-600"
+                              )}>
                                 {format(dia, "dd")}
                               </div>
                             </TableHead>
@@ -1072,15 +1082,15 @@ export default function CadastroMetas() {
                             <TableRow key={equipe.id} className="hover:bg-muted/30">
                               <TableCell className="sticky left-0 z-10 bg-background border-r shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[160px] p-1">
                                 <div className="flex items-center gap-1">
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
+                            <Button
+                              variant="ghost"
+                              size="sm"
                                     className="h-5 px-1 text-[10px]"
                                     onClick={() => selectAllForEquipe(equipe.id)}
                                     title="Selecionar todos os dias úteis"
-                                  >
+                            >
                                     ✓
-                                  </Button>
+                            </Button>
                                   <div className="truncate max-w-32">
                                     <span className="font-bold text-xs">{equipe.codigo}</span>
                                     {equipe.tipo_equipe && equipe.tipo_equipe !== "normal" && (
@@ -1097,8 +1107,8 @@ export default function CadastroMetas() {
                                       {equipe.nome.slice(0, 12)}
                                     </span>
                                   </div>
-                                </div>
-                              </TableCell>
+                          </div>
+                        </TableCell>
                               <TableCell className="sticky left-[160px] z-10 bg-background border-r shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] text-center text-[10px] font-bold text-green-600 p-1 w-16">
                                 {totalEquipe > 0 ? formatValorCompacto(totalEquipe) : "-"}
                               </TableCell>
@@ -1107,7 +1117,10 @@ export default function CadastroMetas() {
                                 const key = getCellKey(equipe.id, dataStr);
                                 const meta = metasPorEquipeData.get(key);
                                 const feriado = feriadosPorData.get(dataStr);
-                                const isWknd = isWeekend(dia);
+                                const dayOfWeek = getDay(dia);
+                                const isSaturday = dayOfWeek === 6;
+                                const isSunday = dayOfWeek === 0;
+                                const isWknd = isSaturday || isSunday;
                                 const isSelected = selectedCells.has(key);
                                 const editVal = editValues[key];
                                 const valor = editVal !== undefined ? editVal : (meta?.valor_meta || 0);
@@ -1117,7 +1130,8 @@ export default function CadastroMetas() {
                                     key={dataStr}
                                     className={cn(
                                       "text-center p-0 w-10 h-8 cursor-pointer transition-all border-l",
-                                      isWknd && "bg-gray-50",
+                                      isSaturday && "bg-gray-50",
+                                      isSunday && "bg-red-50",
                                       feriado && "bg-amber-50",
                                       isSelected && "ring-2 ring-primary ring-inset",
                                       valor > 0 && !feriado && !isWknd && "bg-green-50",
@@ -1141,7 +1155,8 @@ export default function CadastroMetas() {
                                       <span className={cn(
                                         "text-[10px]",
                                         valor > 0 ? "text-green-700 font-medium" : "text-gray-300",
-                                        feriado && "text-amber-600"
+                                        feriado && "text-amber-600",
+                                        isSunday && !feriado && valor === 0 && "text-red-300"
                                       )}>
                                         {valor > 0 ? formatValorCompacto(valor) : "-"}
                                       </span>
@@ -1152,14 +1167,14 @@ export default function CadastroMetas() {
                             </TableRow>
                           );
                         })}
-                      </TableBody>
-                    </Table>
+                </TableBody>
+              </Table>
                   </div>
                 </div>
-            )}
+              )}
 
             {/* Legenda */}
-            <div className="flex items-center gap-4 text-[10px] text-muted-foreground">
+            <div className="flex items-center gap-4 text-[10px] text-muted-foreground flex-wrap">
               <span className="flex items-center gap-1">
                 <div className="w-3 h-3 bg-green-50 border rounded" /> Com meta
               </span>
@@ -1167,7 +1182,10 @@ export default function CadastroMetas() {
                 <div className="w-3 h-3 bg-amber-50 border rounded" /> Feriado
               </span>
               <span className="flex items-center gap-1">
-                <div className="w-3 h-3 bg-gray-50 border rounded" /> Fim de semana
+                <div className="w-3 h-3 bg-gray-50 border rounded" /> Sábado
+              </span>
+              <span className="flex items-center gap-1">
+                <div className="w-3 h-3 bg-red-50 border border-red-200 rounded" /> Domingo
               </span>
               <span className="ml-auto">Clique para selecionar • Clique em ✓ para selecionar dias úteis da equipe</span>
             </div>
@@ -1339,7 +1357,7 @@ export default function CadastroMetas() {
                           <Checkbox checked={bulkData.equipes_ids.includes(eq.id)} className="h-4 w-4" />
                           <span className="font-medium">{eq.codigo}</span>
                           <span className="text-muted-foreground truncate">{eq.nome}</span>
-                        </div>
+                      </div>
                       ))}
                   </div>
                 </ScrollArea>
@@ -1375,8 +1393,8 @@ export default function CadastroMetas() {
                         {d.label}
                       </button>
                     ))}
-                  </div>
                 </div>
+              </div>
 
                 <div className="flex items-center justify-between p-3 bg-amber-50 rounded border border-amber-200">
                   <div className="flex items-center gap-2">
@@ -1404,36 +1422,36 @@ export default function CadastroMetas() {
                           {feriado.nacional && <Badge className="bg-blue-500 text-[9px] px-1">Nacional</Badge>}
                         </div>
                       ))}
-                    </div>
-                  </div>
+                </div>
+              </div>
                 )}
               </TabsContent>
 
               <TabsContent value="valores" className="space-y-3 mt-3">
                 <div className="space-y-1">
                   <Label className="text-sm">Valor da Meta (R$)</Label>
-                  <Input
-                    type="number"
+                <Input
+                  type="number"
                     value={bulkData.valor_meta}
                     onChange={e => setBulkData({ ...bulkData, valor_meta: e.target.value })}
                     placeholder="Ex: 5000"
                     className="h-8"
-                  />
-                </div>
+                />
+              </div>
 
                 <div className="space-y-1">
                   <Label className="text-sm">Tipo de Meta</Label>
                   <Select value={bulkData.tipo_meta} onValueChange={v => setBulkData({ ...bulkData, tipo_meta: v })}>
                     <SelectTrigger className="h-8">
                       <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
+                  </SelectTrigger>
+                  <SelectContent>
                       {tipoMetaOptions.map(t => (
                         <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
                 <div className="bg-muted/50 p-3 rounded text-sm">
                   <p className="font-medium mb-1">Resumo:</p>
@@ -1443,7 +1461,7 @@ export default function CadastroMetas() {
                     <li>Período: {bulkData.data_inicio || "..."} a {bulkData.data_fim || "..."}</li>
                     <li>Meta: R$ {bulkData.valor_meta || "0"} /dia</li>
                   </ul>
-                </div>
+            </div>
               </TabsContent>
             </Tabs>
 
@@ -1473,45 +1491,45 @@ export default function CadastroMetas() {
               {/* Valor Total */}
               <div className="p-4 bg-green-50 rounded-lg border border-green-200">
                 <Label className="text-sm font-medium text-green-800">Valor Total do Período (R$)</Label>
-                <Input
+                  <Input
                   type="number"
                   value={distribuirData.valor_total}
                   onChange={e => setDistribuirData({ ...distribuirData, valor_total: e.target.value })}
                   placeholder="Ex: 50000"
                   className="h-12 text-xl font-bold mt-2"
-                />
-              </div>
+                  />
+                </div>
 
               {/* Período */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label className="text-sm">Data Início</Label>
-                  <Input
-                    type="date"
+                    <Input
+                      type="date"
                     value={distribuirData.data_inicio}
                     onChange={e => setDistribuirData({ ...distribuirData, data_inicio: e.target.value })}
                     className="h-9"
-                  />
-                </div>
+                    />
+                  </div>
                 <div className="space-y-1">
                   <Label className="text-sm">Data Fim</Label>
-                  <Input
-                    type="date"
+                    <Input
+                      type="date"
                     value={distribuirData.data_fim}
                     onChange={e => setDistribuirData({ ...distribuirData, data_fim: e.target.value })}
                     className="h-9"
-                  />
+                    />
+                  </div>
                 </div>
-              </div>
 
               {/* Dias da semana */}
               <div className="space-y-1">
                 <Label className="text-sm">Dias da Semana</Label>
                 <div className="flex flex-wrap gap-1">
                   {diasSemana.map(d => (
-                    <button
+                      <button
                       key={d.value}
-                      type="button"
+                        type="button"
                       onClick={() => setDistribuirData(prev => ({
                         ...prev,
                         dias_semana: prev.dias_semana.includes(d.value)
@@ -1521,27 +1539,27 @@ export default function CadastroMetas() {
                       className={cn(
                         "px-2 py-1 rounded border text-xs",
                         distribuirData.dias_semana.includes(d.value)
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "border-border hover:border-primary/50"
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "border-border hover:border-primary/50"
                       )}
-                    >
+                      >
                       {d.label}
-                    </button>
-                  ))}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
 
               {/* Excluir feriados */}
               <div className="flex items-center justify-between p-3 bg-amber-50 rounded border border-amber-200">
                 <div className="flex items-center gap-2">
                   <CalendarOff className="h-4 w-4 text-amber-600" />
                   <span className="text-sm">Excluir feriados</span>
-                </div>
-                <Switch
+                  </div>
+                  <Switch
                   checked={distribuirData.excluir_feriados}
                   onCheckedChange={v => setDistribuirData({ ...distribuirData, excluir_feriados: v })}
-                />
-              </div>
+                  />
+                </div>
 
               {/* Feriados que serão excluídos */}
               {distribuirData.excluir_feriados && feriadosImpactadosDistribuir.length > 0 && (
@@ -1556,14 +1574,14 @@ export default function CadastroMetas() {
                         <span className="font-medium">{format(parseISO(data), "dd/MM (EEE)", { locale: ptBR })}</span>
                         <span>- {getFeriadoNome(feriado)}</span>
                         {feriado.nacional && <Badge className="bg-blue-500 text-[9px] px-1">Nacional</Badge>}
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
                 </div>
-              )}
+                )}
 
               {/* Equipes */}
-              <div className="space-y-2">
+                <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label className="text-sm">Equipes ({distribuirData.equipes_ids.length})</Label>
                   <div className="flex gap-1">
@@ -1658,8 +1676,8 @@ export default function CadastroMetas() {
                 <Select value={copyData.equipeOrigem} onValueChange={v => setCopyData({ ...copyData, equipeOrigem: v })}>
                   <SelectTrigger className="h-8">
                     <SelectValue placeholder="Selecione..." />
-                  </SelectTrigger>
-                  <SelectContent>
+                    </SelectTrigger>
+                    <SelectContent>
                     {equipesComMeta.map(e => {
                       const total = metas.filter(m => m.equipe_id === e.id).length;
                       return (
@@ -1668,9 +1686,9 @@ export default function CadastroMetas() {
                         </SelectItem>
                       );
                     })}
-                  </SelectContent>
-                </Select>
-              </div>
+                    </SelectContent>
+                  </Select>
+                </div>
 
               <div className="space-y-1">
                 <Label className="text-sm">Equipes de Destino</Label>
@@ -1694,7 +1712,7 @@ export default function CadastroMetas() {
                     ))}
                   </div>
                 </ScrollArea>
-              </div>
+                </div>
 
               <div className="flex items-center gap-2">
                 <Checkbox
@@ -1702,7 +1720,7 @@ export default function CadastroMetas() {
                   onCheckedChange={v => setCopyData({ ...copyData, sobrescrever: !!v })}
                 />
                 <Label className="text-sm">Sobrescrever metas existentes</Label>
-              </div>
+                </div>
             </div>
 
             <DialogFooter>
