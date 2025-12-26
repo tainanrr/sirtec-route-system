@@ -180,6 +180,8 @@ export default function CadastroMetas() {
   // Estados para filtros
   const [searchTerm, setSearchTerm] = useState("");
   const [showOnlyWithMeta, setShowOnlyWithMeta] = useState(false);
+  const [filtroCentroCusto, setFiltroCentroCusto] = useState<string>("todos");
+  const [filtroTipoEquipe, setFiltroTipoEquipe] = useState<string>("todos");
   
   // Estados de busca para seleção de equipes
   const [equipeBuscaBulk, setEquipeBuscaBulk] = useState("");
@@ -281,21 +283,33 @@ export default function CadastroMetas() {
   const equipesFiltradas = useMemo(() => {
     let filtered = equipes;
     
+    // Filtro por texto (código ou nome)
     if (searchTerm) {
       const termo = searchTerm.toLowerCase();
       filtered = filtered.filter(e =>
         e.codigo.toLowerCase().includes(termo) ||
         e.nome.toLowerCase().includes(termo)
-    );
+      );
     }
     
+    // Filtro por centro de custo
+    if (filtroCentroCusto && filtroCentroCusto !== "todos") {
+      filtered = filtered.filter(e => e.centro_custo_id === filtroCentroCusto);
+    }
+    
+    // Filtro por tipo de equipe
+    if (filtroTipoEquipe && filtroTipoEquipe !== "todos") {
+      filtered = filtered.filter(e => e.tipo_equipe === filtroTipoEquipe);
+    }
+    
+    // Filtro só com meta
     if (showOnlyWithMeta) {
       const equipesComMeta = new Set(metas.map(m => m.equipe_id));
       filtered = filtered.filter(e => equipesComMeta.has(e.id));
     }
     
     return filtered;
-  }, [equipes, searchTerm, showOnlyWithMeta, metas]);
+  }, [equipes, searchTerm, showOnlyWithMeta, metas, filtroCentroCusto, filtroTipoEquipe]);
 
   // Resumo
   const resumo = useMemo(() => {
@@ -981,7 +995,7 @@ export default function CadastroMetas() {
                   </span>
                 )}
                 </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <div className="relative">
                   <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
                   <Input
@@ -990,7 +1004,38 @@ export default function CadastroMetas() {
                     onChange={e => setSearchTerm(e.target.value)}
                     className="h-7 w-36 pl-7 text-xs"
                   />
-              </div>
+                </div>
+                
+                {/* Filtro Centro de Custo */}
+                <Select value={filtroCentroCusto} onValueChange={setFiltroCentroCusto}>
+                  <SelectTrigger className="h-7 w-40 text-xs">
+                    <SelectValue placeholder="Centro de Custo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos C.Custos</SelectItem>
+                    {centrosCusto.map(cc => (
+                      <SelectItem key={cc.id} value={cc.id}>
+                        {cc.codigo} - {cc.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                
+                {/* Filtro Tipo de Equipe */}
+                <Select value={filtroTipoEquipe} onValueChange={setFiltroTipoEquipe}>
+                  <SelectTrigger className="h-7 w-32 text-xs">
+                    <SelectValue placeholder="Tipo Equipe" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos Tipos</SelectItem>
+                    {Object.entries(tipoEquipeLabels).map(([value, { label }]) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                
                 <label className="flex items-center gap-1 cursor-pointer">
                   <Checkbox
                     checked={showOnlyWithMeta}
@@ -999,6 +1044,22 @@ export default function CadastroMetas() {
                   />
                   <span className="text-xs">Só c/ meta</span>
                 </label>
+                
+                {/* Indicador de filtros ativos */}
+                {(filtroCentroCusto !== "todos" || filtroTipoEquipe !== "todos" || searchTerm) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-xs text-muted-foreground"
+                    onClick={() => {
+                      setFiltroCentroCusto("todos");
+                      setFiltroTipoEquipe("todos");
+                      setSearchTerm("");
+                    }}
+                  >
+                    <X className="h-3 w-3 mr-1" /> Limpar filtros
+                  </Button>
+                )}
               </div>
             </div>
 
