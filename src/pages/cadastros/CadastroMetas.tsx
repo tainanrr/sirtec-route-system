@@ -581,6 +581,48 @@ export default function CadastroMetas() {
     return { dias, quantidade: dias.length };
   }, [distribuirData.data_inicio, distribuirData.data_fim, distribuirData.dias_semana, distribuirData.excluir_feriados, feriadosPorData]);
 
+  // Feriados impactados no período de distribuição
+  const feriadosImpactadosDistribuir = useMemo(() => {
+    if (!distribuirData.data_inicio || !distribuirData.data_fim || !distribuirData.excluir_feriados) return [];
+    
+    const inicioData = new Date(distribuirData.data_inicio + "T12:00:00");
+    const fimData = new Date(distribuirData.data_fim + "T12:00:00");
+    const diasPeriodo = eachDayOfInterval({ start: inicioData, end: fimData });
+    
+    // Filtrar apenas dias da semana selecionados
+    const diasValidos = diasPeriodo.filter(dia => distribuirData.dias_semana.includes(getDay(dia)));
+    
+    // Encontrar feriados nesses dias
+    return diasValidos
+      .map(dia => {
+        const dataStr = format(dia, "yyyy-MM-dd");
+        const feriado = feriadosPorData.get(dataStr);
+        return feriado ? { data: dataStr, feriado } : null;
+      })
+      .filter((f): f is { data: string; feriado: Feriado } => f !== null);
+  }, [distribuirData.data_inicio, distribuirData.data_fim, distribuirData.dias_semana, distribuirData.excluir_feriados, feriadosPorData]);
+
+  // Feriados impactados no período de bulk
+  const feriadosImpactadosBulk = useMemo(() => {
+    if (!bulkData.data_inicio || !bulkData.data_fim || !bulkData.excluir_feriados) return [];
+    
+    const inicioData = new Date(bulkData.data_inicio + "T12:00:00");
+    const fimData = new Date(bulkData.data_fim + "T12:00:00");
+    const diasPeriodo = eachDayOfInterval({ start: inicioData, end: fimData });
+    
+    // Filtrar apenas dias da semana selecionados
+    const diasValidos = diasPeriodo.filter(dia => bulkData.dias_semana.includes(getDay(dia)));
+    
+    // Encontrar feriados nesses dias
+    return diasValidos
+      .map(dia => {
+        const dataStr = format(dia, "yyyy-MM-dd");
+        const feriado = feriadosPorData.get(dataStr);
+        return feriado ? { data: dataStr, feriado } : null;
+      })
+      .filter((f): f is { data: string; feriado: Feriado } => f !== null);
+  }, [bulkData.data_inicio, bulkData.data_fim, bulkData.dias_semana, bulkData.excluir_feriados, feriadosPorData]);
+
   // Valor calculado por dia
   const valorPorDia = useMemo(() => {
     const valorTotal = parseFloat(distribuirData.valor_total) || 0;
@@ -888,7 +930,7 @@ export default function CadastroMetas() {
                     <Button variant="outline" size="sm" className="h-7" onClick={() => setCopyDialogOpen(true)}>
                       <Copy className="h-3 w-3 mr-1" /> Copiar
                     </Button>
-                    <Button variant="outline" size="sm" className="h-7" onClick={() => {
+                    <Button size="sm" className="h-7 bg-green-600 hover:bg-green-700" onClick={() => {
                       setBulkData({
                         ...bulkData,
                         data_inicio: dataInicio,
@@ -1328,6 +1370,25 @@ export default function CadastroMetas() {
                     onCheckedChange={v => setBulkData({ ...bulkData, excluir_feriados: v })}
                   />
                 </div>
+
+                {/* Feriados que serão excluídos */}
+                {bulkData.excluir_feriados && feriadosImpactadosBulk.length > 0 && (
+                  <div className="p-3 bg-red-50 rounded border border-red-200">
+                    <p className="text-sm font-medium text-red-800 mb-2">
+                      🚫 {feriadosImpactadosBulk.length} dia(s) serão excluídos por feriado:
+                    </p>
+                    <div className="space-y-1 max-h-24 overflow-y-auto">
+                      {feriadosImpactadosBulk.map(({ data, feriado }) => (
+                        <div key={data} className="flex items-center gap-2 text-xs text-red-700">
+                          <CalendarOff className="h-3 w-3" />
+                          <span className="font-medium">{format(parseISO(data), "dd/MM (EEE)", { locale: ptBR })}</span>
+                          <span>- {getFeriadoNome(feriado)}</span>
+                          {feriado.nacional && <Badge className="bg-blue-500 text-[9px] px-1">Nacional</Badge>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </TabsContent>
 
               <TabsContent value="valores" className="space-y-3 mt-3">
@@ -1463,6 +1524,25 @@ export default function CadastroMetas() {
                   onCheckedChange={v => setDistribuirData({ ...distribuirData, excluir_feriados: v })}
                 />
               </div>
+
+              {/* Feriados que serão excluídos */}
+              {distribuirData.excluir_feriados && feriadosImpactadosDistribuir.length > 0 && (
+                <div className="p-3 bg-red-50 rounded border border-red-200">
+                  <p className="text-sm font-medium text-red-800 mb-2">
+                    🚫 {feriadosImpactadosDistribuir.length} dia(s) serão excluídos por feriado:
+                  </p>
+                  <div className="space-y-1 max-h-24 overflow-y-auto">
+                    {feriadosImpactadosDistribuir.map(({ data, feriado }) => (
+                      <div key={data} className="flex items-center gap-2 text-xs text-red-700">
+                        <CalendarOff className="h-3 w-3" />
+                        <span className="font-medium">{format(parseISO(data), "dd/MM (EEE)", { locale: ptBR })}</span>
+                        <span>- {getFeriadoNome(feriado)}</span>
+                        {feriado.nacional && <Badge className="bg-blue-500 text-[9px] px-1">Nacional</Badge>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Equipes */}
               <div className="space-y-2">
