@@ -488,7 +488,7 @@ export default function ConsultaTurnos() {
 
   return (
     <MainLayout>
-      <div className="p-6 space-y-6">
+      <div className="p-6 space-y-6 h-[calc(100vh-4rem)] overflow-auto">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
@@ -926,7 +926,8 @@ export default function ConsultaTurnos() {
                                     <Button 
                                       variant="ghost" 
                                       size="sm"
-                                      onClick={() => navigate(`/ordens?id=${prod.ordem_servico_id}`)}
+                                      onClick={() => navigate(`/ordens-servico?id=${prod.ordem_servico_id}`)}
+                                      title="Ver OS"
                                     >
                                       <ExternalLink className="h-3 w-3" />
                                     </Button>
@@ -1012,6 +1013,7 @@ export default function ConsultaTurnos() {
                                 <TableHead>Tipo</TableHead>
                                 <TableHead>Checklist</TableHead>
                                 <TableHead>OS</TableHead>
+                                <TableHead></TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -1028,6 +1030,28 @@ export default function ConsultaTurnos() {
                                   <TableCell className="text-sm">{check.checklists?.nome || "-"}</TableCell>
                                   <TableCell className="font-mono text-sm">
                                     {check.ordens_servico?.numero || "-"}
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="flex gap-1">
+                                      <Button 
+                                        variant="ghost" 
+                                        size="sm"
+                                        onClick={() => navigate(`/consulta-checklists?id=${check.id}`)}
+                                        title="Ver Checklist"
+                                      >
+                                        <ClipboardCheck className="h-3 w-3" />
+                                      </Button>
+                                      {check.ordem_servico_id && (
+                                        <Button 
+                                          variant="ghost" 
+                                          size="sm"
+                                          onClick={() => navigate(`/ordens-servico?id=${check.ordem_servico_id}`)}
+                                          title="Ver OS"
+                                        >
+                                          <ExternalLink className="h-3 w-3" />
+                                        </Button>
+                                      )}
+                                    </div>
                                   </TableCell>
                                 </TableRow>
                               ))}
