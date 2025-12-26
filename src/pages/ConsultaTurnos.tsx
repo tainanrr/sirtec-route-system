@@ -199,12 +199,12 @@ export default function ConsultaTurnos() {
   const { data: turnosData, isLoading, refetch } = useQuery({
     queryKey: ["turnos", statusFilter, dataInicio, dataFim, equipeFilter, searchTerm, currentPage],
     queryFn: async () => {
+      // Primeiro buscar turnos básicos
       let query = supabase
         .from("turnos")
         .select(`
           *,
-          tecnicos:equipe_id (id, codigo, nome, tipo_equipe, centro_custo_id),
-          turno_colaboradores (id, nome, funcao, responsavel)
+          tecnicos:equipe_id (id, codigo, nome, tipo_equipe, centro_custo_id)
         `, { count: "exact" })
         .order("hora_inicio", { ascending: false });
       
@@ -225,7 +225,7 @@ export default function ConsultaTurnos() {
         query = query.eq("equipe_id", equipeFilter);
       }
       
-      // Busca por placa (filtros de relacionamento não funcionam com or)
+      // Busca por placa
       if (searchTerm) {
         query = query.ilike("placa_veiculo", `%${searchTerm}%`);
       }
@@ -243,6 +243,42 @@ export default function ConsultaTurnos() {
       }
       
       console.log("Turnos encontrados:", data?.length, data);
+      
+      // Buscar colaboradores dos turnos separadamente
+      if (data && data.length > 0) {
+        const turnoIds = data.map(t => t.id);
+        const { data: colaboradoresData } = await supabase
+          .from("turno_colaboradores")
+          .select(`
+            turno_id,
+            colaborador_id,
+            funcao_turno,
+            hora_entrada,
+            hora_saida,
+            colaboradores:colaborador_id (id, nome, cpf, cargo)
+          `)
+          .in("turno_id", turnoIds);
+        
+        // Mapear colaboradores para cada turno
+        const turnosComColaboradores = data.map(turno => {
+          const colaboradoresTurno = (colaboradoresData || [])
+            .filter(c => c.turno_id === turno.id)
+            .map(c => ({
+              id: c.colaborador_id,
+              nome: (c.colaboradores as any)?.nome || "Desconhecido",
+              funcao: c.funcao_turno || (c.colaboradores as any)?.cargo || "Membro",
+              responsavel: c.funcao_turno === "lider"
+            }));
+          
+          return {
+            ...turno,
+            turno_colaboradores: colaboradoresTurno
+          };
+        });
+        
+        return { turnos: turnosComColaboradores as Turno[], total: count || 0 };
+      }
+      
       return { turnos: (data || []) as Turno[], total: count || 0 };
     },
   });
