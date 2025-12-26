@@ -1027,15 +1027,16 @@ export default function CadastroMetas() {
               </div>
             ) : (
               <div className="border rounded-lg overflow-hidden">
-                <ScrollArea className="w-full">
-                  <div className="min-w-max">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="bg-muted/50">
-                          <TableHead className="sticky left-0 z-20 bg-muted/50 w-40 text-xs font-bold">
-                            Equipe
-                          </TableHead>
-                          <TableHead className="text-center text-xs w-16 font-bold">Total</TableHead>
+                <div className="overflow-x-auto max-w-full" style={{ maxHeight: "calc(100vh - 350px)" }}>
+                  <Table className="min-w-max">
+                    <TableHeader>
+                      <TableRow className="bg-muted/50">
+                        <TableHead className="sticky left-0 z-20 bg-muted border-r shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[160px] text-xs font-bold">
+                          Equipe
+                        </TableHead>
+                        <TableHead className="sticky left-[160px] z-20 bg-muted border-r shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] text-center text-xs w-16 font-bold">
+                          Total
+                        </TableHead>
                           {diasDoMes.map(dia => {
                             const dataStr = format(dia, "yyyy-MM-dd");
                             const feriado = feriadosPorData.get(dataStr);
@@ -1069,7 +1070,7 @@ export default function CadastroMetas() {
 
                           return (
                             <TableRow key={equipe.id} className="hover:bg-muted/30">
-                              <TableCell className="sticky left-0 z-10 bg-background border-r p-1">
+                              <TableCell className="sticky left-0 z-10 bg-background border-r shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[160px] p-1">
                                 <div className="flex items-center gap-1">
                                   <Button
                                     variant="ghost"
@@ -1098,7 +1099,7 @@ export default function CadastroMetas() {
                                   </div>
                                 </div>
                               </TableCell>
-                              <TableCell className="text-center text-[10px] font-bold text-green-600 border-r p-1">
+                              <TableCell className="sticky left-[160px] z-10 bg-background border-r shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] text-center text-[10px] font-bold text-green-600 p-1 w-16">
                                 {totalEquipe > 0 ? formatValorCompacto(totalEquipe) : "-"}
                               </TableCell>
                               {diasDoMes.map(dia => {
@@ -1154,7 +1155,7 @@ export default function CadastroMetas() {
                       </TableBody>
                     </Table>
                   </div>
-                </ScrollArea>
+                </div>
               </div>
             )}
 
