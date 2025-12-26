@@ -62,7 +62,7 @@ interface Meta {
   equipe_id: string;
   contrato_id: string | null;
   data: string;
-  meta_valor: number | null;
+  valor_meta: number | null;
   tipo_meta: string;
   created_at: string;
 }
@@ -164,7 +164,7 @@ export default function CadastroMetas() {
     data_inicio: "",
     data_fim: "",
     dias_semana: [1, 2, 3, 4, 5] as number[],
-    meta_valor: "",
+    valor_meta: "",
     tipo_meta: "producao",
     excluir_feriados: true,
   });
@@ -252,7 +252,7 @@ export default function CadastroMetas() {
   // Resumo
   const resumo = useMemo(() => {
     const equipesComMeta = new Set(metas.map(m => m.equipe_id)).size;
-    const totalValor = metas.reduce((acc, m) => acc + (m.meta_valor || 0), 0);
+    const totalValor = metas.reduce((acc, m) => acc + (m.valor_meta || 0), 0);
     const totalMetas = metas.length;
     
     return { equipesComMeta, equipesTotal: equipes.length, totalValor, totalMetas };
@@ -381,13 +381,13 @@ export default function CadastroMetas() {
           }
         } else if (metaExistente) {
           // Atualizar meta existente
-          await supabase.from("metas").update({ meta_valor: valor }).eq("id", metaExistente.id);
+          await supabase.from("metas").update({ valor_meta: valor }).eq("id", metaExistente.id);
         } else {
           // Criar nova meta
           await supabase.from("metas").insert({
             equipe_id: equipeId,
             data: data,
-            meta_valor: valor,
+            valor_meta: valor,
             tipo_meta: "producao",
           });
         }
@@ -423,12 +423,12 @@ export default function CadastroMetas() {
             await supabase.from("metas").delete().eq("id", metaExistente.id);
           }
         } else if (metaExistente) {
-          await supabase.from("metas").update({ meta_valor: valor }).eq("id", metaExistente.id);
+          await supabase.from("metas").update({ valor_meta: valor }).eq("id", metaExistente.id);
         } else {
           await supabase.from("metas").insert({
             equipe_id: equipeId,
             data: data,
-            meta_valor: valor,
+            valor_meta: valor,
             tipo_meta: "producao",
           });
         }
@@ -447,7 +447,7 @@ export default function CadastroMetas() {
 
   // Criação em massa
   const handleBulkCreate = async () => {
-    if (!bulkData.equipes_ids.length || !bulkData.data_inicio || !bulkData.data_fim || !bulkData.meta_valor) {
+    if (!bulkData.equipes_ids.length || !bulkData.data_inicio || !bulkData.data_fim || !bulkData.valor_meta) {
       toast.error("Preencha os campos obrigatórios");
       return;
     }
@@ -485,7 +485,7 @@ export default function CadastroMetas() {
             const { error } = await supabase
               .from("metas")
               .update({ 
-                meta_valor: parseFloat(bulkData.meta_valor),
+                valor_meta: parseFloat(bulkData.valor_meta),
                 tipo_meta: bulkData.tipo_meta,
                 contrato_id: bulkData.contrato_id !== "nenhum" ? bulkData.contrato_id : null,
               })
@@ -501,7 +501,7 @@ export default function CadastroMetas() {
                 equipe_id: equipeId,
                 contrato_id: bulkData.contrato_id !== "nenhum" ? bulkData.contrato_id : null,
                 data: dataStr,
-                meta_valor: parseFloat(bulkData.meta_valor),
+                valor_meta: parseFloat(bulkData.valor_meta),
                 tipo_meta: bulkData.tipo_meta,
               });
             
@@ -540,14 +540,14 @@ export default function CadastroMetas() {
 
           if (existe) {
             if (copyData.sobrescrever) {
-              await supabase.from("metas").update({ meta_valor: meta.meta_valor }).eq("id", existe.id);
+              await supabase.from("metas").update({ valor_meta: meta.valor_meta }).eq("id", existe.id);
               count++;
             }
           } else {
             await supabase.from("metas").insert({
               equipe_id: destino,
               data: meta.data,
-              meta_valor: meta.meta_valor,
+              valor_meta: meta.valor_meta,
               tipo_meta: meta.tipo_meta,
             });
             count++;
@@ -855,7 +855,7 @@ export default function CadastroMetas() {
                         {equipesFiltradas.map(equipe => {
                           const totalEquipe = metas
                             .filter(m => m.equipe_id === equipe.id)
-                            .reduce((acc, m) => acc + (m.meta_valor || 0), 0);
+                            .reduce((acc, m) => acc + (m.valor_meta || 0), 0);
 
                           return (
                             <TableRow key={equipe.id} className="hover:bg-muted/30">
@@ -889,7 +889,7 @@ export default function CadastroMetas() {
                                 const isWknd = isWeekend(dia);
                                 const isSelected = selectedCells.has(key);
                                 const editVal = editValues[key];
-                                const valor = editVal !== undefined ? editVal : (meta?.meta_valor || 0);
+                                const valor = editVal !== undefined ? editVal : (meta?.valor_meta || 0);
 
                                 return (
                                   <TableCell
@@ -1175,8 +1175,8 @@ export default function CadastroMetas() {
                   <Label className="text-sm">Valor da Meta (R$)</Label>
                   <Input
                     type="number"
-                    value={bulkData.meta_valor}
-                    onChange={e => setBulkData({ ...bulkData, meta_valor: e.target.value })}
+                    value={bulkData.valor_meta}
+                    onChange={e => setBulkData({ ...bulkData, valor_meta: e.target.value })}
                     placeholder="Ex: 5000"
                     className="h-8"
                   />
@@ -1202,7 +1202,7 @@ export default function CadastroMetas() {
                     <li>{bulkData.equipes_ids.length} equipe(s)</li>
                     <li>{bulkData.dias_semana.length} dia(s) por semana</li>
                     <li>Período: {bulkData.data_inicio || "..."} a {bulkData.data_fim || "..."}</li>
-                    <li>Meta: R$ {bulkData.meta_valor || "0"} /dia</li>
+                    <li>Meta: R$ {bulkData.valor_meta || "0"} /dia</li>
                   </ul>
                 </div>
               </TabsContent>
