@@ -694,327 +694,146 @@ const AcompanhamentoRoteirizacoes = () => {
       subtitle="Acompanhe e gerencie todas as roteirizações planejadas"
       breadcrumbs={[{ label: "Acompanhamento de Roteirizações" }]}
     >
-      {/* Filtros */}
-      <div className="rounded-xl border border-border bg-card p-4 mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Filter className="h-4 w-4 text-muted-foreground" />
-            <h3 className="font-semibold">Filtros</h3>
-            {hasActiveFilters && (
-              <Badge variant="secondary" className="ml-2">
-                Filtros ativos
-              </Badge>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            {hasActiveFilters && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={clearAllFilters}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <FilterX className="h-4 w-4 mr-2" />
-                Limpar Filtros
-              </Button>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={fetchPlanejamentos}
-              disabled={loading}
-            >
-              {loading ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <RefreshCcw className="h-4 w-4 mr-2" />
-              )}
-              Atualizar
-            </Button>
-          </div>
+      {/* Filtros - Linha compacta */}
+      <div className="flex items-center gap-2 mb-2 flex-wrap">
+        <div className="relative">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+          <Input
+            placeholder="Buscar..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="h-7 w-36 pl-7 text-xs"
+          />
         </div>
-        
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-          {/* Busca */}
-          <div className="lg:col-span-1">
-            <label className="text-sm font-medium mb-2 block text-muted-foreground">Buscar</label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="OS, equipe, endereço..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9 pr-8"
-              />
-              {searchTerm && (
-                <button 
-                  onClick={() => setSearchTerm("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-muted rounded-full transition-colors"
-                >
-                  <X className="h-3 w-3 text-muted-foreground" />
-                </button>
-              )}
-            </div>
-          </div>
 
-          {/* Status */}
-          <div>
-            <label className="text-sm font-medium mb-2 block text-muted-foreground">Status</label>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className={statusFilter !== "aberto" ? "border-primary/50 bg-primary/5" : ""}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos os Status</SelectItem>
-                <SelectItem value="aberto">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                    Aberto
-                  </div>
-                </SelectItem>
-                <SelectItem value="cancelado">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-red-500"></div>
-                    Cancelado
-                  </div>
-                </SelectItem>
-                <SelectItem value="executado">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                    Executado
-                  </div>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="h-7 w-24 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos</SelectItem>
+            <SelectItem value="aberto">Aberto</SelectItem>
+            <SelectItem value="cancelado">Cancelado</SelectItem>
+            <SelectItem value="executado">Executado</SelectItem>
+          </SelectContent>
+        </Select>
 
-          {/* Data Início */}
-          <div>
-            <label className="text-sm font-medium mb-2 block text-muted-foreground">Data Início</label>
-            <div className="relative">
-              <Input
-                type="date"
-                value={dataInicioFilter}
-                onChange={(e) => setDataInicioFilter(e.target.value)}
-                className={dataInicioFilter ? "border-primary/50 bg-primary/5 pr-8" : ""}
-              />
-              {dataInicioFilter && (
-                <button 
-                  onClick={() => setDataInicioFilter("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-muted rounded-full transition-colors"
-                >
-                  <X className="h-3 w-3 text-muted-foreground" />
-                </button>
-              )}
-            </div>
-          </div>
+        <Input
+          type="date"
+          value={dataInicioFilter}
+          onChange={(e) => setDataInicioFilter(e.target.value)}
+          className="h-7 w-32 text-xs"
+        />
+        <span className="text-xs text-muted-foreground">até</span>
+        <Input
+          type="date"
+          value={dataFimFilter}
+          onChange={(e) => setDataFimFilter(e.target.value)}
+          className="h-7 w-32 text-xs"
+        />
 
-          {/* Data Fim */}
-          <div>
-            <label className="text-sm font-medium mb-2 block text-muted-foreground">Data Fim</label>
-            <div className="relative">
-              <Input
-                type="date"
-                value={dataFimFilter}
-                onChange={(e) => setDataFimFilter(e.target.value)}
-                className={dataFimFilter ? "border-primary/50 bg-primary/5 pr-8" : ""}
-              />
-              {dataFimFilter && (
-                <button 
-                  onClick={() => setDataFimFilter("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-muted rounded-full transition-colors"
-                >
-                  <X className="h-3 w-3 text-muted-foreground" />
-                </button>
-              )}
-            </div>
-          </div>
+        <Select value={equipeFilter} onValueChange={setEquipeFilter}>
+          <SelectTrigger className="h-7 w-32 text-xs">
+            <SelectValue placeholder="Equipe" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todas</SelectItem>
+            {equipes.map(equipe => (
+              <SelectItem key={equipe.id} value={equipe.id}>
+                {equipe.codigo}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
-          {/* Equipe */}
-          <div>
-            <label className="text-sm font-medium mb-2 block text-muted-foreground">Equipe</label>
-            <Select value={equipeFilter} onValueChange={setEquipeFilter}>
-              <SelectTrigger className={equipeFilter !== "all" ? "border-primary/50 bg-primary/5" : ""}>
-                <SelectValue placeholder="Todas as Equipes" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas as Equipes</SelectItem>
-                {equipes.map(equipe => (
-                  <SelectItem key={equipe.id} value={equipe.id}>
-                    <div className="flex items-center gap-2">
-                      <div 
-                        className="w-2 h-2 rounded-full" 
-                        style={{ backgroundColor: equipe.color || '#3b82f6' }}
-                      />
-                      {equipe.codigo} - {equipe.nome}
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        <div className="flex items-center gap-1 border-l pl-2">
+          <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={() => {
+            const hoje = new Date().toISOString().split('T')[0];
+            setDataInicioFilter(hoje);
+            setDataFimFilter(hoje);
+          }}>Hoje</Button>
+          <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={() => {
+            const hoje = new Date();
+            const ontem = new Date(hoje);
+            ontem.setDate(ontem.getDate() - 1);
+            setDataInicioFilter(ontem.toISOString().split('T')[0]);
+            setDataFimFilter(ontem.toISOString().split('T')[0]);
+          }}>Ontem</Button>
+          <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={() => {
+            const hoje = new Date();
+            const ultimos7 = new Date(hoje);
+            ultimos7.setDate(ultimos7.getDate() - 7);
+            setDataInicioFilter(ultimos7.toISOString().split('T')[0]);
+            setDataFimFilter(hoje.toISOString().split('T')[0]);
+          }}>7d</Button>
         </div>
-        
-        {/* Atalhos de data */}
-        <div className="flex items-center gap-2 mt-4 pt-4 border-t border-border">
-          <span className="text-xs text-muted-foreground">Atalhos:</span>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 text-xs"
-            onClick={() => {
-              const hoje = new Date().toISOString().split('T')[0];
-              setDataInicioFilter(hoje);
-              setDataFimFilter(hoje);
-            }}
-          >
-            Hoje
+
+        {hasActiveFilters && (
+          <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={clearAllFilters}>
+            <X className="h-3 w-3" />
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 text-xs"
-            onClick={() => {
-              const hoje = new Date();
-              const ontem = new Date(hoje);
-              ontem.setDate(ontem.getDate() - 1);
-              setDataInicioFilter(ontem.toISOString().split('T')[0]);
-              setDataFimFilter(ontem.toISOString().split('T')[0]);
-            }}
-          >
-            Ontem
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 text-xs"
-            onClick={() => {
-              const hoje = new Date();
-              const inicioSemana = new Date(hoje);
-              inicioSemana.setDate(hoje.getDate() - hoje.getDay());
-              setDataInicioFilter(inicioSemana.toISOString().split('T')[0]);
-              setDataFimFilter(hoje.toISOString().split('T')[0]);
-            }}
-          >
-            Esta Semana
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 text-xs"
-            onClick={() => {
-              const hoje = new Date();
-              const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-              setDataInicioFilter(inicioMes.toISOString().split('T')[0]);
-              setDataFimFilter(hoje.toISOString().split('T')[0]);
-            }}
-          >
-            Este Mês
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 text-xs"
-            onClick={() => {
-              const hoje = new Date();
-              const ultimos7 = new Date(hoje);
-              ultimos7.setDate(ultimos7.getDate() - 7);
-              setDataInicioFilter(ultimos7.toISOString().split('T')[0]);
-              setDataFimFilter(hoje.toISOString().split('T')[0]);
-            }}
-          >
-            Últimos 7 dias
-          </Button>
-        </div>
+        )}
+
+        <Button variant="outline" size="sm" className="h-7 px-2 ml-auto" onClick={fetchPlanejamentos} disabled={loading}>
+          {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCcw className="h-3 w-3" />}
+        </Button>
       </div>
 
-      {/* Estatísticas */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <div className="rounded-lg border border-border bg-card p-4 hover:shadow-md transition-shadow">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="p-2 rounded-lg bg-primary/10">
-              <Calendar className="h-4 w-4 text-primary" />
-            </div>
-            <div className="text-sm text-muted-foreground">Planejamentos</div>
-          </div>
-          <div className="text-2xl font-bold">{planejamentos.length}</div>
-          {loading && <div className="text-xs text-muted-foreground animate-pulse">Carregando...</div>}
+      {/* Estatísticas - Linha compacta */}
+      <div className="flex items-center gap-3 mb-3 flex-wrap">
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-card">
+          <Calendar className="h-4 w-4 text-primary" />
+          <span className="text-xs text-muted-foreground">Planejamentos</span>
+          <span className="font-bold">{planejamentos.length}</span>
         </div>
         
-        <div className="rounded-lg border border-border bg-card p-4 hover:shadow-md transition-shadow">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="p-2 rounded-lg bg-blue-500/10">
-              <Car className="h-4 w-4 text-blue-500" />
-            </div>
-            <div className="text-sm text-muted-foreground">Rotas/Equipes</div>
-          </div>
-          <div className="text-2xl font-bold">
-            {getGroupedData().length}
-          </div>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-card">
+          <Car className="h-4 w-4 text-blue-500" />
+          <span className="text-xs text-muted-foreground">Rotas</span>
+          <span className="font-bold">{getGroupedData().length}</span>
         </div>
         
-        <div className="rounded-lg border border-border bg-card p-4 hover:shadow-md transition-shadow">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="p-2 rounded-lg bg-green-500/10">
-              <MapPin className="h-4 w-4 text-green-500" />
-            </div>
-            <div className="text-sm text-muted-foreground">Total OSs</div>
-          </div>
-          <div className="text-2xl font-bold">
-            {planejamentos.reduce((acc, p) => acc + p.total_ordens, 0)}
-          </div>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-card">
+          <MapPin className="h-4 w-4 text-green-500" />
+          <span className="text-xs text-muted-foreground">OSs</span>
+          <span className="font-bold">{planejamentos.reduce((acc, p) => acc + p.total_ordens, 0)}</span>
         </div>
         
-        <div className="rounded-lg border border-border bg-card p-4 hover:shadow-md transition-shadow">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="p-2 rounded-lg bg-amber-500/10">
-              <DollarSign className="h-4 w-4 text-amber-500" />
-            </div>
-            <div className="text-sm text-muted-foreground">Valor Prev.</div>
-          </div>
-          <div className="text-2xl font-bold text-green-600">
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-card">
+          <DollarSign className="h-4 w-4 text-amber-500" />
+          <span className="text-xs text-muted-foreground">Valor Prev.</span>
+          <span className="font-bold text-green-600">
             R$ {planejamentos.reduce((acc, p) => acc + (p.faturamento_total || 0), 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </div>
+          </span>
         </div>
         
-        <div className="rounded-lg border border-border bg-card p-4 hover:shadow-md transition-shadow">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="p-2 rounded-lg bg-green-500/10">
-              <DollarSign className="h-4 w-4 text-green-500" />
-            </div>
-            <div className="text-sm text-muted-foreground">Valor Prod.</div>
-          </div>
-          <div className="text-2xl font-bold text-green-600">
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-card">
+          <DollarSign className="h-4 w-4 text-green-600" />
+          <span className="text-xs text-muted-foreground">Valor Prod.</span>
+          <span className="font-bold text-green-600">
             R$ {Object.values(producaoMap).reduce((acc, val) => acc + val, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </div>
+          </span>
+        </div>
+        
+        <div className="ml-auto flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={handleExportar}
+            disabled={planejamentos.length === 0}
+          >
+            <Download className="h-4 w-4 mr-1" />
+            Exportar
+          </Button>
         </div>
       </div>
 
-      {/* Visão Detalhada */}
-      <div className="rounded-xl border border-border bg-card overflow-hidden mb-6">
-        <div className="p-4 border-b border-border">
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold">Visão Detalhada por Equipe</h3>
-            <div className="flex items-center gap-2">
-              <Badge variant="secondary">{planejamentos.length}</Badge>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleExportar}
-                disabled={planejamentos.length === 0}
-              >
-                <Download className="h-4 w-4 mr-2" />
-                Exportar
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
-
+      {/* Lista de Rotas */}
       <div className="rounded-xl border border-border bg-card overflow-hidden">
-            <div className="p-4 border-b border-border">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold">Rotas por Equipe/Data</h3>
+        <div className="p-3 border-b border-border">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-sm">Rotas por Equipe/Data</h3>
                 <Button
                   variant="outline"
                   size="sm"
