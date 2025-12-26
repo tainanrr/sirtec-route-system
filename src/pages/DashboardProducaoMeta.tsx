@@ -350,29 +350,29 @@ export default function DashboardProducaoMeta() {
       ]}
     >
       {/* Filtros */}
-      <div className="flex items-center gap-2 mb-4 p-3 rounded-lg border bg-card flex-wrap">
-        <Filter className="h-4 w-4 text-muted-foreground" />
+      <div className="flex items-center gap-2 mb-3 p-2 rounded-lg border bg-card flex-wrap">
+        <Filter className="h-3 w-3 text-muted-foreground" />
         
         <Input
           type="date"
           value={dataInicio}
           onChange={e => setDataInicio(e.target.value)}
-          className="h-8 w-[130px] text-xs"
+          className="h-7 w-[115px] text-xs"
         />
-        <span className="text-xs text-muted-foreground">até</span>
+        <span className="text-xs text-muted-foreground">-</span>
         <Input
           type="date"
           value={dataFim}
           onChange={e => setDataFim(e.target.value)}
-          className="h-8 w-[130px] text-xs"
+          className="h-7 w-[115px] text-xs"
         />
 
         <Select value={filtroCentroCusto} onValueChange={setFiltroCentroCusto}>
-          <SelectTrigger className="h-8 w-[140px] text-xs">
-            <SelectValue placeholder="Centro Custo" />
+          <SelectTrigger className="h-7 w-[100px] text-xs">
+            <SelectValue placeholder="C.Custo" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="todos">Todos C.Custos</SelectItem>
+            <SelectItem value="todos">Todos</SelectItem>
             {centrosCusto.map(cc => (
               <SelectItem key={cc.id} value={cc.id}>{cc.codigo}</SelectItem>
             ))}
@@ -380,11 +380,11 @@ export default function DashboardProducaoMeta() {
         </Select>
 
         <Select value={filtroTipoEquipe} onValueChange={setFiltroTipoEquipe}>
-          <SelectTrigger className="h-8 w-[110px] text-xs">
+          <SelectTrigger className="h-7 w-[90px] text-xs">
             <SelectValue placeholder="Tipo" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="todos">Todos Tipos</SelectItem>
+            <SelectItem value="todos">Todos</SelectItem>
             {Object.entries(tipoEquipeLabels).map(([value, { label }]) => (
               <SelectItem key={value} value={value}>{label}</SelectItem>
             ))}
@@ -392,23 +392,23 @@ export default function DashboardProducaoMeta() {
         </Select>
 
         <Select value={filtroEquipe} onValueChange={setFiltroEquipe}>
-          <SelectTrigger className="h-8 w-[120px] text-xs">
+          <SelectTrigger className="h-7 w-[90px] text-xs">
             <SelectValue placeholder="Equipe" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="todos">Todas Equipes</SelectItem>
+            <SelectItem value="todos">Todas</SelectItem>
             {equipes.map(e => (
               <SelectItem key={e.id} value={e.id}>{e.codigo}</SelectItem>
             ))}
           </SelectContent>
         </Select>
 
-        <Button variant="outline" size="sm" className="h-8" onClick={fetchData} disabled={loading}>
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+        <Button variant="outline" size="sm" className="h-7 px-2" onClick={fetchData} disabled={loading}>
+          {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCcw className="h-3 w-3" />}
         </Button>
 
-        <Button variant="outline" size="sm" className="h-8 ml-auto" onClick={handleExportar}>
-          <Download className="h-4 w-4 mr-1" /> Exportar
+        <Button variant="outline" size="sm" className="h-7 px-2 ml-auto" onClick={handleExportar}>
+          <Download className="h-3 w-3" />
         </Button>
       </div>
 
