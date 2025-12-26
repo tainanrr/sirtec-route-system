@@ -313,26 +313,153 @@ export default function DashboardProducaoMeta() {
     }));
   }, [dadosPorEquipe]);
 
-  // Exportar dados
+  // Exportar dados completos
   const handleExportar = () => {
     try {
-      const dadosExport = dadosPorEquipe.map(d => ({
-        "Equipe": d.equipe.codigo,
-        "Nome": d.equipe.nome,
-        "Tipo": tipoEquipeLabels[d.equipe.tipo_equipe || "normal"]?.label || d.equipe.tipo_equipe,
+      const wb = XLSX.utils.book_new();
+
+      // ===== ABA 1: RESUMO GERAL =====
+      const resumoGeral = [
+        { "Indicador": "Período", "Valor": `${format(parseISO(dataInicio), "dd/MM/yyyy")} a ${format(parseISO(dataFim), "dd/MM/yyyy")}` },
+        { "Indicador": "Total de Equipes", "Valor": kpis.totalEquipes },
+        { "Indicador": "Meta Total (R$)", "Valor": kpis.totalMeta },
+        { "Indicador": "Produção Total (R$)", "Valor": kpis.totalProducao },
+        { "Indicador": "Diferença (R$)", "Valor": kpis.diferenca },
+        { "Indicador": "% Atingimento Geral", "Valor": kpis.percentualGeral.toFixed(2) + "%" },
+        { "Indicador": "Equipes Acima da Meta (≥100%)", "Valor": kpis.equipesAcimaMeta },
+        { "Indicador": "Equipes Abaixo da Meta (<100%)", "Valor": kpis.equipesAbaixoMeta },
+        { "Indicador": "Equipes em Risco (<80%)", "Valor": kpis.equipesEmRisco },
+        { "Indicador": "", "Valor": "" },
+        { "Indicador": "Melhor Equipe", "Valor": kpis.melhorEquipe ? `${kpis.melhorEquipe.equipe.codigo} - ${kpis.melhorEquipe.percentual.toFixed(1)}%` : "-" },
+        { "Indicador": "Equipe com Menor Desempenho", "Valor": kpis.piorEquipe ? `${kpis.piorEquipe.equipe.codigo} - ${kpis.piorEquipe.percentual.toFixed(1)}%` : "-" },
+      ];
+      const wsResumo = XLSX.utils.json_to_sheet(resumoGeral);
+      XLSX.utils.book_append_sheet(wb, wsResumo, "Resumo Geral");
+
+      // ===== ABA 2: RANKING POR EQUIPE =====
+      const rankingEquipes = dadosPorEquipe.map((d, idx) => ({
+        "Posição": idx + 1,
+        "Código Equipe": d.equipe.codigo,
+        "Nome Equipe": d.equipe.nome,
+        "Tipo Equipe": tipoEquipeLabels[d.equipe.tipo_equipe || "normal"]?.label || d.equipe.tipo_equipe,
+        "Centro de Custo": centrosCusto.find(c => c.id === d.equipe.centro_custo_id)?.codigo || "-",
         "Meta (R$)": d.totalMeta,
         "Produção (R$)": d.totalProducao,
         "Diferença (R$)": d.diferenca,
-        "% Atingimento": d.percentual.toFixed(1) + "%",
+        "% Atingimento": parseFloat(d.percentual.toFixed(2)),
+        "Status": d.percentual >= 100 ? "Acima da Meta" : d.percentual >= 80 ? "Em Alerta" : d.totalMeta > 0 ? "Em Risco" : "Sem Meta",
+        "Dias com Meta": d.diasComMeta,
         "OSs Executadas": d.osExecutadas,
+        "Média Meta/Dia (R$)": d.diasComMeta > 0 ? parseFloat((d.totalMeta / d.diasComMeta).toFixed(2)) : 0,
+        "Média Produção/Dia (R$)": d.diasComMeta > 0 ? parseFloat((d.totalProducao / d.diasComMeta).toFixed(2)) : 0,
       }));
+      const wsRanking = XLSX.utils.json_to_sheet(rankingEquipes);
+      XLSX.utils.book_append_sheet(wb, wsRanking, "Ranking Equipes");
 
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.json_to_sheet(dadosExport);
-      XLSX.utils.book_append_sheet(wb, ws, "Produção x Meta");
-      XLSX.writeFile(wb, `Producao_Meta_${dataInicio}_${dataFim}.xlsx`);
-      toast.success("Dados exportados com sucesso!");
+      // ===== ABA 3: EVOLUÇÃO DIÁRIA =====
+      const evolucaoDiaria = dadosEvolucaoDiaria.map(d => ({
+        "Data": d.dataCompleta,
+        "Dia da Semana": format(parseISO(d.dataCompleta), "EEEE", { locale: ptBR }),
+        "Meta do Dia (R$)": d.meta,
+        "Produção do Dia (R$)": d.producao,
+        "Diferença (R$)": d.producao - d.meta,
+        "% Atingimento": parseFloat(d.percentual.toFixed(2)),
+      }));
+      const wsEvolucao = XLSX.utils.json_to_sheet(evolucaoDiaria);
+      XLSX.utils.book_append_sheet(wb, wsEvolucao, "Evolução Diária");
+
+      // ===== ABA 4: EVOLUÇÃO ACUMULADA =====
+      const evolucaoAcumulada = dadosAcumulados.map(d => ({
+        "Data": d.dataCompleta,
+        "Meta Acumulada (R$)": d.metaAcumulada,
+        "Produção Acumulada (R$)": d.producaoAcumulada,
+        "Diferença Acumulada (R$)": d.producaoAcumulada - d.metaAcumulada,
+        "% Atingimento Acumulado": parseFloat(d.percentualAcumulado.toFixed(2)),
+      }));
+      const wsAcumulado = XLSX.utils.json_to_sheet(evolucaoAcumulada);
+      XLSX.utils.book_append_sheet(wb, wsAcumulado, "Evolução Acumulada");
+
+      // ===== ABA 5: ANÁLISE POR TIPO DE EQUIPE =====
+      const analisePorTipo = dadosPorTipo.map(t => ({
+        "Tipo de Equipe": t.label,
+        "Quantidade de Equipes": t.count,
+        "Meta Total (R$)": t.meta,
+        "Produção Total (R$)": t.producao,
+        "Diferença (R$)": t.producao - t.meta,
+        "% Atingimento": parseFloat(t.percentual.toFixed(2)),
+        "Meta Média por Equipe (R$)": t.count > 0 ? parseFloat((t.meta / t.count).toFixed(2)) : 0,
+        "Produção Média por Equipe (R$)": t.count > 0 ? parseFloat((t.producao / t.count).toFixed(2)) : 0,
+      }));
+      const wsTipo = XLSX.utils.json_to_sheet(analisePorTipo);
+      XLSX.utils.book_append_sheet(wb, wsTipo, "Análise por Tipo");
+
+      // ===== ABA 6: DETALHAMENTO META POR EQUIPE/DIA =====
+      const equipeIds = new Set(equipesFiltradas.map(e => e.id));
+      const detalhamentoMetas: any[] = [];
+      
+      equipesFiltradas.forEach(equipe => {
+        const metasEquipe = metas.filter(m => m.equipe_id === equipe.id);
+        const producoesEquipe = producoes.filter(p => p.equipe_id === equipe.id);
+        
+        // Agrupar por data
+        const diasPeriodo = eachDayOfInterval({
+          start: parseISO(dataInicio),
+          end: parseISO(dataFim),
+        });
+        
+        diasPeriodo.forEach(dia => {
+          const dataStr = format(dia, "yyyy-MM-dd");
+          const metaDia = metasEquipe.find(m => m.data === dataStr);
+          const prodDia = producoesEquipe
+            .filter(p => p.created_at.startsWith(dataStr))
+            .reduce((acc, p) => acc + (p.valor_total || 0), 0);
+          
+          if (metaDia || prodDia > 0) {
+            detalhamentoMetas.push({
+              "Código Equipe": equipe.codigo,
+              "Nome Equipe": equipe.nome,
+              "Data": dataStr,
+              "Dia da Semana": format(dia, "EEE", { locale: ptBR }),
+              "Meta (R$)": metaDia?.valor_meta || 0,
+              "Produção (R$)": prodDia,
+              "Diferença (R$)": prodDia - (metaDia?.valor_meta || 0),
+              "% Atingimento": metaDia?.valor_meta ? parseFloat(((prodDia / metaDia.valor_meta) * 100).toFixed(2)) : (prodDia > 0 ? 100 : 0),
+            });
+          }
+        });
+      });
+      
+      if (detalhamentoMetas.length > 0) {
+        const wsDetalhamento = XLSX.utils.json_to_sheet(detalhamentoMetas);
+        XLSX.utils.book_append_sheet(wb, wsDetalhamento, "Detalhamento Diário");
+      }
+
+      // ===== ABA 7: PRODUÇÕES INDIVIDUAIS =====
+      const producoesDetalhadas = producoes
+        .filter(p => equipeIds.has(p.equipe_id))
+        .map(p => {
+          const equipe = equipes.find(e => e.id === p.equipe_id);
+          return {
+            "ID Produção": p.id,
+            "Código Equipe": equipe?.codigo || "-",
+            "Nome Equipe": equipe?.nome || "-",
+            "ID OS": p.ordem_servico_id,
+            "Valor Produzido (R$)": p.valor_total,
+            "Data/Hora": format(parseISO(p.created_at), "dd/MM/yyyy HH:mm"),
+          };
+        });
+      
+      if (producoesDetalhadas.length > 0) {
+        const wsProducoes = XLSX.utils.json_to_sheet(producoesDetalhadas);
+        XLSX.utils.book_append_sheet(wb, wsProducoes, "Produções Detalhadas");
+      }
+
+      // Salvar arquivo
+      const nomeArquivo = `Dashboard_Producao_Meta_${dataInicio}_a_${dataFim}.xlsx`;
+      XLSX.writeFile(wb, nomeArquivo);
+      toast.success(`Exportado com sucesso! ${Object.keys(wb.Sheets).length} abas geradas.`);
     } catch (error) {
+      console.error("Erro ao exportar:", error);
       toast.error("Erro ao exportar dados");
     }
   };
@@ -368,23 +495,31 @@ export default function DashboardProducaoMeta() {
         />
 
         <Select value={filtroCentroCusto} onValueChange={setFiltroCentroCusto}>
-          <SelectTrigger className="h-7 w-[100px] text-xs">
-            <SelectValue placeholder="C.Custo" />
+          <SelectTrigger className="h-7 w-[120px] text-xs">
+            <SelectValue>
+              {filtroCentroCusto === "todos" 
+                ? "C.Custo: Todos" 
+                : centrosCusto.find(c => c.id === filtroCentroCusto)?.codigo || filtroCentroCusto}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="todos">Todos</SelectItem>
+            <SelectItem value="todos">Todos C.Custos</SelectItem>
             {centrosCusto.map(cc => (
-              <SelectItem key={cc.id} value={cc.id}>{cc.codigo}</SelectItem>
+              <SelectItem key={cc.id} value={cc.id}>{cc.codigo} - {cc.nome}</SelectItem>
             ))}
           </SelectContent>
         </Select>
 
         <Select value={filtroTipoEquipe} onValueChange={setFiltroTipoEquipe}>
-          <SelectTrigger className="h-7 w-[90px] text-xs">
-            <SelectValue placeholder="Tipo" />
+          <SelectTrigger className="h-7 w-[110px] text-xs">
+            <SelectValue>
+              {filtroTipoEquipe === "todos" 
+                ? "Tipo: Todos" 
+                : tipoEquipeLabels[filtroTipoEquipe]?.label || filtroTipoEquipe}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="todos">Todos</SelectItem>
+            <SelectItem value="todos">Todos Tipos</SelectItem>
             {Object.entries(tipoEquipeLabels).map(([value, { label }]) => (
               <SelectItem key={value} value={value}>{label}</SelectItem>
             ))}
@@ -392,11 +527,15 @@ export default function DashboardProducaoMeta() {
         </Select>
 
         <Select value={filtroEquipe} onValueChange={setFiltroEquipe}>
-          <SelectTrigger className="h-7 w-[90px] text-xs">
-            <SelectValue placeholder="Equipe" />
+          <SelectTrigger className="h-7 w-[120px] text-xs">
+            <SelectValue>
+              {filtroEquipe === "todos" 
+                ? "Equipe: Todas" 
+                : equipes.find(e => e.id === filtroEquipe)?.codigo || filtroEquipe}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="todos">Todas</SelectItem>
+            <SelectItem value="todos">Todas Equipes</SelectItem>
             {equipes.map(e => (
               <SelectItem key={e.id} value={e.id}>{e.codigo}</SelectItem>
             ))}
