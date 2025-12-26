@@ -1,17 +1,9 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Dialog,
   DialogContent,
@@ -27,10 +19,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Target,
   Plus,
@@ -38,37 +40,40 @@ import {
   Trash2,
   RefreshCcw,
   Loader2,
-  AlertCircle,
   Calendar,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Zap,
   Search,
   CalendarOff,
+  Copy,
+  Check,
+  X,
+  Users,
+  DollarSign,
+  Save,
   AlertTriangle,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, getDay, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { SortableTableHead, useSortableTable } from "@/components/ui/sortable-table-head";
-import { ExportButton } from "@/components/ui/export-button";
-import {
-  DataTableFilters,
-  useDataTableFilters,
-  filterData,
-  FilterConfig,
-} from "@/components/ui/data-table-filters";
+import { cn } from "@/lib/utils";
+
+// Separador para chaves compostas
+const KEY_SEP = "|||";
 
 interface Meta {
   id: string;
   equipe_id: string;
   contrato_id: string | null;
   data: string;
-  meta_valor: number | null;
+  valor_meta: number | null;
   tipo_meta: string;
   created_at: string;
-  tecnicos?: { codigo: string; nome: string; centro_custo_id?: string } | null;
+  tecnicos?: { codigo: string; nome: string; color?: string } | null;
   contratos?: { codigo: string; nome: string } | null;
 }
 
@@ -76,7 +81,7 @@ interface Equipe {
   id: string;
   codigo: string;
   nome: string;
-  centro_custo_id?: string;
+  color?: string;
 }
 
 interface Contrato {
@@ -90,16 +95,12 @@ interface Feriado {
   centro_custo_id: string | null;
   data: string;
   nome: string;
-  descricao?: string; // Fallback para bases que usam descricao
+  descricao?: string;
   tipo: string;
   nacional: boolean;
   recorrente: boolean;
   ativo: boolean;
-  centros_custo?: { codigo: string; nome: string } | null;
 }
-
-// Helper para obter nome do feriado
-const getFeriadoNome = (f: Feriado) => f.nome || f.descricao || "Feriado";
 
 interface CentroCusto {
   id: string;
@@ -107,19 +108,22 @@ interface CentroCusto {
   nome: string;
 }
 
+interface CicloEquipe {
+  equipeId: string;
+  equipe: Equipe;
+  dataInicio: string | null;
+  dataFim: string | null;
+  dias: { data: string; valor: number; metaId?: string; isFeriado?: boolean; feriadoNome?: string }[];
+  totalValor: number;
+  diasComMeta: number;
+  temMeta: boolean;
+}
+
+const diasSemanaLabels = ["D", "S", "T", "Q", "Q", "S", "S"];
+
 const tipoMetaOptions = [
   { value: "producao", label: "Produção" },
   { value: "faturamento", label: "Faturamento" },
-];
-
-const diasSemana = [
-  { value: 0, label: "Dom" },
-  { value: 1, label: "Seg" },
-  { value: 2, label: "Ter" },
-  { value: 3, label: "Qua" },
-  { value: 4, label: "Qui" },
-  { value: 5, label: "Sex" },
-  { value: 6, label: "Sáb" },
 ];
 
 export default function CadastroMetas() {
@@ -129,1392 +133,973 @@ export default function CadastroMetas() {
   const [feriados, setFeriados] = useState<Feriado[]>([]);
   const [centrosCusto, setCentrosCusto] = useState<CentroCusto[]>([]);
   const [loading, setLoading] = useState(true);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [feriadoDialogOpen, setFeriadoDialogOpen] = useState(false);
-  const [editingMeta, setEditingMeta] = useState<Meta | null>(null);
-  const [editingFeriado, setEditingFeriado] = useState<Feriado | null>(null);
-  const [metaToDelete, setMetaToDelete] = useState<Meta | null>(null);
   const [saving, setSaving] = useState(false);
-  const [mainTab, setMainTab] = useState("metas");
-  
-  // Estados de busca para seleção de equipes
-  const [equipeBusca, setEquipeBusca] = useState("");
-  const [equipeBuscaBulk, setEquipeBuscaBulk] = useState("");
-  
-  // Estado do mês atual para visualização
+
+  // Período
   const [currentMonth, setCurrentMonth] = useState(new Date());
+  
+  // Visualização
+  const [expandedEquipes, setExpandedEquipes] = useState<Set<string>>(new Set());
+  const [selectedDias, setSelectedDias] = useState<Set<string>>(new Set());
+  const [editMode, setEditMode] = useState(false);
+  const [editValues, setEditValues] = useState<Record<string, number>>({});
 
-  // Configuração dos filtros
-  const filterConfigs: FilterConfig[] = useMemo(() => [
-    {
-      id: "search",
-      label: "Buscar",
-      type: "text",
-      placeholder: "Buscar por equipe...",
-    },
-    {
-      id: "equipe_id",
-      label: "Equipe",
-      type: "select",
-      options: equipes.map((e) => ({
-        value: e.id,
-        label: `${e.codigo} - ${e.nome}`,
-      })),
-    },
-    {
-      id: "contrato_id",
-      label: "Contrato",
-      type: "select",
-      options: contratos.map((c) => ({
-        value: c.id,
-        label: `${c.codigo} - ${c.nome}`,
-      })),
-    },
-    {
-      id: "tipo_meta",
-      label: "Tipo",
-      type: "select",
-      options: tipoMetaOptions,
-    },
-  ], [equipes, contratos]);
+  // Filtro
+  const [searchTerm, setSearchTerm] = useState("");
+  const [showOnlyWithMeta, setShowOnlyWithMeta] = useState(false);
 
-  const { filterValues, setFilterValues, clearFilters, hasActiveFilters } =
-    useDataTableFilters(filterConfigs);
+  // Dialogs
+  const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
+  const [copyDialogOpen, setCopyDialogOpen] = useState(false);
+  const [feriadoDialogOpen, setFeriadoDialogOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [editingFeriado, setEditingFeriado] = useState<Feriado | null>(null);
 
-  // Form state para meta individual
-  const [formData, setFormData] = useState({
-    equipe_id: "",
-    contrato_id: "nenhum",
-    data: new Date().toISOString().split("T")[0],
-    meta_valor: "",
-    tipo_meta: "producao",
-  });
-
-  // Form state para criação em massa
+  // Bulk
   const [bulkData, setBulkData] = useState({
     equipes_ids: [] as string[],
     contrato_id: "nenhum",
     data_inicio: "",
     data_fim: "",
     dias_semana: [1, 2, 3, 4, 5] as number[],
-    meta_valor: "",
+    valor_meta: "",
     tipo_meta: "producao",
     excluir_feriados: true,
   });
+  const [equipeBuscaBulk, setEquipeBuscaBulk] = useState("");
 
-  // Form state para feriado
+  // Copiar
+  const [copyData, setCopyData] = useState({
+    equipeOrigem: "",
+    equipesDestino: [] as string[],
+    sobrescrever: false,
+  });
+
+  // Feriado
   const [feriadoForm, setFeriadoForm] = useState({
-    centro_custo_id: "nacional",
     data: "",
     nome: "",
     tipo: "nacional",
-    recorrente: false,
+    centro_custo_id: "nacional",
+    recorrente: true,
   });
 
-  // Equipes filtradas por busca (Nova Meta)
-  const equipesFiltradas = useMemo(() => {
-    if (!equipeBusca.trim()) return equipes;
-    const termo = equipeBusca.toLowerCase();
-    return equipes.filter(
-      (e) =>
-        e.codigo.toLowerCase().includes(termo) ||
-        e.nome.toLowerCase().includes(termo)
-    );
-  }, [equipes, equipeBusca]);
-
-  // Equipes filtradas por busca (Criação em Massa)
-  const equipesFiltradasBulk = useMemo(() => {
-    if (!equipeBuscaBulk.trim()) return equipes;
-    const termo = equipeBuscaBulk.toLowerCase();
-    return equipes.filter(
-      (e) =>
-        e.codigo.toLowerCase().includes(termo) ||
-        e.nome.toLowerCase().includes(termo)
-    );
-  }, [equipes, equipeBuscaBulk]);
-
-  // Feriados que afetam o período selecionado na criação em massa
-  const feriadosNoPeriodo = useMemo(() => {
-    if (!bulkData.data_inicio || !bulkData.data_fim || !bulkData.excluir_feriados) return [];
-    
-    const inicio = parseISO(bulkData.data_inicio);
-    const fim = parseISO(bulkData.data_fim);
-    
-    // Pegar centros de custo das equipes selecionadas
-    const centrosCustoSelecionados = new Set(
-      bulkData.equipes_ids
-        .map(id => equipes.find(e => e.id === id)?.centro_custo_id)
-        .filter(Boolean)
-    );
-    
-    return feriados.filter(f => {
-      const dataFeriado = parseISO(f.data);
-      const dentroDoIntervalo = dataFeriado >= inicio && dataFeriado <= fim;
-      const isNacional = f.nacional || f.tipo === "nacional";
-      // Aplica se for nacional OU se não tiver centro específico OU se o centro estiver na lista
-      const aplicaAosCentros = isNacional || !f.centro_custo_id || centrosCustoSelecionados.has(f.centro_custo_id);
-      const diaDaSemana = getDay(dataFeriado);
-      const diaTrabalho = bulkData.dias_semana.includes(diaDaSemana);
-      
-      return dentroDoIntervalo && aplicaAosCentros && diaTrabalho;
-    });
-  }, [bulkData, feriados, equipes]);
-
-  // Carregar dados
-  const fetchData = async () => {
+  // Fetch data
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const monthStart = startOfMonth(currentMonth);
-      const monthEnd = endOfMonth(currentMonth);
+      const inicioMes = format(startOfMonth(currentMonth), "yyyy-MM-dd");
+      const fimMes = format(endOfMonth(currentMonth), "yyyy-MM-dd");
 
-      const { data, error } = await supabase
-        .from("metas")
-        .select(`
-          *,
-          tecnicos (codigo, nome, centro_custo_id),
-          contratos (codigo, nome)
-        `)
-        .gte("data", format(monthStart, "yyyy-MM-dd"))
-        .lte("data", format(monthEnd, "yyyy-MM-dd"))
-        .order("data", { ascending: true });
+      const [metasRes, equipesRes, contratosRes, feriadosRes, centrosCustoRes] = await Promise.all([
+        supabase
+          .from("metas")
+          .select(`*, tecnicos:equipe_id(id, codigo, nome, color), contratos:contrato_id(codigo, nome)`)
+          .gte("data", inicioMes)
+          .lte("data", fimMes)
+          .order("data"),
+        supabase
+          .from("tecnicos")
+          .select("id, codigo, nome, color")
+          .or("status.eq.ativo,status.eq.em_rota,status.eq.online")
+          .order("codigo"),
+        supabase
+          .from("contratos")
+          .select("id, codigo, nome")
+          .eq("status", "ativo")
+          .order("codigo"),
+        supabase
+          .from("feriados")
+          .select("*")
+          .eq("ativo", true)
+          .order("data"),
+        supabase
+          .from("centros_custo")
+          .select("id, codigo, nome")
+          .eq("ativo", true)
+          .order("nome"),
+      ]);
 
-      if (error) throw error;
-      setMetas(data || []);
-
-      const { data: equipesData } = await supabase
-        .from("tecnicos")
-        .select("id, codigo, nome, centro_custo_id")
-        .neq("status", "offline")
-        .order("codigo");
-      setEquipes(equipesData || []);
-
-      const { data: contratosData } = await supabase
-        .from("contratos")
-        .select("id, codigo, nome")
-        .eq("status", "ativo")
-        .order("codigo");
-      setContratos(contratosData || []);
-
-      const { data: feriadosData } = await supabase
-        .from("feriados")
-        .select("*, centros_custo(codigo, nome)")
-        .eq("ativo", true)
-        .order("data", { ascending: true });
-      setFeriados(feriadosData || []);
-
-      const { data: centrosData } = await supabase
-        .from("centros_custo")
-        .select("id, codigo, nome")
-        .eq("ativo", true)
-        .order("codigo");
-      setCentrosCusto(centrosData || []);
+      setMetas(metasRes.data || []);
+      setEquipes(equipesRes.data || []);
+      setContratos(contratosRes.data || []);
+      setFeriados(feriadosRes.data || []);
+      setCentrosCusto(centrosCustoRes.data || []);
     } catch (error: any) {
-      console.error("Erro ao carregar dados:", error);
+      console.error("Erro:", error);
       toast.error("Erro ao carregar dados");
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentMonth]);
 
   useEffect(() => {
     fetchData();
+  }, [fetchData]);
+
+  // Dias do mês
+  const diasDoMes = useMemo(() => {
+    return eachDayOfInterval({
+      start: startOfMonth(currentMonth),
+      end: endOfMonth(currentMonth),
+    });
   }, [currentMonth]);
 
-  // Filtrar dados
-  const filteredMetas = useMemo(() => {
-    return filterData(
-      metas,
-      filterValues,
-      filterConfigs,
-      {
-        search: (item, value) => {
-          const searchTerm = value.toLowerCase();
-          return (
-            item.tecnicos?.codigo.toLowerCase().includes(searchTerm) ||
-            item.tecnicos?.nome.toLowerCase().includes(searchTerm) ||
-            false
-          );
-        },
+  // Mapa de feriados
+  const feriadosPorData = useMemo(() => {
+    const map = new Map<string, Feriado>();
+    feriados.forEach(f => {
+      if (f.recorrente) {
+        const [, mes, dia] = f.data.split("-");
+        diasDoMes.forEach(d => {
+          if (format(d, "MM-dd") === `${mes}-${dia}`) {
+            map.set(format(d, "yyyy-MM-dd"), f);
+          }
+        });
+      } else {
+        map.set(f.data, f);
       }
+    });
+    return map;
+  }, [feriados, diasDoMes]);
+
+  // Ciclos por equipe
+  const ciclosPorEquipe = useMemo(() => {
+    let eqs = equipes.filter(e =>
+      searchTerm === "" ||
+      e.codigo.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      e.nome.toLowerCase().includes(searchTerm.toLowerCase())
     );
-  }, [metas, filterValues, filterConfigs]);
 
-  // Ordenação
-  const { sortConfig, handleSort, sortedData } = useSortableTable(
-    filteredMetas,
-    { column: "data", direction: "asc" }
-  );
+    const ciclos: CicloEquipe[] = eqs.map(equipe => {
+      const metasEquipe = metas.filter(m => m.equipe_id === equipe.id);
+      const temMeta = metasEquipe.length > 0;
 
-  // Sumário do mês
-  const monthSummary = useMemo(() => {
-    const totalMetas = metas.length;
-    const totalValor = metas.reduce((acc, m) => acc + (m.meta_valor || 0), 0);
-    const equipesComMeta = new Set(metas.map((m) => m.equipe_id)).size;
+      let dataInicio: string | null = null;
+      let dataFim: string | null = null;
+      if (temMeta) {
+        const datas = metasEquipe.map(m => m.data).sort();
+        dataInicio = datas[0];
+        dataFim = datas[datas.length - 1];
+      }
 
-    return { totalMetas, totalValor, equipesComMeta };
-  }, [metas]);
+      const dias = diasDoMes.map(d => {
+        const dataStr = format(d, "yyyy-MM-dd");
+        const meta = metasEquipe.find(m => m.data === dataStr);
+        const feriado = feriadosPorData.get(dataStr);
+        return {
+          data: dataStr,
+          valor: meta?.valor_meta || 0,
+          metaId: meta?.id,
+          isFeriado: !!feriado,
+          feriadoNome: feriado?.nome || feriado?.descricao,
+        };
+      });
 
-  const handleCreate = () => {
-    setEditingMeta(null);
-    setEquipeBusca("");
-    setFormData({
-      equipe_id: "",
-      contrato_id: "nenhum",
-      data: new Date().toISOString().split("T")[0],
-      meta_valor: "",
-      tipo_meta: "producao",
+      return {
+        equipeId: equipe.id,
+        equipe,
+        dataInicio,
+        dataFim,
+        dias,
+        totalValor: dias.reduce((acc, d) => acc + d.valor, 0),
+        diasComMeta: dias.filter(d => d.valor > 0).length,
+        temMeta,
+      };
     });
-    setDialogOpen(true);
-  };
 
-  const handleEdit = (meta: Meta) => {
-    setEditingMeta(meta);
-    setEquipeBusca("");
-    setFormData({
-      equipe_id: meta.equipe_id,
-      contrato_id: meta.contrato_id || "nenhum",
-      data: meta.data,
-      meta_valor: meta.meta_valor?.toString() || "",
-      tipo_meta: meta.tipo_meta,
-    });
-    setDialogOpen(true);
-  };
-
-  const handleSave = async () => {
-    if (!formData.equipe_id || !formData.data || !formData.meta_valor) {
-      toast.error("Preencha os campos obrigatórios");
-      return;
+    if (showOnlyWithMeta) {
+      return ciclos.filter(c => c.temMeta);
     }
 
+    return ciclos.sort((a, b) => {
+      if (a.temMeta && !b.temMeta) return -1;
+      if (!a.temMeta && b.temMeta) return 1;
+      return a.equipe.codigo.localeCompare(b.equipe.codigo);
+    });
+  }, [metas, equipes, diasDoMes, feriadosPorData, searchTerm, showOnlyWithMeta]);
+
+  // Resumo
+  const resumo = useMemo(() => ({
+    total: ciclosPorEquipe.reduce((acc, c) => acc + c.totalValor, 0),
+    comMeta: ciclosPorEquipe.filter(c => c.temMeta).length,
+    semMeta: ciclosPorEquipe.filter(c => !c.temMeta).length,
+  }), [ciclosPorEquipe]);
+
+  // Feriados do mês
+  const feriadosDoMes = useMemo(() => {
+    return diasDoMes.map(d => feriadosPorData.get(format(d, "yyyy-MM-dd"))).filter((f): f is Feriado => !!f);
+  }, [diasDoMes, feriadosPorData]);
+
+  // Handlers
+  const parseKey = (key: string) => {
+    const [equipeId, data] = key.split(KEY_SEP);
+    return { equipeId, data };
+  };
+
+  const toggleExpanded = (id: string) => {
+    setExpandedEquipes(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleDia = (equipeId: string, data: string) => {
+    const key = `${equipeId}${KEY_SEP}${data}`;
+    setSelectedDias(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  };
+
+  const selectAllDias = (equipeId: string) => {
+    const ciclo = ciclosPorEquipe.find(c => c.equipeId === equipeId);
+    if (!ciclo) return;
+    setSelectedDias(prev => {
+      const next = new Set(prev);
+      ciclo.dias.forEach(d => {
+        if (!d.isFeriado) next.add(`${equipeId}${KEY_SEP}${d.data}`);
+      });
+      return next;
+    });
+  };
+
+  const handleApplyValue = async (valor: number) => {
+    if (selectedDias.size === 0) return toast.error("Selecione dias");
     setSaving(true);
     try {
-      const payload = {
-        equipe_id: formData.equipe_id,
-        contrato_id: formData.contrato_id && formData.contrato_id !== "nenhum" ? formData.contrato_id : null,
-        data: formData.data,
-        meta_valor: parseFloat(formData.meta_valor),
-        tipo_meta: formData.tipo_meta,
-      };
-
-      if (editingMeta) {
-        const { error } = await supabase
+      for (const key of selectedDias) {
+        const { equipeId, data } = parseKey(key);
+        const { data: existe } = await supabase
           .from("metas")
-          .update({ ...payload, updated_at: new Date().toISOString() })
-          .eq("id", editingMeta.id);
+          .select("id")
+          .eq("equipe_id", equipeId)
+          .eq("data", data)
+          .maybeSingle();
 
-        if (error) throw error;
-        toast.success("Meta atualizada com sucesso");
-      } else {
-        const { error } = await supabase.from("metas").insert(payload);
-
-        if (error) throw error;
-        toast.success("Meta criada com sucesso");
+        if (existe) {
+          await supabase.from("metas").update({ valor_meta: valor }).eq("id", existe.id);
+        } else {
+          await supabase.from("metas").insert({ equipe_id: equipeId, data, valor_meta: valor, tipo_meta: "producao" });
+        }
       }
-
-      setDialogOpen(false);
+      toast.success(`${selectedDias.size} metas atualizadas`);
+      setSelectedDias(new Set());
       fetchData();
-    } catch (error: any) {
-      console.error("Erro ao salvar:", error);
-      toast.error(`Erro ao salvar: ${error.message}`);
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveEdits = async () => {
+    if (!Object.keys(editValues).length) {
+      setEditMode(false);
+      return;
+    }
+    setSaving(true);
+    try {
+      for (const [key, valor] of Object.entries(editValues)) {
+        const { equipeId, data } = parseKey(key);
+        const { data: existe } = await supabase
+          .from("metas")
+          .select("id")
+          .eq("equipe_id", equipeId)
+          .eq("data", data)
+          .maybeSingle();
+
+        if (existe) {
+          if (valor === 0) {
+            await supabase.from("metas").delete().eq("id", existe.id);
+          } else {
+            await supabase.from("metas").update({ valor_meta: valor }).eq("id", existe.id);
+          }
+        } else if (valor > 0) {
+          await supabase.from("metas").insert({ equipe_id: equipeId, data, valor_meta: valor, tipo_meta: "producao" });
+        }
+      }
+      toast.success("Alterações salvas");
+      setEditValues({});
+      setEditMode(false);
+      fetchData();
+    } catch (e: any) {
+      toast.error(e.message);
     } finally {
       setSaving(false);
     }
   };
 
   const handleBulkCreate = async () => {
-    if (
-      bulkData.equipes_ids.length === 0 ||
-      !bulkData.data_inicio ||
-      !bulkData.data_fim ||
-      !bulkData.meta_valor
-    ) {
-      toast.error("Preencha os campos obrigatórios");
-      return;
+    if (!bulkData.equipes_ids.length || !bulkData.data_inicio || !bulkData.data_fim || !bulkData.valor_meta) {
+      return toast.error("Preencha todos os campos");
     }
-
     setSaving(true);
     try {
-      const dataInicio = new Date(bulkData.data_inicio + "T12:00:00");
-      const dataFim = new Date(bulkData.data_fim + "T12:00:00");
-      const dias = eachDayOfInterval({ start: dataInicio, end: dataFim });
-
-      // Filtrar dias da semana
-      let diasFiltrados = dias.filter((dia) =>
-        bulkData.dias_semana.includes(getDay(dia))
-      );
-
-      // Excluir feriados se marcado
+      const inicio = new Date(bulkData.data_inicio + "T12:00:00");
+      const fim = new Date(bulkData.data_fim + "T12:00:00");
+      let dias = eachDayOfInterval({ start: inicio, end: fim })
+        .filter(d => bulkData.dias_semana.includes(getDay(d)));
+      
       if (bulkData.excluir_feriados) {
-        const datasFeridados = new Set(feriadosNoPeriodo.map(f => f.data));
-        diasFiltrados = diasFiltrados.filter(dia => 
-          !datasFeridados.has(format(dia, "yyyy-MM-dd"))
-        );
+        dias = dias.filter(d => !feriadosPorData.has(format(d, "yyyy-MM-dd")));
       }
-
-      const metasToInsert: any[] = [];
 
       for (const equipeId of bulkData.equipes_ids) {
-        for (const dia of diasFiltrados) {
-          metasToInsert.push({
-            equipe_id: equipeId,
-            contrato_id: bulkData.contrato_id && bulkData.contrato_id !== "nenhum" ? bulkData.contrato_id : null,
-            data: format(dia, "yyyy-MM-dd"),
-            meta_valor: parseFloat(bulkData.meta_valor),
-            tipo_meta: bulkData.tipo_meta,
-          });
-        }
-      }
-
-      if (metasToInsert.length === 0) {
-        toast.error("Nenhuma meta para criar com os critérios informados");
-        return;
-      }
-
-      // Inserir metas uma a uma para evitar problemas de constraint
-      for (const meta of metasToInsert) {
-        // Verificar se já existe meta para esta equipe/data
-        const { data: existente } = await supabase
-          .from("metas")
-          .select("id")
-          .eq("equipe_id", meta.equipe_id)
-          .eq("data", meta.data)
-          .maybeSingle();
-        
-        if (existente) {
-          // Atualizar
-          await supabase
+        for (const dia of dias) {
+          const dataStr = format(dia, "yyyy-MM-dd");
+          const { data: existe } = await supabase
             .from("metas")
-            .update({
-              contrato_id: meta.contrato_id,
-              meta_valor: meta.meta_valor,
-              tipo_meta: meta.tipo_meta,
-            })
-            .eq("id", existente.id);
-        } else {
-          // Inserir
-          const { error } = await supabase.from("metas").insert(meta);
-          if (error) throw error;
+            .select("id")
+            .eq("equipe_id", equipeId)
+            .eq("data", dataStr)
+            .maybeSingle();
+
+          if (existe) {
+            await supabase.from("metas").update({
+              valor_meta: parseFloat(bulkData.valor_meta),
+              tipo_meta: bulkData.tipo_meta,
+              contrato_id: bulkData.contrato_id !== "nenhum" ? bulkData.contrato_id : null,
+            }).eq("id", existe.id);
+          } else {
+            await supabase.from("metas").insert({
+              equipe_id: equipeId,
+              data: dataStr,
+              valor_meta: parseFloat(bulkData.valor_meta),
+              tipo_meta: bulkData.tipo_meta,
+              contrato_id: bulkData.contrato_id !== "nenhum" ? bulkData.contrato_id : null,
+            });
+          }
         }
       }
-
-      const diasExcluidos = feriadosNoPeriodo.length;
-      toast.success(
-        `${metasToInsert.length} metas criadas/atualizadas${diasExcluidos > 0 ? ` (${diasExcluidos} dia(s) excluído(s) por feriado)` : ""}`
-      );
+      toast.success(`Metas criadas para ${bulkData.equipes_ids.length} equipes`);
       setBulkDialogOpen(false);
       fetchData();
-    } catch (error: any) {
-      console.error("Erro ao criar metas em massa:", error);
-      toast.error(`Erro ao criar: ${error.message}`);
+    } catch (e: any) {
+      toast.error(e.message);
     } finally {
       setSaving(false);
     }
   };
 
-  const handleDelete = async () => {
-    if (!metaToDelete) return;
-
+  const handleDeleteSelected = async () => {
+    if (!selectedDias.size) return;
+    setSaving(true);
     try {
-      const { error } = await supabase
-        .from("metas")
-        .delete()
-        .eq("id", metaToDelete.id);
+      let count = 0;
+      for (const key of selectedDias) {
+        const { equipeId, data } = parseKey(key);
+        const { data: existe } = await supabase
+          .from("metas")
+          .select("id")
+          .eq("equipe_id", equipeId)
+          .eq("data", data)
+          .maybeSingle();
 
-      if (error) throw error;
-
-      toast.success("Meta excluída com sucesso");
-      setDeleteDialogOpen(false);
-      setMetaToDelete(null);
+        if (existe) {
+          await supabase.from("metas").delete().eq("id", existe.id);
+          count++;
+        }
+      }
+      toast.success(`${count} metas removidas`);
+      setSelectedDias(new Set());
+      setDeleteConfirmOpen(false);
       fetchData();
-    } catch (error: any) {
-      console.error("Erro ao excluir:", error);
-      toast.error(`Erro ao excluir: ${error.message}`);
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setSaving(false);
     }
   };
 
   const handleSaveFeriado = async () => {
-    if (!feriadoForm.data || !feriadoForm.nome) {
-      toast.error("Preencha os campos obrigatórios");
-      return;
-    }
-
+    if (!feriadoForm.data || !feriadoForm.nome) return toast.error("Preencha os campos");
     setSaving(true);
     try {
       const isNacional = feriadoForm.tipo === "nacional";
       const payload = {
-        centro_custo_id: isNacional ? null : (feriadoForm.centro_custo_id === "nacional" || feriadoForm.centro_custo_id === "todos" ? null : feriadoForm.centro_custo_id),
         data: feriadoForm.data,
         nome: feriadoForm.nome,
         tipo: feriadoForm.tipo,
         nacional: isNacional,
         recorrente: feriadoForm.recorrente,
+        centro_custo_id: isNacional ? null : (feriadoForm.centro_custo_id === "nacional" ? null : feriadoForm.centro_custo_id),
         ativo: true,
       };
 
       if (editingFeriado) {
-        // Atualizar feriado existente
-        const { error } = await supabase.from("feriados").update(payload).eq("id", editingFeriado.id);
-        if (error) throw error;
-        toast.success("Feriado atualizado com sucesso");
+        await supabase.from("feriados").update(payload).eq("id", editingFeriado.id);
       } else {
-        // Criar novo feriado
-        const { error } = await supabase.from("feriados").insert(payload);
-        if (error) throw error;
-        toast.success("Feriado cadastrado com sucesso");
+        await supabase.from("feriados").insert(payload);
       }
-      
+      toast.success("Feriado salvo");
       setFeriadoDialogOpen(false);
       setEditingFeriado(null);
-      setFeriadoForm({ centro_custo_id: "nacional", data: "", nome: "", tipo: "nacional", recorrente: false });
+      setFeriadoForm({ data: "", nome: "", tipo: "nacional", centro_custo_id: "nacional", recorrente: true });
       fetchData();
-    } catch (error: any) {
-      console.error("Erro ao salvar feriado:", error);
-      toast.error(`Erro ao salvar: ${error.message}`);
+    } catch (e: any) {
+      toast.error(e.message);
     } finally {
       setSaving(false);
     }
   };
 
-  const handleEditFeriado = (feriado: Feriado) => {
-    setEditingFeriado(feriado);
-    setFeriadoForm({
-      centro_custo_id: feriado.centro_custo_id || (feriado.nacional ? "nacional" : "todos"),
-      data: feriado.data,
-      nome: feriado.nome,
-      tipo: feriado.tipo,
-      recorrente: feriado.recorrente,
-    });
-    setFeriadoDialogOpen(true);
-  };
-
-  const handleDeleteFeriado = async (feriadoId: string) => {
-    try {
-      const { error } = await supabase
-        .from("feriados")
-        .delete()
-        .eq("id", feriadoId);
-
-      if (error) throw error;
-      toast.success("Feriado excluído");
-      fetchData();
-    } catch (error: any) {
-      toast.error(`Erro ao excluir: ${error.message}`);
-    }
-  };
-
-  const toggleEquipeSelection = (equipeId: string) => {
-    setBulkData((prev) => ({
-      ...prev,
-      equipes_ids: prev.equipes_ids.includes(equipeId)
-        ? prev.equipes_ids.filter((id) => id !== equipeId)
-        : [...prev.equipes_ids, equipeId],
-    }));
-  };
-
-  const toggleDiaSemana = (dia: number) => {
-    setBulkData((prev) => ({
-      ...prev,
-      dias_semana: prev.dias_semana.includes(dia)
-        ? prev.dias_semana.filter((d) => d !== dia)
-        : [...prev.dias_semana, dia].sort(),
-    }));
-  };
-
-  const selectAllEquipes = () => {
-    setBulkData((prev) => ({
-      ...prev,
-      equipes_ids: equipes.map((e) => e.id),
-    }));
-  };
-
-  const deselectAllEquipes = () => {
-    setBulkData((prev) => ({
-      ...prev,
-      equipes_ids: [],
-    }));
-  };
-
-  // Feriados do mês atual para exibição
-  const feriadosDoMes = useMemo(() => {
-    const monthStart = startOfMonth(currentMonth);
-    const monthEnd = endOfMonth(currentMonth);
-    
-    return feriados.filter(f => {
-      const dataFeriado = parseISO(f.data);
-      return dataFeriado >= monthStart && dataFeriado <= monthEnd;
-    });
-  }, [feriados, currentMonth]);
-
   return (
-    <MainLayout
-      title="Metas"
-      subtitle="Gerencie as metas de produção das equipes"
-      breadcrumbs={[
-        { label: "Cadastros", href: "/cadastros" },
-        { label: "Metas" },
-      ]}
-    >
-      <div className="space-y-6">
-        {/* Tabs principais */}
-        <Tabs value={mainTab} onValueChange={setMainTab}>
-          <TabsList>
-            <TabsTrigger value="metas">Metas</TabsTrigger>
-            <TabsTrigger value="feriados">
-              Feriados
-              {feriados.length > 0 && (
-                <Badge variant="secondary" className="ml-2">{feriados.length}</Badge>
-              )}
-            </TabsTrigger>
-          </TabsList>
+    <MainLayout>
+      <div className="p-4 space-y-3">
+        {/* Header compacto */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
+            <Target className="h-5 w-5 text-primary" />
+            <h1 className="text-lg font-bold">Metas</h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="icon" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="text-sm font-medium min-w-[100px] text-center">
+              {format(currentMonth, "MMM/yyyy", { locale: ptBR })}
+            </span>
+            <Button variant="outline" size="icon" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setCurrentMonth(new Date())}>Hoje</Button>
+            <Button variant="outline" size="sm" onClick={fetchData} disabled={loading}>
+              <RefreshCcw className={cn("h-3 w-3", loading && "animate-spin")} />
+            </Button>
+          </div>
+        </div>
 
-          {/* Tab de Metas */}
-          <TabsContent value="metas" className="space-y-6 mt-4">
-            {/* Header com navegação do mês */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentMonth((prev) => subMonths(prev, 1))}
-                >
-                  <ChevronLeft className="h-4 w-4" />
+        {/* Resumo compacto + ações */}
+        <div className="flex items-center justify-between gap-4 text-xs">
+          <div className="flex items-center gap-4">
+            <span className="flex items-center gap-1">
+              <Users className="h-3 w-3" /> {resumo.comMeta} c/ meta
+            </span>
+            <span className="flex items-center gap-1 text-amber-600">
+              <AlertTriangle className="h-3 w-3" /> {resumo.semMeta} s/ meta
+            </span>
+            <span className="flex items-center gap-1 text-green-600">
+              <DollarSign className="h-3 w-3" /> R$ {resumo.total.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+            </span>
+            {feriadosDoMes.length > 0 && (
+              <span className="flex items-center gap-1 text-amber-600">
+                <CalendarOff className="h-3 w-3" /> {feriadosDoMes.length} feriado(s)
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+              <Input
+                placeholder="Buscar..."
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                className="h-7 w-40 pl-7 text-xs"
+              />
+            </div>
+            <label className="flex items-center gap-1 text-xs cursor-pointer">
+              <Checkbox checked={showOnlyWithMeta} onCheckedChange={v => setShowOnlyWithMeta(!!v)} className="h-3 w-3" />
+              Só c/ meta
+            </label>
+            {editMode ? (
+              <>
+                <Button size="sm" variant="outline" onClick={() => { setEditValues({}); setEditMode(false); }}>
+                  <X className="h-3 w-3 mr-1" /> Cancelar
                 </Button>
-                <h3 className="text-lg font-semibold min-w-[150px] text-center">
-                  {format(currentMonth, "MMMM yyyy", { locale: ptBR })}
-                </h3>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentMonth((prev) => addMonths(prev, 1))}
-                >
-                  <ChevronRight className="h-4 w-4" />
+                <Button size="sm" onClick={handleSaveEdits} disabled={saving}>
+                  {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3 mr-1" />} Salvar
                 </Button>
-              </div>
-              <div className="flex items-center gap-2">
-                <ExportButton
-                  data={metas}
-                  filename="metas"
-                  columns={[
-                    { key: "data", label: "Data", format: (v) => v ? new Date(v).toLocaleDateString("pt-BR") : "" },
-                    { key: "tecnicos.codigo", label: "Equipe Código" },
-                    { key: "tecnicos.nome", label: "Equipe Nome" },
-                    { key: "contratos.codigo", label: "Contrato" },
-                    { key: "meta_valor", label: "Meta Valor", format: (v) => v ? `R$ ${Number(v).toFixed(2)}` : "" },
-                  ]}
-                  disabled={loading}
-                />
-                <Button variant="outline" onClick={fetchData} disabled={loading}>
-                  <RefreshCcw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-                  Atualizar
+              </>
+            ) : (
+              <>
+                <Button size="sm" variant="outline" onClick={() => setEditMode(true)}>
+                  <Pencil className="h-3 w-3 mr-1" /> Editar
                 </Button>
-                <Button variant="outline" onClick={() => {
-                  setEquipeBuscaBulk("");
+                <Button size="sm" variant="outline" onClick={() => setCopyDialogOpen(true)}>
+                  <Copy className="h-3 w-3 mr-1" /> Copiar
+                </Button>
+                <Button size="sm" onClick={() => {
                   setBulkData({
-                    equipes_ids: [],
-                    contrato_id: "nenhum",
+                    ...bulkData,
                     data_inicio: format(startOfMonth(currentMonth), "yyyy-MM-dd"),
                     data_fim: format(endOfMonth(currentMonth), "yyyy-MM-dd"),
-                    dias_semana: [1, 2, 3, 4, 5],
-                    meta_valor: "",
-                    tipo_meta: "producao",
-                    excluir_feriados: true,
                   });
                   setBulkDialogOpen(true);
                 }}>
-                  <Zap className="h-4 w-4 mr-2" />
-                  Criação em Massa
+                  <Zap className="h-3 w-3 mr-1" /> Em Massa
                 </Button>
-                <Button onClick={handleCreate}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Nova Meta
-                </Button>
-              </div>
-            </div>
-
-            {/* Resumo do mês */}
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              <div className="p-4 rounded-lg border border-border bg-card">
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Target className="h-4 w-4" />
-                  <span className="text-sm">Total de Metas</span>
-                </div>
-                <p className="text-2xl font-bold mt-1">{monthSummary.totalMetas}</p>
-              </div>
-              <div className="p-4 rounded-lg border border-border bg-card">
-                <div className="flex items-center gap-2 text-green-600">
-                  <span className="text-sm">💰 Valor Total</span>
-                </div>
-                <p className="text-2xl font-bold mt-1">
-                  R$ {monthSummary.totalValor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                </p>
-              </div>
-              <div className="p-4 rounded-lg border border-border bg-card">
-                <div className="flex items-center gap-2 text-purple-600">
-                  <span className="text-sm">👥 Equipes c/ Meta</span>
-                </div>
-                <p className="text-2xl font-bold mt-1">{monthSummary.equipesComMeta}</p>
-              </div>
-            </div>
-
-            {/* Alerta de feriados no mês */}
-            {feriadosDoMes.length > 0 && (
-              <Card className="border-amber-200 bg-amber-50">
-                <CardContent className="py-3">
-                  <div className="flex items-center gap-2 text-amber-800">
-                    <CalendarOff className="h-4 w-4" />
-                    <span className="text-sm font-medium">
-                      {feriadosDoMes.length} feriado(s) neste mês:
-                    </span>
-                    <span className="text-sm">
-                      {feriadosDoMes.map(f => 
-                        `${format(parseISO(f.data), "dd/MM")} (${getFeriadoNome(f)})`
-                      ).join(", ")}
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
+              </>
             )}
+          </div>
+        </div>
 
-            {/* Filtros */}
-            <div className="rounded-xl border border-border bg-card p-4">
-              <DataTableFilters
-                filters={filterConfigs}
-                values={filterValues}
-                onChange={setFilterValues}
-                onClear={clearFilters}
-              />
-            </div>
+        {/* Seleção em massa */}
+        {selectedDias.size > 0 && (
+          <div className="flex items-center gap-3 p-2 bg-primary/5 rounded border border-primary/20 text-xs">
+            <span className="font-medium">{selectedDias.size} selecionado(s)</span>
+            <Input
+              type="number"
+              placeholder="R$"
+              className="w-20 h-6 text-xs"
+              id="valor-massa"
+              onKeyDown={e => {
+                if (e.key === "Enter") {
+                  const v = parseFloat((e.target as HTMLInputElement).value);
+                  if (!isNaN(v)) handleApplyValue(v);
+                }
+              }}
+            />
+            <Button size="sm" variant="outline" onClick={() => {
+              const v = parseFloat((document.getElementById("valor-massa") as HTMLInputElement)?.value || "0");
+              if (!isNaN(v)) handleApplyValue(v);
+            }} disabled={saving}>
+              {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />} Aplicar
+            </Button>
+            <Button size="sm" variant="destructive" onClick={() => setDeleteConfirmOpen(true)}>
+              <Trash2 className="h-3 w-3 mr-1" /> Zerar
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setSelectedDias(new Set())}>
+              <X className="h-3 w-3" />
+            </Button>
+          </div>
+        )}
 
-            {/* Tabela */}
-            <div className="rounded-xl border border-border bg-card overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <SortableTableHead
-                      column="data"
-                      label="Data"
-                      sortConfig={sortConfig}
-                      onSort={handleSort}
-                    />
-                    <SortableTableHead
-                      column="tecnicos.codigo"
-                      label="Equipe"
-                      sortConfig={sortConfig}
-                      onSort={handleSort}
-                    />
-                    <SortableTableHead
-                      column="contratos.codigo"
-                      label="Contrato"
-                      sortConfig={sortConfig}
-                      onSort={handleSort}
-                    />
-                    <SortableTableHead
-                      column="tipo_meta"
-                      label="Tipo"
-                      sortConfig={sortConfig}
-                      onSort={handleSort}
-                    />
-                    <SortableTableHead
-                      column="meta_valor"
-                      label="Valor (R$)"
-                      sortConfig={sortConfig}
-                      onSort={handleSort}
-                    />
-                    <TableHead className="text-right">Ações</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {loading ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8">
-                        <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
-                      </TableCell>
-                    </TableRow>
-                  ) : sortedData?.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8">
-                        <Target className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                        <p className="text-muted-foreground">
-                          {hasActiveFilters
-                            ? "Nenhuma meta encontrada com os filtros aplicados"
-                            : "Nenhuma meta cadastrada para este mês"}
-                        </p>
-                        {hasActiveFilters && (
-                          <Button variant="link" size="sm" onClick={clearFilters} className="mt-2">
-                            Limpar filtros
-                          </Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    sortedData?.map((meta) => (
-                      <TableRow key={meta.id} className="group">
-                        <TableCell>
-                          <div className="flex items-center gap-1 text-sm">
-                            <Calendar className="h-3 w-3 text-muted-foreground" />
-                            {format(new Date(meta.data + "T12:00:00"), "dd/MM/yyyy (EEE)", {
-                              locale: ptBR,
-                            })}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {meta.tecnicos ? (
-                            <div>
-                              <p className="font-medium">{meta.tecnicos.codigo}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {meta.tecnicos.nome}
-                              </p>
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {meta.contratos ? (
-                            <Badge variant="secondary">{meta.contratos.codigo}</Badge>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">
-                            {tipoMetaOptions.find((t) => t.value === meta.tipo_meta)?.label ||
-                              meta.tipo_meta}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <span className="text-green-600 font-bold">
-                            R$ {(meta.meta_valor || 0).toLocaleString("pt-BR", {
-                              minimumFractionDigits: 2,
-                            })}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleEdit(meta)}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setMetaToDelete(meta);
-                                setDeleteDialogOpen(true);
-                              }}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+        {/* Tabs */}
+        <Tabs defaultValue="metas">
+          <TabsList className="h-7">
+            <TabsTrigger value="metas" className="text-xs h-6">Metas</TabsTrigger>
+            <TabsTrigger value="feriados" className="text-xs h-6">Feriados ({feriados.length})</TabsTrigger>
+          </TabsList>
 
-              {sortedData && sortedData.length > 0 && (
-                <div className="px-4 py-3 border-t border-border bg-muted/30 text-sm text-muted-foreground">
-                  Mostrando {sortedData.length} de {metas.length} metas
+          <TabsContent value="metas" className="mt-2">
+            {loading ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : ciclosPorEquipe.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Target className="h-8 w-8 mx-auto mb-2" />
+                <p>Nenhuma equipe encontrada</p>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {/* Botões expandir/recolher */}
+                <div className="flex gap-1 mb-2">
+                  <Button size="sm" variant="ghost" onClick={() => setExpandedEquipes(new Set(equipes.map(e => e.id)))}>
+                    <ChevronDown className="h-3 w-3 mr-1" /> Expandir
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setExpandedEquipes(new Set())}>
+                    <ChevronUp className="h-3 w-3 mr-1" /> Recolher
+                  </Button>
                 </div>
-              )}
-            </div>
+
+                {ciclosPorEquipe.map(ciclo => (
+                  <Card key={ciclo.equipeId} className={cn("overflow-hidden", !ciclo.temMeta && "border-amber-300 bg-amber-50/20")}>
+                    <div
+                      className="flex items-center gap-2 p-2 cursor-pointer hover:bg-muted/50"
+                      onClick={() => toggleExpanded(ciclo.equipeId)}
+                    >
+                      <div className="w-1 h-6 rounded" style={{ backgroundColor: ciclo.equipe.color || "#6366f1" }} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 text-sm">
+                          <span className="font-bold">{ciclo.equipe.codigo}</span>
+                          <span className="text-muted-foreground truncate text-xs">{ciclo.equipe.nome}</span>
+                          {!ciclo.temMeta && (
+                            <Badge variant="outline" className="text-[10px] px-1 bg-amber-100 text-amber-800 border-amber-300">
+                              <AlertTriangle className="h-2 w-2 mr-0.5" /> Sem meta
+                            </Badge>
+                          )}
+                        </div>
+                        {ciclo.temMeta && (
+                          <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                            <span>{ciclo.dataInicio && format(parseISO(ciclo.dataInicio), "dd/MM")} - {ciclo.dataFim && format(parseISO(ciclo.dataFim), "dd/MM")}</span>
+                            <span>{ciclo.diasComMeta} dias</span>
+                            <span className="text-green-600 font-medium">R$ {ciclo.totalValor.toLocaleString("pt-BR")}</span>
+                          </div>
+                        )}
+                      </div>
+                      <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={e => { e.stopPropagation(); selectAllDias(ciclo.equipeId); }}>
+                        Todos
+                      </Button>
+                      {expandedEquipes.has(ciclo.equipeId) ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    </div>
+
+                    {expandedEquipes.has(ciclo.equipeId) && (
+                      <div className="border-t p-2 bg-muted/20">
+                        <div className="grid grid-cols-7 gap-0.5 mb-1">
+                          {diasSemanaLabels.map((d, i) => (
+                            <div key={i} className="text-center text-[9px] text-muted-foreground">{d}</div>
+                          ))}
+                        </div>
+                        <div className="grid grid-cols-7 gap-0.5">
+                          {Array.from({ length: getDay(diasDoMes[0]) }).map((_, i) => (
+                            <div key={`e${i}`} />
+                          ))}
+                          {ciclo.dias.map(dia => {
+                            const key = `${ciclo.equipeId}${KEY_SEP}${dia.data}`;
+                            const isSel = selectedDias.has(key);
+                            const editVal = editValues[key];
+                            const val = editVal !== undefined ? editVal : dia.valor;
+                            const diaNum = parseInt(dia.data.split("-")[2]);
+
+                            return (
+                              <div
+                                key={dia.data}
+                                className={cn(
+                                  "h-7 rounded border text-center flex flex-col items-center justify-center cursor-pointer transition-all text-[10px]",
+                                  dia.isFeriado && "bg-amber-100 border-amber-300",
+                                  isSel && "ring-1 ring-primary",
+                                  val > 0 && !dia.isFeriado && "bg-green-50 border-green-300",
+                                  val === 0 && !dia.isFeriado && "bg-gray-50 border-gray-200",
+                                  editMode && "hover:bg-blue-50"
+                                )}
+                                onClick={() => !editMode && toggleDia(ciclo.equipeId, dia.data)}
+                                title={dia.isFeriado ? dia.feriadoNome : undefined}
+                              >
+                                <span className={cn("text-[9px]", dia.isFeriado && "text-amber-700")}>{diaNum}</span>
+                                {editMode ? (
+                                  <input
+                                    type="number"
+                                    value={val}
+                                    onChange={e => setEditValues(prev => ({ ...prev, [key]: parseFloat(e.target.value) || 0 }))}
+                                    className="w-full h-3 text-[9px] text-center bg-transparent border-0 p-0"
+                                    onClick={e => e.stopPropagation()}
+                                  />
+                                ) : (
+                                  <span className={cn("font-medium text-[9px]", val > 0 ? "text-green-700" : "text-gray-400", dia.isFeriado && "text-amber-600")}>
+                                    {val > 0 ? (val >= 1000 ? `${(val/1000).toFixed(0)}k` : val) : "-"}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </Card>
+                ))}
+              </div>
+            )}
           </TabsContent>
 
-          {/* Tab de Feriados */}
-          <TabsContent value="feriados" className="space-y-6 mt-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-semibold">Gerenciar Feriados</h3>
-                <p className="text-sm text-muted-foreground">
-                  Cadastre feriados por centro de custo ou nacionais
-                </p>
-              </div>
-              <Button onClick={() => {
+          <TabsContent value="feriados" className="mt-2">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-sm font-medium">Feriados Cadastrados</span>
+              <Button size="sm" onClick={() => {
                 setEditingFeriado(null);
-                setFeriadoForm({ centro_custo_id: "nacional", data: "", nome: "", tipo: "nacional", recorrente: false });
+                setFeriadoForm({ data: "", nome: "", tipo: "nacional", centro_custo_id: "nacional", recorrente: true });
                 setFeriadoDialogOpen(true);
               }}>
-                <Plus className="h-4 w-4 mr-2" />
-                Novo Feriado
+                <Plus className="h-3 w-3 mr-1" /> Novo
               </Button>
             </div>
-
-            <div className="rounded-xl border border-border bg-card overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Data</TableHead>
-                    <TableHead>Descrição</TableHead>
-                    <TableHead>Centro de Custo</TableHead>
-                    <TableHead>Tipo</TableHead>
-                    <TableHead className="text-right">Ações</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {feriados.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center py-8">
-                        <CalendarOff className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                        <p className="text-muted-foreground">Nenhum feriado cadastrado</p>
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    feriados.map((feriado) => (
-                      <TableRow key={feriado.id}>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            <Calendar className="h-3 w-3 text-muted-foreground" />
-                            {format(parseISO(feriado.data), "dd/MM/yyyy (EEE)", { locale: ptBR })}
-                            {feriado.recorrente && (
-                              <Badge variant="outline" className="text-[10px] px-1">Anual</Badge>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell className="font-medium">{getFeriadoNome(feriado)}</TableCell>
-                        <TableCell>
-                          {feriado.nacional || feriado.tipo === "nacional" ? (
-                            <Badge className="bg-blue-500">Nacional</Badge>
-                          ) : feriado.centros_custo ? (
-                            <Badge variant="outline">
-                              {feriado.centros_custo.nome}
-                            </Badge>
-                          ) : (
-                            <span className="text-muted-foreground text-sm">Todos</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="secondary">{feriado.tipo}</Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleEditFeriado(feriado)}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDeleteFeriado(feriado.id)}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+            <div className="space-y-1">
+              {feriados.length === 0 ? (
+                <p className="text-center text-muted-foreground py-4">Nenhum feriado</p>
+              ) : (
+                feriados.map(f => (
+                  <div key={f.id} className="flex items-center justify-between p-2 border rounded text-sm">
+                    <div className="flex items-center gap-2">
+                      <div className="text-center min-w-[40px]">
+                        <div className="font-bold">{format(parseISO(f.data), "dd")}</div>
+                        <div className="text-[10px] text-muted-foreground">{format(parseISO(f.data), "MMM", { locale: ptBR })}</div>
+                      </div>
+                      <div>
+                        <p className="font-medium text-xs">{f.nome || f.descricao}</p>
+                        <div className="flex gap-1">
+                          <Badge variant={f.nacional ? "default" : "secondary"} className="text-[9px] px-1">{f.tipo}</Badge>
+                          {f.recorrente && <Badge variant="outline" className="text-[9px] px-1">Anual</Badge>}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => {
+                        setEditingFeriado(f);
+                        setFeriadoForm({ data: f.data, nome: f.nome || f.descricao || "", tipo: f.tipo, centro_custo_id: f.centro_custo_id || "nacional", recorrente: f.recorrente });
+                        setFeriadoDialogOpen(true);
+                      }}>
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={async () => {
+                        await supabase.from("feriados").delete().eq("id", f.id);
+                        toast.success("Feriado removido");
+                        fetchData();
+                      }}>
+                        <Trash2 className="h-3 w-3 text-destructive" />
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </TabsContent>
         </Tabs>
 
-        {/* Dialog de Criar/Editar Meta */}
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogContent className="max-w-md">
+        {/* Dialog Bulk */}
+        <Dialog open={bulkDialogOpen} onOpenChange={setBulkDialogOpen}>
+          <DialogContent className="max-w-lg">
             <DialogHeader>
-              <DialogTitle>
-                {editingMeta ? "Editar Meta" : "Nova Meta"}
-              </DialogTitle>
+              <DialogTitle>Criar Metas em Massa</DialogTitle>
             </DialogHeader>
-
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>Equipe *</Label>
+            <div className="space-y-3">
+              <div>
+                <Label className="text-xs">Equipes ({bulkData.equipes_ids.length})</Label>
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
                   <Input
-                    placeholder="Buscar equipe..."
-                    value={equipeBusca}
-                    onChange={(e) => setEquipeBusca(e.target.value)}
-                    className="pl-9 mb-2"
+                    placeholder="Buscar..."
+                    value={equipeBuscaBulk}
+                    onChange={e => setEquipeBuscaBulk(e.target.value)}
+                    className="pl-7 h-7 text-xs"
                   />
                 </div>
-                <div className="border rounded-lg max-h-40 overflow-y-auto">
-                  {equipesFiltradas.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-3">
-                      Nenhuma equipe encontrada
-                    </p>
-                  ) : (
-                    equipesFiltradas.map((e) => (
-                      <div
-                        key={e.id}
-                        className={`flex items-center gap-2 p-2 cursor-pointer hover:bg-muted/50 transition-colors ${
-                          formData.equipe_id === e.id ? "bg-primary/10 border-l-2 border-primary" : ""
-                        }`}
-                        onClick={() => setFormData({ ...formData, equipe_id: e.id })}
-                      >
-                        <span className="font-medium">{e.codigo}</span>
-                        <span className="text-muted-foreground text-sm">{e.nome}</span>
-                      </div>
-                    ))
-                  )}
+                <ScrollArea className="h-28 border rounded mt-1">
+                  <div className="p-1 space-y-0.5">
+                    {equipes
+                      .filter(e => !equipeBuscaBulk || e.codigo.toLowerCase().includes(equipeBuscaBulk.toLowerCase()) || e.nome.toLowerCase().includes(equipeBuscaBulk.toLowerCase()))
+                      .map(eq => (
+                        <div
+                          key={eq.id}
+                          className={cn("flex items-center gap-2 p-1 rounded cursor-pointer hover:bg-muted text-xs", bulkData.equipes_ids.includes(eq.id) && "bg-primary/10")}
+                          onClick={() => setBulkData(prev => ({
+                            ...prev,
+                            equipes_ids: prev.equipes_ids.includes(eq.id)
+                              ? prev.equipes_ids.filter(id => id !== eq.id)
+                              : [...prev.equipes_ids, eq.id]
+                          }))}
+                        >
+                          <Checkbox checked={bulkData.equipes_ids.includes(eq.id)} className="h-3 w-3" />
+                          <span className="font-medium">{eq.codigo}</span>
+                          <span className="text-muted-foreground truncate">{eq.nome}</span>
+                        </div>
+                      ))}
+                  </div>
+                </ScrollArea>
+                <div className="flex gap-1 mt-1">
+                  <Button variant="outline" size="sm" className="h-6 text-xs" onClick={() => setBulkData(prev => ({ ...prev, equipes_ids: equipes.map(e => e.id) }))}>
+                    Todas
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-6 text-xs" onClick={() => setBulkData(prev => ({ ...prev, equipes_ids: [] }))}>
+                    Limpar
+                  </Button>
                 </div>
               </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Data *</Label>
-                  <Input
-                    type="date"
-                    value={formData.data}
-                    onChange={(e) => setFormData({ ...formData, data: e.target.value })}
-                  />
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs">Início</Label>
+                  <Input type="date" value={bulkData.data_inicio} onChange={e => setBulkData({ ...bulkData, data_inicio: e.target.value })} className="h-7 text-xs" />
                 </div>
-
-                <div className="space-y-2">
-                  <Label>Tipo</Label>
-                  <Select
-                    value={formData.tipo_meta}
-                    onValueChange={(v) => setFormData({ ...formData, tipo_meta: v })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
+                <div>
+                  <Label className="text-xs">Fim</Label>
+                  <Input type="date" value={bulkData.data_fim} onChange={e => setBulkData({ ...bulkData, data_fim: e.target.value })} className="h-7 text-xs" />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs">Dias</Label>
+                <div className="flex gap-1">
+                  {[{ v: 1, l: "S" }, { v: 2, l: "T" }, { v: 3, l: "Q" }, { v: 4, l: "Q" }, { v: 5, l: "S" }, { v: 6, l: "S" }, { v: 0, l: "D" }].map(d => (
+                    <Badge
+                      key={d.v}
+                      variant={bulkData.dias_semana.includes(d.v) ? "default" : "outline"}
+                      className="cursor-pointer text-xs"
+                      onClick={() => setBulkData(prev => ({
+                        ...prev,
+                        dias_semana: prev.dias_semana.includes(d.v)
+                          ? prev.dias_semana.filter(x => x !== d.v)
+                          : [...prev.dias_semana, d.v]
+                      }))}
+                    >
+                      {d.l}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs">Valor R$</Label>
+                  <Input type="number" value={bulkData.valor_meta} onChange={e => setBulkData({ ...bulkData, valor_meta: e.target.value })} className="h-7 text-xs" />
+                </div>
+                <div>
+                  <Label className="text-xs">Tipo</Label>
+                  <Select value={bulkData.tipo_meta} onValueChange={v => setBulkData({ ...bulkData, tipo_meta: v })}>
+                    <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {tipoMetaOptions.map((t) => (
-                        <SelectItem key={t.value} value={t.value}>
-                          {t.label}
-                        </SelectItem>
-                      ))}
+                      {tipoMetaOptions.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
               </div>
+              <label className="flex items-center gap-2 text-xs">
+                <Checkbox checked={bulkData.excluir_feriados} onCheckedChange={v => setBulkData({ ...bulkData, excluir_feriados: !!v })} className="h-3 w-3" />
+                Excluir feriados
+              </label>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setBulkDialogOpen(false)}>Cancelar</Button>
+              <Button onClick={handleBulkCreate} disabled={saving}>
+                {saving && <Loader2 className="h-3 w-3 mr-1 animate-spin" />} Criar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
-              <div className="space-y-2">
-                <Label>Valor da Meta (R$) *</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={formData.meta_valor}
-                  onChange={(e) =>
-                    setFormData({ ...formData, meta_valor: e.target.value })
-                  }
-                  placeholder="Ex: 5000.00"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Contrato</Label>
-                <Select
-                  value={formData.contrato_id}
-                  onValueChange={(v) => setFormData({ ...formData, contrato_id: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione (opcional)" />
-                  </SelectTrigger>
+        {/* Dialog Copiar */}
+        <Dialog open={copyDialogOpen} onOpenChange={setCopyDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Copiar Metas</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div>
+                <Label className="text-xs">Origem</Label>
+                <Select value={copyData.equipeOrigem} onValueChange={v => setCopyData({ ...copyData, equipeOrigem: v })}>
+                  <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Selecione..." /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="nenhum">Nenhum</SelectItem>
-                    {contratos.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.codigo} - {c.nome}
-                      </SelectItem>
+                    {ciclosPorEquipe.filter(c => c.temMeta).map(c => (
+                      <SelectItem key={c.equipeId} value={c.equipeId}>{c.equipe.codigo} ({c.diasComMeta} dias)</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-            </div>
-
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setDialogOpen(false)}>
-                Cancelar
-              </Button>
-              <Button onClick={handleSave} disabled={saving}>
-                {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Salvar
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* Dialog de Criação em Massa */}
-        <Dialog open={bulkDialogOpen} onOpenChange={setBulkDialogOpen}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <Zap className="h-5 w-5" />
-                Criação de Metas em Massa
-              </DialogTitle>
-              <DialogDescription>
-                Crie metas para várias equipes e dias de uma vez
-              </DialogDescription>
-            </DialogHeader>
-
-            <Tabs defaultValue="equipes" className="w-full">
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger value="equipes">1. Equipes</TabsTrigger>
-                <TabsTrigger value="periodo">2. Período</TabsTrigger>
-                <TabsTrigger value="valores">3. Valores</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="equipes" className="space-y-4 mt-4">
-                <div className="flex items-center justify-between">
-                  <Label>Selecione as equipes</Label>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={selectAllEquipes}>
-                      Selecionar Todas
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={deselectAllEquipes}>
-                      Limpar
-                    </Button>
-                  </div>
-                </div>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Buscar equipe por código ou nome..."
-                    value={equipeBuscaBulk}
-                    onChange={(e) => setEquipeBuscaBulk(e.target.value)}
-                    className="pl-9"
-                  />
-                </div>
-                <div className="border rounded-lg divide-y max-h-60 overflow-y-auto">
-                  {equipesFiltradasBulk.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-4">
-                      Nenhuma equipe encontrada
-                    </p>
-                  ) : (
-                    equipesFiltradasBulk.map((equipe) => (
+              <div>
+                <Label className="text-xs">Destino</Label>
+                <ScrollArea className="h-28 border rounded">
+                  <div className="p-1 space-y-0.5">
+                    {equipes.filter(e => e.id !== copyData.equipeOrigem).map(eq => (
                       <div
-                        key={equipe.id}
-                        className="flex items-center gap-3 p-2 hover:bg-muted/50 cursor-pointer"
-                        onClick={() => toggleEquipeSelection(equipe.id)}
+                        key={eq.id}
+                        className={cn("flex items-center gap-2 p-1 rounded cursor-pointer hover:bg-muted text-xs", copyData.equipesDestino.includes(eq.id) && "bg-primary/10")}
+                        onClick={() => setCopyData(prev => ({
+                          ...prev,
+                          equipesDestino: prev.equipesDestino.includes(eq.id)
+                            ? prev.equipesDestino.filter(id => id !== eq.id)
+                            : [...prev.equipesDestino, eq.id]
+                        }))}
                       >
-                        <Checkbox
-                          checked={bulkData.equipes_ids.includes(equipe.id)}
-                          onCheckedChange={() => toggleEquipeSelection(equipe.id)}
-                        />
-                        <div className="flex-1">
-                          <span className="font-medium">{equipe.codigo}</span>
-                          <span className="text-muted-foreground ml-2">{equipe.nome}</span>
-                        </div>
+                        <Checkbox checked={copyData.equipesDestino.includes(eq.id)} className="h-3 w-3" />
+                        <span className="font-medium">{eq.codigo}</span>
                       </div>
-                    ))
-                  )}
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {bulkData.equipes_ids.length} equipe(s) selecionada(s)
-                  {equipeBuscaBulk && ` (mostrando ${equipesFiltradasBulk.length} de ${equipes.length})`}
-                </p>
-              </TabsContent>
-
-              <TabsContent value="periodo" className="space-y-4 mt-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Data Início *</Label>
-                    <Input
-                      type="date"
-                      value={bulkData.data_inicio}
-                      onChange={(e) =>
-                        setBulkData({ ...bulkData, data_inicio: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Data Fim *</Label>
-                    <Input
-                      type="date"
-                      value={bulkData.data_fim}
-                      onChange={(e) =>
-                        setBulkData({ ...bulkData, data_fim: e.target.value })
-                      }
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Dias da Semana</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {diasSemana.map((dia) => (
-                      <button
-                        key={dia.value}
-                        type="button"
-                        onClick={() => toggleDiaSemana(dia.value)}
-                        className={`px-3 py-2 rounded-lg border text-sm transition-colors ${
-                          bulkData.dias_semana.includes(dia.value)
-                            ? "bg-primary text-primary-foreground border-primary"
-                            : "border-border hover:border-primary/50"
-                        }`}
-                      >
-                        {dia.label}
-                      </button>
                     ))}
                   </div>
-                </div>
-
-                {/* Opção de excluir feriados */}
-                <div className="flex items-center justify-between p-4 bg-amber-50 rounded-lg border border-amber-200">
-                  <div className="flex items-center gap-3">
-                    <CalendarOff className="h-5 w-5 text-amber-600" />
-                    <div>
-                      <p className="font-medium text-amber-900">Excluir feriados</p>
-                      <p className="text-xs text-amber-700">
-                        Não criar metas em dias de feriado
-                      </p>
-                    </div>
-                  </div>
-                  <Switch
-                    checked={bulkData.excluir_feriados}
-                    onCheckedChange={(checked) =>
-                      setBulkData({ ...bulkData, excluir_feriados: checked })
-                    }
-                  />
-                </div>
-
-                {/* Mostrar feriados que serão excluídos */}
-                {bulkData.excluir_feriados && feriadosNoPeriodo.length > 0 && (
-                  <Card className="border-amber-300 bg-amber-50">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm flex items-center gap-2 text-amber-800">
-                        <AlertTriangle className="h-4 w-4" />
-                        {feriadosNoPeriodo.length} dia(s) serão excluídos por feriado:
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-1">
-                        {feriadosNoPeriodo.map((f) => (
-                          <div key={f.id} className="flex items-center gap-2 text-sm">
-                            <CalendarOff className="h-3 w-3 text-amber-600" />
-                            <span className="font-medium">
-                              {format(parseISO(f.data), "dd/MM/yyyy (EEE)", { locale: ptBR })}
-                            </span>
-                            <span className="text-amber-700">- {getFeriadoNome(f)}</span>
-                            {f.nacional && (
-                              <Badge className="bg-blue-500 text-xs">Nacional</Badge>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-              </TabsContent>
-
-              <TabsContent value="valores" className="space-y-4 mt-4">
-                <div className="space-y-2">
-                  <Label>Valor da Meta por Dia (R$) *</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={bulkData.meta_valor}
-                    onChange={(e) =>
-                      setBulkData({ ...bulkData, meta_valor: e.target.value })
-                    }
-                    placeholder="Ex: 5000.00"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Tipo de Meta</Label>
-                  <Select
-                    value={bulkData.tipo_meta}
-                    onValueChange={(v) =>
-                      setBulkData({ ...bulkData, tipo_meta: v })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {tipoMetaOptions.map((t) => (
-                        <SelectItem key={t.value} value={t.value}>
-                          {t.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Contrato</Label>
-                  <Select
-                    value={bulkData.contrato_id}
-                    onValueChange={(v) =>
-                      setBulkData({ ...bulkData, contrato_id: v })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Opcional" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="nenhum">Nenhum</SelectItem>
-                      {contratos.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.codigo} - {c.nome}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Preview */}
-                <div className="bg-muted/50 p-3 rounded-lg text-sm">
-                  <p className="font-medium mb-1">Resumo da criação:</p>
-                  <ul className="list-disc list-inside text-muted-foreground space-y-1">
-                    <li>{bulkData.equipes_ids.length} equipe(s)</li>
-                    <li>{bulkData.dias_semana.length} dia(s) por semana</li>
-                    <li>
-                      Período: {bulkData.data_inicio || "..."} a{" "}
-                      {bulkData.data_fim || "..."}
-                    </li>
-                    <li>Meta: R$ {bulkData.meta_valor || "0,00"} /dia</li>
-                    {bulkData.excluir_feriados && feriadosNoPeriodo.length > 0 && (
-                      <li className="text-amber-600">
-                        {feriadosNoPeriodo.length} feriado(s) serão excluídos
-                      </li>
-                    )}
-                  </ul>
-                </div>
-              </TabsContent>
-            </Tabs>
-
+                </ScrollArea>
+              </div>
+              <label className="flex items-center gap-2 text-xs">
+                <Checkbox checked={copyData.sobrescrever} onCheckedChange={v => setCopyData({ ...copyData, sobrescrever: !!v })} className="h-3 w-3" />
+                Sobrescrever existentes
+              </label>
+            </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setBulkDialogOpen(false)}>
-                Cancelar
-              </Button>
-              <Button onClick={handleBulkCreate} disabled={saving}>
-                {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Criar Metas
+              <Button variant="outline" onClick={() => setCopyDialogOpen(false)}>Cancelar</Button>
+              <Button onClick={async () => {
+                if (!copyData.equipeOrigem || !copyData.equipesDestino.length) return toast.error("Selecione origem e destino");
+                setSaving(true);
+                try {
+                  const ciclo = ciclosPorEquipe.find(c => c.equipeId === copyData.equipeOrigem);
+                  if (!ciclo) return;
+                  let count = 0;
+                  for (const destino of copyData.equipesDestino) {
+                    for (const dia of ciclo.dias.filter(d => d.valor > 0)) {
+                      const { data: existe } = await supabase.from("metas").select("id").eq("equipe_id", destino).eq("data", dia.data).maybeSingle();
+                      if (existe) {
+                        if (copyData.sobrescrever) {
+                          await supabase.from("metas").update({ valor_meta: dia.valor }).eq("id", existe.id);
+                          count++;
+                        }
+                      } else {
+                        await supabase.from("metas").insert({ equipe_id: destino, data: dia.data, valor_meta: dia.valor, tipo_meta: "producao" });
+                        count++;
+                      }
+                    }
+                  }
+                  toast.success(`${count} metas copiadas`);
+                  setCopyDialogOpen(false);
+                  fetchData();
+                } catch (e: any) {
+                  toast.error(e.message);
+                } finally {
+                  setSaving(false);
+                }
+              }} disabled={saving}>
+                {saving && <Loader2 className="h-3 w-3 mr-1 animate-spin" />} Copiar
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
 
-        {/* Dialog de Novo/Editar Feriado */}
-        <Dialog open={feriadoDialogOpen} onOpenChange={(open) => {
-          setFeriadoDialogOpen(open);
-          if (!open) {
-            setEditingFeriado(null);
-            setFeriadoForm({ centro_custo_id: "nacional", data: "", nome: "", tipo: "nacional", recorrente: false });
-          }
-        }}>
-          <DialogContent className="max-w-md">
+        {/* Dialog Feriado */}
+        <Dialog open={feriadoDialogOpen} onOpenChange={setFeriadoDialogOpen}>
+          <DialogContent>
             <DialogHeader>
-              <DialogTitle>{editingFeriado ? "Editar Feriado" : "Novo Feriado"}</DialogTitle>
-              <DialogDescription>
-                {editingFeriado 
-                  ? "Altere as informações do feriado"
-                  : "Cadastre um feriado nacional ou específico de um centro de custo"
-                }
-              </DialogDescription>
+              <DialogTitle>{editingFeriado ? "Editar" : "Novo"} Feriado</DialogTitle>
             </DialogHeader>
-
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Data *</Label>
-                  <Input
-                    type="date"
-                    value={feriadoForm.data}
-                    onChange={(e) => setFeriadoForm({ ...feriadoForm, data: e.target.value })}
-                  />
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs">Data</Label>
+                  <Input type="date" value={feriadoForm.data} onChange={e => setFeriadoForm({ ...feriadoForm, data: e.target.value })} className="h-7 text-xs" />
                 </div>
-                <div className="space-y-2">
-                  <Label>Tipo</Label>
-                  <Select
-                    value={feriadoForm.tipo}
-                    onValueChange={(v) => setFeriadoForm({ ...feriadoForm, tipo: v, centro_custo_id: v === "nacional" ? "nacional" : feriadoForm.centro_custo_id })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
+                <div>
+                  <Label className="text-xs">Tipo</Label>
+                  <Select value={feriadoForm.tipo} onValueChange={v => setFeriadoForm({ ...feriadoForm, tipo: v })}>
+                    <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="nacional">Nacional</SelectItem>
                       <SelectItem value="estadual">Estadual</SelectItem>
                       <SelectItem value="municipal">Municipal</SelectItem>
-                      <SelectItem value="ponto_facultativo">Ponto Facultativo</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
               </div>
-
-              <div className="space-y-2">
-                <Label>Nome *</Label>
-                <Input
-                  value={feriadoForm.nome}
-                  onChange={(e) => setFeriadoForm({ ...feriadoForm, nome: e.target.value })}
-                  placeholder="Ex: Natal, Ano Novo..."
-                />
+              <div>
+                <Label className="text-xs">Nome</Label>
+                <Input value={feriadoForm.nome} onChange={e => setFeriadoForm({ ...feriadoForm, nome: e.target.value })} className="h-7 text-xs" />
               </div>
-
               {feriadoForm.tipo !== "nacional" && (
-                <div className="space-y-2">
-                  <Label>Centro de Custo</Label>
-                  <Select
-                    value={feriadoForm.centro_custo_id}
-                    onValueChange={(v) => setFeriadoForm({ ...feriadoForm, centro_custo_id: v })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Todos os centros" />
-                    </SelectTrigger>
+                <div>
+                  <Label className="text-xs">Centro de Custo</Label>
+                  <Select value={feriadoForm.centro_custo_id} onValueChange={v => setFeriadoForm({ ...feriadoForm, centro_custo_id: v })}>
+                    <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="todos">Todos os Centros de Custo</SelectItem>
-                      {centrosCusto.map((cc) => (
-                        <SelectItem key={cc.id} value={cc.id}>
-                          {cc.codigo ? `${cc.codigo} - ` : ""}{cc.nome}
-                        </SelectItem>
-                      ))}
+                      <SelectItem value="nacional">Todos</SelectItem>
+                      {centrosCusto.map(cc => <SelectItem key={cc.id} value={cc.id}>{cc.nome}</SelectItem>)}
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Selecione um centro específico ou deixe "Todos" para aplicar a todas as equipes.
-                  </p>
                 </div>
               )}
-
-              <div className="flex items-center gap-2">
-                <Switch
-                  checked={feriadoForm.recorrente}
-                  onCheckedChange={(v) => setFeriadoForm({ ...feriadoForm, recorrente: v })}
-                />
-                <Label>Recorrente (repete todo ano)</Label>
-              </div>
+              <label className="flex items-center gap-2 text-xs">
+                <Checkbox checked={feriadoForm.recorrente} onCheckedChange={v => setFeriadoForm({ ...feriadoForm, recorrente: !!v })} className="h-3 w-3" />
+                Recorrente (anual)
+              </label>
             </div>
-
             <DialogFooter>
-              <Button variant="outline" onClick={() => setFeriadoDialogOpen(false)}>
-                Cancelar
-              </Button>
+              <Button variant="outline" onClick={() => setFeriadoDialogOpen(false)}>Cancelar</Button>
               <Button onClick={handleSaveFeriado} disabled={saving}>
-                {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Salvar
+                {saving && <Loader2 className="h-3 w-3 mr-1 animate-spin" />} Salvar
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
 
-        {/* Dialog de Confirmação de Exclusão */}
-        <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <AlertCircle className="h-5 w-5 text-destructive" />
-                Confirmar Exclusão
-              </DialogTitle>
-              <DialogDescription>
-                Tem certeza que deseja excluir esta meta?
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
-                Cancelar
-              </Button>
-              <Button variant="destructive" onClick={handleDelete}>
-                Excluir
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        {/* Confirm Delete */}
+        <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Zerar metas?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Isso removerá {selectedDias.size} meta(s). Ação irreversível.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={handleDeleteSelected} className="bg-destructive text-destructive-foreground">
+                Zerar
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </MainLayout>
   );
