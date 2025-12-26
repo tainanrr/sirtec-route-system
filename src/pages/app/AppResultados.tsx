@@ -94,7 +94,7 @@ const calcularPeriodoAteHoje = (dataRef: Date = new Date(), offsetMeses: number 
 };
 
 export default function AppResultados() {
-  const { equipe: equipeAuth, logout } = useEquipeAuth();
+  const { equipe: equipeAuth } = useEquipeAuth();
   const { equipe, isLoading: isLoadingEquipe, refetch: refetchEquipe } = useTecnico();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState("resumo");
@@ -850,16 +850,6 @@ export default function AppResultados() {
         </Tabs>
       </div>
 
-      {/* Botão de logout no rodapé */}
-      <div className="fixed bottom-20 left-0 right-0 p-4 bg-gradient-to-t from-background via-background to-transparent">
-        <Button 
-          variant="outline" 
-          className="w-full text-destructive hover:text-destructive hover:bg-destructive/10"
-          onClick={logout}
-        >
-          Sair da Conta
-        </Button>
-      </div>
     </div>
   );
 }

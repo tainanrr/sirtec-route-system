@@ -85,6 +85,7 @@ interface TipoIntervalo {
   codigo: string;
   nome: string;
   tempo_minutos: number;
+  tipo: "padrao" | "nao_padrao";
   cor: string | null;
   ativo: boolean;
   created_at: string;
@@ -167,6 +168,7 @@ export default function AdminCadastrosBase() {
     codigo: "",
     nome: "",
     tempo_minutos: "",
+    tipo: "padrao" as "padrao" | "nao_padrao",
     cor: "#3B82F6",
     ativo: true,
   });
@@ -367,6 +369,7 @@ export default function AdminCadastrosBase() {
         codigo: "",
         nome: "",
         tempo_minutos: "",
+        tipo: "padrao" as "padrao" | "nao_padrao",
         cor: "#3B82F6",
         ativo: true,
       });
@@ -403,6 +406,7 @@ export default function AdminCadastrosBase() {
         codigo: item.codigo,
         nome: item.nome,
         tempo_minutos: item.tempo_minutos?.toString() || "",
+        tipo: item.tipo || "padrao",
         cor: item.cor || "#3B82F6",
         ativo: item.ativo,
       });
@@ -443,7 +447,7 @@ export default function AdminCadastrosBase() {
           ativo: tipoServicoForm.ativo,
         };
       } else if (currentFormType === "tipo-intervalo") {
-        if (!tipoIntervaloForm.codigo || !tipoIntervaloForm.nome || !tipoIntervaloForm.tempo_minutos) {
+        if (!tipoIntervaloForm.codigo || !tipoIntervaloForm.nome) {
           toast.error("Preencha os campos obrigatórios");
           setSaving(false);
           return;
@@ -452,7 +456,8 @@ export default function AdminCadastrosBase() {
         payload = {
           codigo: tipoIntervaloForm.codigo,
           nome: tipoIntervaloForm.nome,
-          tempo_minutos: parseInt(tipoIntervaloForm.tempo_minutos),
+          tempo_minutos: parseInt(tipoIntervaloForm.tempo_minutos) || 0,
+          tipo: tipoIntervaloForm.tipo,
           cor: tipoIntervaloForm.cor || null,
           ativo: tipoIntervaloForm.ativo,
         };
@@ -861,6 +866,7 @@ export default function AdminCadastrosBase() {
                 columns={[
                   { key: "codigo", label: "Código" },
                   { key: "nome", label: "Nome" },
+                  { key: "tipo", label: "Tipo", format: (v: any) => v === "padrao" ? "Padrão" : "Não Padrão" },
                   { key: "tempo_minutos", label: "Tempo (min)" },
                   { key: "ativo", label: "Ativo", format: (v: any) => v ? "Sim" : "Não" },
                 ]}
@@ -878,6 +884,7 @@ export default function AdminCadastrosBase() {
                 <TableRow>
                   <SortableTableHead column="codigo" label="Código" sortConfig={intervaloSortConfig} onSort={handleIntervaloSort} />
                   <SortableTableHead column="nome" label="Nome" sortConfig={intervaloSortConfig} onSort={handleIntervaloSort} />
+                  <SortableTableHead column="tipo" label="Tipo" sortConfig={intervaloSortConfig} onSort={handleIntervaloSort} />
                   <SortableTableHead column="tempo_minutos" label="Tempo" sortConfig={intervaloSortConfig} onSort={handleIntervaloSort} />
                   <TableHead>Cor</TableHead>
                   <SortableTableHead column="ativo" label="Status" sortConfig={intervaloSortConfig} onSort={handleIntervaloSort} />
@@ -887,13 +894,13 @@ export default function AdminCadastrosBase() {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8">
+                    <TableCell colSpan={7} className="text-center py-8">
                       <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
                     </TableCell>
                   </TableRow>
                 ) : sortedTiposIntervalo?.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8">
+                    <TableCell colSpan={7} className="text-center py-8">
                       <Clock className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                       <p className="text-muted-foreground">
                         {hasActiveFilters ? "Nenhum resultado" : "Nenhum intervalo cadastrado"}
@@ -906,9 +913,18 @@ export default function AdminCadastrosBase() {
                       <TableCell className="font-mono">{item.codigo}</TableCell>
                       <TableCell className="font-medium">{item.nome}</TableCell>
                       <TableCell>
+                        <Badge variant={item.tipo === "padrao" ? "default" : "outline"} className={item.tipo === "padrao" ? "bg-green-100 text-green-700 border-green-300" : "bg-amber-100 text-amber-700 border-amber-300"}>
+                          {item.tipo === "padrao" ? (
+                            <><CheckCircle className="h-3 w-3 mr-1" /> Padrão</>
+                          ) : (
+                            <><XCircle className="h-3 w-3 mr-1" /> Exceção</>
+                          )}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
                         <span className="flex items-center gap-1">
                           <Clock className="h-3 w-3 text-muted-foreground" />
-                          {item.tempo_minutos} min
+                          {item.tempo_minutos || 0} min
                         </span>
                       </TableCell>
                       <TableCell>
@@ -1100,11 +1116,11 @@ export default function AdminCadastrosBase() {
                     <Input
                       value={tipoIntervaloForm.codigo}
                       onChange={(e) => setTipoIntervaloForm({ ...tipoIntervaloForm, codigo: e.target.value.toUpperCase() })}
-                      placeholder="Ex: INT001"
+                      placeholder="Ex: ALMOCO"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Tempo (min) *</Label>
+                    <Label>Tempo Padrão (min)</Label>
                     <Input
                       type="number"
                       value={tipoIntervaloForm.tempo_minutos}
@@ -1122,16 +1138,48 @@ export default function AdminCadastrosBase() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Cor</Label>
-                  <Input
-                    type="color"
-                    value={tipoIntervaloForm.cor}
-                    onChange={(e) => setTipoIntervaloForm({ ...tipoIntervaloForm, cor: e.target.value })}
-                  />
+                  <Label>Tipo *</Label>
+                  <Select
+                    value={tipoIntervaloForm.tipo}
+                    onValueChange={(v: "padrao" | "nao_padrao") => setTipoIntervaloForm({ ...tipoIntervaloForm, tipo: v })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione o tipo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="padrao">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle className="h-4 w-4 text-green-500" />
+                          Padrão (Esperado)
+                        </div>
+                      </SelectItem>
+                      <SelectItem value="nao_padrao">
+                        <div className="flex items-center gap-2">
+                          <XCircle className="h-4 w-4 text-red-500" />
+                          Não Padrão (Exceção)
+                        </div>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {tipoIntervaloForm.tipo === "padrao" 
+                      ? "Intervalos esperados na rotina (ex: Almoço, Lanche)"
+                      : "Intervalos de exceção (ex: Oficina, Chuva, Manutenção)"}
+                  </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Switch checked={tipoIntervaloForm.ativo} onCheckedChange={(v) => setTipoIntervaloForm({ ...tipoIntervaloForm, ativo: v })} />
-                  <Label>Ativo</Label>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Cor</Label>
+                    <Input
+                      type="color"
+                      value={tipoIntervaloForm.cor}
+                      onChange={(e) => setTipoIntervaloForm({ ...tipoIntervaloForm, cor: e.target.value })}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 pt-6">
+                    <Switch checked={tipoIntervaloForm.ativo} onCheckedChange={(v) => setTipoIntervaloForm({ ...tipoIntervaloForm, ativo: v })} />
+                    <Label>Ativo</Label>
+                  </div>
                 </div>
               </>
             )}
