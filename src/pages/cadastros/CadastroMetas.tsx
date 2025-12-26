@@ -53,7 +53,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, getDay, parseISO, isWeekend } from "date-fns";
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, getDay, parseISO, isWeekend, getDate, setDate } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 
@@ -120,6 +120,29 @@ const diasSemana = [
 // Separador único para chaves compostas (evitar conflito com UUID hífens)
 const KEY_SEP = "|||";
 
+// Função para calcular o período padrão (26 do mês até 25 do próximo)
+const calcularPeriodoPadrao = (dataRef: Date = new Date()) => {
+  const diaAtual = getDate(dataRef);
+  
+  let inicio: Date;
+  let fim: Date;
+  
+  if (diaAtual >= 26) {
+    // Se é dia 26 ou depois: 26 do mês atual até 25 do próximo mês
+    inicio = setDate(dataRef, 26);
+    fim = setDate(addMonths(dataRef, 1), 25);
+  } else {
+    // Se é antes do dia 26: 26 do mês anterior até 25 do mês atual
+    inicio = setDate(subMonths(dataRef, 1), 26);
+    fim = setDate(dataRef, 25);
+  }
+  
+  return {
+    inicio: format(inicio, "yyyy-MM-dd"),
+    fim: format(fim, "yyyy-MM-dd"),
+  };
+};
+
 export default function CadastroMetas() {
   const [metas, setMetas] = useState<Meta[]>([]);
   const [equipes, setEquipes] = useState<Equipe[]>([]);
@@ -133,10 +156,13 @@ export default function CadastroMetas() {
   // Estado do mês atual para visualização
   const [currentMonth, setCurrentMonth] = useState(new Date());
   
-  // Filtros de data personalizados
-  const [usarPeriodoCustom, setUsarPeriodoCustom] = useState(false);
-  const [dataInicio, setDataInicio] = useState(format(startOfMonth(new Date()), "yyyy-MM-dd"));
-  const [dataFim, setDataFim] = useState(format(endOfMonth(new Date()), "yyyy-MM-dd"));
+  // Período padrão 26-25
+  const periodoPadrao = calcularPeriodoPadrao();
+  
+  // Filtros de data personalizados (padrão: período 26-25)
+  const [usarPeriodoCustom, setUsarPeriodoCustom] = useState(true); // Já inicia com período customizado
+  const [dataInicio, setDataInicio] = useState(periodoPadrao.inicio);
+  const [dataFim, setDataFim] = useState(periodoPadrao.fim);
   
   // Estados para edição
   const [editMode, setEditMode] = useState(false);
@@ -309,11 +335,12 @@ export default function CadastroMetas() {
     fetchData();
   }, [fetchData]);
   
-  // Atualizar período quando mudar o mês
+  // Atualizar período quando mudar o mês (usa período 26-25)
   useEffect(() => {
     if (!usarPeriodoCustom) {
-      setDataInicio(format(startOfMonth(currentMonth), "yyyy-MM-dd"));
-      setDataFim(format(endOfMonth(currentMonth), "yyyy-MM-dd"));
+      const periodo = calcularPeriodoPadrao(currentMonth);
+      setDataInicio(periodo.inicio);
+      setDataFim(periodo.fim);
     }
   }, [currentMonth, usarPeriodoCustom]);
 
