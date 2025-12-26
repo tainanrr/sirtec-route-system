@@ -205,3 +205,4 @@ CREATE POLICY "Allow public access chat-attachments" ON storage.objects
 SELECT 'Chat tables created successfully!' as status;
 
 
+

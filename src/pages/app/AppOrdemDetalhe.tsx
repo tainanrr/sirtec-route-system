@@ -10,7 +10,6 @@ import { getAppParentRoute } from "@/lib/appNavigation";
 import { useRetornoCampo } from "@/hooks/useRetornoCampo";
 import RetornoCampoSelector from "@/components/app/RetornoCampoSelector";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -24,86 +23,78 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { toast } from "sonner";
 import {
   ArrowLeft,
   MapPin,
   User,
-  Phone,
   Clock,
   Play,
-  Pause,
   CheckCircle,
   Camera,
   Navigation,
-  FileText,
   Package,
   Truck,
   AlertTriangle,
-  Timer,
-  Calendar,
-  History,
-  ChevronDown,
-  ChevronUp,
   Loader2,
   XCircle,
   ClipboardCheck,
   StopCircle,
   ChevronRight,
   List,
+  Phone,
+  Image,
+  MessageSquare,
+  Info,
+  Flag,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
-// Configuração de status
-const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "outline" | "destructive"; icon: React.ElementType; color: string; bgColor: string }> = {
-  pendente: { label: "Pendente", variant: "secondary", icon: Clock, color: "text-gray-600", bgColor: "bg-gray-100" },
-  planejada: { label: "Planejada", variant: "secondary", icon: Calendar, color: "text-blue-600", bgColor: "bg-blue-100" },
-  em_deslocamento: { label: "Em Deslocamento", variant: "default", icon: Truck, color: "text-orange-600", bgColor: "bg-orange-100" },
-  no_local: { label: "No Local", variant: "default", icon: MapPin, color: "text-purple-600", bgColor: "bg-purple-100" },
-  em_andamento: { label: "Em Execução", variant: "default", icon: Play, color: "text-blue-600", bgColor: "bg-blue-100" },
-  em_execucao: { label: "Em Execução", variant: "default", icon: Play, color: "text-blue-600", bgColor: "bg-blue-100" },
-  pausada: { label: "Pausada", variant: "outline", icon: Pause, color: "text-amber-600", bgColor: "bg-amber-100" },
-  concluida: { label: "Concluída", variant: "outline", icon: CheckCircle, color: "text-green-600", bgColor: "bg-green-100" },
-  cancelada: { label: "Cancelada", variant: "destructive", icon: XCircle, color: "text-red-600", bgColor: "bg-red-100" },
+// Configuração de status simplificada
+const statusConfig: Record<string, { 
+  label: string; 
+  color: string; 
+  bgColor: string;
+  textColor: string;
+  borderColor: string;
+}> = {
+  pendente: { label: "Pendente", color: "bg-slate-500", bgColor: "bg-slate-50", textColor: "text-slate-700", borderColor: "border-slate-200" },
+  planejada: { label: "Planejada", color: "bg-blue-500", bgColor: "bg-blue-50", textColor: "text-blue-700", borderColor: "border-blue-200" },
+  em_deslocamento: { label: "Em Deslocamento", color: "bg-orange-500", bgColor: "bg-orange-50", textColor: "text-orange-700", borderColor: "border-orange-200" },
+  no_local: { label: "No Local", color: "bg-purple-500", bgColor: "bg-purple-50", textColor: "text-purple-700", borderColor: "border-purple-200" },
+  em_andamento: { label: "Em Execução", color: "bg-blue-600", bgColor: "bg-blue-50", textColor: "text-blue-700", borderColor: "border-blue-200" },
+  em_execucao: { label: "Em Execução", color: "bg-blue-600", bgColor: "bg-blue-50", textColor: "text-blue-700", borderColor: "border-blue-200" },
+  pausada: { label: "Pausada", color: "bg-amber-500", bgColor: "bg-amber-50", textColor: "text-amber-700", borderColor: "border-amber-200" },
+  concluida: { label: "Concluída", color: "bg-green-500", bgColor: "bg-green-50", textColor: "text-green-700", borderColor: "border-green-200" },
+  cancelada: { label: "Cancelada", color: "bg-red-500", bgColor: "bg-red-50", textColor: "text-red-700", borderColor: "border-red-200" },
 };
 
-// Fluxo de status permitidos - Novo fluxo com etapas claras
-// Iniciar Deslocamento -> Concluir Deslocamento (chegar no local) -> Iniciar Serviço -> Concluir Serviço
+// Fluxo de status
 const statusFlow: Record<string, string[]> = {
   pendente: ["em_deslocamento"],
   planejada: ["em_deslocamento"],
-  em_deslocamento: ["no_local"], // Chegar no local
-  no_local: ["em_execucao"], // Iniciar execução
+  em_deslocamento: ["no_local"],
+  no_local: ["em_execucao"],
   em_andamento: ["concluida"],
   em_execucao: ["concluida"],
-  pausada: ["em_execucao", "em_deslocamento"], // Manter para OSs já pausadas poderem retomar
+  pausada: ["em_execucao", "em_deslocamento"],
   concluida: [],
   cancelada: [],
 };
 
-// Função para formatar minutos de forma legível
-const formatarTempo = (minutos: number | null | undefined): string => {
-  if (!minutos || minutos <= 0) return "-";
-  
-  // Se o valor for muito alto (provavelmente está em segundos), converter
-  let mins = minutos;
-  if (mins > 1000) {
-    mins = Math.round(mins / 60); // Converter de segundos para minutos
-  }
-  
-  if (mins < 60) {
-    return `${mins}min`;
-  }
-  
-  const horas = Math.floor(mins / 60);
-  const minutosRestantes = mins % 60;
-  
-  if (minutosRestantes === 0) {
-    return `${horas}h`;
-  }
-  
-  return `${horas}h ${minutosRestantes}min`;
+// Labels para botões de ação
+const actionLabels: Record<string, { label: string; icon: React.ElementType; color: string }> = {
+  em_deslocamento: { label: "Iniciar Deslocamento", icon: Truck, color: "bg-orange-500 hover:bg-orange-600" },
+  no_local: { label: "Cheguei no Local", icon: MapPin, color: "bg-purple-600 hover:bg-purple-700" },
+  em_execucao: { label: "Iniciar Serviço", icon: Play, color: "bg-blue-600 hover:bg-blue-700" },
+  concluida: { label: "Concluir Serviço", icon: CheckCircle, color: "bg-green-600 hover:bg-green-700" },
 };
 
 export default function AppOrdemDetalhe() {
@@ -117,27 +108,25 @@ export default function AppOrdemDetalhe() {
   
   const [observacao, setObservacao] = useState("");
   const { getState, saveState } = usePageState<{
-    showTimeline?: boolean;
     observacao?: string;
   }>(`app-ordem-detalhe-${id || "sem-id"}`);
 
   const initialState = getState();
-  const [showTimeline, setShowTimeline] = useState(() => Boolean(initialState?.showTimeline));
   useEffect(() => {
-    // restaurar observação local (apenas UX; não substitui o backend)
     if (initialState?.observacao && !observacao) {
       setObservacao(initialState.observacao);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Persistir estado de UI desta tela
   useEffect(() => {
-    const t = window.setTimeout(() => {
-      saveState({ showTimeline, observacao });
-    }, 250);
-    return () => window.clearTimeout(t);
-  }, [showTimeline, observacao, saveState]);
+    saveState({ observacao });
+  }, [observacao, saveState]);
+
+  const navegarComEstado = (path: string) => {
+    saveState({ observacao });
+    navigate(path);
+  };
+
   const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; status: string; title: string; description: string }>({
     open: false,
     status: "",
@@ -164,6 +153,7 @@ export default function AppOrdemDetalhe() {
   const { buscarSkillId, registrarProducao, atualizarOrdemComRetorno } = useRetornoCampo();
 
   const handleBack = () => {
+    saveState({ observacao });
     const parent = getAppParentRoute(location.pathname);
     navigate(parent || "/app");
   };
@@ -177,14 +167,28 @@ export default function AppOrdemDetalhe() {
         .select("*")
         .eq("id", id)
         .maybeSingle();
-
       if (error) throw error;
       return data;
     },
     enabled: !!id,
   });
 
-  // Buscar skills para mapear código -> nome
+  // Buscar produção (valor produzido)
+  const { data: producao } = useQuery({
+    queryKey: ["ordem-producao", id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("producao_equipes")
+        .select("valor_total")
+        .eq("ordem_servico_id", id)
+        .maybeSingle();
+      if (error) return null;
+      return data;
+    },
+    enabled: !!id,
+  });
+
+  // Buscar skills
   const { data: skillsData } = useQuery({
     queryKey: ["skills-app-detalhe"],
     queryFn: async () => {
@@ -192,49 +196,32 @@ export default function AppOrdemDetalhe() {
         .from("skills")
         .select("codigo, nome")
         .eq("ativo", true);
-      
       if (error) throw error;
       return data || [];
     },
-    staleTime: 5 * 60 * 1000, // Cache por 5 minutos
+    staleTime: 5 * 60 * 1000,
   });
 
-  // Obter nome do tipo de serviço
   const getTipoNome = (tipo: string | null | undefined): string => {
     if (!tipo) return "";
     if (!skillsData) return tipo;
-    
     const skill = skillsData.find((s: { codigo: string; nome: string }) => 
-      s.codigo?.toLowerCase() === tipo.toLowerCase() ||
-      s.codigo?.toUpperCase() === tipo.toUpperCase() ||
-      s.codigo?.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() === tipo.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+      s.codigo?.toLowerCase() === tipo.toLowerCase()
     );
-    
     return skill?.nome || tipo;
   };
 
-  // Buscar dados do planejamento
+  // Buscar planejamento
   const { data: planejamento } = useQuery({
     queryKey: ["ordem-planejamento", id],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from("planejamento_ordens")
-        .select(`
-          ordem_na_rota,
-          hora_inicio_estimada,
-          hora_fim_estimada,
-          distancia_km,
-          tempo_estimado_minutos
-        `)
+        .select("ordem_na_rota, hora_inicio_estimada, distancia_km")
         .eq("ordem_servico_id", id)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
-
-      if (error) {
-        console.error("Erro ao buscar planejamento:", error);
-        return null;
-      }
       return data;
     },
     enabled: !!id,
@@ -249,144 +236,70 @@ export default function AppOrdemDetalhe() {
         .select("*")
         .eq("ordem_servico_id", id)
         .order("created_at", { ascending: false });
-
       if (error) throw error;
       return data;
     },
     enabled: !!id,
   });
 
-  // Buscar histórico/timeline
-  const { data: historico } = useQuery({
-    queryKey: ["ordem-historico", id],
-    queryFn: async () => {
-      // Buscar logs do planejamento
-      const { data: logs, error } = await supabase
-        .from("planejamento_logs")
-        .select("*")
-        .eq("ordem_servico_id", id)
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        console.error("Erro ao buscar histórico:", error);
-        return [];
-      }
-      return logs || [];
-    },
-    enabled: !!id,
-  });
-
-  // Buscar checklists/APRs preenchidos para esta OS
+  // Buscar checklists/APRs
   const { data: checklistsPreenchidos } = useQuery({
     queryKey: ["ordem-checklists", id],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from("checklist_respostas")
-        .select(`
-          id,
-          checklist_id,
-          created_at,
-          checklists:checklist_id (
-            id,
-            nome,
-            tipo
-          )
-        `)
+        .select(`id, checklist_id, checklists:checklist_id (id, nome, tipo)`)
         .eq("ordem_servico_id", id);
-
-      if (error) {
-        console.error("Erro ao buscar checklists:", error);
-        return [];
-      }
       return data || [];
     },
     enabled: !!id,
   });
 
-  // Verificar se tem APR preenchida
   const temAprPreenchida = checklistsPreenchidos?.some(
     (c: any) => c.checklists?.tipo === "apr" || c.checklists?.nome?.toLowerCase().includes("apr")
   ) || false;
 
-  // Buscar próxima OS na rota
+  // Buscar próxima OS
   const { data: proximaOS } = useQuery({
     queryKey: ["proxima-os", id, planejamento?.ordem_na_rota],
     queryFn: async () => {
       const equipeId = equipe?.id || equipeAuth?.id;
       if (!equipeId || !planejamento?.ordem_na_rota) return null;
-
-      // Buscar a próxima OS na rota (ordem_na_rota + 1)
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from("planejamento_ordens")
-        .select(`
-          ordem_na_rota,
-          ordens_servico:ordem_servico_id (
-            id,
-            numero,
-            tipo,
-            endereco,
-            status
-          )
-        `)
+        .select(`ordem_na_rota, ordens_servico:ordem_servico_id (id, numero, tipo, status)`)
         .eq("equipe_id", equipeId)
         .gt("ordem_na_rota", planejamento.ordem_na_rota)
         .order("ordem_na_rota", { ascending: true })
         .limit(1)
         .maybeSingle();
-
-      if (error) {
-        console.error("Erro ao buscar próxima OS:", error);
-        return null;
-      }
-      
-      // Verificar se a próxima OS não está concluída
-      if (data?.ordens_servico && data.ordens_servico.status !== "concluida" && data.ordens_servico.status !== "cancelada") {
+      if (data?.ordens_servico && !["concluida", "cancelada"].includes(data.ordens_servico.status)) {
         return data;
       }
-      
       return null;
     },
     enabled: !!planejamento?.ordem_na_rota && !!(equipe?.id || equipeAuth?.id),
   });
 
-  // Realtime subscription
+  // Realtime
   useEffect(() => {
     if (!id) return;
-
     const channel = supabase
       .channel(`ordem-${id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "ordens_servico",
-          filter: `id=eq.${id}`,
-        },
-        () => {
-          queryClient.invalidateQueries({ queryKey: ["ordem-detalhe", id] });
-        }
+      .on("postgres_changes", { event: "*", schema: "public", table: "ordens_servico", filter: `id=eq.${id}` },
+        () => queryClient.invalidateQueries({ queryKey: ["ordem-detalhe", id] })
       )
       .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [id, queryClient]);
 
   // Mutation para atualizar status
   const updateStatusMutation = useMutation({
     mutationFn: async (newStatus: string) => {
       const now = new Date().toISOString();
-      const updates: Record<string, unknown> = { 
-        status: newStatus,
-        updated_at: now,
-      };
-
-      // Descrição da ação para o log
+      const updates: Record<string, unknown> = { status: newStatus, updated_at: now };
       let acaoDescricao = "";
 
-      // Registrar timestamps específicos para cada etapa
       if (newStatus === "em_deslocamento") {
         updates.deslocamento_iniciado_at = now;
         acaoDescricao = "Deslocamento iniciado";
@@ -394,77 +307,42 @@ export default function AppOrdemDetalhe() {
         updates.chegada_local_at = now;
         acaoDescricao = "Chegou no local";
       } else if (newStatus === "em_execucao" || newStatus === "em_andamento") {
-        if (!ordem?.iniciado_at) {
-          updates.iniciado_at = now;
-        }
+        if (!ordem?.iniciado_at) updates.iniciado_at = now;
         updates.execucao_iniciada_at = now;
         acaoDescricao = "Serviço iniciado";
-      } else if (newStatus === "pausada") {
-        updates.pausado_at = now;
-        acaoDescricao = "Serviço pausado";
       } else if (newStatus === "concluida") {
         updates.concluido_at = now;
         acaoDescricao = "Serviço concluído";
-        
-        // Calcular tempo total desde o início do deslocamento
-        const inicioDeslocamento = ordem?.deslocamento_iniciado_at;
-        if (inicioDeslocamento) {
-          const inicio = new Date(inicioDeslocamento);
-          const fim = new Date();
-          updates.tempo_total_minutos = Math.round((fim.getTime() - inicio.getTime()) / 60000);
+        if (ordem?.deslocamento_iniciado_at) {
+          updates.tempo_total_minutos = Math.round((new Date().getTime() - new Date(ordem.deslocamento_iniciado_at).getTime()) / 60000);
         }
-        
-        // Calcular tempo de execução (desde o início do serviço)
-        const inicioExecucao = ordem?.execucao_iniciada_at || ordem?.iniciado_at;
-        if (inicioExecucao) {
-          const inicio = new Date(inicioExecucao);
-          const fim = new Date();
-          updates.tempo_execucao_minutos = Math.round((fim.getTime() - inicio.getTime()) / 60000);
+        if (ordem?.execucao_iniciada_at) {
+          updates.tempo_execucao_minutos = Math.round((new Date().getTime() - new Date(ordem.execucao_iniciada_at).getTime()) / 60000);
         }
       }
 
-      // Adicionar observação se houver
       if (observacao.trim()) {
-        const novaObs = `[${format(new Date(), "dd/MM HH:mm")} - ${acaoDescricao || statusConfig[newStatus]?.label || newStatus}] ${observacao}`;
-        updates.observacoes = ordem?.observacoes
-          ? `${ordem.observacoes}\n\n${novaObs}`
-          : novaObs;
+        const novaObs = `[${format(new Date(), "dd/MM HH:mm")} - ${acaoDescricao}] ${observacao}`;
+        const obsEquipeAtual = (ordem as any)?.observacoes_equipe || "";
+        (updates as any).observacoes_equipe = obsEquipeAtual ? `${obsEquipeAtual}\n\n${novaObs}` : novaObs;
       }
 
-      const { error } = await supabase
-        .from("ordens_servico")
-        .update(updates)
-        .eq("id", id);
-
+      const { error } = await supabase.from("ordens_servico").update(updates).eq("id", id);
       if (error) throw error;
 
-      // Registrar no log
       const equipeId = equipe?.id || equipeAuth?.id;
-      const equipeCodigo = equipe?.codigo || equipeAuth?.codigo || "";
       if (equipeId) {
         await supabase.from("planejamento_logs").insert({
           ordem_servico_id: id,
           acao: `status_${newStatus}`,
-          descricao: `${acaoDescricao || statusConfig[newStatus]?.label || newStatus}${observacao ? `: ${observacao}` : ""}`,
+          descricao: `${acaoDescricao}${observacao ? `: ${observacao}` : ""}`,
           dados_anteriores: { status: ordem?.status },
           dados_novos: { status: newStatus, timestamp: now },
           created_by: equipeId,
         });
-        
-        // Log do sistema
-        logApp(
-          "editar",
-          "ordens",
-          "ordens_servico",
-          id || "",
-          {
-            id: equipeId,
-            nome: equipeCodigo,
-            equipeId,
-            equipeCodigo
-          },
-          { status: ordem?.status },
-          { status: newStatus, timestamp: now },
+        logApp("editar", "ordens", "ordens_servico", id || "",
+          { id: equipeId, nome: equipe?.codigo || equipeAuth?.codigo || "", equipeId },
+          { status: ordem?.status }, { status: newStatus, timestamp: now },
           `Alterou OS ${ordem?.numero || id} para ${statusConfig[newStatus]?.label || newStatus}`
         );
       }
@@ -472,115 +350,100 @@ export default function AppOrdemDetalhe() {
     onSuccess: (_, newStatus) => {
       queryClient.invalidateQueries({ queryKey: ["ordem-detalhe", id] });
       queryClient.invalidateQueries({ queryKey: ["ordens-planejadas"] });
-      queryClient.invalidateQueries({ queryKey: ["ordens-planejadas-hoje"] });
       queryClient.invalidateQueries({ queryKey: ["ordem-historico", id] });
+      queryClient.invalidateQueries({ queryKey: ["ordem-producao", id] });
       setObservacao("");
       setConfirmDialog({ open: false, status: "", title: "", description: "" });
-
-      const config = statusConfig[newStatus];
-      toast.success(config?.label ? `${config.label}!` : "Status atualizado");
+      toast.success(statusConfig[newStatus]?.label || "Status atualizado");
     },
-    onError: (error) => {
-      console.error("Erro ao atualizar status:", error);
-      toast.error("Erro ao atualizar status");
-    },
+    onError: () => toast.error("Erro ao atualizar status"),
   });
 
-  // Mutation para upload de foto
+  // Upload de foto
   const uploadMutation = useMutation({
     mutationFn: async (file: File) => {
       const fileExt = file.name.split(".").pop();
       const fileName = `${id}/${Date.now()}.${fileExt}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from("service-attachments")
-        .upload(fileName, file);
-
+      const { error: uploadError } = await supabase.storage.from("service-attachments").upload(fileName, file);
       if (uploadError) throw uploadError;
-
-      const { data: urlData } = supabase.storage
-        .from("service-attachments")
-        .getPublicUrl(fileName);
-
+      const { data: urlData } = supabase.storage.from("service-attachments").getPublicUrl(fileName);
       const { error: insertError } = await supabase.from("ordem_anexos").insert({
         ordem_servico_id: id,
         tipo: "foto",
         url: urlData.publicUrl,
         descricao: `Foto - ${format(new Date(), "dd/MM HH:mm")}`,
       });
-
       if (insertError) throw insertError;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["ordem-anexos", id] });
       toast.success("Foto enviada!");
     },
-    onError: () => {
-      toast.error("Erro ao enviar foto");
-    },
+    onError: () => toast.error("Erro ao enviar foto"),
   });
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      uploadMutation.mutate(file);
+  // Deletar foto
+  const deleteFotoMutation = useMutation({
+    mutationFn: async (anexoId: string) => {
+      const { error } = await supabase.from("ordem_anexos").delete().eq("id", anexoId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ordem-anexos", id] });
+      toast.success("Foto removida!");
+    },
+    onError: () => toast.error("Erro ao remover foto"),
+  });
+
+  const handleDeleteFoto = (anexoId: string) => {
+    if (window.confirm("Deseja remover esta foto?")) {
+      deleteFotoMutation.mutate(anexoId);
     }
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) uploadMutation.mutate(file);
+  };
+
   const openNavigation = () => {
+    // Usar geo: intent para abrir o seletor de apps de navegação
     if (ordem?.latitude && ordem?.longitude) {
-      window.open(
-        `https://www.google.com/maps/dir/?api=1&destination=${ordem.latitude},${ordem.longitude}`,
-        "_blank"
-      );
+      // geo: URI scheme abre o seletor de apps de navegação no mobile
+      const geoUri = `geo:${ordem.latitude},${ordem.longitude}?q=${ordem.latitude},${ordem.longitude}`;
+      window.location.href = geoUri;
     } else if (ordem?.endereco) {
-      window.open(
-        `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(ordem.endereco)}`,
-        "_blank"
-      );
+      // Para endereço, usar geo: com query
+      const geoUri = `geo:0,0?q=${encodeURIComponent(ordem.endereco)}`;
+      window.location.href = geoUri;
     }
   };
 
   const handleStatusChange = async (newStatus: string) => {
-    const config = statusConfig[newStatus];
-    
-    // Validar APR antes de iniciar serviço (no_local -> em_execucao)
     if (newStatus === "em_execucao" && !temAprPreenchida) {
       setTentouIniciarSemApr(true);
-      toast.error("É necessário preencher pelo menos uma APR antes de iniciar o serviço!", {
-        description: "Clique no botão 'APR - Análise de Riscos' para preencher.",
-        duration: 5000,
-      });
+      toast.error("Preencha a APR antes de iniciar!", { duration: 4000 });
       return;
     }
     
     if (newStatus === "concluida") {
-      // Se já temos um retorno de campo selecionado, usar diretamente
       if (retornoSelecionado) {
-        // Verificar novamente as fotos
-        const qtdFotosExigidas = retornoSelecionado.atividades.reduce((total, atv) => total + (atv.qtd_min_fotos || 0), 0);
+        const qtdFotosExigidas = retornoSelecionado.atividades.reduce((t, a) => t + (a.qtd_min_fotos || 0), 0);
         const qtdFotosAnexadas = anexos?.filter(a => a.tipo === "foto").length || 0;
-        
         if (qtdFotosExigidas > 0 && qtdFotosAnexadas < qtdFotosExigidas) {
-          toast.error(`São necessárias pelo menos ${qtdFotosExigidas} foto(s) para este retorno. Você tem ${qtdFotosAnexadas} foto(s).`, {
-            description: "Adicione as fotos necessárias e tente novamente.",
-            duration: 5000,
-          });
+          toast.error(`Faltam ${qtdFotosExigidas - qtdFotosAnexadas} foto(s)!`);
           return;
         }
-        
-        // Registrar produção com o retorno já selecionado
         const equipeId = equipe?.id || equipeAuth?.id;
         if (equipeId && ordem?.id) {
           await registrarProducao(ordem.id, equipeId, retornoSelecionado);
           await atualizarOrdemComRetorno(ordem.id, retornoSelecionado);
-          setRetornoSelecionado(null); // Limpar o retorno selecionado
+          setRetornoSelecionado(null);
           updateStatusMutation.mutate("concluida");
         }
         return;
       }
       
-      // Verificar se há retornos de campo configurados para este tipo de serviço
       if (ordem?.tipo) {
         const foundSkillId = await buscarSkillId(ordem.tipo);
         if (foundSkillId) {
@@ -590,76 +453,43 @@ export default function AppOrdemDetalhe() {
         }
       }
       
-      // Se não houver retornos configurados, usar fluxo antigo
       setConfirmDialog({
         open: true,
         status: newStatus,
         title: "Concluir Serviço",
-        description: "Tem certeza que deseja concluir este serviço? Esta ação não pode ser desfeita.",
+        description: "Confirma a conclusão deste serviço?",
       });
     } else {
       updateStatusMutation.mutate(newStatus);
     }
   };
 
-  const handleRetornoCampoConfirm = async (result: {
-    retorno_campo_id: string;
-    retorno_codigo: string;
-    retorno_descricao: string;
-    gera_producao: boolean;
-    atividades: Array<{
-      atividade_id: string;
-      quantidade: number;
-      atividade: { id: string; codigo: string; descricao: string; valor_unitario: number; unidade: string };
-      qtd_min_fotos: number;
-    }>;
-  }) => {
+  const handleRetornoCampoConfirm = async (result: any) => {
     const equipeId = equipe?.id || equipeAuth?.id;
-    
     if (!equipeId || !ordem?.id) {
       toast.error("Erro ao identificar equipe");
       return;
     }
-
-    // Verificar quantidade mínima de fotos
-    const qtdFotosExigidas = result.atividades.reduce((total, atv) => total + (atv.qtd_min_fotos || 0), 0);
+    const qtdFotosExigidas = result.atividades.reduce((t: number, a: any) => t + (a.qtd_min_fotos || 0), 0);
     const qtdFotosAnexadas = anexos?.filter(a => a.tipo === "foto").length || 0;
-    
     if (qtdFotosExigidas > 0 && qtdFotosAnexadas < qtdFotosExigidas) {
-      // Salvar o retorno selecionado para mostrar na tela
       setRetornoSelecionado(result);
-      toast.error(`São necessárias pelo menos ${qtdFotosExigidas} foto(s) para este retorno. Você tem ${qtdFotosAnexadas} foto(s).`, {
-        description: "Adicione as fotos necessárias e tente novamente.",
-        duration: 5000,
-      });
+      toast.error(`Adicione ${qtdFotosExigidas - qtdFotosAnexadas} foto(s) para continuar`);
       setRetornoCampoOpen(false);
       return;
     }
-
-    // Registrar produção
     await registrarProducao(ordem.id, equipeId, result);
-    
-    // Atualizar ordem com informações do retorno
     await atualizarOrdemComRetorno(ordem.id, result);
-    
-    // Concluir o serviço
     updateStatusMutation.mutate("concluida");
   };
 
   if (isLoading) {
     return (
-      <div className="pb-6">
-        <div className="sticky top-0 z-30 bg-background border-b px-4 py-3 flex items-center gap-3">
-          <Skeleton className="h-10 w-10" />
-          <div className="flex-1">
-            <Skeleton className="h-5 w-32 mb-1" />
-            <Skeleton className="h-4 w-24" />
-          </div>
-        </div>
+      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
         <div className="p-4 space-y-4">
+          <Skeleton className="h-12 w-full" />
           <Skeleton className="h-32" />
-          <Skeleton className="h-48" />
-          <Skeleton className="h-24" />
+          <Skeleton className="h-16" />
         </div>
       </div>
     );
@@ -667,8 +497,8 @@ export default function AppOrdemDetalhe() {
 
   if (!ordem) {
     return (
-      <div className="p-4">
-        <Button variant="ghost" onClick={handleBack}>
+      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white p-4">
+        <Button variant="ghost" onClick={handleBack} className="mb-4">
           <ArrowLeft className="h-4 w-4 mr-2" />
           Voltar
         </Button>
@@ -682,533 +512,378 @@ export default function AppOrdemDetalhe() {
 
   const status = ordem.status as keyof typeof statusConfig;
   const config = statusConfig[status] || statusConfig.pendente;
-  const StatusIcon = config.icon;
   const nextStatuses = statusFlow[status] || [];
+  const primaryAction = nextStatuses[0];
+  const actionConfig = primaryAction ? actionLabels[primaryAction] : null;
+  const ActionIcon = actionConfig?.icon || Play;
+  const qtdFotos = anexos?.filter(a => a.tipo === "foto").length || 0;
+  const isActive = !["concluida", "cancelada"].includes(status);
 
   return (
-    <div className="pb-6">
-      {/* Header */}
-      <div className="sticky top-0 z-30 bg-background border-b px-4 py-3">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={handleBack}>
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-mono text-sm">{ordem.numero}</span>
-              <Badge variant={config.variant} className="flex items-center gap-1">
-                <StatusIcon className="h-3 w-3" />
-                {config.label}
-              </Badge>
-              {ordem.regulada && (
-                <Badge variant="destructive" className="text-xs">URGENTE</Badge>
-              )}
-            </div>
-            <p className="text-sm text-muted-foreground truncate">{getTipoNome(ordem.tipo)}</p>
-          </div>
-        </div>
-        
-        {/* Info do planejamento */}
-        {planejamento && (
-          <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground flex-wrap">
-            <span className="flex items-center gap-1">
-              <Badge variant="outline" className="text-xs">#{planejamento.ordem_na_rota}</Badge>
-            </span>
-            {planejamento.hora_inicio_estimada && (
-              <span className="flex items-center gap-1">
-                <Clock className="h-3 w-3" />
-                ETA: {planejamento.hora_inicio_estimada}
-              </span>
-            )}
-            {ordem?.duracao_estimada && ordem.duracao_estimada > 0 && (
-              <span className="flex items-center gap-1">
-                <Timer className="h-3 w-3" />
-                ~{formatarTempo(ordem.duracao_estimada)}
-              </span>
-            )}
-            {planejamento.distancia_km && planejamento.distancia_km > 0 && (
-              <span className="flex items-center gap-1">
-                <Navigation className="h-3 w-3" />
-                {planejamento.distancia_km.toFixed(1)}km
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="p-4 space-y-4">
-        {/* Endereço e Navegação */}
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-start gap-3">
-              <div className={`h-10 w-10 rounded-full ${config.bgColor} flex items-center justify-center`}>
-                <MapPin className={`h-5 w-5 ${config.color}`} />
-              </div>
-              <div className="flex-1">
-                <p className="font-medium">{ordem.endereco}</p>
-                {ordem.cliente_nome && (
-                  <p className="text-sm text-muted-foreground mt-1 flex items-center gap-1">
-                    <User className="h-3 w-3" />
-                    {ordem.cliente_nome}
-                  </p>
+    <div className="min-h-screen bg-slate-50 pb-40">
+      {/* Header Compacto */}
+      <div className={`${config.bgColor} ${config.borderColor} border-b`}>
+        <div className="px-4 py-3">
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="icon" onClick={handleBack} className="shrink-0 -ml-2 h-9 w-9">
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+            
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-lg">{ordem.numero}</span>
+                {ordem.regulada && (
+                  <Badge variant="destructive" className="text-xs px-1.5 py-0.5">URGENTE</Badge>
                 )}
               </div>
+              <p className="text-sm text-muted-foreground truncate">{getTipoNome(ordem.tipo)}</p>
             </div>
-            <Button className="w-full mt-3" variant="outline" onClick={openNavigation}>
-              <Navigation className="h-4 w-4 mr-2" />
-              Navegar até o local
-            </Button>
-          </CardContent>
-        </Card>
 
-        {/* Etapas do Serviço */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Timer className="h-4 w-4" />
-              Etapas do Serviço
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {/* Etapa 1: Deslocamento */}
-            <div className={`flex items-center justify-between p-2 rounded-lg ${ordem.deslocamento_iniciado_at ? 'bg-green-50 dark:bg-green-950' : 'bg-muted/50'}`}>
-              <div className="flex items-center gap-2">
-                <div className={`h-6 w-6 rounded-full flex items-center justify-center ${ordem.deslocamento_iniciado_at ? 'bg-green-500 text-white' : 'bg-muted text-muted-foreground'}`}>
-                  <Truck className="h-3 w-3" />
-                </div>
-                <span className="text-sm">Deslocamento Iniciado</span>
-              </div>
-              {ordem.deslocamento_iniciado_at ? (
-                <span className="text-xs text-green-600 font-medium">
-                  {format(new Date(ordem.deslocamento_iniciado_at), "HH:mm")}
+            <div className={`${config.color} text-white px-3 py-1.5 rounded-full text-xs font-medium`}>
+              {config.label}
+            </div>
+          </div>
+
+          {/* Info rápida */}
+          {planejamento && (
+            <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground ml-10">
+              <span className="font-bold text-foreground">#{planejamento.ordem_na_rota}</span>
+              {planejamento.hora_inicio_estimada && (
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  {planejamento.hora_inicio_estimada}
                 </span>
-              ) : (
-                <span className="text-xs text-muted-foreground">Pendente</span>
+              )}
+              {planejamento.distancia_km && planejamento.distancia_km > 0 && (
+                <span>{planejamento.distancia_km.toFixed(1)}km</span>
               )}
             </div>
+          )}
+        </div>
+      </div>
 
-            {/* Etapa 2: Chegada no Local */}
-            <div className={`flex items-center justify-between p-2 rounded-lg ${ordem.chegada_local_at ? 'bg-green-50 dark:bg-green-950' : 'bg-muted/50'}`}>
-              <div className="flex items-center gap-2">
-                <div className={`h-6 w-6 rounded-full flex items-center justify-center ${ordem.chegada_local_at ? 'bg-green-500 text-white' : 'bg-muted text-muted-foreground'}`}>
-                  <MapPin className="h-3 w-3" />
-                </div>
-                <span className="text-sm">Chegada no Local</span>
-              </div>
-              {ordem.chegada_local_at ? (
-                <span className="text-xs text-green-600 font-medium">
-                  {format(new Date(ordem.chegada_local_at), "HH:mm")}
-                </span>
-              ) : (
-                <span className="text-xs text-muted-foreground">Pendente</span>
-              )}
+      <div className="p-4 space-y-3">
+        {/* Card Endereço + Navegação */}
+        <div className="bg-white rounded-xl shadow-sm border p-4">
+          <div className="flex items-start gap-3">
+            <div className="h-10 w-10 rounded-lg bg-blue-500 flex items-center justify-center shrink-0">
+              <MapPin className="h-5 w-5 text-white" />
             </div>
-
-            {/* Etapa 3: Serviço Iniciado */}
-            <div className={`flex items-center justify-between p-2 rounded-lg ${ordem.execucao_iniciada_at ? 'bg-green-50 dark:bg-green-950' : 'bg-muted/50'}`}>
-              <div className="flex items-center gap-2">
-                <div className={`h-6 w-6 rounded-full flex items-center justify-center ${ordem.execucao_iniciada_at ? 'bg-green-500 text-white' : 'bg-muted text-muted-foreground'}`}>
-                  <Play className="h-3 w-3" />
-                </div>
-                <span className="text-sm">Serviço Iniciado</span>
-              </div>
-              {ordem.execucao_iniciada_at ? (
-                <span className="text-xs text-green-600 font-medium">
-                  {format(new Date(ordem.execucao_iniciada_at), "HH:mm")}
-                </span>
-              ) : (
-                <span className="text-xs text-muted-foreground">Pendente</span>
-              )}
-            </div>
-
-            {/* Etapa 4: Serviço Concluído */}
-            <div className={`flex items-center justify-between p-2 rounded-lg ${ordem.concluido_at ? 'bg-green-50 dark:bg-green-950' : 'bg-muted/50'}`}>
-              <div className="flex items-center gap-2">
-                <div className={`h-6 w-6 rounded-full flex items-center justify-center ${ordem.concluido_at ? 'bg-green-500 text-white' : 'bg-muted text-muted-foreground'}`}>
-                  <CheckCircle className="h-3 w-3" />
-                </div>
-                <span className="text-sm">Serviço Concluído</span>
-              </div>
-              {ordem.concluido_at ? (
-                <span className="text-xs text-green-600 font-medium">
-                  {format(new Date(ordem.concluido_at), "HH:mm")}
-                </span>
-              ) : (
-                <span className="text-xs text-muted-foreground">Pendente</span>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Detalhes */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base flex items-center gap-2">
-              <FileText className="h-4 w-4" />
-              Detalhes do Serviço
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            {ordem.instalacao && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Instalação:</span>
-                <span className="font-mono">{ordem.instalacao}</span>
-              </div>
-            )}
-            {ordem.medidor && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Medidor:</span>
-                <span className="font-mono">{ordem.medidor}</span>
-              </div>
-            )}
-            {ordem.duracao_estimada && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Duração estimada:</span>
-                <span>{ordem.duracao_estimada} min</span>
-              </div>
-            )}
-            {ordem.prazo && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Prazo:</span>
-                <span className={ordem.regulada ? "text-red-600 font-medium" : ""}>
-                  {format(new Date(ordem.prazo), "dd/MM/yyyy HH:mm")}
-                </span>
-              </div>
-            )}
-            {ordem.valor && ordem.valor > 0 && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Valor:</span>
-                <span className="font-medium text-green-600">
-                  R$ {ordem.valor.toFixed(2)}
-                </span>
-              </div>
-            )}
-            {ordem.observacoes && (
-              <div className="pt-2 border-t">
-                <p className="text-muted-foreground mb-1">Observações:</p>
-                <p className="whitespace-pre-wrap text-xs bg-muted/50 p-2 rounded">
-                  {ordem.observacoes}
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-sm leading-snug">{ordem.endereco}</p>
+              {ordem.cliente_nome && (
+                <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                  <User className="h-3 w-3" />
+                  {ordem.cliente_nome}
                 </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Timeline/Histórico */}
-        {historico && historico.length > 0 && (
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle 
-                className="text-base flex items-center justify-between cursor-pointer"
-                onClick={() => setShowTimeline(!showTimeline)}
-              >
-                <span className="flex items-center gap-2">
-                  <History className="h-4 w-4" />
-                  Histórico ({historico.length})
-                </span>
-                {showTimeline ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              </CardTitle>
-            </CardHeader>
-            {showTimeline && (
-              <CardContent className="pt-0">
-                <div className="space-y-3">
-                  {historico.map((log, index) => (
-                    <div key={log.id} className="flex gap-3 text-sm">
-                      <div className="flex flex-col items-center">
-                        <div className="h-2 w-2 rounded-full bg-primary" />
-                        {index < historico.length - 1 && (
-                          <div className="w-0.5 h-full bg-border mt-1" />
-                        )}
-                      </div>
-                      <div className="flex-1 pb-3">
-                        <p className="font-medium">{log.descricao}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {format(new Date(log.created_at), "dd/MM HH:mm", { locale: ptBR })}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            )}
-          </Card>
-        )}
-
-        {/* Fotos */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base flex items-center justify-between">
-              <span className="flex items-center gap-2">
-                <Camera className="h-4 w-4" />
-                Fotos ({anexos?.length || 0})
-              </span>
-              {status !== "concluida" && status !== "cancelada" && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={uploadMutation.isPending}
-                >
-                  {uploadMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <>
-                      <Camera className="h-4 w-4 mr-1" />
-                      Adicionar
-                    </>
-                  )}
-                </Button>
               )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-              onChange={handleFileChange}
-            />
-            {anexos && anexos.length > 0 ? (
-              <div className="grid grid-cols-3 gap-2">
-                {anexos.map((anexo) => (
-                  <img
-                    key={anexo.id}
-                    src={anexo.url}
-                    alt={anexo.descricao || "Foto"}
-                    className="w-full aspect-square object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity"
-                    onClick={() => window.open(anexo.url, "_blank")}
-                  />
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                Nenhuma foto adicionada
-              </p>
-            )}
-          </CardContent>
-        </Card>
+            </div>
+          </div>
+          <Button className="w-full mt-3 h-11 bg-blue-600 hover:bg-blue-700 text-base font-medium" onClick={openNavigation}>
+            <Navigation className="h-5 w-5 mr-2" />
+            Navegar
+          </Button>
+        </div>
 
-        {/* Observação do técnico */}
-        {status !== "concluida" && status !== "cancelada" && (
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Observações do Serviço</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Textarea
-                placeholder="Adicione observações sobre o serviço..."
-                value={observacao}
-                onChange={(e) => setObservacao(e.target.value)}
-                rows={3}
-              />
-            </CardContent>
-          </Card>
-        )}
+        {/* Botões de Ação Secundários */}
+        {isActive && (
+          <div className="flex gap-2">
+            {/* Fotos */}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadMutation.isPending}
+              className="flex-1 flex flex-col items-center justify-center py-3 bg-white rounded-xl border shadow-sm"
+            >
+              {uploadMutation.isPending ? (
+                <Loader2 className="h-6 w-6 text-muted-foreground animate-spin" />
+              ) : (
+                <Camera className="h-6 w-6 text-emerald-600" />
+              )}
+              <span className="text-xs mt-1 font-medium">Fotos {qtdFotos > 0 && `(${qtdFotos})`}</span>
+            </button>
 
-        {/* Retorno de Campo Selecionado - Exibir quando houver retorno pendente */}
-        {retornoSelecionado && status !== "concluida" && status !== "cancelada" && (
-          <Card className="border-2 border-amber-300 bg-amber-50">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2 text-amber-800">
-                <AlertTriangle className="h-4 w-4" />
-                Retorno de Campo Selecionado (Pendente)
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div 
-                className="flex items-center justify-between cursor-pointer"
-                onClick={async () => {
-                  if (ordem?.tipo) {
-                    const foundSkillId = await buscarSkillId(ordem.tipo);
-                    if (foundSkillId) {
-                      setSkillId(foundSkillId);
-                      setRetornoCampoOpen(true);
-                    }
+            {/* APR */}
+            <button
+              onClick={() => {
+                setTentouIniciarSemApr(false);
+                navegarComEstado(`/app/ordens/${id}/apr`);
+              }}
+              className={`flex-1 flex flex-col items-center justify-center py-3 bg-white rounded-xl border shadow-sm ${
+                tentouIniciarSemApr && !temAprPreenchida ? "ring-2 ring-red-500" : ""
+              }`}
+            >
+              <ClipboardCheck className={`h-6 w-6 ${temAprPreenchida ? "text-green-600" : "text-violet-600"}`} />
+              <span className="text-xs mt-1 font-medium">APR {temAprPreenchida && "✓"}</span>
+            </button>
+
+            {/* Encerrar OS */}
+            <button
+              onClick={async () => {
+                if (ordem?.tipo) {
+                  const foundSkillId = await buscarSkillId(ordem.tipo);
+                  if (foundSkillId) {
+                    setSkillId(foundSkillId);
+                    setRetornoCampoOpen(true);
+                  } else {
+                    toast.error("Nenhum retorno configurado");
                   }
-                }}
+                }
+              }}
+              className="flex-1 flex flex-col items-center justify-center py-3 bg-white rounded-xl border shadow-sm"
+            >
+              <StopCircle className="h-6 w-6 text-red-500" />
+              <span className="text-xs mt-1 font-medium">Encerrar</span>
+            </button>
+          </div>
+        )}
+
+        {/* Linha extra de botões se necessário */}
+        {isActive && (status === "em_andamento" || status === "em_execucao" || status === "no_local" || ordem.cliente_telefone) && (
+          <div className="flex gap-2">
+            {/* Materiais */}
+            {(status === "em_andamento" || status === "em_execucao" || status === "no_local") && (
+              <button
+                onClick={() => navegarComEstado(`/app/ordens/${id}/materiais`)}
+                className="flex-1 flex flex-col items-center justify-center py-3 bg-white rounded-xl border shadow-sm"
               >
-                <div>
-                  <p className="font-semibold text-amber-900">{retornoSelecionado.retorno_descricao}</p>
-                  <p className="text-sm text-amber-700">
-                    {retornoSelecionado.atividades.length} atividade(s) selecionada(s)
-                  </p>
-                  <p className="text-xs text-amber-600 mt-1">
-                    Fotos necessárias: {retornoSelecionado.atividades.reduce((t, a) => t + (a.qtd_min_fotos || 0), 0)} | 
-                    Fotos anexadas: {anexos?.filter(a => a.tipo === "foto").length || 0}
-                  </p>
-                </div>
-                <ChevronRight className="h-5 w-5 text-amber-600" />
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Botão APR - Sempre visível quando não concluído/cancelado */}
-        {status !== "concluida" && status !== "cancelada" && (
-          <Button
-            className={`w-full ${
-              temAprPreenchida 
-                ? "bg-violet-600 hover:bg-violet-700" 
-                : tentouIniciarSemApr 
-                  ? "bg-violet-700 hover:bg-violet-800 animate-pulse ring-2 ring-red-500 ring-offset-2" 
-                  : "bg-violet-600 hover:bg-violet-700"
-            }`}
-            size="lg"
-            onClick={() => {
-              setTentouIniciarSemApr(false); // Limpar destaque ao clicar
-              navigate(`/app/ordens/${id}/apr`);
-            }}
-          >
-            <ClipboardCheck className="h-5 w-5 mr-2" />
-            APR - Análise de Riscos
-            {temAprPreenchida && (
-              <Badge variant="secondary" className="ml-2 bg-white text-violet-700">
-                ✓
-              </Badge>
+                <Package className="h-6 w-6 text-teal-600" />
+                <span className="text-xs mt-1 font-medium">Materiais</span>
+              </button>
             )}
-            {!temAprPreenchida && tentouIniciarSemApr && (
-              <Badge variant="destructive" className="ml-2">
-                Obrigatório
-              </Badge>
+
+            {/* Ligar Cliente */}
+            {ordem.cliente_telefone && (
+              <a
+                href={`tel:${ordem.cliente_telefone}`}
+                className="flex-1 flex flex-col items-center justify-center py-3 bg-white rounded-xl border shadow-sm"
+              >
+                <Phone className="h-6 w-6 text-blue-500" />
+                <span className="text-xs mt-1 font-medium">Ligar</span>
+              </a>
             )}
-          </Button>
+          </div>
         )}
 
-        {/* Botão Materiais - Sempre visível quando em execução */}
-        {(status === "em_andamento" || status === "em_execucao" || status === "no_local") && (
-          <Button
-            variant="outline"
-            className="w-full border-emerald-300 text-emerald-700 hover:bg-emerald-50"
-            size="lg"
-            onClick={() => navigate(`/app/ordens/${id}/materiais`)}
-          >
-            <Package className="h-5 w-5 mr-2" />
-            Materiais Aplicados/Retirados
-          </Button>
-        )}
-
-        {/* Botão Retorno de Campo - Sempre visível quando em deslocamento ou execução */}
-        {(status === "em_deslocamento" || status === "no_local" || status === "em_andamento" || status === "em_execucao") && (
-          <Button
-            variant="outline"
-            className="w-full border-red-300 text-red-700 hover:bg-red-50"
-            size="lg"
+        {/* Retorno Selecionado (Pendente por fotos) */}
+        {retornoSelecionado && isActive && (
+          <div
             onClick={async () => {
               if (ordem?.tipo) {
                 const foundSkillId = await buscarSkillId(ordem.tipo);
                 if (foundSkillId) {
                   setSkillId(foundSkillId);
                   setRetornoCampoOpen(true);
-                } else {
-                  toast.error("Nenhum retorno de campo configurado para este tipo de serviço");
                 }
               }
             }}
+            className="bg-amber-50 border border-amber-300 rounded-xl p-3 cursor-pointer"
           >
-            <StopCircle className="h-5 w-5 mr-2" />
-            Retorno de Campo
-          </Button>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Flag className="h-5 w-5 text-amber-600" />
+                <div>
+                  <p className="font-medium text-amber-900 text-sm">{retornoSelecionado.retorno_descricao}</p>
+                  <p className="text-xs text-amber-700 mt-0.5">
+                    Fotos: {qtdFotos}/{retornoSelecionado.atividades.reduce((t, a) => t + (a.qtd_min_fotos || 0), 0)}
+                  </p>
+                </div>
+              </div>
+              <ChevronRight className="h-5 w-5 text-amber-600" />
+            </div>
+          </div>
         )}
 
-        {/* Ações de Status */}
-        {nextStatuses.length > 0 && (
-          <div className="space-y-2">
-            {nextStatuses.map((nextStatus) => {
-              const nextConfig = statusConfig[nextStatus];
-              const NextIcon = nextConfig?.icon || Play;
-              
-              // Estilização especial para cada botão
-              let buttonVariant: "default" | "outline" | "destructive" = "default";
-              let buttonClass = "";
-              let buttonLabel = "";
-              
-              if (nextStatus === "em_deslocamento") {
-                buttonClass = "bg-orange-500 hover:bg-orange-600";
-                buttonLabel = "Iniciar Deslocamento";
-              } else if (nextStatus === "no_local") {
-                buttonClass = "bg-purple-600 hover:bg-purple-700";
-                buttonLabel = "Cheguei no Local";
-              } else if (nextStatus === "em_execucao") {
-                buttonClass = "bg-blue-600 hover:bg-blue-700";
-                buttonLabel = "Iniciar Serviço";
-              } else if (nextStatus === "concluida") {
-                buttonClass = "bg-green-600 hover:bg-green-700";
-                buttonLabel = "Concluir Serviço";
-              } else if (nextStatus === "pausada") {
-                buttonVariant = "outline";
-                buttonClass = "border-amber-500 text-amber-600 hover:bg-amber-50";
-                buttonLabel = "Pausar";
-              }
-              
-              return (
-                <Button
-                  key={nextStatus}
-                  className={`w-full ${buttonClass}`}
-                  variant={buttonVariant}
-                  size="lg"
-                  onClick={() => handleStatusChange(nextStatus)}
-                  disabled={updateStatusMutation.isPending}
-                >
-                  {updateStatusMutation.isPending ? (
-                    <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                  ) : (
-                    <NextIcon className="h-5 w-5 mr-2" />
+        {/* Observações */}
+        {isActive && (
+          <div className="bg-white rounded-xl border p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <MessageSquare className="h-4 w-4 text-muted-foreground" />
+              <span className="text-xs font-medium text-muted-foreground">Observações</span>
+            </div>
+            <Textarea
+              placeholder="Adicione observações..."
+              value={observacao}
+              onChange={(e) => setObservacao(e.target.value)}
+              rows={2}
+              className="resize-none border-0 p-0 focus-visible:ring-0 text-sm min-h-[40px]"
+            />
+          </div>
+        )}
+
+        {/* Accordion com Detalhes */}
+        <Accordion type="single" collapsible className="bg-white rounded-xl border overflow-hidden">
+          <AccordionItem value="detalhes" className="border-0">
+            <AccordionTrigger className="px-4 py-3 hover:no-underline">
+              <div className="flex items-center gap-2">
+                <Info className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">Detalhes do Serviço</span>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent className="px-4 pb-4">
+              <div className="space-y-2 text-sm">
+                {ordem.instalacao && (
+                  <div className="flex justify-between py-2 border-b">
+                    <span className="text-muted-foreground">Instalação</span>
+                    <span className="font-mono">{ordem.instalacao}</span>
+                  </div>
+                )}
+                {ordem.medidor && (
+                  <div className="flex justify-between py-2 border-b">
+                    <span className="text-muted-foreground">Medidor</span>
+                    <span className="font-mono">{ordem.medidor}</span>
+                  </div>
+                )}
+                {ordem.prazo && (
+                  <div className="flex justify-between py-2 border-b">
+                    <span className="text-muted-foreground">Prazo</span>
+                    <span className={ordem.regulada ? "text-red-600 font-medium" : ""}>
+                      {format(new Date(ordem.prazo), "dd/MM/yy HH:mm")}
+                    </span>
+                  </div>
+                )}
+                {ordem.valor && ordem.valor > 0 && (
+                  <div className="flex justify-between py-2 border-b">
+                    <span className="text-muted-foreground">Valor Prev.</span>
+                    <span className="font-medium text-blue-600">R$ {ordem.valor.toFixed(2)}</span>
+                  </div>
+                )}
+                {status === "concluida" && (
+                  <div className="flex justify-between py-2 border-b">
+                    <span className="text-muted-foreground">Valor Prod.</span>
+                    <span className="font-medium text-green-600">
+                      R$ {(producao?.valor_total || 0).toFixed(2)}
+                    </span>
+                  </div>
+                )}
+                {ordem.observacoes && (
+                  <div className="pt-2">
+                    <p className="text-xs text-blue-600 font-medium">Obs. Coelba:</p>
+                    <p className="text-xs bg-blue-50 p-2 rounded mt-1">{ordem.observacoes}</p>
+                  </div>
+                )}
+                {(ordem as any).observacoes_equipe && (
+                  <div className="pt-2">
+                    <p className="text-xs text-emerald-600 font-medium">Obs. Equipe:</p>
+                    <p className="text-xs bg-emerald-50 p-2 rounded mt-1">{(ordem as any).observacoes_equipe}</p>
+                  </div>
+                )}
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+
+        {/* Fotos */}
+        {qtdFotos > 0 && (
+          <div id="fotos-section" className="bg-white rounded-xl border p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Image className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">Fotos ({qtdFotos})</span>
+              </div>
+              {isActive && (
+                <Badge variant="destructive" className="text-xs">Toque no X para excluir</Badge>
+              )}
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              {anexos?.filter(a => a.tipo === "foto").map((anexo) => (
+                <div key={anexo.id} className="relative p-1">
+                  <img
+                    src={anexo.url}
+                    alt=""
+                    className="w-full aspect-square object-cover rounded-lg cursor-pointer border-2 border-gray-200"
+                    onClick={() => window.open(anexo.url, "_blank")}
+                  />
+                  {isActive && (
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteFoto(anexo.id);
+                      }}
+                      disabled={deleteFotoMutation.isPending}
+                      className="absolute -top-1 -right-1 h-7 w-7 rounded-full shadow-lg"
+                    >
+                      {deleteFotoMutation.isPending ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <XCircle className="h-4 w-4" />
+                      )}
+                    </Button>
                   )}
-                  {buttonLabel}
-                </Button>
-              );
-            })}
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
         {/* Status Concluído */}
         {status === "concluida" && (
-          <Card className="bg-green-500/10 border-green-500/30">
-            <CardContent className="p-6 text-center">
-              <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-3" />
-              <p className="font-semibold text-green-700 dark:text-green-400 text-lg">
-                Serviço Concluído! 🎉
+          <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl p-5 text-center">
+            <CheckCircle className="h-14 w-14 mx-auto mb-3 text-white" />
+            <p className="font-bold text-xl text-white">Concluído! 🎉</p>
+            {ordem.concluido_at && (
+              <p className="text-sm text-white/90 mt-2">
+                {format(new Date(ordem.concluido_at), "dd/MM 'às' HH:mm")}
               </p>
-              {ordem.tempo_total_minutos && (
-                <p className="text-sm text-muted-foreground mt-2">
-                  Tempo total: {formatarTempo(ordem.tempo_total_minutos)}
-                </p>
-              )}
-              {ordem.concluido_at && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  Finalizado em {format(new Date(ordem.concluido_at), "dd/MM/yyyy 'às' HH:mm")}
-                </p>
-              )}
-              
-              {/* Botões de navegação após conclusão */}
-              <div className="mt-6 space-y-3">
-                {proximaOS?.ordens_servico && (
-                  <Button
-                    className="w-full bg-blue-600 hover:bg-blue-700"
-                    onClick={() => navigate(`/app/ordens/${proximaOS.ordens_servico.id}`)}
-                  >
-                    <ChevronRight className="h-4 w-4 mr-2" />
-                    Ir para Próximo Serviço
-                    <Badge variant="secondary" className="ml-2 bg-white/20">
-                      #{proximaOS.ordem_na_rota}
-                    </Badge>
-                  </Button>
-                )}
+            )}
+            
+            <div className="mt-4 space-y-3">
+              {proximaOS?.ordens_servico && (
                 <Button
-                  variant="outline"
-                  className="w-full"
-                  onClick={() => navigate("/app/ordens")}
+                  className="w-full h-12 bg-white text-green-700 hover:bg-green-50 text-base font-semibold"
+                  onClick={() => navegarComEstado(`/app/ordens/${proximaOS.ordens_servico.id}`)}
                 >
-                  <List className="h-4 w-4 mr-2" />
-                  Ver Todas as Ordens
+                  <ChevronRight className="h-5 w-5 mr-2" />
+                  Próximo Serviço
                 </Button>
-              </div>
-            </CardContent>
-          </Card>
+              )}
+              <Button
+                variant="outline"
+                className="w-full h-11 text-sm font-semibold shadow-lg"
+                style={{ 
+                  backgroundColor: '#ffffff', 
+                  color: '#065f46', 
+                  borderColor: '#10b981',
+                  borderWidth: '2px'
+                }}
+                onClick={() => navegarComEstado("/app/ordens")}
+              >
+                <List className="h-5 w-5 mr-2" />
+                Ver Todas as OSs
+              </Button>
+            </div>
+          </div>
         )}
       </div>
+
+      {/* Botão de Ação Principal Fixo - ACIMA DA NAVEGAÇÃO */}
+      {primaryAction && actionConfig && (
+        <div className="fixed bottom-[70px] left-0 right-0 p-4 bg-gradient-to-t from-white via-white to-transparent pt-6">
+          <Button
+            className={`w-full h-14 text-base font-bold rounded-xl shadow-lg ${actionConfig.color}`}
+            onClick={() => handleStatusChange(primaryAction)}
+            disabled={updateStatusMutation.isPending}
+          >
+            {updateStatusMutation.isPending ? (
+              <Loader2 className="h-6 w-6 mr-2 animate-spin" />
+            ) : (
+              <ActionIcon className="h-6 w-6 mr-2" />
+            )}
+            {actionConfig.label}
+          </Button>
+        </div>
+      )}
+
+      {/* Input de arquivo oculto */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={handleFileChange}
+      />
 
       {/* Dialog de Confirmação */}
       <AlertDialog open={confirmDialog.open} onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}>
@@ -1223,11 +898,7 @@ export default function AppOrdemDetalhe() {
               onClick={() => updateStatusMutation.mutate(confirmDialog.status)}
               className="bg-green-600 hover:bg-green-700"
             >
-              {updateStatusMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <CheckCircle className="h-4 w-4 mr-2" />
-              )}
+              {updateStatusMutation.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
               Confirmar
             </AlertDialogAction>
           </AlertDialogFooter>

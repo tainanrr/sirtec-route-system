@@ -122,3 +122,4 @@ COMMENT ON TABLE public.ordem_materiais_retirados IS 'Armazena materiais retirad
 COMMENT ON COLUMN public.ordem_materiais_aplicados.numero_serie IS 'Número de série do material (para rastreabilidade)';
 COMMENT ON COLUMN public.ordem_materiais_retirados.motivo_retirada IS 'Motivo da retirada (defeito, substituição, etc.)';
 
+

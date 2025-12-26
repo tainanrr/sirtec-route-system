@@ -114,3 +114,4 @@ WHERE os.status = 'concluida'
 AND os.concluido_at >= NOW() - INTERVAL '7 days'
 ORDER BY os.concluido_at DESC;
 
+

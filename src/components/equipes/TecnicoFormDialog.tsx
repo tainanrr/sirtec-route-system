@@ -67,10 +67,18 @@ const tecnicoSchema = z.object({
   placa_veiculo: z.string().max(10).optional(),
   min_colaboradores: z.number().min(1).max(10),
   max_colaboradores: z.number().min(1).max(10),
+  centro_custo_id: z.string().optional(),
 }).refine(data => data.max_colaboradores >= data.min_colaboradores, {
   message: "Máximo deve ser maior ou igual ao mínimo",
   path: ["max_colaboradores"],
 });
+
+// Interface para Centro de Custo
+interface CentroCusto {
+  id: string;
+  codigo: string;
+  nome: string;
+}
 
 // Tipos de equipe disponíveis
 const tiposEquipeDisponiveis = [
@@ -106,6 +114,7 @@ export function TecnicoFormDialog({
   const [habilidades, setHabilidades] = useState<string[]>([]);
   const { logCriar, logEditar } = useLogSistema();
   const [skillsDisponiveis, setSkillsDisponiveis] = useState<Skill[]>([]);
+  const [centrosCusto, setCentrosCusto] = useState<CentroCusto[]>([]);
   const [almoco, setAlmoco] = useState({
     duracao: 60,
     janelaInicio: "11:00",
@@ -137,6 +146,7 @@ export function TecnicoFormDialog({
       placa_veiculo: "",
       min_colaboradores: 1,
       max_colaboradores: 2,
+      centro_custo_id: "",
     },
   });
 
@@ -153,6 +163,22 @@ export function TecnicoFormDialog({
       setSkillsDisponiveis(data || []);
     } catch (error) {
       console.error("Erro ao carregar skills:", error);
+    }
+  };
+
+  // Carregar centros de custo
+  const fetchCentrosCusto = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("centros_custo")
+        .select("id, codigo, nome")
+        .eq("ativo", true)
+        .order("nome");
+
+      if (error) throw error;
+      setCentrosCusto(data || []);
+    } catch (error) {
+      console.error("Erro ao carregar centros de custo:", error);
     }
   };
 
@@ -347,6 +373,7 @@ export function TecnicoFormDialog({
     if (open) {
       fetchColaboradores();
       fetchSkills();
+      fetchCentrosCusto();
     }
   }, [open]);
 
@@ -371,6 +398,7 @@ export function TecnicoFormDialog({
         placa_veiculo: (tecnico as any).placa_veiculo || "",
         min_colaboradores: (tecnico as any).min_colaboradores || 1,
         max_colaboradores: (tecnico as any).max_colaboradores || 2,
+        centro_custo_id: (tecnico as any).centro_custo_id || "",
       });
       setHabilidades(tecnico.habilidades || []);
       
@@ -408,6 +436,7 @@ export function TecnicoFormDialog({
         placa_veiculo: "",
         min_colaboradores: 1,
         max_colaboradores: 2,
+        centro_custo_id: "",
       });
       setHabilidades([]);
       setAlmoco({ duracao: 60, janelaInicio: "11:00", janelaFim: "14:00" });
@@ -457,6 +486,7 @@ export function TecnicoFormDialog({
         login_ativo: true, // Habilitar login por código
         min_colaboradores: data.min_colaboradores,
         max_colaboradores: data.max_colaboradores,
+        centro_custo_id: data.centro_custo_id || null,
       };
 
       // Adicionar coordenadas se fornecidas
@@ -700,6 +730,36 @@ export function TecnicoFormDialog({
                       </FormControl>
                       <FormDescription>
                         Placa padrão do veículo da equipe (pode ser alterada na abertura do turno)
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {/* Campo de Centro de Custo */}
+                <FormField
+                  control={form.control}
+                  name="centro_custo_id"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Centro de Custo</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || ""}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione um centro de custo" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="">Nenhum</SelectItem>
+                          {centrosCusto.map((cc) => (
+                            <SelectItem key={cc.id} value={cc.id}>
+                              {cc.codigo ? `${cc.codigo} - ` : ""}{cc.nome}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        Vincula a equipe a um centro de custo para controle de metas e feriados
                       </FormDescription>
                       <FormMessage />
                     </FormItem>

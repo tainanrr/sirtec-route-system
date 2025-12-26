@@ -53,9 +53,12 @@ interface Feriado {
   estado: string | null;
   cidade: string | null;
   contrato_id: string | null;
+  centro_custo_id: string | null;
+  nacional: boolean;
   recorrente: boolean;
   ativo: boolean;
   contratos?: { codigo: string; nome: string } | null;
+  centros_custo?: { codigo: string; nome: string } | null;
 }
 
 interface MotivoCancelamento {
@@ -70,6 +73,12 @@ interface MotivoCancelamento {
 }
 
 interface Contrato {
+  id: string;
+  codigo: string;
+  nome: string;
+}
+
+interface CentroCusto {
   id: string;
   codigo: string;
   nome: string;
@@ -97,6 +106,7 @@ export default function UnidadesGruposFeriados() {
   const [feriados, setFeriados] = useState<Feriado[]>([]);
   const [motivosCancelamento, setMotivosCancelamento] = useState<MotivoCancelamento[]>([]);
   const [contratos, setContratos] = useState<Contrato[]>([]);
+  const [centrosCusto, setCentrosCusto] = useState<CentroCusto[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -108,24 +118,26 @@ export default function UnidadesGruposFeriados() {
   // Forms
   const [unidadeForm, setUnidadeForm] = useState({ codigo: "", nome: "", descricao: "", simbolo: "", ativo: true });
   const [grupoForm, setGrupoForm] = useState({ codigo: "", nome: "", descricao: "", contrato_id: "todos", cor: "#3B82F6", ordem: "0", ativo: true });
-  const [feriadoForm, setFeriadoForm] = useState({ data: "", nome: "", tipo: "nacional", estado: "", cidade: "", contrato_id: "", recorrente: false, ativo: true });
+  const [feriadoForm, setFeriadoForm] = useState({ data: "", nome: "", tipo: "nacional", estado: "", cidade: "", contrato_id: "", centro_custo_id: "", nacional: false, recorrente: false, ativo: true });
   const [motivoForm, setMotivoForm] = useState({ codigo: "", nome: "", descricao: "", tipo: "os", requer_justificativa: false, gera_reagendamento: false, ativo: true });
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [unidRes, grupoRes, ferRes, motivoRes, contRes] = await Promise.all([
+      const [unidRes, grupoRes, ferRes, motivoRes, contRes, ccRes] = await Promise.all([
         supabase.from("unidades_medida").select("*").order("codigo"),
         supabase.from("grupos_servico").select("*, contratos(codigo, nome)").order("codigo"),
-        supabase.from("feriados").select("*, contratos(codigo, nome)").order("data", { ascending: false }),
+        supabase.from("feriados").select("*, contratos(codigo, nome), centros_custo(codigo, nome)").order("data", { ascending: false }),
         supabase.from("motivos_cancelamento").select("*").order("codigo"),
         supabase.from("contratos").select("id, codigo, nome").eq("status", "ativo").order("codigo"),
+        supabase.from("centros_custo").select("id, codigo, nome").eq("ativo", true).order("nome"),
       ]);
       setUnidades(unidRes.data || []);
       setGrupos(grupoRes.data || []);
       setFeriados(ferRes.data || []);
       setMotivosCancelamento(motivoRes.data || []);
       setContratos(contRes.data || []);
+      setCentrosCusto(ccRes.data || []);
     } catch (error: any) {
       toast.error("Erro ao carregar dados");
     } finally {
@@ -145,7 +157,7 @@ export default function UnidadesGruposFeriados() {
     setEditingItem(null);
     if (type === "unidade") setUnidadeForm({ codigo: "", nome: "", descricao: "", simbolo: "", ativo: true });
     if (type === "grupo") setGrupoForm({ codigo: "", nome: "", descricao: "", contrato_id: "todos", cor: "#3B82F6", ordem: "0", ativo: true });
-    if (type === "feriado") setFeriadoForm({ data: "", nome: "", tipo: "nacional", estado: "", cidade: "", contrato_id: "", recorrente: false, ativo: true });
+    if (type === "feriado") setFeriadoForm({ data: "", nome: "", tipo: "nacional", estado: "", cidade: "", contrato_id: "", centro_custo_id: "", nacional: false, recorrente: false, ativo: true });
     if (type === "motivo") setMotivoForm({ codigo: "", nome: "", descricao: "", tipo: "os", requer_justificativa: false, gera_reagendamento: false, ativo: true });
     setDialogOpen(true);
   };
@@ -155,7 +167,7 @@ export default function UnidadesGruposFeriados() {
     setEditingItem(item);
     if (type === "unidade") setUnidadeForm({ codigo: item.codigo, nome: item.nome, descricao: item.descricao || "", simbolo: item.simbolo || "", ativo: item.ativo });
     if (type === "grupo") setGrupoForm({ codigo: item.codigo, nome: item.nome, descricao: item.descricao || "", contrato_id: item.contrato_id || "todos", cor: item.cor || "#3B82F6", ordem: item.ordem?.toString() || "0", ativo: item.ativo });
-    if (type === "feriado") setFeriadoForm({ data: item.data, nome: item.nome, tipo: item.tipo, estado: item.estado || "", cidade: item.cidade || "", contrato_id: item.contrato_id || "", recorrente: item.recorrente, ativo: item.ativo });
+    if (type === "feriado") setFeriadoForm({ data: item.data, nome: item.nome, tipo: item.tipo, estado: item.estado || "", cidade: item.cidade || "", contrato_id: item.contrato_id || "", centro_custo_id: item.centro_custo_id || "", nacional: item.nacional || false, recorrente: item.recorrente, ativo: item.ativo });
     if (type === "motivo") setMotivoForm({ codigo: item.codigo, nome: item.nome, descricao: item.descricao || "", tipo: item.tipo, requer_justificativa: item.requer_justificativa, gera_reagendamento: item.gera_reagendamento, ativo: item.ativo });
     setDialogOpen(true);
   };
@@ -179,7 +191,20 @@ export default function UnidadesGruposFeriados() {
       if (currentType === "feriado") {
         if (!feriadoForm.data || !feriadoForm.nome) { toast.error("Preencha os campos obrigatórios"); setSaving(false); return; }
         table = "feriados";
-        payload = { ...feriadoForm, estado: feriadoForm.estado || null, cidade: feriadoForm.cidade || null, contrato_id: feriadoForm.contrato_id || null };
+        // Se tipo é nacional, marca como nacional e limpa centro_custo
+        const isNacional = feriadoForm.tipo === "nacional";
+        payload = { 
+          data: feriadoForm.data,
+          nome: feriadoForm.nome,
+          tipo: feriadoForm.tipo,
+          estado: feriadoForm.estado || null, 
+          cidade: feriadoForm.cidade || null, 
+          contrato_id: feriadoForm.contrato_id || null,
+          centro_custo_id: isNacional ? null : (feriadoForm.centro_custo_id || null),
+          nacional: isNacional,
+          recorrente: feriadoForm.recorrente,
+          ativo: feriadoForm.ativo,
+        };
       }
       if (currentType === "motivo") {
         if (!motivoForm.codigo || !motivoForm.nome) { toast.error("Preencha os campos obrigatórios"); setSaving(false); return; }
@@ -340,6 +365,7 @@ export default function UnidadesGruposFeriados() {
                   <SortableTableHead column="data" label="Data" sortConfig={feriadoSortConfig} onSort={handleFeriadoSort} />
                   <SortableTableHead column="nome" label="Nome" sortConfig={feriadoSortConfig} onSort={handleFeriadoSort} />
                   <TableHead>Tipo</TableHead>
+                  <TableHead>Abrangência</TableHead>
                   <TableHead>Localização</TableHead>
                   <TableHead>Recorrente</TableHead>
                   <SortableTableHead column="ativo" label="Status" sortConfig={feriadoSortConfig} onSort={handleFeriadoSort} />
@@ -348,9 +374,9 @@ export default function UnidadesGruposFeriados() {
               </TableHeader>
               <TableBody>
                 {loading ? (
-                  <TableRow><TableCell colSpan={7} className="text-center py-8"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></TableCell></TableRow>
+                  <TableRow><TableCell colSpan={8} className="text-center py-8"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></TableCell></TableRow>
                 ) : sortedFeriados?.length === 0 ? (
-                  <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Nenhum feriado cadastrado</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Nenhum feriado cadastrado</TableCell></TableRow>
                 ) : (
                   sortedFeriados?.map((item) => {
                     const tipoOpt = tipoFeriadoOptions.find(t => t.value === item.tipo);
@@ -359,6 +385,15 @@ export default function UnidadesGruposFeriados() {
                         <TableCell className="font-mono">{format(new Date(item.data + "T00:00:00"), "dd/MM/yyyy")}</TableCell>
                         <TableCell className="font-medium">{item.nome}</TableCell>
                         <TableCell><Badge className={`${tipoOpt?.color} text-white`}>{tipoOpt?.label}</Badge></TableCell>
+                        <TableCell>
+                          {item.nacional || item.tipo === "nacional" ? (
+                            <Badge className="bg-blue-600 text-white">Nacional</Badge>
+                          ) : item.centros_custo ? (
+                            <Badge variant="outline">{item.centros_custo.nome}</Badge>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">Todos</span>
+                          )}
+                        </TableCell>
                         <TableCell className="text-sm">{item.cidade && item.estado ? `${item.cidade}/${item.estado}` : item.estado || "-"}</TableCell>
                         <TableCell>{item.recorrente ? <Badge variant="outline">Anual</Badge> : "-"}</TableCell>
                         <TableCell><Badge variant={item.ativo ? "default" : "secondary"}>{item.ativo ? "Ativo" : "Inativo"}</Badge></TableCell>
@@ -479,13 +514,28 @@ export default function UnidadesGruposFeriados() {
                   <div className="space-y-2"><Label>Data *</Label><Input type="date" value={feriadoForm.data} onChange={(e) => setFeriadoForm({ ...feriadoForm, data: e.target.value })} /></div>
                   <div className="space-y-2">
                     <Label>Tipo *</Label>
-                    <Select value={feriadoForm.tipo} onValueChange={(v) => setFeriadoForm({ ...feriadoForm, tipo: v })}>
+                    <Select value={feriadoForm.tipo} onValueChange={(v) => setFeriadoForm({ ...feriadoForm, tipo: v, centro_custo_id: v === "nacional" ? "" : feriadoForm.centro_custo_id })}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>{tipoFeriadoOptions.map((t) => (<SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>))}</SelectContent>
                     </Select>
                   </div>
                 </div>
                 <div className="space-y-2"><Label>Nome *</Label><Input value={feriadoForm.nome} onChange={(e) => setFeriadoForm({ ...feriadoForm, nome: e.target.value })} /></div>
+                {feriadoForm.tipo !== "nacional" && (
+                  <div className="space-y-2">
+                    <Label>Centro de Custo</Label>
+                    <Select value={feriadoForm.centro_custo_id || "todos"} onValueChange={(v) => setFeriadoForm({ ...feriadoForm, centro_custo_id: v === "todos" ? "" : v })}>
+                      <SelectTrigger><SelectValue placeholder="Todos os centros" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="todos">Todos os Centros de Custo</SelectItem>
+                        {centrosCusto.map((cc) => (
+                          <SelectItem key={cc.id} value={cc.id}>{cc.nome}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">Selecione um centro específico ou deixe "Todos" para aplicar a todas as equipes.</p>
+                  </div>
+                )}
                 {(feriadoForm.tipo === "estadual" || feriadoForm.tipo === "municipal") && (
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2"><Label>Estado</Label><Input value={feriadoForm.estado} onChange={(e) => setFeriadoForm({ ...feriadoForm, estado: e.target.value.toUpperCase() })} maxLength={2} /></div>

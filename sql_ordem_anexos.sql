@@ -81,3 +81,4 @@ COMMENT ON COLUMN public.ordem_anexos.storage_path IS 'Caminho do arquivo no Sup
 COMMENT ON COLUMN public.ordem_anexos.latitude IS 'Latitude onde a foto foi tirada (geolocalização)';
 COMMENT ON COLUMN public.ordem_anexos.longitude IS 'Longitude onde a foto foi tirada (geolocalização)';
 
+

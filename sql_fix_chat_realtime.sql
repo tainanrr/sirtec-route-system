@@ -36,3 +36,4 @@ AND tablename IN ('chat_conversas', 'chat_mensagens');
 SELECT 'Realtime configuration completed!' as status;
 
 
+

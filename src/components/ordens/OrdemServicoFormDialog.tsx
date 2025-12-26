@@ -11,6 +11,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -658,14 +659,17 @@ export function OrdemServicoFormDialog({
               name="observacoes"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Observações</FormLabel>
+                  <FormLabel>Observações Coelba</FormLabel>
                   <FormControl>
                     <Textarea
-                      placeholder="Observações adicionais..."
+                      placeholder="Observações do sistema/Coelba..."
                       rows={3}
                       {...field}
                     />
                   </FormControl>
+                  <FormDescription className="text-xs">
+                    Observações da Coelba/Sistema. As observações da equipe são inseridas via app.
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

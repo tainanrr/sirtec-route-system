@@ -262,15 +262,23 @@ export function useChat(options: UseChatOptions) {
 
   const obterOuCriarConversa = useCallback(async (equipeDest: { id: string; codigo: string; nome: string }) => {
     try {
-      // Verificar se já existe conversa
-      const { data: existente } = await supabase
+      // Verificar se já existe conversa ativa para esta equipe (qualquer tipo)
+      const { data: existentes, error: searchError } = await supabase
         .from("chat_conversas")
         .select("*")
         .eq("equipe_id", equipeDest.id)
-        .eq("tipo", "direto")
-        .single();
+        .eq("status", "ativo")
+        .order("created_at", { ascending: false })
+        .limit(1);
 
-      if (existente) {
+      if (searchError) {
+        console.error("Erro ao buscar conversa:", searchError);
+      }
+
+      // Se encontrou conversa existente, usar ela
+      if (existentes && existentes.length > 0) {
+        const existente = existentes[0];
+        console.log("[Chat] Conversa existente encontrada:", existente.id);
         const conversaCompleta = {
           ...existente,
           equipe: equipeDest
@@ -279,6 +287,8 @@ export function useChat(options: UseChatOptions) {
         return conversaCompleta;
       }
 
+      console.log("[Chat] Nenhuma conversa encontrada, criando nova...");
+      
       // Criar nova conversa
       const { data: nova, error } = await supabase
         .from("chat_conversas")

@@ -47,3 +47,4 @@ SELECT
     COUNT(*) as total
 FROM public.ordens_servico;
 
+

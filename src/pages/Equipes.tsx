@@ -123,10 +123,10 @@ const Equipes = () => {
   const fetchTecnicos = async () => {
     setLoading(true);
     
-    // Buscar técnicos
+    // Buscar técnicos com centro de custo
     const { data: tecnicosData, error: tecnicosError } = await supabase
       .from("tecnicos")
-      .select("*")
+      .select("*, centros_custo:centro_custo_id(id, codigo, nome)")
       .order("codigo");
 
     if (tecnicosError) {
@@ -850,6 +850,7 @@ const Equipes = () => {
                   <TableHead className="w-[180px]">Colaborador 2</TableHead>
                   <TableHead className="w-[180px]">Colaborador 3</TableHead>
                   <TableHead className="w-[100px]">Status</TableHead>
+                  <TableHead className="w-[150px]">Centro Custo</TableHead>
                   <TableHead>Habilidades</TableHead>
                   <TableHead className="w-[120px] text-right">Ações</TableHead>
                 </TableRow>
@@ -950,6 +951,15 @@ const Equipes = () => {
                             {config.label}
                           </Badge>
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        {(tecnico as any).centros_custo ? (
+                          <Badge variant="outline" className="text-xs">
+                            {(tecnico as any).centros_custo.nome}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground text-sm">-</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         {tecnico.habilidades && tecnico.habilidades.length > 0 ? (

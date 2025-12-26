@@ -457,7 +457,7 @@ export function OrdemServicoDetalhesDialog({
               {/* Tab Detalhes */}
               <TabsContent value="detalhes" className="space-y-4 mt-4">
                 {/* Status e Informações Principais */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                   <Card>
                     <CardContent className="pt-4 pb-3">
                       <p className="text-xs text-muted-foreground mb-1">Status</p>
@@ -482,6 +482,18 @@ export function OrdemServicoDetalhesDialog({
                       <p className="text-xs text-muted-foreground mb-1">Prazo</p>
                       <p className="font-semibold text-sm">
                         {ordem.prazo ? format(new Date(ordem.prazo), "dd/MM/yyyy HH:mm") : "-"}
+                      </p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-4 pb-3">
+                      <p className="text-xs text-muted-foreground mb-1">Dt. Execução</p>
+                      <p className={`font-semibold text-sm ${ordem.concluido_at ? "text-green-600" : ""}`}>
+                        {ordem.concluido_at 
+                          ? format(new Date(ordem.concluido_at), "dd/MM/yyyy HH:mm") 
+                          : ordem.execucao_iniciada_at 
+                            ? format(new Date(ordem.execucao_iniciada_at), "dd/MM/yyyy HH:mm")
+                            : "-"}
                       </p>
                     </CardContent>
                   </Card>
@@ -623,16 +635,33 @@ export function OrdemServicoDetalhesDialog({
                   </CardContent>
                 </Card>
 
-                {/* Observações */}
-                {ordem.observacoes && (
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm">Observações</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-sm whitespace-pre-wrap">{ordem.observacoes}</p>
-                    </CardContent>
-                  </Card>
+                {/* Observações - Separadas em Coelba e Equipe */}
+                {(ordem.observacoes || (ordem as any).observacoes_equipe) && (
+                  <div className="grid md:grid-cols-2 gap-4">
+                    {/* Observações Coelba */}
+                    <Card className="border-blue-200 bg-blue-50/30">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm text-blue-700">Observações Coelba</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-sm whitespace-pre-wrap">
+                          {ordem.observacoes || <span className="text-muted-foreground italic">Sem observações</span>}
+                        </p>
+                      </CardContent>
+                    </Card>
+                    
+                    {/* Observações Equipe */}
+                    <Card className="border-emerald-200 bg-emerald-50/30">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm text-emerald-700">Observações Equipe</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-sm whitespace-pre-wrap">
+                          {(ordem as any).observacoes_equipe || <span className="text-muted-foreground italic">Sem observações</span>}
+                        </p>
+                      </CardContent>
+                    </Card>
+                  </div>
                 )}
 
                 {/* Fotos/Anexos */}
