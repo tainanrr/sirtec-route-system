@@ -73,8 +73,8 @@ const navItemsConfig: NavItem[] = [
   { icon: MapPin, label: "Roteirização", href: "/roteirizacao", permission: "roteirizacao.visualizar" },
   { icon: ListChecks, label: "Acompanhamento de Roteirizações", href: "/acompanhamento-roteirizacoes", permission: "roteirizacao.acompanhar" },
   { icon: LayoutDashboard, label: "__divider_3__", type: "divider" },
-  // Ordens de Serviço
-  { icon: ClipboardList, label: "Ordens de Serviço", href: "/ordens-servico", permission: "os.visualizar" },
+  // Consulta de Serviços
+  { icon: ClipboardList, label: "Consulta Serviços", href: "/ordens-servico", permission: "os.visualizar" },
   { icon: Clock, label: "Consulta Turnos", href: "/consulta-turnos", permission: "os.turnos" },
   { icon: CheckSquare, label: "Consulta Checklists", href: "/consulta-checklists", permission: "os.checklists" },
   { icon: LayoutDashboard, label: "__divider_4__", type: "divider" },

@@ -928,9 +928,9 @@ const OrdensServico = () => {
 
   return (
     <MainLayout
-      title="Ordens de Serviço"
+      title="Consulta Serviços"
       subtitle="Gestão completa das ordens de serviço"
-      breadcrumbs={[{ label: "Ordens de Serviço" }]}
+      breadcrumbs={[{ label: "Consulta Serviços" }]}
     >
       {/* Actions Bar */}
       <div className="rounded-xl border border-border bg-card p-4 mb-6">

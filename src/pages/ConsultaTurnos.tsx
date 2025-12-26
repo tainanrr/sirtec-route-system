@@ -225,8 +225,9 @@ export default function ConsultaTurnos() {
         query = query.eq("equipe_id", equipeFilter);
       }
       
+      // Busca por placa (filtros de relacionamento não funcionam com or)
       if (searchTerm) {
-        query = query.or(`placa_veiculo.ilike.%${searchTerm}%,tecnicos.codigo.ilike.%${searchTerm}%,tecnicos.nome.ilike.%${searchTerm}%`);
+        query = query.ilike("placa_veiculo", `%${searchTerm}%`);
       }
       
       // Paginação
@@ -236,8 +237,13 @@ export default function ConsultaTurnos() {
       
       const { data, error, count } = await query;
       
-      if (error) throw error;
-      return { turnos: data as Turno[], total: count || 0 };
+      if (error) {
+        console.error("Erro ao buscar turnos:", error);
+        throw error;
+      }
+      
+      console.log("Turnos encontrados:", data?.length, data);
+      return { turnos: (data || []) as Turno[], total: count || 0 };
     },
   });
 
