@@ -36,48 +36,60 @@ import {
   ArrowDown,
   Minus,
   Filter,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { format, eachDayOfInterval, parseISO, subMonths, setDate, getDate, addMonths, isAfter, isBefore, isEqual } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-// Função para calcular período do ciclo (26 a 25)
-const calcularPeriodoCiclo = (dataRef: Date = new Date()) => {
-  const diaAtual = getDate(dataRef);
+// Função para calcular período do ciclo (26 a 25) com offset de meses
+const calcularPeriodoCiclo = (dataRef: Date = new Date(), offsetMeses: number = 0) => {
+  // Aplicar offset de meses
+  let dataAjustada = dataRef;
+  if (offsetMeses !== 0) {
+    dataAjustada = offsetMeses > 0 ? addMonths(dataRef, offsetMeses) : subMonths(dataRef, Math.abs(offsetMeses));
+  }
+  
+  const diaAtual = getDate(dataAjustada);
   
   let inicio: Date;
   let fim: Date;
   
   if (diaAtual >= 26) {
-    inicio = setDate(dataRef, 26);
-    fim = setDate(addMonths(dataRef, 1), 25);
+    inicio = setDate(dataAjustada, 26);
+    fim = setDate(addMonths(dataAjustada, 1), 25);
   } else {
-    inicio = setDate(subMonths(dataRef, 1), 26);
-    fim = setDate(dataRef, 25);
+    inicio = setDate(subMonths(dataAjustada, 1), 26);
+    fim = setDate(dataAjustada, 25);
   }
   
   return {
     inicio: format(inicio, "yyyy-MM-dd"),
     fim: format(fim, "yyyy-MM-dd"),
+    inicioDate: inicio,
+    fimDate: fim,
   };
 };
 
-// Função para calcular período até hoje
-const calcularPeriodoAteHoje = (dataRef: Date = new Date()) => {
-  const diaAtual = getDate(dataRef);
+// Função para calcular período até hoje (ou fim do ciclo se for ciclo passado)
+const calcularPeriodoAteHoje = (dataRef: Date = new Date(), offsetMeses: number = 0) => {
+  const ciclo = calcularPeriodoCiclo(dataRef, offsetMeses);
+  const hoje = new Date();
   
-  let inicio: Date;
-  
-  if (diaAtual >= 26) {
-    inicio = setDate(dataRef, 26);
-  } else {
-    inicio = setDate(subMonths(dataRef, 1), 26);
+  // Se o ciclo é do passado, mostrar até o fim do ciclo
+  if (isBefore(parseISO(ciclo.fim), hoje)) {
+    return {
+      inicio: ciclo.inicio,
+      fim: ciclo.fim,
+    };
   }
   
+  // Senão, mostrar até hoje
   return {
-    inicio: format(inicio, "yyyy-MM-dd"),
-    fim: format(dataRef, "yyyy-MM-dd"),
+    inicio: ciclo.inicio,
+    fim: format(hoje, "yyyy-MM-dd"),
   };
 };
 
@@ -87,19 +99,30 @@ export default function AppResultados() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState("resumo");
   const [filtroTipoServico, setFiltroTipoServico] = useState("todos");
+  const [cicloOffset, setCicloOffset] = useState(0); // 0 = atual, -1 = anterior, etc.
 
-  // Períodos
-  const periodoCiclo = calcularPeriodoCiclo();
-  const periodoAteHoje = calcularPeriodoAteHoje();
+  // Períodos (com offset do ciclo)
+  const periodoCiclo = calcularPeriodoCiclo(new Date(), cicloOffset);
+  const periodoAteHoje = calcularPeriodoAteHoje(new Date(), cicloOffset);
+  
+  // Verificar se é ciclo atual
+  const isCicloAtual = cicloOffset === 0;
+  const hoje = new Date();
+  const isCicloPassado = isBefore(parseISO(periodoCiclo.fim), hoje);
   
   // Usar período do ciclo completo para busca de dados
   const dataInicio = periodoCiclo.inicio;
   const dataFim = periodoCiclo.fim;
   const dataHoje = format(new Date(), "yyyy-MM-dd");
 
+  // Funções de navegação de ciclo
+  const irCicloAnterior = () => setCicloOffset(prev => prev - 1);
+  const irProximoCiclo = () => setCicloOffset(prev => prev + 1);
+  const irCicloAtual = () => setCicloOffset(0);
+
   // Buscar metas da equipe
   const { data: metas, isLoading: isLoadingMetas, refetch: refetchMetas } = useQuery({
-    queryKey: ["metas-equipe", equipe?.id, dataInicio, dataFim],
+    queryKey: ["metas-equipe", equipe?.id, dataInicio, dataFim, cicloOffset],
     queryFn: async () => {
       if (!equipe?.id) return [];
       
@@ -118,7 +141,7 @@ export default function AppResultados() {
 
   // Buscar produções da equipe
   const { data: producoes, isLoading: isLoadingProducoes, refetch: refetchProducoes } = useQuery({
-    queryKey: ["producoes-equipe", equipe?.id, dataInicio, dataFim],
+    queryKey: ["producoes-equipe", equipe?.id, dataInicio, dataFim, cicloOffset],
     queryFn: async () => {
       if (!equipe?.id) return [];
       
@@ -309,15 +332,11 @@ export default function AppResultados() {
 
   return (
     <div className="flex flex-col min-h-full bg-gradient-to-b from-background to-muted/30">
-      {/* Header compacto */}
-      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b px-4 py-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-bold">Meus Resultados</h1>
-            <p className="text-xs text-muted-foreground">
-              Até hoje: {format(parseISO(periodoAteHoje.inicio), "dd/MM")} - {format(new Date(), "dd/MM/yyyy")}
-            </p>
-          </div>
+      {/* Header com navegação de ciclo */}
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b">
+        {/* Título e botão de refresh */}
+        <div className="flex items-center justify-between px-4 py-2">
+          <h1 className="text-lg font-bold">Meus Resultados</h1>
           <Button
             variant="ghost"
             size="icon"
@@ -331,11 +350,63 @@ export default function AppResultados() {
             )}
           </Button>
         </div>
+
+        {/* Navegação de Ciclo - Em destaque */}
+        <div className="bg-gradient-to-r from-primary/10 via-primary/5 to-primary/10 px-4 py-3 border-t">
+          <div className="flex items-center justify-between">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={irCicloAnterior}
+              className="h-8 px-2"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </Button>
+
+            <div className="flex-1 text-center">
+              <div className="flex items-center justify-center gap-2">
+                <Calendar className="h-4 w-4 text-primary" />
+                <span className="font-semibold text-sm">
+                  {format(parseISO(periodoCiclo.inicio), "dd/MM/yy")} - {format(parseISO(periodoCiclo.fim), "dd/MM/yy")}
+                </span>
+              </div>
+              <div className="flex items-center justify-center gap-2 mt-1">
+                {isCicloAtual ? (
+                  <Badge className="text-[10px] h-5 bg-primary">Ciclo Atual</Badge>
+                ) : isCicloPassado ? (
+                  <Badge variant="secondary" className="text-[10px] h-5">Ciclo Encerrado</Badge>
+                ) : (
+                  <Badge variant="outline" className="text-[10px] h-5">Ciclo Futuro</Badge>
+                )}
+                {!isCicloAtual && (
+                  <Button
+                    variant="link"
+                    size="sm"
+                    onClick={irCicloAtual}
+                    className="h-5 px-1 text-[10px] text-primary"
+                  >
+                    Ir para atual
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={irProximoCiclo}
+              className="h-8 px-2"
+              disabled={cicloOffset >= 0} // Não permitir ir para o futuro além do atual
+            >
+              <ChevronRight className="h-5 w-5" />
+            </Button>
+          </div>
+        </div>
       </div>
 
       {/* Conteúdo */}
       <div className="flex-1 p-4 space-y-4 pb-24">
-        {/* Card Principal - Meta vs Produção (até hoje) */}
+        {/* Card Principal - Meta vs Produção */}
         <Card className="overflow-hidden border-0 shadow-lg">
           <div className={cn(
             "p-4",
@@ -348,7 +419,9 @@ export default function AppResultados() {
             <div className="flex items-center justify-between text-white mb-2">
               <div className="flex items-center gap-2">
                 <Target className="h-5 w-5" />
-                <span className="font-medium">Até Hoje</span>
+                <span className="font-medium">
+                  {isCicloPassado ? "Resultado Final" : "Até Hoje"}
+                </span>
               </div>
               {dadosAteHoje.percentual >= 100 ? (
                 <Award className="h-6 w-6" />
@@ -364,11 +437,17 @@ export default function AppResultados() {
                 {dadosAteHoje.percentual.toFixed(0)}%
               </div>
               <p className="text-white/80 text-sm">
-                {dadosAteHoje.percentual >= 100 
-                  ? "🎉 Meta atingida!" 
-                  : dadosAteHoje.percentual >= 80 
-                    ? "Quase lá!"
-                    : "Continue focado!"}
+                {isCicloPassado ? (
+                  dadosAteHoje.percentual >= 100 
+                    ? "🎉 Meta atingida neste ciclo!" 
+                    : `Meta não atingida (${(100 - dadosAteHoje.percentual).toFixed(0)}% faltou)`
+                ) : (
+                  dadosAteHoje.percentual >= 100 
+                    ? "🎉 Meta atingida!" 
+                    : dadosAteHoje.percentual >= 80 
+                      ? "Quase lá!"
+                      : "Continue focado!"
+                )}
               </p>
             </div>
 
@@ -420,29 +499,31 @@ export default function AppResultados() {
           </div>
         </Card>
 
-        {/* Card do Ciclo Completo (visão adicional) */}
-        <Card className="p-3 bg-muted/50">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">
-                Ciclo: {format(parseISO(periodoCiclo.inicio), "dd/MM")} - {format(parseISO(periodoCiclo.fim), "dd/MM")}
-              </span>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="text-right">
-                <p className="text-xs text-muted-foreground">Meta</p>
-                <p className="font-medium text-sm">{formatCurrency(dadosCiclo.totalMeta)}</p>
+        {/* Card do Ciclo Completo (visão adicional) - Apenas para ciclo atual */}
+        {isCicloAtual && (
+          <Card className="p-3 bg-muted/50">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">
+                  Projeção ciclo: {format(parseISO(periodoCiclo.inicio), "dd/MM")} - {format(parseISO(periodoCiclo.fim), "dd/MM")}
+                </span>
               </div>
-              <div className="text-right">
-                <p className="text-xs text-muted-foreground">Projeção</p>
-                <p className={cn("font-medium text-sm", getPercentualColor(dadosCiclo.percentual))}>
-                  {dadosCiclo.percentual.toFixed(0)}%
-                </p>
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <p className="text-xs text-muted-foreground">Meta Total</p>
+                  <p className="font-medium text-sm">{formatCurrency(dadosCiclo.totalMeta)}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-muted-foreground">Projeção</p>
+                  <p className={cn("font-medium text-sm", getPercentualColor(dadosCiclo.percentual))}>
+                    {dadosCiclo.percentual.toFixed(0)}%
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
-        </Card>
+          </Card>
+        )}
 
         {/* Tabs de navegação */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
