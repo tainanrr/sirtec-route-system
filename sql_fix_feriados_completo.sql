@@ -111,3 +111,4 @@ WHERE EXTRACT(YEAR FROM data) = 2026
 ORDER BY data;
 
 
+

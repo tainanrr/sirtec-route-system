@@ -115,3 +115,4 @@ SELECT 'Feriados cadastrados:' as info, COUNT(*) as total FROM feriados WHERE EX
 SELECT id, data, nome, tipo, nacional, centro_custo_id FROM feriados WHERE EXTRACT(YEAR FROM data) = 2026 ORDER BY data;
 
 
+

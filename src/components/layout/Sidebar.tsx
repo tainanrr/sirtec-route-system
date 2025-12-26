@@ -4,6 +4,8 @@ import {
   LayoutDashboard,
   MapPin,
   Radio,
+  Activity,
+  HeartPulse,
   ClipboardList,
   Users,
   FolderOpen,
@@ -69,6 +71,8 @@ const navItemsConfig: NavItem[] = [
   { icon: LayoutDashboard, label: "__divider_1__", type: "divider" },
   // Torre de Controle
   { icon: Radio, label: "Torre de Controle", href: "/torre-controle", permission: "roteirizacao.torre_controle" },
+  { icon: Activity, label: "Operação", href: "/operacao", permission: "roteirizacao.torre_controle" },
+  { icon: HeartPulse, label: "Cérebro", href: "/cerebro", permission: "roteirizacao.torre_controle" },
   { icon: LayoutDashboard, label: "__divider_2__", type: "divider" },
   // Roteirização - aceita "criar" OU "visualizar"
   { icon: MapPin, label: "Roteirização", href: "/roteirizacao", permission: "roteirizacao.visualizar" },

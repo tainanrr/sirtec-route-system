@@ -30,3 +30,4 @@ FROM pg_constraint
 WHERE conrelid = 'metas'::regclass AND contype = 'c';
 
 
+
