@@ -85,6 +85,9 @@ type OrdemWithTecnico = Tables<"ordens_servico"> & {
   tipo_nome?: string;
 };
 
+// Constantes de paginação
+const PAGE_SIZE = 100;
+
 const OrdensServico = () => {
   // Permissões da tela
   const { podeEditar } = useTelaPermissao("ordens_servico");
@@ -95,12 +98,21 @@ const OrdensServico = () => {
   const [tipoFilter, setTipoFilter] = useState<string>("all");
   const [ordens, setOrdens] = useState<OrdemWithTecnico[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [selectedOrdem, setSelectedOrdem] = useState<Tables<"ordens_servico"> | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [ordemToDelete, setOrdemToDelete] = useState<Tables<"ordens_servico"> | null>(null);
   const [clearAllDialogOpen, setClearAllDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  
+  // Paginação e contagem
+  const [totalCount, setTotalCount] = useState(0);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  
+  // Cache de skills (busca uma vez)
+  const [skillsMap, setSkillsMap] = useState<Record<string, string>>({});
   
   // Estado para ordenação
   type SortColumn = "codigo" | "numero" | "tipo" | "status" | "endereco" | "prazo" | "concluido_at" | "equipe" | "retorno" | "valor_prod" | "cliente" | null;
@@ -145,186 +157,170 @@ const OrdensServico = () => {
   const [detalhesOpen, setDetalhesOpen] = useState(false);
   const [ordemDetalhesId, setOrdemDetalhesId] = useState<string | null>(null);
 
-  const fetchOrdens = async () => {
-    setLoading(true);
-    try {
-      // Primeiro, tentar buscar com join do retorno_campo
-      let data: any[] | null = null;
-      let usouJoinRetorno = false;
+  // Buscar skills uma vez e cachear
+  const fetchSkillsOnce = async () => {
+    if (Object.keys(skillsMap).length > 0) return skillsMap;
+    
+    const { data: skillsData } = await supabase
+      .from("skills")
+      .select("codigo, nome")
+      .eq("ativo", true);
 
-      // Tentar com join de retornos_campo
-      const { data: dataComRetorno, error: errorComRetorno } = await supabase
+    const map: Record<string, string> = {};
+    if (skillsData) {
+      skillsData.forEach((skill: any) => {
+        map[skill.codigo?.toLowerCase()] = skill.nome;
+        map[skill.codigo?.toUpperCase()] = skill.nome;
+        const normalizado = skill.codigo?.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+        map[normalizado] = skill.nome;
+      });
+    }
+    setSkillsMap(map);
+    return map;
+  };
+
+  // Buscar contagem total (rápido)
+  const fetchTotalCount = async () => {
+    const { count } = await supabase
+      .from("ordens_servico")
+      .select("*", { count: "exact", head: true });
+    setTotalCount(count || 0);
+  };
+
+  const fetchOrdens = async (page = 0, append = false) => {
+    if (append) {
+      setLoadingMore(true);
+    } else {
+      setLoading(true);
+      setOrdens([]);
+    }
+    
+    try {
+      // Buscar skills em paralelo com a contagem (apenas na primeira carga)
+      const [skills] = await Promise.all([
+        fetchSkillsOnce(),
+        page === 0 ? fetchTotalCount() : Promise.resolve()
+      ]);
+
+      const from = page * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+
+      // Query principal com paginação
+      const { data, error } = await supabase
         .from("ordens_servico")
         .select(`
           *,
           tecnicos:tecnico_id (codigo, nome),
           retornos_campo:retorno_campo_id (id, codigo, descricao, tipo, cor)
         `)
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .range(from, to);
 
-      if (!errorComRetorno) {
-        data = dataComRetorno;
-        usouJoinRetorno = true;
-        console.log("[OS] Busca com join de retornos_campo OK");
-      } else {
-        console.warn("[OS] Erro no join de retornos_campo, tentando sem:", errorComRetorno.message);
-        
-        // Tentar sem o join
-        const { data: dataSemRetorno, error: errorSemRetorno } = await supabase
-          .from("ordens_servico")
-          .select(`
-            *,
-            tecnicos:tecnico_id (codigo, nome)
-          `)
-          .order("created_at", { ascending: false });
-
-        if (errorSemRetorno) {
-          console.error("Erro ao carregar ordens:", errorSemRetorno);
-          toast.error("Erro ao carregar ordens de serviço");
-          setLoading(false);
-          return;
-        }
-        
-        data = dataSemRetorno;
+      if (error) {
+        console.error("Erro ao carregar ordens:", error);
+        toast.error("Erro ao carregar ordens de serviço");
+        return;
       }
 
-      console.log("[OS] Total de ordens carregadas:", data?.length || 0);
-      processarOrdens(data || []);
+      const newData = data || [];
+      setHasMore(newData.length === PAGE_SIZE);
+      setCurrentPage(page);
+
+      // Processar com skills já carregadas
+      await processarOrdens(newData, skills, append);
     } catch (err) {
       console.error("Erro ao carregar ordens:", err);
       toast.error("Erro ao carregar ordens de serviço");
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
     }
-    setLoading(false);
+  };
+  
+  const loadMore = () => {
+    if (!loadingMore && hasMore) {
+      fetchOrdens(currentPage + 1, true);
+    }
   };
 
-  // Função auxiliar para dividir array em chunks
-  const chunkArray = <T,>(array: T[], chunkSize: number): T[][] => {
-    const chunks: T[][] = [];
-    for (let i = 0; i < array.length; i += chunkSize) {
-      chunks.push(array.slice(i, i + chunkSize));
+  const processarOrdens = async (data: any[], skills: Record<string, string>, append = false) => {
+    if (data.length === 0) {
+      if (!append) setOrdens([]);
+      return;
     }
-    return chunks;
-  };
 
-  const processarOrdens = async (data: any[]) => {
-    // Buscar skills para mapear código -> nome
-    const { data: skillsData } = await supabase
-      .from("skills")
-      .select("codigo, nome")
-      .eq("ativo", true);
+    // Buscar produção e planejamento em paralelo (apenas para os IDs desta página)
+    const ordensIds = data.map(o => o.id);
+    
+    const [producaoResult, planejamentoResult] = await Promise.all([
+      supabase
+        .from("producao_equipes")
+        .select(`
+          ordem_servico_id,
+          valor_total,
+          equipe_id,
+          retornos_campo:retorno_campo_id (id, codigo, descricao, tipo, cor),
+          tecnicos:equipe_id (codigo, nome)
+        `)
+        .in("ordem_servico_id", ordensIds),
+      supabase
+        .from("planejamento_ordens")
+        .select(`
+          ordem_servico_id,
+          tecnicos:equipe_id (codigo, nome)
+        `)
+        .in("ordem_servico_id", ordensIds)
+    ]);
 
-    const skillsMap: Record<string, string> = {};
-    if (skillsData) {
-      skillsData.forEach((skill: any) => {
-        skillsMap[skill.codigo?.toLowerCase()] = skill.nome;
-        skillsMap[skill.codigo?.toUpperCase()] = skill.nome;
-        // Normalizar sem acentos
-        const normalizado = skill.codigo?.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-        skillsMap[normalizado] = skill.nome;
+    // Mapear produção
+    const producaoMap: Record<string, { retorno: any; valor_total: number; equipe_id: string | null }> = {};
+    const equipeMap: Record<string, { codigo: string; nome: string }> = {};
+
+    if (producaoResult.data) {
+      producaoResult.data.forEach((p: any) => {
+        producaoMap[p.ordem_servico_id] = {
+          retorno: p.retornos_campo,
+          valor_total: p.valor_total || 0,
+          equipe_id: p.equipe_id
+        };
+        if (p.tecnicos) {
+          equipeMap[p.ordem_servico_id] = p.tecnicos;
+        }
       });
     }
 
-    // Buscar produção separadamente - em lotes para evitar erro 400
-    const ordensIds = data.map(o => o.id);
-    let producaoMap: Record<string, { retorno: any; valor_total: number; equipe_id: string | null }> = {};
-    let equipeMap: Record<string, { codigo: string; nome: string }> = {};
-
-    if (ordensIds.length > 0) {
-      // Dividir em chunks de 100 IDs para evitar erro 400
-      const CHUNK_SIZE = 100;
-      const chunks = chunkArray(ordensIds, CHUNK_SIZE);
-      
-      console.log(`[OS] Buscando produção em ${chunks.length} lote(s) de até ${CHUNK_SIZE} IDs`);
-      
-      // Buscar produção em lotes
-      for (const chunk of chunks) {
-        const { data: producaoData, error: producaoError } = await supabase
-          .from("producao_equipes")
-          .select(`
-            ordem_servico_id,
-            valor_total,
-            equipe_id,
-            retorno_campo_id,
-            retornos_campo:retorno_campo_id (id, codigo, descricao, tipo, cor),
-            tecnicos:equipe_id (codigo, nome)
-          `)
-          .in("ordem_servico_id", chunk);
-
-        if (producaoError) {
-          console.error("[OS] Erro ao buscar produção (lote):", producaoError);
-          continue;
+    // Mapear planejamento (apenas se não tiver equipe da produção)
+    if (planejamentoResult.data) {
+      planejamentoResult.data.forEach((p: any) => {
+        if (!equipeMap[p.ordem_servico_id] && p.tecnicos) {
+          equipeMap[p.ordem_servico_id] = p.tecnicos;
         }
-
-        if (producaoData && producaoData.length > 0) {
-          producaoData.forEach((p: any) => {
-            producaoMap[p.ordem_servico_id] = {
-              retorno: p.retornos_campo,
-              valor_total: p.valor_total || 0,
-              equipe_id: p.equipe_id
-            };
-            // Mapear equipe da produção
-            if (p.tecnicos) {
-              equipeMap[p.ordem_servico_id] = p.tecnicos;
-            }
-          });
-        }
-      }
-
-      console.log("[OS] Produção encontrada:", Object.keys(producaoMap).length, "registros");
-
-      // Buscar equipes via planejamento_ordens em lotes
-      for (const chunk of chunks) {
-        const { data: planejamentoData, error: planejamentoError } = await supabase
-          .from("planejamento_ordens")
-          .select(`
-            ordem_servico_id,
-            equipe_id,
-            tecnicos:equipe_id (codigo, nome)
-          `)
-          .in("ordem_servico_id", chunk);
-
-        if (planejamentoError) {
-          console.error("[OS] Erro ao buscar planejamento (lote):", planejamentoError);
-          continue;
-        }
-
-        if (planejamentoData) {
-          planejamentoData.forEach((p: any) => {
-            // Só adicionar se não tiver equipe ainda
-            if (!equipeMap[p.ordem_servico_id] && p.tecnicos) {
-              equipeMap[p.ordem_servico_id] = p.tecnicos;
-            }
-          });
-        }
-      }
+      });
     }
 
-    // Combinar dados - preferir retorno direto da OS se existir, senão usar da produção
+    // Combinar dados
     const ordensComProducao = data.map(ordem => {
       const producao = producaoMap[ordem.id];
       const equipeExecutora = equipeMap[ordem.id];
 
       return {
         ...ordem,
-        tipo_nome: skillsMap[ordem.tipo?.toLowerCase()] || skillsMap[ordem.tipo?.toUpperCase()] || ordem.tipo,
+        tipo_nome: skills[ordem.tipo?.toLowerCase()] || skills[ordem.tipo?.toUpperCase()] || ordem.tipo,
         retornos_campo: ordem.retornos_campo || producao?.retorno || null,
         producao_equipes: producao ? [{ id: ordem.id, valor_total: producao.valor_total }] : null,
-        // Usar equipe da ordem se existir, senão usar da produção/planejamento
         tecnicos: ordem.tecnicos || equipeExecutora || null
       };
     });
 
-    console.log("[OS] Processamento concluído:", {
-      total: data.length,
-      comProducao: Object.keys(producaoMap).length,
-      comEquipe: Object.keys(equipeMap).length
-    });
-
-    setOrdens(ordensComProducao as OrdemWithTecnico[]);
+    if (append) {
+      setOrdens(prev => [...prev, ...ordensComProducao as OrdemWithTecnico[]]);
+    } else {
+      setOrdens(ordensComProducao as OrdemWithTecnico[]);
+    }
   };
 
   useEffect(() => {
-    fetchOrdens();
+    fetchOrdens(0, false);
   }, []);
 
   const handleEdit = (ordem: Tables<"ordens_servico">) => {
@@ -348,7 +344,7 @@ const OrdensServico = () => {
         `Excluiu OS ${ordemToDelete.numero} - ${ordemToDelete.tipo} - ${ordemToDelete.cliente_nome || 'Sem cliente'}`);
       
       toast.success("Ordem de serviço excluída");
-      fetchOrdens();
+      fetchOrdens(0, false);
     }
     setDeleteDialogOpen(false);
     setOrdemToDelete(null);
@@ -403,7 +399,7 @@ const OrdensServico = () => {
         toast.success(`${count} ordem(ns) de serviço cancelada(s) com sucesso!`);
       }
 
-      fetchOrdens();
+      fetchOrdens(0, false);
     } catch (error: any) {
       console.error("Erro ao cancelar ordens:", error);
       toast.error(`Erro ao cancelar ordens de serviço: ${error.message}`);
@@ -647,7 +643,7 @@ const OrdensServico = () => {
 
     if (success > 0) {
       toast.success(`${success} OS(s) geocodificada(s) com sucesso!`);
-      fetchOrdens(); // Recarregar lista
+      fetchOrdens(0, false); // Recarregar lista
     }
     
     if (failed > 0) {
@@ -847,12 +843,34 @@ const OrdensServico = () => {
           </div>
         </div>
 
-        <div className="mt-4 text-sm text-muted-foreground">
-          Mostrando {sortedOrdens.length} de {ordens.length} resultados
-          {ordensSemCoordenadas.length > 0 && !geocodingInProgress && (
-            <span className="ml-2 text-orange-500">
-              • {ordensSemCoordenadas.length} OS(s) sem coordenadas
-            </span>
+        <div className="mt-4 text-sm text-muted-foreground flex items-center justify-between">
+          <div>
+            Mostrando {sortedOrdens.length} de {totalCount > 0 ? totalCount : ordens.length} resultados
+            {ordensSemCoordenadas.length > 0 && !geocodingInProgress && (
+              <span className="ml-2 text-orange-500">
+                • {ordensSemCoordenadas.length} OS(s) sem coordenadas
+              </span>
+            )}
+          </div>
+          {hasMore && ordens.length < totalCount && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={loadMore}
+              disabled={loadingMore}
+              className="gap-2"
+            >
+              {loadingMore ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Carregando...
+                </>
+              ) : (
+                <>
+                  Carregar mais ({totalCount - ordens.length} restantes)
+                </>
+              )}
+            </Button>
           )}
         </div>
 
