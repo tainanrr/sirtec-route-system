@@ -59,7 +59,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { format, subMonths, setDate, getDate, addMonths } from "date-fns";
+import { format, subMonths, setDate, getDate, addMonths, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -495,7 +495,7 @@ export default function AppHome() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Target className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">Ciclo {format(new Date(periodoCiclo.inicio), "dd/MM")} - {format(new Date(periodoCiclo.fim), "dd/MM")}</span>
+              <span className="text-sm text-muted-foreground">Ciclo {format(parseISO(periodoCiclo.inicio), "dd/MM")} - {format(parseISO(periodoCiclo.fim), "dd/MM")}</span>
             </div>
             <div className="flex items-center gap-4">
               <div className="text-right">
