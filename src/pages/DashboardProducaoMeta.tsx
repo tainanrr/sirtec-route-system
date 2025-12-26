@@ -192,12 +192,12 @@ export default function DashboardProducaoMeta() {
         for (const chunk of chunks) {
           const { data: ordensData } = await supabase
             .from("ordens_servico")
-            .select("id, numero_os")
+            .select("id, numero")
             .in("id", chunk);
           
           if (ordensData) {
             ordensData.forEach(o => {
-              numerosOsMap[o.id] = o.numero_os;
+              numerosOsMap[o.id] = o.numero;
             });
           }
         }
@@ -542,8 +542,6 @@ export default function DashboardProducaoMeta() {
             "Nome Equipe": equipe?.nome || "-",
             "Valor Produzido (R$)": p.valor_total,
             "Data/Hora": format(parseISO(p.created_at), "dd/MM/yyyy HH:mm"),
-            "ID Produção": p.id.substring(0, 8),
-            "ID OS": p.ordem_servico_id.substring(0, 8),
           };
         });
       
