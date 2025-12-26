@@ -702,19 +702,19 @@ export default function CadastroMetas() {
                 
                 {/* Filtros de data customizados */}
                 {usarPeriodoCustom && (
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-2">
                     <Input
                       type="date"
                       value={dataInicio}
                       onChange={e => setDataInicio(e.target.value)}
-                      className="h-7 w-32 text-xs"
+                      className="h-9 w-40 text-sm"
                     />
-                    <span className="text-xs">até</span>
+                    <span className="text-sm text-muted-foreground">até</span>
                     <Input
                       type="date"
                       value={dataFim}
                       onChange={e => setDataFim(e.target.value)}
-                      className="h-7 w-32 text-xs"
+                      className="h-9 w-40 text-sm"
                     />
                   </div>
                 )}
