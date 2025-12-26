@@ -211,6 +211,34 @@ function obterLocalPartida(equipe: Equipe): { lat: number; lng: number } {
   return { lat: equipe.latitude || -14.8661, lng: equipe.longitude || -40.8394 };
 }
 
+/**
+ * Normaliza uma skill removendo acentos e convertendo para uppercase
+ * Isso garante correspondência entre skills de OSs e equipes
+ */
+function normalizarSkill(skill: string): string {
+  return skill
+    .toUpperCase()
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // Remove acentos
+    .replace(/[ÀÁÂÃÄÅ]/g, 'A')
+    .replace(/[ÈÉÊË]/g, 'E')
+    .replace(/[ÌÍÎÏ]/g, 'I')
+    .replace(/[ÒÓÔÕÖ]/g, 'O')
+    .replace(/[ÙÚÛÜ]/g, 'U')
+    .replace(/[Ç]/g, 'C')
+    .replace(/[Ñ]/g, 'N');
+}
+
+/**
+ * Verifica se uma equipe tem a skill necessária para uma OS
+ * Usa normalização para garantir correspondência mesmo com acentos diferentes
+ */
+function equipeTemSkill(equipe: Equipe, tipoOS: string): boolean {
+  const tipoNormalizado = normalizarSkill(tipoOS);
+  return equipe.skills.some(skill => normalizarSkill(skill) === tipoNormalizado);
+}
+
 function ehEmergencia(os: OrdemServico): boolean {
   const tipoUpper = os.tipo.toUpperCase();
   return TIPOS_EMERGENCIA.some(t => tipoUpper.includes(t));
@@ -1035,10 +1063,23 @@ export async function otimizarRotas(
   ];
 
   let timeMatrix: number[][] | null = null;
-  try {
-    timeMatrix = await getTravelTimeMatrix(locations);
-  } catch (e) {
-    console.warn("[ROUTING] OSRM indisponível");
+  
+  // Limite da API OSRM: máximo de ~100 pontos por requisição
+  // Se exceder, usaremos Haversine como fallback
+  const MAX_OSRM_POINTS = 100;
+  
+  if (locations.length <= MAX_OSRM_POINTS) {
+    try {
+      console.log(`[ROUTING] Buscando matriz de tempos OSRM para ${locations.length} pontos...`);
+      timeMatrix = await getTravelTimeMatrix(locations);
+      console.log(`[ROUTING] ✅ Matriz OSRM obtida com sucesso`);
+    } catch (e: any) {
+      console.warn(`[ROUTING] ⚠️ OSRM indisponível: ${e.message || e}`);
+      console.log(`[ROUTING]   Usando cálculo de distância Haversine como fallback`);
+    }
+  } else {
+    console.warn(`[ROUTING] ⚠️ Muitos pontos (${locations.length}) - OSRM suporta até ${MAX_OSRM_POINTS}`);
+    console.log(`[ROUTING]   Usando cálculo de distância Haversine (estimativa 40km/h)`);
   }
 
   const getTempo = (fromIdx: number, toIdx: number): number => {
@@ -1077,9 +1118,11 @@ export async function otimizarRotas(
   for (const os of ossParaRoteirizar) {
     if (osAlocadas.has(os.id)) continue;
     
-    const temEquipeComSkill = equipesParaRoteirizar.some(e => e.skills.includes(os.tipo));
+    const temEquipeComSkill = equipesParaRoteirizar.some(e => equipeTemSkill(e, os.tipo));
     
     if (!temEquipeComSkill) {
+      console.log(`[ROUTING] ⚠️ OS ${os.numero} (tipo: ${os.tipo}) - Nenhuma equipe tem skill "${normalizarSkill(os.tipo)}"`);
+      console.log(`[ROUTING]   Skills disponíveis: ${[...new Set(equipesParaRoteirizar.flatMap(e => e.skills.map(normalizarSkill)))].join(', ')}`);
       osSemSkill.push(os);
       continue;
     }
@@ -1090,11 +1133,12 @@ export async function otimizarRotas(
       if (territorioIdDaOS) {
         // Verificar se alguma equipe do território tem a skill necessária
         const equipesDoTerritorio = equipesPorTerritorio.get(territorioIdDaOS) || [];
-        const temEquipeComSkill = equipesDoTerritorio.some(equipeId => {
+        const temEquipeNoTerritorioComSkill = equipesDoTerritorio.some(equipeId => {
           const equipe = equipesParaRoteirizar.find(e => e.id === equipeId);
-          return equipe && equipe.skills.includes(os.tipo);
+          return equipe && equipeTemSkill(equipe, os.tipo);
         });
-        if (!temEquipeComSkill) {
+        if (!temEquipeNoTerritorioComSkill) {
+          console.log(`[ROUTING] ⚠️ OS ${os.numero} no território ${territorioIdDaOS} - Nenhuma equipe do território tem skill "${normalizarSkill(os.tipo)}"`);
           osSemSkill.push(os);
           continue;
         }
@@ -1148,10 +1192,46 @@ export async function otimizarRotas(
   // Para 'distancia', manter ordem original (será otimizada durante alocação geográfica)
   
   // Marcar sem skill
+  // Agrupar OSs sem skill por tipo para gerar mensagens de erro detalhadas
+  const osSemSkillPorTipo = new Map<string, OrdemServico[]>();
   for (const os of osSemSkill) {
+    const tipoNorm = normalizarSkill(os.tipo);
+    if (!osSemSkillPorTipo.has(tipoNorm)) {
+      osSemSkillPorTipo.set(tipoNorm, []);
+    }
+    osSemSkillPorTipo.get(tipoNorm)!.push(os);
+  }
+  
+  // Log resumo de skills faltantes
+  if (osSemSkillPorTipo.size > 0) {
+    console.log(`[ROUTING] ════════════════════════════════════════════════════════`);
+    console.log(`[ROUTING] ⚠️ RESUMO DE SKILLS NÃO ENCONTRADAS:`);
+    const skillsDisponiveis = [...new Set(equipesParaRoteirizar.flatMap(e => e.skills.map(normalizarSkill)))];
+    console.log(`[ROUTING]   Skills disponíveis nas equipes: ${skillsDisponiveis.join(', ') || 'NENHUMA'}`);
+    for (const [tipo, oss] of osSemSkillPorTipo) {
+      console.log(`[ROUTING]   ❌ Skill "${tipo}": ${oss.length} OSs não podem ser alocadas`);
+      if (usarTerritorios) {
+        // Agrupar por território
+        const ossPorTerritorio = new Map<string, number>();
+        for (const os of oss) {
+          const territorioId = osParaTerritorio.get(os.id) || 'fora_territorio';
+          ossPorTerritorio.set(territorioId, (ossPorTerritorio.get(territorioId) || 0) + 1);
+        }
+        for (const [terr, count] of ossPorTerritorio) {
+          const terrNome = territoriosAtivos.find(t => t.id === terr)?.nome || terr;
+          console.log(`[ROUTING]      - Território "${terrNome}": ${count} OSs`);
+        }
+      }
+    }
+    console.log(`[ROUTING] ════════════════════════════════════════════════════════`);
+  }
+  
+  for (const os of osSemSkill) {
+    const tipoNorm = normalizarSkill(os.tipo);
+    const skillsDisponiveis = [...new Set(equipesParaRoteirizar.flatMap(e => e.skills.map(normalizarSkill)))];
     const motivo = usarTerritorios 
-      ? `Equipe do território não possui skill (${os.tipo})`
-      : `Sem skill (${os.tipo})`;
+      ? `Equipe do território não possui skill "${tipoNorm}" (disponíveis: ${skillsDisponiveis.join(', ') || 'nenhuma'})`
+      : `Nenhuma equipe possui skill "${tipoNorm}" (disponíveis: ${skillsDisponiveis.join(', ') || 'nenhuma'})`;
     naoAlocadas.push({ os, motivo });
     osAlocadas.add(os.id);
   }
@@ -1383,8 +1463,8 @@ export async function otimizarRotas(
     atrasoMinutos?: number;
   } => {
     // Verificar skill
-    if (!rota.equipe.skills.includes(os.tipo)) {
-      return { valido: false, eta: 0, fimServico: 0, tempoDesloc: 0, distanciaKm: 0, almocoInserido: false, motivo: "Sem skill" };
+    if (!equipeTemSkill(rota.equipe, os.tipo)) {
+      return { valido: false, eta: 0, fimServico: 0, tempoDesloc: 0, distanciaKm: 0, almocoInserido: false, motivo: `Sem skill (${normalizarSkill(os.tipo)})` };
     }
 
     // V18: Verificar território/zona - NUNCA invadir (exceto emergências com ignorarRestricoes=true)
@@ -1611,8 +1691,8 @@ export async function otimizarRotas(
     atrasoMinutos?: number;
   } => {
     // Verificar skill
-    if (!rota.equipe.skills.includes(os.tipo)) {
-      return { valido: false, eta: 0, fimServico: 0, tempoDesloc: 0, distanciaKm: 0, almocoInserido: false, motivo: "Sem skill" };
+    if (!equipeTemSkill(rota.equipe, os.tipo)) {
+      return { valido: false, eta: 0, fimServico: 0, tempoDesloc: 0, distanciaKm: 0, almocoInserido: false, motivo: `Sem skill (${normalizarSkill(os.tipo)})` };
     }
     
     // Verificar se a OS pertence ao território/zona da equipe
@@ -1954,7 +2034,7 @@ export async function otimizarRotas(
     
     const vizinhas = todasOSs.filter(os => {
       if (osAlocadas.has(os.id)) return false;
-      if (!rota.equipe.skills.includes(os.tipo)) return false;
+      if (!equipeTemSkill(rota.equipe, os.tipo)) return false;
       
       // V18: Verificar território/zona estritamente - NUNCA permitir invadir territórios de outras equipes
       if (usarTerritorios && territoriosAtivos.length > 0) {
@@ -2219,7 +2299,7 @@ export async function otimizarRotas(
         const equipesDoTerritorio = equipesPorTerritorio.get(territorioIdDaOS) || [];
         // Filtrar apenas rotas de equipes que têm a skill necessária
         const rotasDoTerritorioComSkill = rotas.filter(r => 
-          equipesDoTerritorio.includes(r.equipe.id) && r.equipe.skills.includes(os.tipo)
+          equipesDoTerritorio.includes(r.equipe.id) && equipeTemSkill(r.equipe, os.tipo)
         );
         
         // Se há múltiplas equipes e zonas foram criadas, priorizar a da zona correta
@@ -2242,7 +2322,7 @@ export async function otimizarRotas(
       const zonaOS = zonasPorOS.get(os.id);
       if (zonaOS !== undefined) {
         // Também verificar skill no modo sem território
-        rotaResponsavel = rotas.find(r => r.zonaId === zonaOS && r.equipe.skills.includes(os.tipo)) || null;
+        rotaResponsavel = rotas.find(r => r.zonaId === zonaOS && equipeTemSkill(r.equipe, os.tipo)) || null;
       }
     }
     
@@ -2448,7 +2528,7 @@ export async function otimizarRotas(
       if (territorioIdDaOS) {
         const equipesDoTerritorio = equipesPorTerritorio.get(territorioIdDaOS) || [];
         const rotasComSkill = rotas.filter(r => 
-          equipesDoTerritorio.includes(r.equipe.id) && r.equipe.skills.includes(os.tipo)
+          equipesDoTerritorio.includes(r.equipe.id) && equipeTemSkill(r.equipe, os.tipo)
         );
         if (rotasComSkill.length === 0) {
           motivo = `Regulada HOJE: Equipe do território ${territorioIdDaOS} sem skill ${os.tipo}`;
@@ -2580,7 +2660,7 @@ export async function otimizarRotas(
       if (usarTerritorios && territoriosAtivos.length > 0) {
         ossDisponiveis = [...osProximoDia, ...osNormais, ...ossNormaisRemovidas].filter(os => {
           if (osAlocadas.has(os.id)) return false;
-          if (!rota.equipe.skills.includes(os.tipo)) return false;
+          if (!equipeTemSkill(rota.equipe, os.tipo)) return false;
           
           // Verificar se a OS pertence ao território da equipe
           if (!equipeEstaNoTerritorioDaOS(os.id, rota.equipe.id)) {
@@ -2604,7 +2684,7 @@ export async function otimizarRotas(
       } else {
         ossDisponiveis = [...osProximoDia, ...osNormais, ...ossNormaisRemovidas].filter(os => {
           if (osAlocadas.has(os.id)) return false;
-          if (!rota.equipe.skills.includes(os.tipo)) return false;
+          if (!equipeTemSkill(rota.equipe, os.tipo)) return false;
           
           const zonaOS = zonasPorOS.get(os.id);
           return zonaOS === rota.zonaId;
@@ -4236,6 +4316,35 @@ export async function otimizarRotas(
   console.log(`[ROUTING] 📊 SUGESTÃO DE EQUIPES:`);
   console.log(`[ROUTING]   Para reguladas: ${sugestaoEquipes.equipesParaReguladas} equipes (${sugestaoEquipes.totalReguladasHoje} OSs)`);
   console.log(`[ROUTING]   Para todas OSs: ${sugestaoEquipes.equipesParaTodasOSs} equipes (${sugestaoEquipes.totalOSs} OSs)`);
+  
+  // V21: Resumo de erros por território
+  if (naoAlocadas.length > 0 && usarTerritorios && territoriosAtivos.length > 0) {
+    console.log(`[ROUTING]`);
+    console.log(`[ROUTING] ⚠️ RESUMO DE ERROS POR TERRITÓRIO:`);
+    
+    const errosPorTerritorio = new Map<string, { total: number; porMotivo: Map<string, number> }>();
+    
+    for (const na of naoAlocadas) {
+      const territorioId = osParaTerritorio.get(na.os.id) || 'FORA_TERRITORIOS';
+      if (!errosPorTerritorio.has(territorioId)) {
+        errosPorTerritorio.set(territorioId, { total: 0, porMotivo: new Map() });
+      }
+      const dados = errosPorTerritorio.get(territorioId)!;
+      dados.total++;
+      dados.porMotivo.set(na.motivo, (dados.porMotivo.get(na.motivo) || 0) + 1);
+    }
+    
+    for (const [territorioId, dados] of errosPorTerritorio) {
+      const territorioNome = territorioId === 'FORA_TERRITORIOS' 
+        ? 'Fora de todos os territórios' 
+        : (territoriosAtivos.find(t => t.id === territorioId)?.nome || territorioId);
+      console.log(`[ROUTING]   📍 ${territorioNome}: ${dados.total} OSs não alocadas`);
+      for (const [motivo, count] of dados.porMotivo) {
+        console.log(`[ROUTING]      - ${motivo}: ${count}`);
+      }
+    }
+  }
+  
   console.log(`[ROUTING] ════════════════════════════════════════════════════════`);
 
   // V20: Gerar múltiplas opções de roteiros APENAS se estratégia não foi especificada

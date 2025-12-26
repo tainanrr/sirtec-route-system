@@ -4,48 +4,63 @@ import type { Tables } from "@/integrations/supabase/types";
 import type { Equipe, TipoOS, ConfigAlmoco, Localizacao } from "@/data/mockData";
 
 /**
+ * Normaliza uma skill removendo acentos e convertendo para uppercase
+ */
+function normalizarSkillSemAcento(skill: string): string {
+  return skill
+    .toUpperCase()
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, ''); // Remove todos os acentos via NFD
+}
+
+/**
  * Converte um técnico do Supabase para o formato Equipe usado na roteirização
  */
 export function tecnicoParaEquipe(tecnico: Tables<"tecnicos">): Equipe {
   const habilidades = (tecnico.habilidades || []) as string[];
   
   // Normalizar habilidades: converter variações para formato padrão
+  // Importante: manter consistência com a normalização usada nas OSs
   const normalizarSkill = (skill: string): string => {
-    const skillUpper = skill.toUpperCase().trim();
-    // Mapear variações para formato padrão
+    const skillNorm = normalizarSkillSemAcento(skill);
+    // Mapear variações para formato padrão (sem acentos para consistência)
     const mapeamento: Record<string, string> = {
-      'LIGACAO': 'LIGAÇÃO',
-      'LIGAÇÃO': 'LIGAÇÃO',
-      'LIGAÇÃO NOVA': 'LIGAÇÃO',
-      'INSPECAO': 'INSPEÇÃO',
-      'INSPEÇÃO': 'INSPEÇÃO',
-      'MANUTENCAO': 'MANUTENÇÃO',
-      'MANUTENÇÃO': 'MANUTENÇÃO',
+      'LIGACAO': 'LIGACAO',
+      'LIGACAO NOVA': 'LIGACAO',
+      'INSPECAO': 'INSPECAO',
+      'MANUTENCAO': 'MANUTENCAO',
       'TROCA_MEDIDOR': 'TROCA_MEDIDOR',
       'TROCA MEDIDOR': 'TROCA_MEDIDOR',
       'CORTE': 'CORTE',
       'RELIGA': 'RELIGA',
-      'RELIGAÇÃO': 'RELIGA',
+      'RELIGACAO': 'RELIGA',
     };
-    return mapeamento[skillUpper] || skillUpper;
+    return mapeamento[skillNorm] || skillNorm;
   };
   
   // Mapear habilidades para tipos de OS, normalizando variações
+  // Importante: aceitar skills tanto com quanto sem acentos
   const skills: TipoOS[] = habilidades
     .map(normalizarSkill)
     .filter((h): h is TipoOS => {
-      // Aceitar todos os tipos válidos
+      // Aceitar todos os tipos válidos (sem acentos para consistência na comparação)
       const tiposValidos: string[] = [
         'CORTE', 
         'RELIGA', 
-        'INSPEÇÃO', 
-        'LIGAÇÃO', 
-        'MANUTENÇÃO', 
+        'INSPECAO',
+        'LIGACAO',
+        'MANUTENCAO',
         'TROCA_MEDIDOR'
       ];
       return tiposValidos.includes(h);
     })
     .map((h) => h as TipoOS);
+  
+  // Log para debug
+  if (habilidades.length > 0) {
+    console.log(`[EQUIPE] ${tecnico.codigo}: habilidades originais [${habilidades.join(', ')}] -> skills normalizadas [${skills.join(', ')}]`);
+  }
 
   // Obter configuração de almoço
   const almocoRaw = (tecnico as any).almoco;

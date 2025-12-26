@@ -62,6 +62,8 @@ import {
 import { ExportButton } from "@/components/ui/export-button";
 import PrecificacaoServicos from "@/components/cadastros-base/PrecificacaoServicos";
 import UnidadesGruposFeriados from "@/components/cadastros-base/UnidadesGruposFeriados";
+import TipoServicoRetornosConfig from "@/components/cadastros-base/TipoServicoRetornosConfig";
+import RetornosCampoAtividades from "@/components/cadastros-base/RetornosCampoAtividades";
 
 // Usando tabela skills como Tipos de Serviço
 interface TipoServico {
@@ -143,6 +145,10 @@ export default function AdminCadastrosBase() {
   const [editingItem, setEditingItem] = useState<any>(null);
   const [itemToDelete, setItemToDelete] = useState<any>(null);
   const [saving, setSaving] = useState(false);
+  
+  // Estado para configuração de retornos de campo
+  const [retornosConfigOpen, setRetornosConfigOpen] = useState(false);
+  const [selectedTipoServico, setSelectedTipoServico] = useState<TipoServico | null>(null);
 
   // Forms
   const [tipoServicoForm, setTipoServicoForm] = useState({
@@ -553,10 +559,14 @@ export default function AdminCadastrosBase() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="precificacao" className="flex items-center gap-2">
             <DollarSign className="h-4 w-4" />
             Precificação
+          </TabsTrigger>
+          <TabsTrigger value="producao" className="flex items-center gap-2">
+            <Ruler className="h-4 w-4" />
+            Produção
           </TabsTrigger>
           <TabsTrigger value="centros-custo" className="flex items-center gap-2">
             <Building className="h-4 w-4" />
@@ -579,6 +589,11 @@ export default function AdminCadastrosBase() {
         {/* Tab de Precificação */}
         <TabsContent value="precificacao" className="mt-6">
           <PrecificacaoServicos />
+        </TabsContent>
+
+        {/* Tab de Produção - Retornos de Campo e Atividades */}
+        <TabsContent value="producao" className="mt-6">
+          <RetornosCampoAtividades />
         </TabsContent>
 
         {/* Tab de Centros de Custo */}
@@ -795,6 +810,17 @@ export default function AdminCadastrosBase() {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={() => {
+                                setSelectedTipoServico(item);
+                                setRetornosConfigOpen(true);
+                              }}
+                              title="Configurar Retornos de Campo"
+                            >
+                              <Settings2 className="h-4 w-4 text-blue-600" />
+                            </Button>
                             <Button variant="ghost" size="sm" onClick={() => handleEdit("tipo-servico", item)}>
                               <Pencil className="h-4 w-4" />
                             </Button>
@@ -1166,6 +1192,17 @@ export default function AdminCadastrosBase() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Dialog de Configuração de Retornos de Campo */}
+      {selectedTipoServico && (
+        <TipoServicoRetornosConfig
+          tipoServicoId={selectedTipoServico.id}
+          tipoServicoCodigo={selectedTipoServico.codigo}
+          tipoServicoNome={selectedTipoServico.nome}
+          open={retornosConfigOpen}
+          onOpenChange={setRetornosConfigOpen}
+        />
+      )}
     </div>
   );
 }

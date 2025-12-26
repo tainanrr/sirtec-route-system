@@ -7,6 +7,8 @@ import { useTecnico } from "@/contexts/TecnicoContext";
 import { logApp } from "@/lib/logUtils";
 import { usePageState } from "@/contexts/ScrollRestoreContext";
 import { getAppParentRoute } from "@/lib/appNavigation";
+import { useRetornoCampo } from "@/hooks/useRetornoCampo";
+import RetornoCampoSelector from "@/components/app/RetornoCampoSelector";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -142,6 +144,11 @@ export default function AppOrdemDetalhe() {
     title: "",
     description: "",
   });
+  
+  // Estados para Retorno de Campo
+  const [retornoCampoOpen, setRetornoCampoOpen] = useState(false);
+  const [skillId, setSkillId] = useState<string | null>(null);
+  const { buscarSkillId, registrarProducao, atualizarOrdemComRetorno } = useRetornoCampo();
 
   const handleBack = () => {
     const parent = getAppParentRoute(location.pathname);
@@ -460,10 +467,21 @@ export default function AppOrdemDetalhe() {
     }
   };
 
-  const handleStatusChange = (newStatus: string) => {
+  const handleStatusChange = async (newStatus: string) => {
     const config = statusConfig[newStatus];
     
     if (newStatus === "concluida") {
+      // Verificar se há retornos de campo configurados para este tipo de serviço
+      if (ordem?.tipo) {
+        const foundSkillId = await buscarSkillId(ordem.tipo);
+        if (foundSkillId) {
+          setSkillId(foundSkillId);
+          setRetornoCampoOpen(true);
+          return;
+        }
+      }
+      
+      // Se não houver retornos configurados, usar fluxo antigo
       setConfirmDialog({
         open: true,
         status: newStatus,
@@ -473,6 +491,35 @@ export default function AppOrdemDetalhe() {
     } else {
       updateStatusMutation.mutate(newStatus);
     }
+  };
+
+  const handleRetornoCampoConfirm = async (result: {
+    retorno_campo_id: string;
+    retorno_codigo: string;
+    retorno_descricao: string;
+    gera_producao: boolean;
+    atividades: Array<{
+      atividade_id: string;
+      quantidade: number;
+      atividade: { id: string; codigo: string; descricao: string; valor_unitario: number; unidade: string };
+      qtd_min_fotos: number;
+    }>;
+  }) => {
+    const equipeId = equipe?.id || equipeAuth?.id;
+    
+    if (!equipeId || !ordem?.id) {
+      toast.error("Erro ao identificar equipe");
+      return;
+    }
+
+    // Registrar produção
+    await registrarProducao(ordem.id, equipeId, result);
+    
+    // Atualizar ordem com informações do retorno
+    await atualizarOrdemComRetorno(ordem.id, result);
+    
+    // Concluir o serviço
+    updateStatusMutation.mutate("concluida");
   };
 
   if (isLoading) {
@@ -982,6 +1029,16 @@ export default function AppOrdemDetalhe() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Seletor de Retorno de Campo */}
+      {skillId && (
+        <RetornoCampoSelector
+          open={retornoCampoOpen}
+          onOpenChange={setRetornoCampoOpen}
+          skillId={skillId}
+          onConfirm={handleRetornoCampoConfirm}
+        />
+      )}
     </div>
   );
 }

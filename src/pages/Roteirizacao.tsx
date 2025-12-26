@@ -1069,9 +1069,46 @@ const Roteirizacao = () => {
       setRotas(resultado.rotas);
       setNaoAlocadas(mapaNaoAlocadas);
       }
+      // Verificar se há OSs não alocadas e mostrar resumo
+      const totalNaoAlocadas = Object.keys(naoAlocadas).length;
+      if (totalNaoAlocadas > 0) {
+        // Agrupar erros por motivo
+        const errosPorMotivo = resultado.naoAlocadas?.reduce((acc, item) => {
+          const motivo = item.motivo;
+          if (!acc[motivo]) acc[motivo] = 0;
+          acc[motivo]++;
+          return acc;
+        }, {} as Record<string, number>) || {};
+        
+        const resumoErros = Object.entries(errosPorMotivo)
+          .map(([motivo, count]) => `${count} OSs: ${motivo}`)
+          .join('\n');
+        
+        toast.warning(`${totalNaoAlocadas} OSs não puderam ser roteirizadas`, {
+          description: resumoErros.substring(0, 200) + (resumoErros.length > 200 ? '...' : ''),
+          duration: 8000,
+        });
+      }
+      
       console.log('[ROTEIRIZAÇÃO] Otimização concluída');
-    } catch (error) {
+    } catch (error: any) {
       console.error("Erro ao otimizar rotas:", error);
+      
+      const mensagemErro = error?.message || 'Erro desconhecido';
+      
+      // Verificar se é erro de skills
+      if (mensagemErro.includes('skill') || mensagemErro.includes('Skill')) {
+        toast.error("Erro de Skills na Roteirização", {
+          description: mensagemErro,
+          duration: 10000,
+        });
+      } else {
+        toast.error("Erro na Roteirização", {
+          description: mensagemErro.substring(0, 150),
+          duration: 8000,
+        });
+      }
+      
       // Em caso de erro, a função otimizarRotas já faz fallback para Haversine
       // Mas vamos tentar novamente para garantir
       try {
@@ -1082,8 +1119,13 @@ const Roteirizacao = () => {
           return acc;
         }, {} as Record<string, string>);
         setNaoAlocadas(mapaNaoAlocadas);
+        
+        if (resultadoFallback.naoAlocadas.length > 0) {
+          toast.info(`Roteirização com fallback: ${resultadoFallback.rotas.reduce((sum, r) => sum + r.servicos.filter(s => s.tipo === 'SERVICO').length, 0)} OSs alocadas, ${resultadoFallback.naoAlocadas.length} não alocadas`);
+        }
       } catch (fallbackError) {
         console.error("Erro no fallback:", fallbackError);
+        toast.error("Falha total na roteirização. Verifique os logs do console.");
       }
     } finally {
       setIsOtimizando(false);

@@ -79,7 +79,7 @@ interface Equipe {
 // ============================================
 
 export function ChatTorreControle() {
-  const { usuario } = useWebAuth();
+  const { usuarioWeb: usuario } = useWebAuth();
   
   const [open, setOpen] = useState(false);
   const [inputValue, setInputValue] = useState("");
@@ -93,6 +93,9 @@ export function ChatTorreControle() {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Nome do usuário para exibir nas mensagens
+  const nomeUsuario = usuario?.nome || usuario?.email?.split("@")[0] || "Suporte";
 
   const {
     conversas,
@@ -111,7 +114,7 @@ export function ChatTorreControle() {
   } = useChat({
     tipoUsuario: "torre",
     usuarioId: usuario?.id,
-    usuarioNome: usuario?.nome || "Torre de Controle",
+    usuarioNome: nomeUsuario,
     onNovaMensagem: (msg) => {
       if (!open) {
         toast.info(`Nova mensagem de ${msg.remetente_nome}`, {

@@ -1,6 +1,13 @@
 // Dados mockados para o sistema de roteirização
 
-export type TipoOS = "CORTE" | "RELIGA" | "INSPEÇÃO" | "LIGAÇÃO" | "MANUTENÇÃO" | "TROCA_MEDIDOR";
+// Tipos de OS - inclui versões com e sem acentos para compatibilidade
+export type TipoOS = 
+  | "CORTE" 
+  | "RELIGA" 
+  | "INSPEÇÃO" | "INSPECAO"
+  | "LIGAÇÃO" | "LIGACAO"
+  | "MANUTENÇÃO" | "MANUTENCAO"
+  | "TROCA_MEDIDOR";
 
 export interface OrdemServico {
   id: string;
@@ -52,8 +59,11 @@ const tipoDuracao: Partial<Record<TipoOS, number>> = {
   CORTE: 15,
   RELIGA: 10,
   INSPEÇÃO: 30,
+  INSPECAO: 30,
   LIGAÇÃO: 20,
+  LIGACAO: 20,
   MANUTENÇÃO: 25,
+  MANUTENCAO: 25,
   TROCA_MEDIDOR: 30,
 };
 

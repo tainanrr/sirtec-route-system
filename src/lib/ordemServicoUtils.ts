@@ -47,26 +47,31 @@ export async function mapSupabaseOrdemServicoToOrdemServico(
   // Obter código da skill (sem acentos)
   const codigoSkill = tipoParaSkillCodigo(ordemSupabase.tipo);
   
-  // Normalizar tipo para formato OrdemServico (com acentos se necessário)
+  // Normalizar tipo para formato OrdemServico (SEM acentos para consistência na comparação)
+  // IMPORTANTE: Esta normalização deve ser consistente com a usada em equipeUtils.ts
   const normalizarTipo = (tipo: string): string => {
-    const tipoLower = tipo.toLowerCase().trim();
+    const tipoNorm = tipo
+      .toUpperCase()
+      .trim()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, ''); // Remove todos os acentos
+    
     const mapeamento: Record<string, string> = {
-      'corte': 'CORTE',
-      'religa': 'RELIGA',
-      'religação': 'RELIGA',
-      'inspecao': 'INSPEÇÃO',
-      'inspeção': 'INSPEÇÃO',
-      'ligacao': 'LIGAÇÃO',
-      'ligação': 'LIGAÇÃO',
-      'manutencao': 'MANUTENÇÃO',
-      'manutenção': 'MANUTENÇÃO',
-      'troca_medidor': 'TROCA_MEDIDOR',
-      'troca medidor': 'TROCA_MEDIDOR',
+      'CORTE': 'CORTE',
+      'RELIGA': 'RELIGA',
+      'RELIGACAO': 'RELIGA',
+      'INSPECAO': 'INSPECAO',
+      'LIGACAO': 'LIGACAO',
+      'LIGACAO NOVA': 'LIGACAO',
+      'MANUTENCAO': 'MANUTENCAO',
+      'TROCA_MEDIDOR': 'TROCA_MEDIDOR',
+      'TROCA MEDIDOR': 'TROCA_MEDIDOR',
     };
-    return mapeamento[tipoLower] || tipo.toUpperCase().trim();
+    return mapeamento[tipoNorm] || tipoNorm;
   };
   
   const tipoNormalizado = normalizarTipo(ordemSupabase.tipo) as OrdemServico["tipo"];
+  console.log(`[ORDEM_SERVICO] Tipo original: "${ordemSupabase.tipo}" -> normalizado: "${tipoNormalizado}"`);
   
   // Buscar dados da skill usando o código (sem acentos)
   let skillData = dadosSkills?.get(codigoSkill);
@@ -138,37 +143,27 @@ export async function mapSupabaseOrdensServicoToOrdemServico(
     return [];
   }
 
-  // Converter tipo para código da skill (sem acentos, uppercase)
+  // Converter tipo para código da skill (sem acentos, uppercase) - DEVE ser consistente com normalizarTipo
   const tipoParaSkillCodigo = (tipo: string): string => {
-    const tipoLower = tipo.toLowerCase().trim();
+    const tipoNorm = tipo
+      .toUpperCase()
+      .trim()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, ''); // Remove todos os acentos via NFD
+    
     const mapeamento: Record<string, string> = {
-      'corte': 'CORTE',
-      'religa': 'RELIGA',
-      'religação': 'RELIGA',
-      'inspecao': 'INSPECAO',
-      'inspeção': 'INSPECAO',
-      'ligacao': 'LIGACAO',
-      'ligação': 'LIGACAO',
-      'manutencao': 'MANUTENCAO',
-      'manutenção': 'MANUTENCAO',
-      'troca_medidor': 'TROCA_MEDIDOR',
-      'troca medidor': 'TROCA_MEDIDOR',
+      'CORTE': 'CORTE',
+      'RELIGA': 'RELIGA',
+      'RELIGACAO': 'RELIGA',
+      'INSPECAO': 'INSPECAO',
+      'LIGACAO': 'LIGACAO',
+      'LIGACAO NOVA': 'LIGACAO',
+      'MANUTENCAO': 'MANUTENCAO',
+      'TROCA_MEDIDOR': 'TROCA_MEDIDOR',
+      'TROCA MEDIDOR': 'TROCA_MEDIDOR',
     };
     
-    if (mapeamento[tipoLower]) {
-      return mapeamento[tipoLower];
-    }
-    
-    // Se não encontrou no mapeamento, normalizar para uppercase e remover acentos
-    return tipo.toUpperCase()
-      .replace(/[ÀÁÂÃÄÅ]/g, 'A')
-      .replace(/[ÈÉÊË]/g, 'E')
-      .replace(/[ÌÍÎÏ]/g, 'I')
-      .replace(/[ÒÓÔÕÖ]/g, 'O')
-      .replace(/[ÙÚÛÜ]/g, 'U')
-      .replace(/[Ç]/g, 'C')
-      .replace(/[Ñ]/g, 'N')
-      .trim();
+    return mapeamento[tipoNorm] || tipoNorm;
   };
 
   // Buscar todos os códigos únicos das skills (sem acentos) e obter dados em lote

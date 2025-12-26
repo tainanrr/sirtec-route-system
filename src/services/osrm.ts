@@ -172,12 +172,26 @@ export async function getTravelTimeMatrix(
     throw new Error('É necessário pelo menos um ponto para calcular a matriz');
   }
 
+  // Limite da API OSRM pública (URL muito longa causa erro 400)
+  const MAX_LOCATIONS = 100;
+  if (locations.length > MAX_LOCATIONS) {
+    throw new Error(`Muitos pontos para OSRM: ${locations.length} (máximo: ${MAX_LOCATIONS}). Usando cálculo Haversine.`);
+  }
+
   // Verificar cache
   const cacheKey = generateCacheKey(locations);
   const cached = matrixCache.get(cacheKey);
   if (cached) {
     console.log('[OSRM] Matriz encontrada no cache');
     return cached;
+  }
+
+  // Verificar se há coordenadas inválidas
+  for (let i = 0; i < locations.length; i++) {
+    const [lat, lon] = locations[i];
+    if (!isFinite(lat) || !isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+      throw new Error(`Coordenada inválida no índice ${i}: [${lat}, ${lon}]`);
+    }
   }
 
   try {
@@ -188,18 +202,24 @@ export async function getTravelTimeMatrix(
     const coordsString = osrmCoords.map(([lon, lat]) => `${lon},${lat}`).join(';');
     const url = `${OSRM_BASE_URL}/table/v1/driving/${coordsString}?annotations=duration`;
 
-    console.log('[OSRM] Buscando matriz de tempos:', url);
+    // Verificar tamanho da URL (limite prático é ~8000 caracteres)
+    if (url.length > 8000) {
+      throw new Error(`URL muito longa (${url.length} chars). Reduza o número de pontos.`);
+    }
+
+    console.log(`[OSRM] Buscando matriz de tempos para ${locations.length} pontos...`);
 
     const response = await fetch(url);
     
     if (!response.ok) {
-      throw new Error(`Erro na API OSRM Table: ${response.status} ${response.statusText}`);
+      const errorBody = await response.text().catch(() => '');
+      throw new Error(`Erro na API OSRM Table: ${response.status} ${response.statusText}. ${errorBody}`);
     }
 
     const data: OSRMTableResponse = await response.json();
 
     if (data.code !== 'Ok' || !data.durations) {
-      throw new Error(`OSRM Table retornou erro: ${data.code}`);
+      throw new Error(`OSRM Table retornou código de erro: ${data.code}`);
     }
 
     // Validar que a matriz tem o tamanho esperado
@@ -215,7 +235,7 @@ export async function getTravelTimeMatrix(
       }
     }
 
-    console.log('[OSRM] Matriz calculada e armazenada no cache');
+    console.log(`[OSRM] ✅ Matriz ${expectedSize}x${expectedSize} calculada com sucesso`);
     
     // Armazenar no cache
     matrixCache.set(cacheKey, data.durations);
