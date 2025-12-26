@@ -201,12 +201,72 @@ const OrdensServico = () => {
     return map;
   };
 
-  // Buscar contagem total (rápido)
-  const fetchTotalCount = async () => {
-    const { count } = await supabase
+  // Aplicar filtros na query do Supabase
+  const applyFiltersToQuery = (query: any) => {
+    // Status
+    if (statusFilter !== "all") {
+      query = query.eq("status", statusFilter);
+    }
+    
+    // Tipo
+    if (tipoFilter !== "all") {
+      query = query.eq("tipo", tipoFilter);
+    }
+    
+    // Prazo - início
+    if (prazoInicio) {
+      query = query.gte("prazo", prazoInicio);
+    }
+    
+    // Prazo - fim
+    if (prazoFim) {
+      query = query.lte("prazo", prazoFim + "T23:59:59");
+    }
+    
+    // Data de execução - início
+    if (execucaoInicio) {
+      query = query.gte("concluido_at", execucaoInicio);
+    }
+    
+    // Data de execução - fim
+    if (execucaoFim) {
+      query = query.lte("concluido_at", execucaoFim + "T23:59:59");
+    }
+    
+    // Coordenadas
+    if (coordenadasFilter === "com") {
+      query = query.not("latitude", "is", null).not("longitude", "is", null);
+    } else if (coordenadasFilter === "sem") {
+      query = query.or("latitude.is.null,longitude.is.null");
+    }
+    
+    // Retorno de campo
+    if (retornoFilter === "sem_retorno") {
+      query = query.is("retorno_campo_id", null);
+    } else if (retornoFilter !== "all") {
+      query = query.eq("retorno_campo_id", retornoFilter);
+    }
+    
+    // Busca textual (aplicada via ilike em múltiplos campos)
+    if (debouncedSearchTerm) {
+      const term = `%${debouncedSearchTerm}%`;
+      query = query.or(`numero.ilike.${term},endereco.ilike.${term},cliente_nome.ilike.${term},cliente_cpf.ilike.${term},instalacao.ilike.${term}`);
+    }
+    
+    return query;
+  };
+
+  // Buscar contagem total COM filtros
+  const fetchTotalCountWithFilters = async () => {
+    let query = supabase
       .from("ordens_servico")
       .select("*", { count: "exact", head: true });
+    
+    query = applyFiltersToQuery(query);
+    
+    const { count } = await query;
     setTotalCount(count || 0);
+    return count || 0;
   };
 
   const fetchOrdens = async (page = 0, append = false) => {
@@ -219,24 +279,30 @@ const OrdensServico = () => {
     
     try {
       // Buscar skills em paralelo com a contagem (apenas na primeira carga)
-      const [skills] = await Promise.all([
+      const [skills, totalWithFilters] = await Promise.all([
         fetchSkillsOnce(),
-        page === 0 ? fetchTotalCount() : Promise.resolve()
+        page === 0 ? fetchTotalCountWithFilters() : Promise.resolve(totalCount)
       ]);
 
       const from = page * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
 
-      // Query principal com paginação
-      const { data, error } = await supabase
+      // Query principal com paginação e filtros
+      let query = supabase
         .from("ordens_servico")
         .select(`
           *,
           tecnicos:tecnico_id (codigo, nome),
           retornos_campo:retorno_campo_id (id, codigo, descricao, tipo, cor)
-        `)
-        .order("created_at", { ascending: false })
-        .range(from, to);
+        `);
+      
+      // Aplicar filtros
+      query = applyFiltersToQuery(query);
+      
+      // Ordenação e paginação
+      query = query.order("created_at", { ascending: false }).range(from, to);
+      
+      const { data, error } = await query;
 
       if (error) {
         console.error("Erro ao carregar ordens:", error);
@@ -249,7 +315,7 @@ const OrdensServico = () => {
       setCurrentPage(page);
 
       // Processar com skills já carregadas
-      await processarOrdens(newData, skills, append);
+      await processarOrdens(newData, skills, append, equipeFilter, producaoFilter);
     } catch (err) {
       console.error("Erro ao carregar ordens:", err);
       toast.error("Erro ao carregar ordens de serviço");
@@ -265,7 +331,7 @@ const OrdensServico = () => {
     }
   };
 
-  const processarOrdens = async (data: any[], skills: Record<string, string>, append = false) => {
+  const processarOrdens = async (data: any[], skills: Record<string, string>, append = false, equipeFilterParam?: string, producaoFilterParam?: string) => {
     if (data.length === 0) {
       if (!append) setOrdens([]);
       return;
@@ -321,7 +387,7 @@ const OrdensServico = () => {
     }
 
     // Combinar dados
-    const ordensComProducao = data.map(ordem => {
+    let ordensComProducao = data.map(ordem => {
       const producao = producaoMap[ordem.id];
       const equipeExecutora = equipeMap[ordem.id];
 
@@ -333,6 +399,27 @@ const OrdensServico = () => {
         tecnicos: ordem.tecnicos || equipeExecutora || null
       };
     });
+
+    // Aplicar filtros que dependem de dados relacionados (equipe e produção)
+    // Esses filtros são aplicados após o processamento porque dependem de joins
+    const activeEquipeFilter = equipeFilterParam || equipeFilter;
+    const activeProducaoFilter = producaoFilterParam || producaoFilter;
+    
+    if (activeEquipeFilter !== "all") {
+      ordensComProducao = ordensComProducao.filter(os => os.tecnicos?.codigo === activeEquipeFilter);
+    }
+    
+    if (activeProducaoFilter !== "all") {
+      if (activeProducaoFilter === "com") {
+        ordensComProducao = ordensComProducao.filter(os => 
+          os.producao_equipes && os.producao_equipes.length > 0 && os.producao_equipes[0].valor_total > 0
+        );
+      } else if (activeProducaoFilter === "sem") {
+        ordensComProducao = ordensComProducao.filter(os => 
+          !os.producao_equipes || os.producao_equipes.length === 0 || !os.producao_equipes[0].valor_total
+        );
+      }
+    }
 
     if (append) {
       setOrdens(prev => [...prev, ...ordensComProducao as OrdemWithTecnico[]]);
@@ -354,10 +441,39 @@ const OrdensServico = () => {
     if (skillsRes.data) setSkills(skillsRes.data);
   };
 
+  // Estado para controlar debounce do searchTerm
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
+  
+  // Debounce para o termo de busca
   useEffect(() => {
-    fetchOrdens(0, false);
+    const handler = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 500); // 500ms de delay
+    
+    return () => clearTimeout(handler);
+  }, [searchTerm]);
+  
+  // Carregamento inicial e dados para filtros
+  useEffect(() => {
     fetchFilterData();
   }, []);
+  
+  // Refazer busca quando filtros mudarem (incluindo debouncedSearchTerm)
+  useEffect(() => {
+    fetchOrdens(0, false);
+  }, [
+    debouncedSearchTerm,
+    statusFilter,
+    tipoFilter,
+    execucaoInicio,
+    execucaoFim,
+    prazoInicio,
+    prazoFim,
+    equipeFilter,
+    retornoFilter,
+    coordenadasFilter,
+    producaoFilter
+  ]);
   
   // Limpar filtros
   const clearFilters = () => {
@@ -716,52 +832,18 @@ const OrdensServico = () => {
     }
   };
 
+  // Filtros já aplicados no servidor - apenas busca local para feedback imediato durante digitação
   const filteredOrdens = ordens.filter((os) => {
-    // Busca textual
-    const matchesSearch = !searchTerm || 
-      os.numero.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      ((os as any).codigo || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-      os.endereco.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (os.cliente_nome || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (os.cliente_cpf || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (os.instalacao || "").toLowerCase().includes(searchTerm.toLowerCase());
-    
-    // Status
-    const matchesStatus = statusFilter === "all" || os.status === statusFilter;
-    
-    // Tipo
-    const matchesTipo = tipoFilter === "all" || os.tipo === tipoFilter;
-    
-    // Data de execução
-    const matchesExecucaoInicio = !execucaoInicio || (os.concluido_at && os.concluido_at >= execucaoInicio);
-    const matchesExecucaoFim = !execucaoFim || (os.concluido_at && os.concluido_at <= execucaoFim + "T23:59:59");
-    
-    // Data de prazo
-    const matchesPrazoInicio = !prazoInicio || (os.prazo && os.prazo >= prazoInicio);
-    const matchesPrazoFim = !prazoFim || (os.prazo && os.prazo <= prazoFim + "T23:59:59");
-    
-    // Equipe
-    const matchesEquipe = equipeFilter === "all" || os.tecnicos?.codigo === equipeFilter;
-    
-    // Retorno de campo
-    const matchesRetorno = retornoFilter === "all" || 
-      (retornoFilter === "sem_retorno" && !os.retornos_campo) ||
-      (os.retornos_campo?.id === retornoFilter);
-    
-    // Coordenadas
-    const matchesCoordenadas = coordenadasFilter === "all" ||
-      (coordenadasFilter === "com" && os.latitude && os.longitude) ||
-      (coordenadasFilter === "sem" && (!os.latitude || !os.longitude));
-    
-    // Produção
-    const matchesProducao = producaoFilter === "all" ||
-      (producaoFilter === "com" && os.producao_equipes && os.producao_equipes.length > 0 && os.producao_equipes[0].valor_total > 0) ||
-      (producaoFilter === "sem" && (!os.producao_equipes || os.producao_equipes.length === 0 || !os.producao_equipes[0].valor_total));
-    
-    return matchesSearch && matchesStatus && matchesTipo && 
-           matchesExecucaoInicio && matchesExecucaoFim &&
-           matchesPrazoInicio && matchesPrazoFim &&
-           matchesEquipe && matchesRetorno && matchesCoordenadas && matchesProducao;
+    // Aplicar busca local apenas se searchTerm diferente do debouncedSearchTerm (digitando)
+    if (searchTerm !== debouncedSearchTerm && searchTerm) {
+      return os.numero.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        ((os as any).codigo || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        os.endereco.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (os.cliente_nome || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (os.cliente_cpf || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (os.instalacao || "").toLowerCase().includes(searchTerm.toLowerCase());
+    }
+    return true;
   });
 
   // Ordenar as ordens filtradas
