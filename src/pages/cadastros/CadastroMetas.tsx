@@ -1109,7 +1109,7 @@ export default function CadastroMetas() {
                               key={dataStr}
                               className={cn(
                                 "text-center text-[10px] p-0.5 w-10",
-                                isSaturday && "bg-gray-100",
+                                isSaturday && "bg-gray-200",
                                 isSunday && "bg-red-100",
                                 feriado && "bg-amber-100"
                               )}
@@ -1191,7 +1191,7 @@ export default function CadastroMetas() {
                                     key={dataStr}
                                     className={cn(
                                       "text-center p-0 w-10 h-8 cursor-pointer transition-all border-l",
-                                      isSaturday && "bg-gray-50",
+                                      isSaturday && "bg-gray-200",
                                       isSunday && "bg-red-50",
                                       feriado && "bg-amber-50",
                                       isSelected && "ring-2 ring-primary ring-inset",
@@ -1243,7 +1243,7 @@ export default function CadastroMetas() {
                 <div className="w-3 h-3 bg-amber-50 border rounded" /> Feriado
               </span>
               <span className="flex items-center gap-1">
-                <div className="w-3 h-3 bg-gray-50 border rounded" /> Sábado
+                <div className="w-3 h-3 bg-gray-200 border rounded" /> Sábado
               </span>
               <span className="flex items-center gap-1">
                 <div className="w-3 h-3 bg-red-50 border border-red-200 rounded" /> Domingo
