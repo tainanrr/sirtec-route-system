@@ -15,6 +15,7 @@ import Dashboard from "./pages/Dashboard";
 import Roteirizacao from "./pages/Roteirizacao";
 import Planejamentos from "./pages/Planejamentos";
 import AcompanhamentoRoteirizacoes from "./pages/AcompanhamentoRoteirizacoes";
+import AcompanhamentoTempoReal from "./pages/AcompanhamentoTempoReal";
 import TorreControle from "./pages/TorreControle";
 import Operacao from "./pages/Operacao";
 import Cerebro from "./pages/Cerebro";
@@ -116,6 +117,7 @@ const App = () => (
             <Route path="/roteirizacao" element={<ProtectedRoute><Roteirizacao /></ProtectedRoute>} />
             <Route path="/planejamentos" element={<ProtectedRoute><Planejamentos /></ProtectedRoute>} />
             <Route path="/acompanhamento-roteirizacoes" element={<ProtectedRoute><AcompanhamentoRoteirizacoes /></ProtectedRoute>} />
+            <Route path="/acompanhamento-tempo-real" element={<ProtectedRoute><AcompanhamentoTempoReal /></ProtectedRoute>} />
             <Route path="/torre-controle" element={<ProtectedRoute><TorreControle /></ProtectedRoute>} />
             <Route path="/operacao" element={<ProtectedRoute><Operacao /></ProtectedRoute>} />
             <Route path="/cerebro" element={<ProtectedRoute><Cerebro /></ProtectedRoute>} />

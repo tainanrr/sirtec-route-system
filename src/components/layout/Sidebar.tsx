@@ -77,6 +77,7 @@ const navItemsConfig: NavItem[] = [
   // Roteirização - aceita "criar" OU "visualizar"
   { icon: MapPin, label: "Roteirização", href: "/roteirizacao", permission: "roteirizacao.visualizar" },
   { icon: ListChecks, label: "Acompanhamento de Roteirizações", href: "/acompanhamento-roteirizacoes", permission: "roteirizacao.acompanhar" },
+  { icon: Activity, label: "Tempo Real", href: "/acompanhamento-tempo-real", permission: "roteirizacao.acompanhar" },
   { icon: LayoutDashboard, label: "__divider_3__", type: "divider" },
   // Consulta de Serviços
   { icon: ClipboardList, label: "Consulta Serviços", href: "/ordens-servico", permission: "os.visualizar" },
