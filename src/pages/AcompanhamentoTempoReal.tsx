@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+// Drag and drop pode ser adicionado futuramente para reordenação
+// import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { useTelaPermissao } from "@/hooks/usePermissoes";
 import { Button } from "@/components/ui/button";
@@ -36,7 +38,7 @@ import {
   Eye,
   Filter,
   Loader2,
-  Map,
+  Map as MapIcon,
   MapPin,
   Phone,
   RefreshCcw,
@@ -52,14 +54,21 @@ import {
   Zap,
   Activity,
   Coffee,
+  Settings,
+  Play,
+  ArrowUp,
+  ArrowDown,
+  Trash2,
+  Save,
+  Undo2,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { TimelinePrevistoRealizado, type TimelineEquipeCompleta, type TimelineOrdemServico, type TimelineIntervalo } from "@/components/torre/TimelinePrevistoRealizado";
 import { OrdemServicoDetalhesDialog } from "@/components/ordens/OrdemServicoDetalhesDialog";
-import MapaTorreControle, { type TorreMapaPoint, type TorreRouteGeometry } from "@/pages/components/MapaTorreControle";
-import { buscarRotaOSRM } from "@/services/osrm";
+import MapaLeaflet from "@/pages/components/MapaLeaflet";
+import { Territorio } from "@/types/territorios";
 
 // Tipos
 interface EquipeRota {
@@ -167,7 +176,13 @@ export default function AcompanhamentoTempoReal() {
   const [detalhesOpen, setDetalhesOpen] = useState(false);
   const [ordemDetalhesId, setOrdemDetalhesId] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
-  const [viewMode, setViewMode] = useState<"timeline" | "mapa">("timeline");
+  const [equipeHovered, setEquipeHovered] = useState<string | null>(null);
+  
+  // Estados para o Editor de Rotas
+  const [osSelecionadaNoEditor, setOsSelecionadaNoEditor] = useState<string | null>(null);
+  const [rotasEditadas, setRotasEditadas] = useState<Map<string, OrdemRota[]>>(new Map());
+  const [salvandoRota, setSalvandoRota] = useState(false);
+  const [temAlteracoesPendentes, setTemAlteracoesPendentes] = useState(false);
   
   // Filtros (iguais à Consulta Serviços)
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -362,6 +377,27 @@ export default function AcompanhamentoTempoReal() {
     refetchInterval,
   });
 
+  // Buscar territórios
+  const { data: territorios } = useQuery({
+    queryKey: ["acompanhamento", "territorios"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("territorios")
+        .select("*")
+        .eq("ativo", true);
+      if (error) throw error;
+      return (data || []).map((t: any) => ({
+        id: t.id,
+        nome: t.nome,
+        cor: t.cor || "#3b82f6",
+        ativo: t.ativo,
+        poligono: t.poligono || [],
+        equipeIds: t.equipe_ids || [],
+      })) as Territorio[];
+    },
+    staleTime: 300_000,
+  });
+
   // Processar dados das equipes com rotas
   const equipesComRotas = useMemo((): EquipeRota[] => {
     if (!ordensPlanejadas || ordensPlanejadas.length === 0) return [];
@@ -384,8 +420,15 @@ export default function AcompanhamentoTempoReal() {
         const intervalos: IntervaloEquipe[] = intervalo ? [{
           id: intervalo.id,
           tipo: intervalo.tipos_intervalo?.nome || "Intervalo",
-          horaInicio: intervalo.hora_inicio?.slice(11, 19) || "",
-          horaFim: intervalo.hora_fim?.slice(11, 19),
+          // Converter para horário local usando Date
+          horaInicio: intervalo.hora_inicio ? (() => {
+            const d = new Date(intervalo.hora_inicio);
+            return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+          })() : "",
+          horaFim: intervalo.hora_fim ? (() => {
+            const d = new Date(intervalo.hora_fim);
+            return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+          })() : undefined,
         }] : [];
 
         grouped.set(eq.id, {
@@ -530,6 +573,10 @@ export default function AcompanhamentoTempoReal() {
 
   // Converter para formato da Timeline
   const timelineEquipes = useMemo((): TimelineEquipeCompleta[] => {
+    // Criar mapa de skill codigo -> nome
+    const skillsMap = new Map<string, string>();
+    (skills || []).forEach(s => skillsMap.set(s.codigo.toLowerCase(), s.nome));
+    
     return equipesFiltradas.map(eq => {
       const now = new Date();
       const turnosAbertosSet = new Set((turnosAbertos || []).map(t => t.equipe_id));
@@ -571,6 +618,16 @@ export default function AcompanhamentoTempoReal() {
         }
       }
 
+      // Intervalos em tempo real (iniciados pelo técnico)
+      // TODO: No futuro, buscar intervalos previstos da tabela de planejamentos se houver
+      const intervalosTimeline: TimelineIntervalo[] = eq.intervalos.map(i => ({
+        id: i.id,
+        tipo: i.tipo,
+        horaInicio: i.horaInicio, // Já foi convertido para horário local
+        horaFim: i.horaFim || undefined,
+        previsto: false, // Intervalos iniciados manualmente não são previstos
+      }));
+
       return {
         id: eq.id,
         codigo: eq.codigo,
@@ -578,18 +635,15 @@ export default function AcompanhamentoTempoReal() {
         turnoAberto: eq.turnoAberto,
         status,
         minutosDesvio: minutosDesvio !== 0 ? minutosDesvio : undefined,
-        intervalos: eq.intervalos.map(i => ({
-          id: i.id,
-          tipo: i.tipo,
-          horaInicio: i.horaInicio,
-          horaFim: i.horaFim || undefined,
-        })),
+        intervalos: intervalosTimeline,
         ordens: eq.ordens.map(o => ({
           id: o.id,
           numero: o.numero,
           tipo: o.tipo,
+          tipoDescricao: skillsMap.get(o.tipo.toLowerCase()) || o.tipo,
           status: o.status as any,
           regulada: o.regulada,
+          prazo: o.prazo || undefined,
           ordemNaRota: o.ordemNaRota,
           horaInicioEstimada: o.horaInicioEstimada || undefined,
           horaFimEstimada: o.horaFimEstimada || undefined,
@@ -601,100 +655,101 @@ export default function AcompanhamentoTempoReal() {
         })),
       };
     });
-  }, [equipesFiltradas, turnosAbertos]);
+  }, [equipesFiltradas, turnosAbertos, skills]);
 
-  // Pontos para o mapa
-  const mapaPoints = useMemo((): TorreMapaPoint[] => {
-    const pts: TorreMapaPoint[] = [];
+  // Converter dados para formato do MapaLeaflet (tipos como any para compatibilidade)
+  const rotasParaMapa = useMemo((): any[] => {
+    // Criar mapa de posições atuais das equipes
     const posMap = new Map<string, { lat: number; lng: number }>();
-    
     for (const p of posicoesAtuais || []) {
-      if (p?.equipe_id && p.latitude != null && p.longitude != null) {
-        posMap.set(String(p.equipe_id), { lat: Number(p.latitude), lng: Number(p.longitude) });
+      if ((p as any)?.equipe_id && (p as any).latitude != null && (p as any).longitude != null) {
+        posMap.set(String((p as any).equipe_id), { lat: Number((p as any).latitude), lng: Number((p as any).longitude) });
       }
     }
 
-    for (const eq of equipesFiltradas) {
-      // Marcadores de OS
-      for (const o of eq.ordens) {
-        if (o.latitude && o.longitude) {
-          pts.push({
-            kind: "os",
-            id: o.id,
-            equipeId: eq.id,
-            equipeCodigo: eq.codigo,
-            ordemNaRota: o.ordemNaRota,
-            numero: o.numero,
-            tipo: o.tipo,
-            status: o.status as any,
-            regulada: o.regulada,
-            lat: Number(o.latitude),
-            lng: Number(o.longitude),
-            endereco: o.endereco,
-          });
-        }
-      }
+    const cores = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"];
 
-      // Marcador da equipe
-      const pos = posMap.get(eq.id);
-      if (pos) {
-        pts.push({
-          kind: "equipe",
-          equipeId: eq.id,
-          equipeCodigo: eq.codigo,
-          equipeNome: eq.nome,
-          statusEquipe: eq.status,
-          lat: pos.lat,
-          lng: pos.lng,
-          updatedAt: null,
-        });
-      }
-    }
+    return equipesFiltradas.map((eq, idx) => {
+      // Usar posição atual se disponível, senão usar latitude/longitude da equipe
+      const pos = posMap.get(eq.id) || { lat: eq.latitude || -14.8661, lng: eq.longitude || -40.8394 };
+      
+      const equipe: any = {
+        id: eq.id,
+        codigo: eq.codigo,
+        tecnico: eq.nome,
+        latitude: pos.lat,
+        longitude: pos.lng,
+        habilidades: [],
+        skills: [],
+        jornadaHoras: 8,
+        maxHorasTrabalho: 10,
+        horaInicio: "07:30",
+        color: cores[idx % cores.length],
+      };
 
-    return pts;
+      const servicos: any[] = eq.ordens.map((o, sidx) => ({
+        tipo: "SERVICO" as const,
+        ordemNaRota: o.ordemNaRota || sidx + 1,
+        ordemServico: {
+          id: o.id,
+          numero: o.numero,
+          tipo: o.tipo,
+          status: o.status,
+          endereco: o.endereco,
+          cliente: o.cliente_nome || "",
+          prazo: o.prazo ? new Date(o.prazo) : null,
+          regulada: o.regulada,
+          latitude: o.latitude || 0,
+          longitude: o.longitude || 0,
+          valor: o.valorPrevisto || 0,
+        },
+        tempoDeslocamento: 0,
+        distancia: o.distanciaKm || 0,
+        tempoTotal: o.tempoEstimadoMin || 15,
+        horaInicio: o.horaInicioEstimada || "",
+        horaFim: o.horaFimEstimada || "",
+        eta: o.horaInicioEstimada || "",
+      }));
+
+      return {
+        equipe,
+        servicos,
+        distanciaTotal: eq.metricas.distanciaTotal,
+        tempoTotal: eq.metricas.tempoEstimado,
+        faturamentoTotal: eq.metricas.valorPrevisto,
+        progresso: eq.metricas.totalOS > 0 ? (eq.metricas.concluidas / eq.metricas.totalOS) * 100 : 0,
+      };
+    });
   }, [equipesFiltradas, posicoesAtuais]);
 
-  // Rota selecionada para o mapa
-  const selectedRoute = useMemo(() => 
-    equipesFiltradas.find(e => e.id === selectedEquipeId) || null, 
-    [equipesFiltradas, selectedEquipeId]
-  );
-
-  const [routeGeometry, setRouteGeometry] = useState<TorreRouteGeometry | null>(null);
-  const [routeLoading, setRouteLoading] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function loadRoute() {
-      if (!selectedRoute || viewMode !== "mapa") {
-        setRouteGeometry(null);
-        return;
-      }
-      
-      const coords = selectedRoute.ordens
-        .filter(o => o.latitude && o.longitude)
-        .map(o => [Number(o.latitude), Number(o.longitude)] as [number, number]);
-      
-      if (coords.length < 2) {
-        setRouteGeometry(null);
-        return;
-      }
-
-      setRouteLoading(true);
-      try {
-        const geo = await buscarRotaOSRM(coords);
-        if (!cancelled) {
-          setRouteGeometry({ coordinates: geo.coordinates, distance: geo.distance, duration: geo.duration });
-        }
-      } catch {
-        if (!cancelled) setRouteGeometry(null);
-      } finally {
-        if (!cancelled) setRouteLoading(false);
+  // Equipes para o mapa (tipos como any para compatibilidade)
+  const equipesParaMapa = useMemo((): any[] => {
+    const posMap = new Map<string, { lat: number; lng: number }>();
+    for (const p of posicoesAtuais || []) {
+      if ((p as any)?.equipe_id && (p as any).latitude != null && (p as any).longitude != null) {
+        posMap.set(String((p as any).equipe_id), { lat: Number((p as any).latitude), lng: Number((p as any).longitude) });
       }
     }
-    loadRoute();
-    return () => { cancelled = true; };
-  }, [selectedRoute, viewMode]);
+
+    const cores = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"];
+    
+    return equipesFiltradas.map((eq, idx) => {
+      const pos = posMap.get(eq.id) || { lat: eq.latitude || -14.8661, lng: eq.longitude || -40.8394 };
+      return {
+        id: eq.id,
+        codigo: eq.codigo,
+        tecnico: eq.nome,
+        latitude: pos.lat,
+        longitude: pos.lng,
+        habilidades: [],
+        skills: [],
+        jornadaHoras: 8,
+        maxHorasTrabalho: 10,
+        horaInicio: "07:30",
+        color: cores[idx % cores.length],
+      };
+    });
+  }, [equipesFiltradas, posicoesAtuais]);
 
   // Métricas gerais
   const metricas = useMemo(() => {
@@ -724,6 +779,176 @@ export default function AcompanhamentoTempoReal() {
 
     return totais;
   }, [equipesFiltradas, timelineEquipes]);
+
+  // === FUNÇÕES DE EDIÇÃO DE ROTA ===
+  
+  // Obter ordens da rota (editadas ou originais)
+  const getOrdensRota = useCallback((equipeId: string): OrdemRota[] => {
+    if (rotasEditadas.has(equipeId)) {
+      return rotasEditadas.get(equipeId)!;
+    }
+    const equipe = equipesFiltradas.find(e => e.id === equipeId);
+    return equipe ? [...equipe.ordens] : [];
+  }, [rotasEditadas, equipesFiltradas]);
+
+  // Mover OS para cima
+  const moverOSParaCima = useCallback((equipeId: string, osId: string) => {
+    const ordens = getOrdensRota(equipeId);
+    const index = ordens.findIndex(o => o.id === osId);
+    if (index <= 0) return; // Já é o primeiro ou não encontrado
+    
+    // Verificar se a OS pode ser movida (apenas planejadas)
+    const os = ordens[index];
+    if (os.status !== "planejada") {
+      toast.error("Apenas OSs com status 'planejada' podem ser reordenadas");
+      return;
+    }
+    
+    // Verificar se a OS anterior também é planejada
+    const osAnterior = ordens[index - 1];
+    if (osAnterior.status !== "planejada") {
+      toast.error("Não é possível mover para cima de uma OS já iniciada/concluída");
+      return;
+    }
+    
+    const novasOrdens = [...ordens];
+    [novasOrdens[index - 1], novasOrdens[index]] = [novasOrdens[index], novasOrdens[index - 1]];
+    
+    // Atualizar ordem na rota
+    novasOrdens.forEach((o, i) => { o.ordemNaRota = i + 1; });
+    
+    setRotasEditadas(prev => new Map(prev).set(equipeId, novasOrdens));
+    setTemAlteracoesPendentes(true);
+  }, [getOrdensRota]);
+
+  // Mover OS para baixo
+  const moverOSParaBaixo = useCallback((equipeId: string, osId: string) => {
+    const ordens = getOrdensRota(equipeId);
+    const index = ordens.findIndex(o => o.id === osId);
+    if (index < 0 || index >= ordens.length - 1) return; // Já é o último ou não encontrado
+    
+    // Verificar se a OS pode ser movida
+    const os = ordens[index];
+    if (os.status !== "planejada") {
+      toast.error("Apenas OSs com status 'planejada' podem ser reordenadas");
+      return;
+    }
+    
+    const novasOrdens = [...ordens];
+    [novasOrdens[index], novasOrdens[index + 1]] = [novasOrdens[index + 1], novasOrdens[index]];
+    
+    // Atualizar ordem na rota
+    novasOrdens.forEach((o, i) => { o.ordemNaRota = i + 1; });
+    
+    setRotasEditadas(prev => new Map(prev).set(equipeId, novasOrdens));
+    setTemAlteracoesPendentes(true);
+  }, [getOrdensRota]);
+
+  // Remover OS da rota
+  const removerOSDaRota = useCallback(async (equipeId: string, osId: string) => {
+    const ordens = getOrdensRota(equipeId);
+    const os = ordens.find(o => o.id === osId);
+    
+    if (!os) return;
+    
+    if (os.status !== "planejada") {
+      toast.error("Apenas OSs com status 'planejada' podem ser removidas da rota");
+      return;
+    }
+    
+    if (!confirm(`Deseja remover a OS ${os.numero} da rota?`)) return;
+    
+    try {
+      // Remover do banco
+      const { error: erroDelete } = await supabase
+        .from("planejamento_ordens")
+        .delete()
+        .eq("ordem_servico_id", osId);
+      
+      if (erroDelete) throw erroDelete;
+      
+      // Atualizar status da OS para pendente
+      const { error: erroUpdate } = await supabase
+        .from("ordens_servico")
+        .update({ status: "pendente", equipe_planejada_id: null })
+        .eq("id", osId);
+      
+      if (erroUpdate) throw erroUpdate;
+      
+      // Remover da lista local
+      const novasOrdens = ordens.filter(o => o.id !== osId);
+      novasOrdens.forEach((o, i) => { o.ordemNaRota = i + 1; });
+      
+      setRotasEditadas(prev => new Map(prev).set(equipeId, novasOrdens));
+      toast.success(`OS ${os.numero} removida da rota`);
+      
+      // Recarregar dados
+      queryClient.invalidateQueries({ queryKey: ["acompanhamento"] });
+    } catch (error) {
+      console.error("Erro ao remover OS:", error);
+      toast.error("Erro ao remover OS da rota");
+    }
+  }, [getOrdensRota, queryClient]);
+
+  // Salvar alterações na rota
+  const salvarAlteracoesRota = useCallback(async (equipeId: string) => {
+    const ordens = getOrdensRota(equipeId);
+    const equipe = equipesFiltradas.find(e => e.id === equipeId);
+    
+    if (!equipe) return;
+    
+    setSalvandoRota(true);
+    
+    try {
+      // Atualizar ordem_na_rota de cada OS no planejamento_ordens
+      for (const os of ordens) {
+        const { error } = await supabase
+          .from("planejamento_ordens")
+          .update({ ordem_na_rota: os.ordemNaRota })
+          .eq("ordem_servico_id", os.id);
+        
+        if (error) throw error;
+      }
+      
+      toast.success(`Rota da equipe ${equipe.codigo} atualizada com sucesso!`);
+      
+      // Limpar edições pendentes para esta equipe
+      setRotasEditadas(prev => {
+        const novo = new Map(prev);
+        novo.delete(equipeId);
+        return novo;
+      });
+      
+      // Verificar se ainda há alterações pendentes em outras equipes
+      setTemAlteracoesPendentes(rotasEditadas.size > 1);
+      
+      // Recarregar dados
+      queryClient.invalidateQueries({ queryKey: ["acompanhamento"] });
+    } catch (error) {
+      console.error("Erro ao salvar rota:", error);
+      toast.error("Erro ao salvar alterações na rota");
+    } finally {
+      setSalvandoRota(false);
+    }
+  }, [getOrdensRota, equipesFiltradas, queryClient, rotasEditadas.size]);
+
+  // Desfazer alterações na rota
+  const desfazerAlteracoesRota = useCallback((equipeId: string) => {
+    setRotasEditadas(prev => {
+      const novo = new Map(prev);
+      novo.delete(equipeId);
+      return novo;
+    });
+    setTemAlteracoesPendentes(rotasEditadas.size > 1);
+    toast.info("Alterações descartadas");
+  }, [rotasEditadas.size]);
+
+  // Verificar se uma equipe tem alterações pendentes
+  const equipeTemAlteracoes = useCallback((equipeId: string): boolean => {
+    return rotasEditadas.has(equipeId);
+  }, [rotasEditadas]);
+
+  // === FIM FUNÇÕES DE EDIÇÃO ===
 
   // Limpar filtros
   const clearFilters = () => {
@@ -797,28 +1022,6 @@ export default function AcompanhamentoTempoReal() {
 
           {/* Controles */}
           <div className="flex items-center gap-2 ml-auto flex-wrap">
-            {/* Toggle de visualização */}
-            <div className="flex items-center gap-1 bg-muted/50 rounded-lg p-1">
-              <Button
-                variant={viewMode === "timeline" ? "default" : "ghost"}
-                size="sm"
-                className="h-8 gap-2"
-                onClick={() => setViewMode("timeline")}
-              >
-                <Clock className="h-4 w-4" />
-                Timeline
-              </Button>
-              <Button
-                variant={viewMode === "mapa" ? "default" : "ghost"}
-                size="sm"
-                className="h-8 gap-2"
-                onClick={() => setViewMode("mapa")}
-              >
-                <Map className="h-4 w-4" />
-                Mapa
-              </Button>
-            </div>
-
             {/* Auto-refresh */}
             <div className="flex items-center gap-2 rounded-lg border bg-card px-3 py-1.5">
               <span className="text-xs text-muted-foreground">Auto</span>
@@ -1024,60 +1227,160 @@ export default function AcompanhamentoTempoReal() {
             )}
           </CardContent>
         </Card>
-      ) : viewMode === "timeline" ? (
-        /* TIMELINE */
-        <TimelinePrevistoRealizado
-          dateISO={hoje}
-          equipes={timelineEquipes}
-          onSelectEquipe={(equipeId) => {
-            setSelectedEquipeId(equipeId);
-            setSelectedOSId(null);
-          }}
-          onSelectOS={(osId, equipeId) => {
-            setOrdemDetalhesId(osId);
-            setDetalhesOpen(true);
-          }}
-        />
       ) : (
-        /* MAPA + LISTA */
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
-          {/* Lista de Equipes */}
-          <div className="xl:col-span-3">
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    <Users className="h-4 w-4" />
-                    Equipes em Campo
-                  </span>
-                  <Badge variant="secondary">{equipesFiltradas.length}</Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-0">
-                <ScrollArea className="h-[600px]">
-                  <div className="divide-y">
-                    {equipesFiltradas.map((eq) => {
-                      const timeline = timelineEquipes.find(t => t.id === eq.id);
+        <div className="space-y-4">
+          {/* TIMELINE - Parte superior */}
+          <TimelinePrevistoRealizado
+            dateISO={hoje}
+            equipes={timelineEquipes}
+            onSelectEquipe={(equipeId) => {
+              setSelectedEquipeId(equipeId);
+              setSelectedOSId(null);
+              setEquipeHovered(equipeId);
+            }}
+            onSelectOS={(osId, equipeId) => {
+              setOrdemDetalhesId(osId);
+              setDetalhesOpen(true);
+            }}
+          />
+
+          {/* EDITOR DE ROTAS + MAPA - Parte inferior */}
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+            {/* Editor de Rotas - Esquerda */}
+            <div className="xl:col-span-4">
+              <Card className="h-[650px] overflow-hidden flex flex-col">
+                <CardHeader className="pb-3 border-b">
+                  <CardTitle className="text-base flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <Settings className="h-4 w-4" />
+                      Editor de Rotas
+                    </span>
+                    <Badge variant="secondary">{equipesFiltradas.length}</Badge>
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {selectedEquipeId 
+                      ? `Equipe ${equipesFiltradas.find(e => e.id === selectedEquipeId)?.codigo || ""} selecionada`
+                      : "Selecione uma equipe na timeline ou mapa"
+                    }
+                  </p>
+                  
+                  {/* Seletor de Equipe */}
+                  {equipesFiltradas.length > 0 && (
+                    <Select
+                      value={selectedEquipeId || "todas"}
+                      onValueChange={(value) => {
+                        if (value === "todas") {
+                          setSelectedEquipeId(null);
+                          setEquipeHovered(null);
+                          setSelectedOSId(null);
+                        } else {
+                          setSelectedEquipeId(value);
+                          setEquipeHovered(value);
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="w-full mt-2">
+                        <SelectValue placeholder="Selecione uma equipe" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="todas">
+                          <div className="flex items-center gap-2">
+                            <div className="h-3 w-3 rounded-full bg-muted" />
+                            <span>Todas as equipes</span>
+                          </div>
+                        </SelectItem>
+                        {equipesFiltradas.map((eq) => {
+                          const timeline = timelineEquipes.find(t => t.id === eq.id);
+                          const statusConfig = STATUS_EQUIPE_CONFIG[timeline?.status || "normal"];
+                          const progresso = eq.metricas.totalOS > 0 
+                            ? Math.round((eq.metricas.concluidas / eq.metricas.totalOS) * 100) 
+                            : 0;
+                          return (
+                            <SelectItem key={eq.id} value={eq.id}>
+                              <div className="flex items-center gap-2">
+                                <div
+                                  className={cn("h-3 w-3 rounded-full", statusConfig.bgColor)}
+                                  style={{ borderColor: statusConfig.borderColor }}
+                                />
+                                <span className="font-medium">{eq.codigo}</span>
+                                <span className="text-muted-foreground text-xs">
+                                  ({eq.metricas.concluidas}/{eq.metricas.totalOS} - {progresso}%)
+                                </span>
+                              </div>
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </CardHeader>
+                
+                <CardContent className="p-0 flex-1 overflow-hidden">
+                  <ScrollArea className="h-full">
+                    {!selectedEquipeId ? (
+                      <div className="p-6 text-center">
+                        <Settings className="h-12 w-12 mx-auto mb-3 text-muted-foreground/50" />
+                        <p className="text-sm text-muted-foreground">
+                          Selecione uma equipe na timeline, mapa ou no seletor acima para visualizar e editar sua rota
+                        </p>
+                      </div>
+                    ) : (() => {
+                      const equipeSelecionada = equipesFiltradas.find(e => e.id === selectedEquipeId);
+                      if (!equipeSelecionada) return null;
+                      
+                      const timeline = timelineEquipes.find(t => t.id === selectedEquipeId);
                       const statusConfig = STATUS_EQUIPE_CONFIG[timeline?.status || "normal"];
                       const StatusIcon = statusConfig.icon;
-                      const isSelected = selectedEquipeId === eq.id;
-                      const progresso = eq.metricas.totalOS > 0 
-                        ? Math.round((eq.metricas.concluidas / eq.metricas.totalOS) * 100) 
+                      const progresso = equipeSelecionada.metricas.totalOS > 0 
+                        ? Math.round((equipeSelecionada.metricas.concluidas / equipeSelecionada.metricas.totalOS) * 100) 
                         : 0;
 
+                      const ordensParaExibir = getOrdensRota(selectedEquipeId);
+                      const temAlteracoes = equipeTemAlteracoes(selectedEquipeId);
+
                       return (
-                        <button
-                          key={eq.id}
-                          className={cn(
-                            "w-full text-left p-4 hover:bg-muted/40 transition-all",
-                            isSelected && "bg-primary/5 border-l-4 border-l-primary"
+                        <div className="divide-y">
+                          {/* Barra de ações de edição */}
+                          {temAlteracoes && (
+                            <div className="p-2 bg-blue-50 dark:bg-blue-950/30 border-b border-blue-200 dark:border-blue-800">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2 text-[10px] text-blue-700 dark:text-blue-400">
+                                  <Settings className="h-4 w-4" />
+                                  <span className="font-semibold">Alterações pendentes</span>
+                                </div>
+                                <div className="flex gap-1">
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-6 px-2 text-[10px]"
+                                    onClick={() => desfazerAlteracoesRota(selectedEquipeId)}
+                                  >
+                                    <Undo2 className="h-3 w-3 mr-1" />
+                                    Desfazer
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    className="h-6 px-2 text-[10px] bg-blue-600 hover:bg-blue-700"
+                                    disabled={salvandoRota}
+                                    onClick={() => salvarAlteracoesRota(selectedEquipeId)}
+                                  >
+                                    {salvandoRota ? (
+                                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                    ) : (
+                                      <Save className="h-3 w-3 mr-1" />
+                                    )}
+                                    Salvar
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
                           )}
-                          onClick={() => setSelectedEquipeId(isSelected ? null : eq.id)}
-                        >
-                          <div className="flex items-start justify-between">
-                            <div>
+                          
+                          {/* Resumo da Equipe */}
+                          <div className="p-3 bg-muted/20">
+                            <div className="flex items-center justify-between mb-2">
                               <div className="flex items-center gap-2">
-                                <span className="font-bold">{eq.codigo}</span>
+                                <span className="font-bold">{equipeSelecionada.codigo}</span>
                                 <Badge
                                   variant="outline"
                                   className={cn("text-[10px] px-1.5", statusConfig.bgColor, statusConfig.borderColor)}
@@ -1086,95 +1389,271 @@ export default function AcompanhamentoTempoReal() {
                                   {statusConfig.label}
                                 </Badge>
                               </div>
-                              <div className="text-xs text-muted-foreground truncate mt-0.5">
-                                {eq.nome}
+                              {equipeSelecionada.telefone && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7"
+                                  onClick={() => window.open(`tel:${equipeSelecionada.telefone}`)}
+                                >
+                                  <Phone className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
+                            </div>
+                            <div className="text-xs text-muted-foreground mb-2">{equipeSelecionada.nome}</div>
+                            
+                            {/* Progresso */}
+                            <div className="mb-2">
+                              <div className="flex items-center justify-between text-[10px] mb-1">
+                                <span className="text-muted-foreground">Progresso</span>
+                                <span className="font-medium">
+                                  {equipeSelecionada.metricas.concluidas}/{equipeSelecionada.metricas.totalOS} ({progresso}%)
+                                </span>
+                              </div>
+                              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-emerald-500 transition-all"
+                                  style={{ width: `${progresso}%` }}
+                                />
                               </div>
                             </div>
-                            {eq.telefone && (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  window.open(`tel:${eq.telefone}`);
-                                }}
-                              >
-                                <Phone className="h-4 w-4" />
-                              </Button>
-                            )}
-                          </div>
-
-                          {/* Progresso */}
-                          <div className="mt-3">
-                            <div className="flex items-center justify-between text-xs mb-1">
-                              <span className="text-muted-foreground">Progresso</span>
-                              <span className="font-medium">
-                                {eq.metricas.concluidas}/{eq.metricas.totalOS} ({progresso}%)
-                              </span>
-                            </div>
-                            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-emerald-500 transition-all"
-                                style={{ width: `${progresso}%` }}
-                              />
+                            
+                            {/* Métricas */}
+                            <div className="grid grid-cols-3 gap-2 text-[10px]">
+                              <div className="bg-card rounded p-2">
+                                <DollarSign className="h-3 w-3 text-muted-foreground mb-1" />
+                                <div className="font-bold">R$ {equipeSelecionada.metricas.valorProduzido.toLocaleString("pt-BR", { minimumFractionDigits: 0 })}</div>
+                                <div className="text-muted-foreground">Produzido</div>
+                              </div>
+                              <div className="bg-card rounded p-2">
+                                <Route className="h-3 w-3 text-muted-foreground mb-1" />
+                                <div className="font-bold">{equipeSelecionada.metricas.distanciaTotal.toFixed(1)} km</div>
+                                <div className="text-muted-foreground">Distância</div>
+                              </div>
+                              <div className="bg-card rounded p-2">
+                                <Clock className="h-3 w-3 text-muted-foreground mb-1" />
+                                <div className="font-bold">{Math.floor(equipeSelecionada.metricas.tempoEstimado / 60)}h{equipeSelecionada.metricas.tempoEstimado % 60}m</div>
+                                <div className="text-muted-foreground">Tempo Est.</div>
+                              </div>
                             </div>
                           </div>
 
-                          {/* Métricas */}
-                          <div className="flex items-center gap-3 mt-3 text-xs">
-                            <span className="flex items-center gap-1 text-muted-foreground">
-                              <DollarSign className="h-3 w-3" />
-                              R$ {eq.metricas.valorProduzido.toLocaleString("pt-BR", { minimumFractionDigits: 0 })}
-                            </span>
-                            <span className="flex items-center gap-1 text-muted-foreground">
-                              <Route className="h-3 w-3" />
-                              {eq.metricas.distanciaTotal.toFixed(1)} km
-                            </span>
+                          {/* Lista de OSs */}
+                          <div className="p-2">
+                            <div className="flex items-center justify-between mb-2 px-1">
+                              <div className="text-xs font-semibold text-muted-foreground">
+                                Sequência de OSs ({ordensParaExibir.length}):
+                              </div>
+                              <div className="text-[9px] text-muted-foreground">
+                                Use ↑↓ para reordenar
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              {ordensParaExibir.map((os, idx) => {
+                                const isSelected = selectedOSId === os.id || osSelecionadaNoEditor === os.id;
+                                const isUrgente = os.regulada && os.prazo && new Date(os.prazo) <= new Date();
+                                const isConcluida = os.status === "concluida";
+                                const isEmAndamento = ["em_deslocamento", "no_local", "em_execucao", "em_andamento", "pausada"].includes(os.status);
+                                const podeMover = os.status === "planejada"; // Só pode mover OS que ainda não foi iniciada
+                                const podeSubir = podeMover && idx > 0 && ordensParaExibir[idx - 1]?.status === "planejada";
+                                const podeDescer = podeMover && idx < ordensParaExibir.length - 1;
+                                
+                                return (
+                                  <div
+                                    key={os.id}
+                                    className={cn(
+                                      "p-2 rounded-lg border transition-all",
+                                      isSelected && "ring-2 ring-primary bg-primary/5",
+                                      isConcluida && "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800",
+                                      isUrgente && !isConcluida && "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800",
+                                      isEmAndamento && !isConcluida && !isUrgente && "bg-violet-50 dark:bg-violet-950/30 border-violet-200 dark:border-violet-800",
+                                      !isSelected && !isConcluida && !isUrgente && !isEmAndamento && "bg-card hover:bg-muted/40"
+                                    )}
+                                  >
+                                    <div className="flex items-start gap-2">
+                                      {/* Botões de ordenação */}
+                                      <div className="flex flex-col gap-0.5">
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className={cn("h-5 w-5", !podeSubir && "opacity-30 cursor-not-allowed")}
+                                          disabled={!podeSubir}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            moverOSParaCima(selectedEquipeId, os.id);
+                                          }}
+                                          title="Mover para cima"
+                                        >
+                                          <ArrowUp className="h-3 w-3" />
+                                        </Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className={cn("h-5 w-5", !podeDescer && "opacity-30 cursor-not-allowed")}
+                                          disabled={!podeDescer}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            moverOSParaBaixo(selectedEquipeId, os.id);
+                                          }}
+                                          title="Mover para baixo"
+                                        >
+                                          <ArrowDown className="h-3 w-3" />
+                                        </Button>
+                                      </div>
+                                      
+                                      {/* Número da ordem */}
+                                      <div 
+                                        className={cn(
+                                          "flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white cursor-pointer",
+                                          isConcluida ? "bg-emerald-500" : isUrgente ? "bg-red-500" : isEmAndamento ? "bg-violet-500" : "bg-primary"
+                                        )}
+                                        onClick={() => {
+                                          setSelectedOSId(os.id);
+                                          setOsSelecionadaNoEditor(os.id);
+                                          setOrdemDetalhesId(os.id);
+                                          setDetalhesOpen(true);
+                                        }}
+                                      >
+                                        {idx + 1}
+                                      </div>
+                                      
+                                      {/* Conteúdo */}
+                                      <div 
+                                        className="flex-1 min-w-0 cursor-pointer"
+                                        onClick={() => {
+                                          setSelectedOSId(os.id);
+                                          setOsSelecionadaNoEditor(os.id);
+                                          setOrdemDetalhesId(os.id);
+                                          setDetalhesOpen(true);
+                                        }}
+                                      >
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                          <span className="font-semibold text-xs">{os.numero}</span>
+                                          {os.regulada && <Zap className={cn("h-3 w-3", isUrgente ? "text-red-500" : "text-orange-500")} />}
+                                          {isConcluida && <CheckCircle2 className="h-3 w-3 text-emerald-500" />}
+                                          {os.status === "em_execucao" && <Play className="h-3 w-3 text-violet-500" />}
+                                          {os.status === "em_deslocamento" && <Car className="h-3 w-3 text-sky-500" />}
+                                          {os.status === "pausada" && <Timer className="h-3 w-3 text-amber-500" />}
+                                        </div>
+                                        <div className="text-[10px] text-muted-foreground truncate mt-0.5">
+                                          {os.endereco}
+                                        </div>
+                                        <div className="flex items-center gap-2 mt-1 text-[9px]">
+                                          {os.horaInicioEstimada && (
+                                            <span className="flex items-center gap-0.5 text-muted-foreground">
+                                              <Clock className="h-2.5 w-2.5" />
+                                              {os.horaInicioEstimada.slice(0, 5)} - {os.horaFimEstimada?.slice(0, 5)}
+                                            </span>
+                                          )}
+                                          {os.distanciaKm != null && os.distanciaKm > 0 && (
+                                            <span className="flex items-center gap-0.5 text-muted-foreground">
+                                              <Route className="h-2.5 w-2.5" />
+                                              {os.distanciaKm.toFixed(1)}km
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                      
+                                      {/* Status Badge e Botão Remover */}
+                                      <div className="flex flex-col items-end gap-1">
+                                        <Badge 
+                                          variant="outline" 
+                                          className={cn(
+                                            "text-[8px] shrink-0",
+                                            isConcluida && "bg-emerald-100 text-emerald-700 border-emerald-300",
+                                            os.status === "em_execucao" && "bg-violet-100 text-violet-700 border-violet-300",
+                                            os.status === "em_deslocamento" && "bg-sky-100 text-sky-700 border-sky-300",
+                                            os.status === "planejada" && "bg-slate-100 text-slate-700 border-slate-300"
+                                          )}
+                                        >
+                                          {statusLabels[os.status] || os.status}
+                                        </Badge>
+                                        {podeMover && (
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-5 w-5 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              removerOSDaRota(selectedEquipeId, os.id);
+                                            }}
+                                            title="Remover da rota"
+                                          >
+                                            <Trash2 className="h-3 w-3" />
+                                          </Button>
+                                        )}
+                                      </div>
+                                    </div>
+                                    
+                                    {/* Aviso se não pode editar */}
+                                    {!podeMover && !isConcluida && (
+                                      <div className="mt-2 pt-2 border-t border-dashed text-[9px] text-amber-600 flex items-center gap-1">
+                                        <AlertTriangle className="h-3 w-3" />
+                                        {isEmAndamento ? "OS em andamento - não pode ser movida" : "Aguarde para editar"}
+                                      </div>
+                                    )}
+                                    {isConcluida && (
+                                      <div className="mt-2 pt-2 border-t border-dashed text-[9px] text-emerald-600 flex items-center gap-1">
+                                        <CheckCircle2 className="h-3 w-3" />
+                                        OS concluída
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                              
+                              {ordensParaExibir.length === 0 && (
+                                <div className="text-center py-8 text-muted-foreground text-sm">
+                                  <Route className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                                  Nenhuma OS nesta rota
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </button>
+                        </div>
                       );
-                    })}
-                  </div>
-                </ScrollArea>
-              </CardContent>
-            </Card>
-          </div>
+                    })()}
+                  </ScrollArea>
+                </CardContent>
+              </Card>
+            </div>
 
-          {/* Mapa */}
-          <div className="xl:col-span-9">
-            <Card className="h-[650px]">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    <Map className="h-4 w-4" />
-                    Mapa de Rotas
-                  </span>
-                  {selectedRoute && (
-                    <Badge variant="secondary">{selectedRoute.codigo}</Badge>
-                  )}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-0 h-[590px]">
-                <MapaTorreControle
-                  points={mapaPoints}
-                  selectedEquipeId={selectedEquipeId}
-                  selectedOSId={selectedOSId}
-                  routeGeometry={routeGeometry}
-                  executedGeometry={null}
-                  isRouteLoading={routeLoading}
-                  onSelect={(p) => {
-                    if (p.kind === "equipe") {
-                      setSelectedEquipeId(p.equipeId || p.id);
-                      setSelectedOSId(null);
-                    } else {
-                      setSelectedOSId(p.id);
-                      if (p.equipeId) setSelectedEquipeId(p.equipeId);
-                    }
-                  }}
-                />
-              </CardContent>
-            </Card>
+            {/* Mapa - Direita */}
+            <div className="xl:col-span-8">
+              <Card className="h-[650px] overflow-hidden">
+                <CardHeader className="pb-2 border-b">
+                  <CardTitle className="text-base flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <MapIcon className="h-4 w-4" />
+                      Mapa de Rotas
+                    </span>
+                    {selectedEquipeId && (
+                      <Badge variant="secondary">
+                        {equipesFiltradas.find(e => e.id === selectedEquipeId)?.codigo}
+                      </Badge>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0 h-[590px]">
+                  <MapaLeaflet
+                    rotas={rotasParaMapa}
+                    osPendentes={[]}
+                    equipesMock={equipesParaMapa}
+                    equipeHovered={equipeHovered}
+                    equipeEditando={selectedEquipeId}
+                    osSelecionada={selectedOSId}
+                    territorios={territorios || []}
+                    onOSSelecionada={(osId) => {
+                      setSelectedOSId(osId);
+                      if (osId) {
+                        setOrdemDetalhesId(osId);
+                        setDetalhesOpen(true);
+                      }
+                    }}
+                  />
+                </CardContent>
+              </Card>
+            </div>
           </div>
         </div>
       )}

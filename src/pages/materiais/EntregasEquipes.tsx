@@ -218,20 +218,34 @@ export default function EntregasEquipes() {
     },
   });
 
-  // Query para equipes
+  // Query para equipes (todas as equipes ativas)
   const { data: equipes } = useQuery({
-    queryKey: ["equipes-ativas"],
+    queryKey: ["equipes-todas"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("tecnicos")
-        .select("id, codigo, nome")
-        .in("status", ["disponivel", "em_campo"])
+        .select("id, codigo, nome, status")
         .order("codigo");
 
       if (error) throw error;
       return data;
     },
   });
+
+  // Estado para pesquisa de equipe no dialog
+  const [buscaEquipe, setBuscaEquipe] = useState("");
+
+  // Equipes filtradas pela busca
+  const equipesFiltradas = useMemo(() => {
+    if (!equipes) return [];
+    if (!buscaEquipe.trim()) return equipes;
+    
+    const term = buscaEquipe.toLowerCase();
+    return equipes.filter((eq: any) => 
+      eq.codigo?.toLowerCase().includes(term) || 
+      eq.nome?.toLowerCase().includes(term)
+    );
+  }, [equipes, buscaEquipe]);
 
   // Query para materiais
   const { data: materiais } = useQuery({
@@ -739,7 +753,10 @@ export default function EntregasEquipes() {
               </p>
             </div>
           </div>
-          <Button onClick={() => setDialogOpen(true)}>
+          <Button onClick={() => {
+            setBuscaEquipe("");
+            setDialogOpen(true);
+          }}>
             <Plus className="h-4 w-4 mr-2" />
             Nova Entrega
           </Button>
@@ -950,7 +967,12 @@ export default function EntregasEquipes() {
         </Card>
 
         {/* Dialog de Nova Entrega */}
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <Dialog open={dialogOpen} onOpenChange={(open) => {
+          setDialogOpen(open);
+          if (!open) {
+            setBuscaEquipe("");
+          }
+        }}>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Nova Entrega de Materiais</DialogTitle>
@@ -972,19 +994,46 @@ export default function EntregasEquipes() {
                     <SelectValue placeholder="Selecione a equipe..." />
                   </SelectTrigger>
                   <SelectContent className="z-[9999]">
-                    {equipes && equipes.length > 0 ? (
-                      equipes.map((eq: any) => (
-                        <SelectItem key={eq.id} value={eq.id}>
-                          {eq.codigo} - {eq.nome}
-                        </SelectItem>
-                      ))
-                    ) : (
-                      <div className="p-2 text-sm text-muted-foreground text-center">
-                        Nenhuma equipe disponível
+                    {/* Campo de pesquisa */}
+                    <div className="p-2 border-b sticky top-0 bg-background">
+                      <div className="relative">
+                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Buscar equipe..."
+                          value={buscaEquipe}
+                          onChange={(e) => setBuscaEquipe(e.target.value)}
+                          className="pl-8 h-8 text-sm"
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                        />
                       </div>
-                    )}
+                    </div>
+                    <div className="max-h-60 overflow-y-auto">
+                      {equipesFiltradas && equipesFiltradas.length > 0 ? (
+                        equipesFiltradas.map((eq: any) => (
+                          <SelectItem key={eq.id} value={eq.id}>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">{eq.codigo}</span>
+                              <span className="text-muted-foreground">- {eq.nome}</span>
+                              {eq.status && eq.status !== "disponivel" && eq.status !== "em_campo" && (
+                                <Badge variant="outline" className="text-[10px] ml-1">
+                                  {eq.status}
+                                </Badge>
+                              )}
+                            </div>
+                          </SelectItem>
+                        ))
+                      ) : (
+                        <div className="p-2 text-sm text-muted-foreground text-center">
+                          {buscaEquipe ? "Nenhuma equipe encontrada" : "Nenhuma equipe disponível"}
+                        </div>
+                      )}
+                    </div>
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">
+                  {equipes?.length || 0} equipe(s) disponível(is)
+                </p>
               </div>
 
               {/* Adicionar itens */}
