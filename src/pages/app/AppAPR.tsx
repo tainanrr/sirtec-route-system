@@ -1399,10 +1399,41 @@ export default function AppAPR() {
     if (Array.isArray(resposta.resposta)) return resposta.resposta.length > 0;
     return resposta.resposta !== null && resposta.resposta !== undefined && resposta.resposta !== '';
   };
+  
+  // Verificar se uma pergunta condicional está visível (sua condição foi satisfeita)
+  const isPerguntaCondicionalVisivel = (pergunta: Pergunta): boolean => {
+    if (!pergunta.config?.condicional) return true; // Não é condicional, está sempre visível
+    
+    const { pergunta_id, valor } = pergunta.config.condicional;
+    const respostaPerguntaOrigem = respostas[pergunta_id];
+    
+    if (!respostaPerguntaOrigem) return false;
+    
+    // Verificar se a resposta da pergunta de origem corresponde ao valor esperado
+    const respostaValor = respostaPerguntaOrigem.resposta;
+    if (Array.isArray(respostaValor)) {
+      return respostaValor.includes(valor);
+    }
+    return String(respostaValor).toLowerCase() === String(valor).toLowerCase();
+  };
+  
+  // Verificar se uma pergunta é efetivamente obrigatória 
+  // (obrigatória nativa OU tornou-se obrigatória por condição e está visível)
+  const isPerguntaEfetivamenteObrigatoria = (pergunta: Pergunta): boolean => {
+    // Se é obrigatória nativa, sempre conta
+    if (pergunta.obrigatoria) return true;
+    
+    // Se tem configuração condicional que a torna obrigatória e está visível
+    if (pergunta.config?.condicional?.torna_obrigatoria && isPerguntaCondicionalVisivel(pergunta)) {
+      return true;
+    }
+    
+    return false;
+  };
 
   const getProgressoGrupo = (grupo: GrupoPerguntas) => {
-    // Contar apenas perguntas obrigatórias para determinar se o grupo está completo
-    const perguntasObrigatoriasGrupo = grupo.perguntas.filter(p => p.obrigatoria);
+    // Contar perguntas efetivamente obrigatórias (incluindo condicionais visíveis)
+    const perguntasObrigatoriasGrupo = grupo.perguntas.filter(p => isPerguntaEfetivamenteObrigatoria(p));
     const obrigatoriasRespondidas = perguntasObrigatoriasGrupo.filter(p => isPerguntaRespondida(p)).length;
     const totalObrigatorias = perguntasObrigatoriasGrupo.length;
     
@@ -1458,8 +1489,8 @@ export default function AppAPR() {
     );
   }
 
-  // Filtrar apenas perguntas obrigatórias para o cálculo de progresso
-  const perguntasObrigatorias = todasPerguntas.filter(p => p.obrigatoria);
+  // Filtrar perguntas efetivamente obrigatórias (incluindo condicionais visíveis)
+  const perguntasObrigatorias = todasPerguntas.filter(p => isPerguntaEfetivamenteObrigatoria(p));
   const perguntasObrigatoriasRespondidas = perguntasObrigatorias.filter(p => isPerguntaRespondida(p)).length;
   const totalPerguntasObrigatorias = perguntasObrigatorias.length;
   const progresso = totalPerguntasObrigatorias > 0 

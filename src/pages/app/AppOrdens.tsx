@@ -517,7 +517,7 @@ export default function AppOrdens() {
               key={ordem.id}
                 className={`cursor-pointer hover:shadow-md transition-all ${
                   isEmAndamento
-                    ? "border-l-4 border-l-orange-500 bg-orange-50/50 ring-2 ring-orange-200"
+                    ? "border-2 border-orange-500 bg-gradient-to-r from-orange-100 to-amber-50 shadow-lg shadow-orange-200/50 animate-pulse ring-2 ring-orange-400"
                     : isConcluida 
                       ? "border-l-4 border-l-green-500 bg-green-50/50" 
                       : isCancelada

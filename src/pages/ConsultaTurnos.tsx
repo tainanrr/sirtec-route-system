@@ -200,6 +200,15 @@ interface OsPlanejadaTurno {
   posicaoExecutada?: number | null;
   // Indica se há quebra de sequência (pulou uma OS)
   quebraSequencia?: boolean;
+  // Retorno de campo
+  retornoCampo?: {
+    codigo: string;
+    descricao: string;
+    tipo: string;
+  } | null;
+  // Indica se a conclusão foi em data diferente do turno
+  concluidaForaDoTurno?: boolean;
+  dataConclusao?: string | null;
 }
 
 // Constantes de paginação
@@ -243,6 +252,24 @@ export default function ConsultaTurnos() {
         .select("id, codigo, nome")
         .order("codigo");
       return data || [];
+    },
+  });
+  
+  // Buscar tipos de serviço (skills) para exibir descrição
+  const { data: tiposServico } = useQuery({
+    queryKey: ["tipos-servico-descricao"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("skills")
+        .select("codigo, descricao");
+      // Criar um Map para lookup rápido
+      const map = new Map<string, string>();
+      (data || []).forEach((s: { codigo: string; descricao: string }) => {
+        map.set(s.codigo, s.descricao);
+        map.set(s.codigo.toLowerCase(), s.descricao);
+        map.set(s.codigo.toUpperCase(), s.descricao);
+      });
+      return map;
     },
   });
 
@@ -500,6 +527,16 @@ export default function ConsultaTurnos() {
           // Posição de execução
           const posicaoExecutada = posicaoExecucaoPorOS.get(osId) || null;
           
+          // Retorno de campo (da produção)
+          const retornoCampo = producao?.retornos_campo || null;
+          
+          // Verificar se foi concluída em data diferente do turno
+          const dataTurno = dataInicio;
+          const dataConclusao = op.ordens_servico.concluido_at 
+            ? op.ordens_servico.concluido_at.substring(0, 10) 
+            : null;
+          const concluidaForaDoTurno = dataConclusao && dataConclusao !== dataTurno;
+          
           return {
             id: op.id,
             ordem_na_rota: op.ordem_na_rota,
@@ -512,30 +549,48 @@ export default function ConsultaTurnos() {
             ultimoMovimento,
             posicaoExecutada,
             quebraSequencia: false, // Será calculado depois
+            retornoCampo,
+            concluidaForaDoTurno,
+            dataConclusao,
           };
         });
       
       // Calcular quebras de sequência
-      // Uma quebra ocorre quando a posição executada não corresponde à esperada na sequência
-      let ultimaPosicaoEsperada = 0;
+      // Uma quebra ocorre quando uma OS é executada fora da ordem planejada
+      // Exemplo: Se executou a OS planejada como 4ª em 1º lugar (pulando 1, 2, 3), é uma quebra
+      // Exemplo: Se executou a OS planejada como 1ª em 1º, e depois a 4ª em 2º (pulando 2, 3), a 4ª tem quebra
       const osExecutadasOrdenadas = osPlanejadaProcessadas
         .filter(os => os.posicaoExecutada !== null)
         .sort((a, b) => (a.posicaoExecutada || 0) - (b.posicaoExecutada || 0));
       
-      osExecutadasOrdenadas.forEach((os, index) => {
-        if (index === 0) {
-          ultimaPosicaoEsperada = os.ordem_na_rota;
-        } else {
-          // Verificar se pulou alguma OS planejada
-          const posicaoPlanejadaAnterior = osExecutadasOrdenadas[index - 1].ordem_na_rota;
-          const posicaoPlanejadaAtual = os.ordem_na_rota;
-          
-          // Se a posição planejada atual é menor que a anterior (voltou), é uma quebra
-          // OU se pulou mais de 1 posição na sequência planejada original
-          if (posicaoPlanejadaAtual < posicaoPlanejadaAnterior) {
-            const osOriginal = osPlanejadaProcessadas.find(o => o.ordem_servico_id === os.ordem_servico_id);
-            if (osOriginal) osOriginal.quebraSequencia = true;
+      let menorPosicaoNaoExecutada = 1; // A menor posição planejada que ainda não foi executada
+      const posicoesExecutadas = new Set<number>();
+      
+      osExecutadasOrdenadas.forEach((os) => {
+        const posicaoPlanejada = os.ordem_na_rota;
+        
+        // Verificar se há alguma OS com posição planejada menor que esta que não foi executada ainda
+        // Se sim, esta OS "pulou" na sequência
+        let temOsAnteriorNaoExecutada = false;
+        for (let i = menorPosicaoNaoExecutada; i < posicaoPlanejada; i++) {
+          // Verificar se existe uma OS planejada com essa posição que não foi executada
+          const osPosicao = osPlanejadaProcessadas.find(o => o.ordem_na_rota === i);
+          if (osPosicao && !posicoesExecutadas.has(i)) {
+            temOsAnteriorNaoExecutada = true;
+            break;
           }
+        }
+        
+        if (temOsAnteriorNaoExecutada) {
+          const osOriginal = osPlanejadaProcessadas.find(o => o.ordem_servico_id === os.ordem_servico_id);
+          if (osOriginal) osOriginal.quebraSequencia = true;
+        }
+        
+        posicoesExecutadas.add(posicaoPlanejada);
+        
+        // Atualizar a menor posição não executada
+        while (posicoesExecutadas.has(menorPosicaoNaoExecutada)) {
+          menorPosicaoNaoExecutada++;
         }
       });
       
@@ -1227,6 +1282,7 @@ export default function ConsultaTurnos() {
                                 <TableHead>OS</TableHead>
                                 <TableHead>Tipo</TableHead>
                                 <TableHead>Status</TableHead>
+                                <TableHead>Retorno</TableHead>
                                 <TableHead>Último Movimento</TableHead>
                                 <TableHead>Prazo</TableHead>
                                 <TableHead>Execução</TableHead>
@@ -1337,14 +1393,37 @@ export default function ConsultaTurnos() {
                                     <TableCell>
                                       <span className="font-mono text-sm">{os.ordens_servico.numero}</span>
                                     </TableCell>
-                                    <TableCell className="text-sm">{os.ordens_servico.tipo}</TableCell>
+                                    <TableCell className="text-sm">
+                                      {tiposServico?.get(os.ordens_servico.tipo) || os.ordens_servico.tipo}
+                                    </TableCell>
                                     <TableCell>
                                       <div className="space-y-1">
                                         {statusBadge}
                                         {statusInfo && (
                                           <p className="text-[10px] text-muted-foreground">{statusInfo}</p>
                                         )}
+                                        {os.concluidaForaDoTurno && (
+                                          <Badge variant="outline" className="border-purple-500 text-purple-700 text-[10px]">
+                                            Concl. {os.dataConclusao ? format(parseISO(os.dataConclusao), "dd/MM") : ""}
+                                          </Badge>
+                                        )}
                                       </div>
+                                    </TableCell>
+                                    <TableCell>
+                                      {os.retornoCampo ? (
+                                        <Badge 
+                                          variant="outline" 
+                                          className={cn(
+                                            "text-xs",
+                                            os.retornoCampo.tipo === "executado" && "border-green-500 text-green-700 bg-green-50",
+                                            os.retornoCampo.tipo === "impedimento" && "border-red-500 text-red-700 bg-red-50"
+                                          )}
+                                        >
+                                          {os.retornoCampo.descricao || os.retornoCampo.codigo}
+                                        </Badge>
+                                      ) : (
+                                        <span className="text-xs text-muted-foreground">-</span>
+                                      )}
                                     </TableCell>
                                     <TableCell>
                                       {os.ultimoMovimento ? (
