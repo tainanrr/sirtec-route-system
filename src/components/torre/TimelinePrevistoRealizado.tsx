@@ -352,43 +352,50 @@ export function TimelinePrevistoRealizado({ dateISO, equipes, onSelectEquipe, on
   };
 
   return (
-    <Card className="overflow-hidden border-2 border-primary/20">
+    <Card className="overflow-hidden border-2 border-primary/20 w-full">
       <CardHeader className="pb-3 border-b bg-gradient-to-r from-primary/5 to-transparent">
-        <CardTitle className="text-lg flex items-center justify-between">
-          <span className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-primary/10">
-              <Clock className="h-5 w-5 text-primary" />
+        <CardTitle className="text-lg">
+          <div className="flex flex-col gap-3">
+            {/* Título e Data */}
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <span className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-primary/10">
+                  <Clock className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <div className="font-bold">Timeline Previsto vs Realizado</div>
+                  <div className="text-sm font-normal text-muted-foreground">
+                    {format(new Date(`${dateISO}T12:00:00`), "EEEE, dd 'de' MMMM", { locale: ptBR })}
+                  </div>
+                </div>
+              </span>
+              <Badge variant="secondary" className="text-sm">
+                {equipesFiltradas.length} equipe{equipesFiltradas.length !== 1 ? "s" : ""}
+              </Badge>
             </div>
-            <div>
-              <div className="font-bold">Timeline Previsto vs Realizado</div>
-              <div className="text-sm font-normal text-muted-foreground">
-                {format(new Date(`${dateISO}T12:00:00`), "EEEE, dd 'de' MMMM", { locale: ptBR })}
+            {/* Controles */}
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted/50">
+                <span className="text-xs font-medium text-muted-foreground">Mostrar Realizado</span>
+                <Switch checked={mostrarRealizado} onCheckedChange={setMostrarRealizado} />
+              </div>
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted/50">
+                <span className="text-xs font-medium text-muted-foreground">Só Problemas</span>
+                <Switch checked={filtrarComProblema} onCheckedChange={setFiltrarComProblema} />
               </div>
             </div>
-          </span>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted/50">
-              <span className="text-xs font-medium text-muted-foreground">Mostrar Realizado</span>
-              <Switch checked={mostrarRealizado} onCheckedChange={setMostrarRealizado} />
-            </div>
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted/50">
-              <span className="text-xs font-medium text-muted-foreground">Só Problemas</span>
-              <Switch checked={filtrarComProblema} onCheckedChange={setFiltrarComProblema} />
-            </div>
-            <Badge variant="secondary" className="text-sm">
-              {equipesFiltradas.length} equipe{equipesFiltradas.length !== 1 ? "s" : ""}
-            </Badge>
           </div>
         </CardTitle>
       </CardHeader>
 
       <CardContent className="p-0">
-        {/* Controle de Zoom */}
+        {/* Controle de Zoom e Legenda */}
         <div className="p-3 border-b bg-muted/20">
-          <div className="flex items-center gap-6">
+          <div className="flex flex-col gap-3">
+            {/* Zoom */}
             <div className="flex items-center gap-3">
               <span className="text-xs font-medium text-muted-foreground">Zoom:</span>
-              <div className="w-40">
+              <div className="w-32">
                 <Slider
                   value={[zoom]}
                   min={1}
@@ -401,7 +408,7 @@ export function TimelinePrevistoRealizado({ dateISO, equipes, onSelectEquipe, on
             </div>
             
             {/* Legenda */}
-            <div className="flex items-center gap-2 ml-auto text-[9px] flex-wrap">
+            <div className="flex items-center gap-2 text-[9px] flex-wrap">
               <span className="text-muted-foreground font-medium">Legenda:</span>
               <span className="flex items-center gap-1">
                 <span className="h-3 w-5 rounded bg-emerald-500 border border-emerald-600" /> No prazo
@@ -435,7 +442,7 @@ export function TimelinePrevistoRealizado({ dateISO, equipes, onSelectEquipe, on
               <span className="text-sm font-semibold text-muted-foreground">Equipe / Status</span>
             </div>
             <ScrollArea 
-              className="h-[500px]" 
+              className="max-h-[400px]" 
               ref={equipesScrollRef}
               onScrollCapture={(e: any) => {
                 const scrollTop = e.target?.scrollTop;
@@ -572,7 +579,7 @@ export function TimelinePrevistoRealizado({ dateISO, equipes, onSelectEquipe, on
 
             {/* Lanes das equipes */}
             <div 
-              className="h-[500px] overflow-auto scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent" 
+              className="max-h-[400px] overflow-auto scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent" 
               ref={timelineScrollRef}
               style={{ scrollbarWidth: 'thin' }}
               onScroll={(e: any) => {

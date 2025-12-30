@@ -1570,17 +1570,19 @@ export default function ConsultaTurnos() {
 
                       {/* Timeline Planejado x Executado */}
                       {turnoDetalhes?.osPlanejadas && turnoDetalhes.osPlanejadas.length > 0 && timelineEquipes.length > 0 && dataTurnoSelecionado && (
-                        <div className="mt-6">
-                          <TimelinePrevistoRealizado
-                            dateISO={dataTurnoSelecionado}
-                            equipes={timelineEquipes}
-                            onSelectEquipe={() => {}}
-                            onSelectOS={(osId) => {
-                              setSelectedOsId(osId);
-                              setOsDialogOpen(true);
-                            }}
-                            selectedEquipeId={selectedTurno?.equipe_id}
-                          />
+                        <div className="mt-6 -mx-4 px-4 overflow-x-auto">
+                          <div className="min-w-0">
+                            <TimelinePrevistoRealizado
+                              dateISO={dataTurnoSelecionado}
+                              equipes={timelineEquipes}
+                              onSelectEquipe={() => {}}
+                              onSelectOS={(osId) => {
+                                setSelectedOsId(osId);
+                                setOsDialogOpen(true);
+                              }}
+                              selectedEquipeId={selectedTurno?.equipe_id}
+                            />
+                          </div>
                         </div>
                       )}
                     </TabsContent>
