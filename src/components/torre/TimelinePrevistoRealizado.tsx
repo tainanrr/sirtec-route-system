@@ -250,7 +250,7 @@ export function TimelinePrevistoRealizado({ dateISO, equipes, onSelectEquipe, on
   const headerScrollRef = useRef<HTMLDivElement>(null);
   const timelineScrollRef = useRef<HTMLDivElement>(null);
   const equipesScrollRef = useRef<HTMLDivElement>(null);
-  const [zoom, setZoom] = useState(2);
+  const [zoom, setZoom] = useState(1);
   const [filtrarComProblema, setFiltrarComProblema] = useState(false);
   const [expandido, setExpandido] = useState<string | null>(null);
   const [mostrarRealizado, setMostrarRealizado] = useState(true);
@@ -259,7 +259,8 @@ export function TimelinePrevistoRealizado({ dateISO, equipes, onSelectEquipe, on
   const dayStartMin = 6 * 60; // 06:00
   const dayEndMin = 22 * 60; // 22:00
   const totalMin = dayEndMin - dayStartMin;
-  const widthPx = Math.max(1200, Math.round(totalMin * zoom));
+  // Largura base menor para caber em telas menores (Dialog ~900px - 224px da coluna equipe = ~680px disponível)
+  const widthPx = Math.max(600, Math.round(totalMin * zoom * 0.8));
   const pixelsPerMinute = widthPx / totalMin;
 
   // Linha do tempo atual (recalculada a cada mudança de zoom)
@@ -541,9 +542,9 @@ export function TimelinePrevistoRealizado({ dateISO, equipes, onSelectEquipe, on
           </div>
 
           {/* Área da timeline (scrollável) */}
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 min-w-0 overflow-x-auto">
             {/* Header com horas - sincronizado horizontalmente */}
-            <div className="h-12 border-b relative overflow-hidden">
+            <div className="h-12 border-b relative">
               <div 
                 className="h-full overflow-x-auto scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent" 
                 ref={headerScrollRef}
