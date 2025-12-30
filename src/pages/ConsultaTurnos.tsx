@@ -91,6 +91,7 @@ import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 import { OrdemServicoDetalhesDialog } from "@/components/ordens/OrdemServicoDetalhesDialog";
 import { ChecklistDetalhesDialog } from "@/components/checklists/ChecklistDetalhesDialog";
+import { TimelinePrevistoRealizado, type TimelineEquipeCompleta, type TimelineOrdemServico, type TimelineIntervalo } from "@/components/torre/TimelinePrevistoRealizado";
 
 interface Turno {
   id: string;
@@ -272,6 +273,15 @@ export default function ConsultaTurnos() {
       return map;
     },
   });
+
+  // Criar mapa de equipes para lookup rápido
+  const equipesMap = useMemo(() => {
+    const map = new Map<string, { id: string; codigo: string; nome: string }>();
+    (equipes || []).forEach(eq => {
+      map.set(eq.id, eq);
+    });
+    return map;
+  }, [equipes]);
 
   // Buscar turnos
   const { data: turnosData, isLoading, refetch } = useQuery({
@@ -684,6 +694,79 @@ export default function ConsultaTurnos() {
       taxaExecucao: qtdOsPlanejadas > 0 ? (osExecutadasNesteTurno / qtdOsPlanejadas) * 100 : 0,
     };
   }, [selectedTurno, turnoDetalhes]);
+
+  // Converter dados do turno para formato da Timeline
+  const timelineEquipes = useMemo((): TimelineEquipeCompleta[] => {
+    if (!selectedTurno || !turnoDetalhes) return [];
+    
+    const equipe = equipesMap.get(selectedTurno.equipe_id);
+    if (!equipe) return [];
+    
+    const osPlanejadas = turnoDetalhes.osPlanejadas || [];
+    const intervalos = turnoDetalhes.intervalos || [];
+    
+    // Extrair hora do timestamp ISO
+    const extractTime = (isoString?: string | null): string | undefined => {
+      if (!isoString) return undefined;
+      try {
+        return format(parseISO(isoString), "HH:mm:ss");
+      } catch {
+        return undefined;
+      }
+    };
+    
+    // Determinar status da equipe baseado no turno
+    let status: "normal" | "atrasada" | "adiantada" | "ociosa" | "offline" | "em_intervalo" = "normal";
+    if (!selectedTurno.hora_fim) {
+      // Turno ainda aberto - verificar se há intervalo ativo
+      const intervaloAtivo = intervalos.some(i => i.hora_inicio && !i.hora_fim);
+      if (intervaloAtivo) {
+        status = "em_intervalo";
+      }
+    } else {
+      status = "offline"; // Turno fechado
+    }
+    
+    // Converter intervalos
+    const intervalosTimeline: TimelineIntervalo[] = intervalos.map(i => ({
+      id: i.id,
+      tipo: i.tipo_intervalo?.nome || "Intervalo",
+      horaInicio: extractTime(i.hora_inicio) || "",
+      horaFim: extractTime(i.hora_fim),
+      previsto: false,
+    }));
+    
+    // Converter OSs planejadas
+    const ordensTimeline: TimelineOrdemServico[] = osPlanejadas.map(os => ({
+      id: os.ordens_servico.id,
+      numero: os.ordens_servico.numero,
+      tipo: os.ordens_servico.tipo,
+      tipoDescricao: tiposServico?.get(os.ordens_servico.tipo) || os.ordens_servico.tipo,
+      status: (os.ordens_servico.status as any) || "planejada",
+      regulada: false,
+      prazo: os.ordens_servico.prazo || undefined,
+      ordemNaRota: os.ordem_na_rota,
+      endereco: os.ordens_servico.endereco || undefined,
+      // Horários realizados
+      deslocamentoIniciadoAt: extractTime(os.ordens_servico.deslocamento_iniciado_at),
+      chegadaLocalAt: extractTime(os.ordens_servico.chegada_local_at),
+      execucaoIniciadaAt: extractTime(os.ordens_servico.execucao_iniciada_at),
+      concluidoAt: extractTime(os.ordens_servico.concluido_at),
+      pausadoAt: extractTime(os.ordens_servico.pausado_at),
+    }));
+    
+    return [{
+      id: equipe.id,
+      codigo: equipe.codigo,
+      nome: equipe.nome,
+      ordens: ordensTimeline,
+      intervalos: intervalosTimeline,
+      turnoInicio: extractTime(selectedTurno.hora_inicio),
+      turnoFim: extractTime(selectedTurno.hora_fim),
+      status,
+      turnoAberto: !selectedTurno.hora_fim,
+    }];
+  }, [selectedTurno, turnoDetalhes, equipesMap, tiposServico]);
 
   // Funções auxiliares
   const formatDuracao = (minutos: number) => {
@@ -1477,6 +1560,22 @@ export default function ConsultaTurnos() {
                             </TableBody>
                           </Table>
                         </Card>
+                      )}
+
+                      {/* Timeline Planejado x Executado */}
+                      {turnoDetalhes?.osPlanejadas && turnoDetalhes.osPlanejadas.length > 0 && timelineEquipes.length > 0 && (
+                        <div className="mt-6">
+                          <TimelinePrevistoRealizado
+                            dateISO={dataInicio}
+                            equipes={timelineEquipes}
+                            onSelectEquipe={() => {}}
+                            onSelectOS={(osId) => {
+                              setSelectedOsId(osId);
+                              setOsDialogOpen(true);
+                            }}
+                            selectedEquipeId={selectedTurno?.equipe_id}
+                          />
+                        </div>
                       )}
                     </TabsContent>
 
