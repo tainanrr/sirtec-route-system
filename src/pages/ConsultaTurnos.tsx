@@ -1226,14 +1226,10 @@ export default function ConsultaTurnos() {
 
                   {/* Tabs com detalhes */}
                   <Tabs defaultValue="os-planejadas" className="w-full">
-                    <TabsList className="grid grid-cols-4">
+                    <TabsList className="grid grid-cols-3">
                       <TabsTrigger value="os-planejadas" className="text-xs">
                         <Route className="h-4 w-4 mr-1" />
-                        OSs ({turnoDetalhes?.osPlanejadas?.length || 0})
-                      </TabsTrigger>
-                      <TabsTrigger value="producao" className="text-xs">
-                        <DollarSign className="h-4 w-4 mr-1" />
-                        Produção ({turnoDetalhes?.producoes.length || 0})
+                        Planejado x Executado ({turnoDetalhes?.osPlanejadas?.length || 0})
                       </TabsTrigger>
                       <TabsTrigger value="intervalos" className="text-xs">
                         <Coffee className="h-4 w-4 mr-1" />
@@ -1478,72 +1474,6 @@ export default function ConsultaTurnos() {
                                   </TableRow>
                                 );
                               })}
-                            </TableBody>
-                          </Table>
-                        </Card>
-                      )}
-                    </TabsContent>
-
-                    {/* Tab Produção */}
-                    <TabsContent value="producao" className="mt-4">
-                      {turnoDetalhes?.producoes.length === 0 ? (
-                        <Card className="p-8 text-center">
-                          <FileText className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                          <p className="text-muted-foreground">Nenhuma produção registrada</p>
-                        </Card>
-                      ) : (
-                        <Card>
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead>Hora</TableHead>
-                                <TableHead>OS</TableHead>
-                                <TableHead>Tipo</TableHead>
-                                <TableHead>Retorno</TableHead>
-                                <TableHead className="text-right">Valor</TableHead>
-                                <TableHead></TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {turnoDetalhes?.producoes.map(prod => (
-                                <TableRow key={prod.id}>
-                                  <TableCell className="text-xs">
-                                    {format(parseISO(prod.created_at), "HH:mm")}
-                                  </TableCell>
-                                  <TableCell>
-                                    <span className="font-mono text-sm">{prod.ordens_servico?.numero || "-"}</span>
-                                  </TableCell>
-                                  <TableCell className="text-sm">{prod.ordens_servico?.tipo}</TableCell>
-                                  <TableCell>
-                                    <Badge 
-                                      variant="outline" 
-                                      className={cn(
-                                        "text-xs",
-                                        prod.retornos_campo?.tipo === "executado" && "border-green-500 text-green-700",
-                                        prod.retornos_campo?.tipo === "impedimento" && "border-red-500 text-red-700"
-                                      )}
-                                    >
-                                      {prod.retornos_campo?.descricao || "-"}
-                                    </Badge>
-                                  </TableCell>
-                                  <TableCell className="text-right font-medium">
-                                    {formatCurrency(prod.valor_total || 0)}
-                                  </TableCell>
-                                  <TableCell>
-                                    <Button 
-                                      variant="ghost" 
-                                      size="sm"
-                                      onClick={() => {
-                                        setSelectedOsId(prod.ordem_servico_id);
-                                        setOsDialogOpen(true);
-                                      }}
-                                      title="Ver OS"
-                                    >
-                                      <Eye className="h-3 w-3" />
-                                    </Button>
-                                  </TableCell>
-                                </TableRow>
-                              ))}
                             </TableBody>
                           </Table>
                         </Card>
