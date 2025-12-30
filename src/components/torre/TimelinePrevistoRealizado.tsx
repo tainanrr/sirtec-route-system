@@ -749,7 +749,78 @@ export function TimelinePrevistoRealizado({ dateISO, equipes, onSelectEquipe, on
                         {equipe.ordens.map((os, idx) => {
                           const startMin = toMinutes(os.horaInicioEstimada);
                           const endMin = toMinutes(os.horaFimEstimada);
-                          if (!startMin || !endMin) return null;
+                          
+                          // Se não há dados previstos, mostrar as OSs baseado na ordem na rota (distribuição visual)
+                          const temDadosPrevistos = startMin && endMin;
+                          if (!temDadosPrevistos) {
+                            // Calcular posição baseada na ordem na rota para visualização simplificada
+                            const totalOrdens = equipe.ordens.length;
+                            const minutosDisponiveis = dayEndMin - dayStartMin - 120; // Deixar margem
+                            const intervaloEntreOS = minutosDisponiveis / Math.max(1, totalOrdens);
+                            const osStartMin = dayStartMin + 60 + (os.ordemNaRota - 1) * intervaloEntreOS;
+                            const osEndMin = osStartMin + 30; // 30 min por OS aproximado
+                            
+                            const osStartX = Math.max(55, Math.round(((osStartMin - dayStartMin) / totalMin) * widthPx));
+                            const osEndX = Math.min(widthPx - 5, Math.round(((osEndMin - dayStartMin) / totalMin) * widthPx));
+                            const osW = Math.max(50, osEndX - osStartX);
+                            
+                            const foiConcluida = os.status === "concluida";
+                            const dentroDoPrazo = foiConcluidaDentroDoPrazo(os);
+                            const urgente = !foiConcluida && isReguladaUrgente(os);
+
+                            return (
+                              <TooltipProvider key={`prev-${os.id}`}>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      className={cn(
+                                        "absolute rounded-md border-2 px-1 flex items-center gap-1 transition-all hover:shadow-lg hover:scale-[1.02] z-30",
+                                        foiConcluida && dentroDoPrazo === true && "bg-emerald-500/30 border-solid border-emerald-500",
+                                        foiConcluida && dentroDoPrazo === false && "bg-red-900/50 border-solid border-red-900",
+                                        foiConcluida && dentroDoPrazo === null && "bg-slate-400/30 border-solid border-slate-500",
+                                        !foiConcluida && urgente && "bg-red-500/20 border-solid border-red-500 ring-2 ring-red-400 ring-offset-1 animate-pulse",
+                                        !foiConcluida && os.regulada && !urgente && "bg-card/80 backdrop-blur-sm border-dashed border-orange-500 ring-1 ring-orange-400",
+                                        !foiConcluida && !os.regulada && "bg-card/80 backdrop-blur-sm border-dashed border-slate-400"
+                                      )}
+                                      style={{
+                                        left: osStartX,
+                                        width: osW,
+                                        height: 26,
+                                        top: 3,
+                                      }}
+                                      onClick={() => onSelectOS(os.id, equipe.id)}
+                                    >
+                                      <Badge
+                                        variant="outline"
+                                        className={cn(
+                                          "text-[8px] h-3.5 px-0.5 shrink-0",
+                                          foiConcluida && "bg-emerald-500/30 text-emerald-700 border-emerald-500"
+                                        )}
+                                      >
+                                        {os.ordemNaRota}
+                                      </Badge>
+                                      <span className="text-[9px] font-medium truncate">
+                                        {os.numero}
+                                      </span>
+                                      {foiConcluida && <CheckCircle2 className="h-3 w-3 text-emerald-600 shrink-0" />}
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-xs bg-card border shadow-xl z-50">
+                                    <div className="space-y-1.5">
+                                      <div className="flex items-center gap-2">
+                                        <Badge variant="outline" className="text-xs">{os.ordemNaRota}ª</Badge>
+                                        <span className="font-bold">{os.numero}</span>
+                                      </div>
+                                      <div className="text-xs text-muted-foreground">{os.tipoDescricao || os.tipo}</div>
+                                      {os.endereco && <div className="text-xs text-muted-foreground truncate max-w-[200px]">{os.endereco}</div>}
+                                    </div>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            );
+                          }
+                          
+                          // Código original para OSs com dados previstos
 
                           const startX = Math.max(55, Math.round(((startMin - dayStartMin) / totalMin) * widthPx));
                           const endX = Math.min(widthPx - 5, Math.round(((endMin - dayStartMin) / totalMin) * widthPx));

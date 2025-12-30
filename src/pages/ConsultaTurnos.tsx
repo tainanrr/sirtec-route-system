@@ -764,7 +764,7 @@ export default function ConsultaTurnos() {
       turnoInicio: extractTime(selectedTurno.hora_inicio),
       turnoFim: extractTime(selectedTurno.hora_fim),
       status,
-      turnoAberto: !selectedTurno.hora_fim,
+      turnoAberto: true, // Sempre true para garantir que a equipe apareça na timeline
     }];
   }, [selectedTurno, turnoDetalhes, equipesMap, tiposServico]);
 
