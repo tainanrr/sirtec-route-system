@@ -255,19 +255,19 @@ export default function ConsultaTurnos() {
     },
   });
   
-  // Buscar tipos de serviço (skills) para exibir descrição
+  // Buscar tipos de serviço (skills) para exibir nome
   const { data: tiposServico } = useQuery({
-    queryKey: ["tipos-servico-descricao"],
+    queryKey: ["tipos-servico-nome"],
     queryFn: async () => {
       const { data } = await supabase
         .from("skills")
-        .select("codigo, descricao");
+        .select("codigo, nome");
       // Criar um Map para lookup rápido
       const map = new Map<string, string>();
-      (data || []).forEach((s: { codigo: string; descricao: string }) => {
-        map.set(s.codigo, s.descricao);
-        map.set(s.codigo.toLowerCase(), s.descricao);
-        map.set(s.codigo.toUpperCase(), s.descricao);
+      (data || []).forEach((s: { codigo: string; nome: string }) => {
+        map.set(s.codigo, s.nome);
+        map.set(s.codigo.toLowerCase(), s.nome);
+        map.set(s.codigo.toUpperCase(), s.nome);
       });
       return map;
     },
@@ -1325,6 +1325,13 @@ export default function ConsultaTurnos() {
                                     <Badge className="bg-orange-500 hover:bg-orange-600 text-xs">
                                       <Truck className="h-3 w-3 mr-1" />
                                       Em Deslocamento
+                                    </Badge>
+                                  );
+                                } else if (statusReal === "no_local") {
+                                  statusBadge = (
+                                    <Badge className="bg-cyan-500 hover:bg-cyan-600 text-xs">
+                                      <MapPin className="h-3 w-3 mr-1" />
+                                      No Local
                                     </Badge>
                                   );
                                 } else if (statusReal === "pausada") {

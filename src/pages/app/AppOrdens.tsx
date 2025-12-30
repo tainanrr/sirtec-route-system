@@ -27,7 +27,8 @@ import {
   RefreshCw,
   Loader2,
   Map as MapIcon,
-  X
+  X,
+  MapPin
 } from "lucide-react";
 import {
   Dialog,
@@ -85,6 +86,7 @@ const statusConfig: Record<string, { label: string; variant: "default" | "second
   pendente: { label: "Pendente", variant: "secondary", icon: Clock, color: "text-gray-500" },
   planejada: { label: "Planejada", variant: "secondary", icon: Calendar, color: "text-blue-500" },
   em_deslocamento: { label: "Em Deslocamento", variant: "default", icon: Truck, color: "text-orange-500" },
+  no_local: { label: "No Local", variant: "default", icon: MapPin, color: "text-cyan-500" },
   em_andamento: { label: "Em Execução", variant: "default", icon: PlayCircle, color: "text-blue-600" },
   em_execucao: { label: "Em Execução", variant: "default", icon: PlayCircle, color: "text-blue-600" },
   pausada: { label: "Pausada", variant: "outline", icon: PauseCircle, color: "text-amber-500" },
@@ -300,7 +302,7 @@ export default function AppOrdens() {
 
     if (activeTab === "todas") return matchesSearch;
     if (activeTab === "pendentes") return matchesSearch && (status === "pendente" || status === "planejada");
-    if (activeTab === "andamento") return matchesSearch && (status === "em_deslocamento" || status === "em_andamento" || status === "em_execucao" || status === "pausada");
+    if (activeTab === "andamento") return matchesSearch && (status === "em_deslocamento" || status === "em_andamento" || status === "em_execucao" || status === "no_local" || status === "pausada");
     if (activeTab === "concluidas") return matchesSearch && status === "concluida";
 
     return matchesSearch;
@@ -510,7 +512,7 @@ export default function AppOrdens() {
             
             const isConcluida = status === "concluida";
             const isCancelada = status === "cancelada";
-            const isEmAndamento = status === "em_deslocamento" || status === "em_andamento" || status === "em_execucao";
+            const isEmAndamento = status === "em_deslocamento" || status === "em_andamento" || status === "em_execucao" || status === "no_local";
             
             return (
             <Card
@@ -1017,7 +1019,7 @@ function MapaRoteiro({ ordens, equipe }: MapaRoteiroProps) {
       const regulada = ordem.ordens_servico?.regulada;
       const isConcluida = status === "concluida";
       const isCancelada = status === "cancelada";
-      const isEmAndamento = status === "em_deslocamento" || status === "em_andamento" || status === "em_execucao";
+      const isEmAndamento = status === "em_deslocamento" || status === "em_andamento" || status === "em_execucao" || status === "no_local";
       
       // Verificar se é urgente (regulada vencida ou vencendo hoje)
       const urgente = isOSUrgente(prazo, regulada);
@@ -1265,7 +1267,7 @@ function MapaRoteiro({ ordens, equipe }: MapaRoteiroProps) {
                 const regulada = ordem.ordens_servico?.regulada;
                 const isConcluida = status === "concluida";
                 const isCancelada = status === "cancelada";
-                const isEmAndamento = status === "em_deslocamento" || status === "em_andamento" || status === "em_execucao";
+                const isEmAndamento = status === "em_deslocamento" || status === "em_andamento" || status === "em_execucao" || status === "no_local";
                 const urgente = isOSUrgente(prazo, regulada);
                 const semCoordenadas = !ordem.ordens_servico?.latitude || !ordem.ordens_servico?.longitude;
                 
