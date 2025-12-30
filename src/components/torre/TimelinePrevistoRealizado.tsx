@@ -761,12 +761,19 @@ export function TimelinePrevistoRealizado({ dateISO, equipes, onSelectEquipe, on
                           // Se não há dados previstos, mostrar as OSs baseado na ordem na rota (distribuição visual)
                           const temDadosPrevistos = startMin && endMin;
                           if (!temDadosPrevistos) {
-                            // Calcular posição baseada na ordem na rota para visualização simplificada
-                            // Usar largura fixa por OS para melhor visualização
-                            const larguraFixaOS = 70; // pixels por OS
-                            const espacamentoOS = 10; // pixels entre OSs
-                            const osStartX = 60 + (os.ordemNaRota - 1) * (larguraFixaOS + espacamentoOS);
-                            const osW = larguraFixaOS;
+                            // Calcular posição baseada na ordem na rota - distribuir ao longo do dia de trabalho
+                            // Assumir início às 07:00 e ~30min por OS
+                            const totalOrdens = equipe.ordens.length || 1;
+                            const tempoMedioPorOS = 45; // minutos por OS (deslocamento + execução)
+                            const inicioTrabalho = 7 * 60; // 07:00 em minutos
+                            
+                            const osStartMin = inicioTrabalho + (os.ordemNaRota - 1) * tempoMedioPorOS;
+                            const osEndMin = osStartMin + 30; // 30 min de execução
+                            
+                            // Converter para pixels usando a escala da timeline
+                            const osStartX = Math.max(55, Math.round(((osStartMin - dayStartMin) / totalMin) * widthPx));
+                            const osEndX = Math.min(widthPx - 5, Math.round(((osEndMin - dayStartMin) / totalMin) * widthPx));
+                            const osW = Math.max(50, osEndX - osStartX);
                             
                             const foiConcluida = os.status === "concluida";
                             const dentroDoPrazo = foiConcluidaDentroDoPrazo(os);

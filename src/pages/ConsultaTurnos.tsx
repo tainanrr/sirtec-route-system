@@ -1362,8 +1362,9 @@ export default function ConsultaTurnos() {
                           <Table>
                             <TableHeader>
                               <TableRow>
-                                <TableHead className="w-[60px]">Plan.</TableHead>
-                                <TableHead className="w-[60px]">Exec.</TableHead>
+                                <TableHead className="w-[50px]">Plan.</TableHead>
+                                <TableHead className="w-[50px]">Exec.</TableHead>
+                                <TableHead className="w-[80px]">Hora Est.</TableHead>
                                 <TableHead>OS</TableHead>
                                 <TableHead>Tipo</TableHead>
                                 <TableHead>Status</TableHead>
@@ -1482,6 +1483,21 @@ export default function ConsultaTurnos() {
                                       )}
                                     </TableCell>
                                     <TableCell>
+                                      {/* Hora estimada baseada na ordem na rota (07:00 + 45min por OS anterior) */}
+                                      {(() => {
+                                        const inicioTrabalhoMin = 7 * 60; // 07:00
+                                        const tempoPorOS = 45; // minutos
+                                        const horaEstimadaMin = inicioTrabalhoMin + (os.ordem_na_rota - 1) * tempoPorOS;
+                                        const hora = Math.floor(horaEstimadaMin / 60);
+                                        const minuto = horaEstimadaMin % 60;
+                                        return (
+                                          <span className="text-xs text-muted-foreground">
+                                            {String(hora).padStart(2, '0')}:{String(minuto).padStart(2, '0')}
+                                          </span>
+                                        );
+                                      })()}
+                                    </TableCell>
+                                    <TableCell>
                                       <span className="font-mono text-sm">{os.ordens_servico.numero}</span>
                                     </TableCell>
                                     <TableCell className="text-sm">
@@ -1570,8 +1586,8 @@ export default function ConsultaTurnos() {
 
                       {/* Timeline Planejado x Executado */}
                       {turnoDetalhes?.osPlanejadas && turnoDetalhes.osPlanejadas.length > 0 && timelineEquipes.length > 0 && dataTurnoSelecionado && (
-                        <div className="mt-6 -mx-4 px-4 overflow-x-auto">
-                          <div className="min-w-0">
+                        <div className="mt-6 w-full" style={{ maxWidth: '100%', overflow: 'hidden' }}>
+                          <div className="overflow-x-auto" style={{ maxWidth: '100%' }}>
                             <TimelinePrevistoRealizado
                               dateISO={dataTurnoSelecionado}
                               equipes={timelineEquipes}
