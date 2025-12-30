@@ -768,6 +768,12 @@ export default function ConsultaTurnos() {
     }];
   }, [selectedTurno, turnoDetalhes, equipesMap, tiposServico]);
 
+  // Data do turno selecionado (para a timeline)
+  const dataTurnoSelecionado = useMemo(() => {
+    if (!selectedTurno?.hora_inicio) return "";
+    return selectedTurno.hora_inicio.substring(0, 10);
+  }, [selectedTurno]);
+
   // Funções auxiliares
   const formatDuracao = (minutos: number) => {
     const h = Math.floor(minutos / 60);
@@ -1563,10 +1569,10 @@ export default function ConsultaTurnos() {
                       )}
 
                       {/* Timeline Planejado x Executado */}
-                      {turnoDetalhes?.osPlanejadas && turnoDetalhes.osPlanejadas.length > 0 && timelineEquipes.length > 0 && (
+                      {turnoDetalhes?.osPlanejadas && turnoDetalhes.osPlanejadas.length > 0 && timelineEquipes.length > 0 && dataTurnoSelecionado && (
                         <div className="mt-6">
                           <TimelinePrevistoRealizado
-                            dateISO={dataInicio}
+                            dateISO={dataTurnoSelecionado}
                             equipes={timelineEquipes}
                             onSelectEquipe={() => {}}
                             onSelectOS={(osId) => {
