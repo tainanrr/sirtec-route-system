@@ -27,8 +27,7 @@ import {
   RefreshCw,
   Loader2,
   Map as MapIcon,
-  X,
-  MapPin
+  X
 } from "lucide-react";
 import {
   Dialog,
