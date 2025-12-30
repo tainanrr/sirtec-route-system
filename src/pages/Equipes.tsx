@@ -38,12 +38,15 @@ import {
   Check,
   CheckCircle,
   XCircle,
+  Settings2,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { TecnicoFormDialog } from "@/components/equipes/TecnicoFormDialog";
 import type { Tables } from "@/integrations/supabase/types";
+import { migrarSupervisoresEquipes } from "@/lib/migracaoSupervisores";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -77,6 +80,21 @@ interface EquipeComColaboradores extends Tables<"tecnicos"> {
   colaboradores?: EquipeColaborador[];
 }
 
+// Interface para Supervisor
+interface Supervisor {
+  id: string;
+  codigo: string;
+  nome: string;
+  tipo: string;
+}
+
+// Interface para Centro de Custo
+interface CentroCusto {
+  id: string;
+  codigo: string;
+  nome: string;
+}
+
 const statusConfig = {
   disponivel: { label: "Ativa", icon: CheckCircle, color: "bg-success", dotColor: "bg-success" },
   offline: { label: "Inativa", icon: XCircle, color: "bg-muted", dotColor: "bg-muted-foreground" },
@@ -97,6 +115,8 @@ const Equipes = () => {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [tecnicos, setTecnicos] = useState<EquipeComColaboradores[]>([]);
   const [todosColaboradores, setTodosColaboradores] = useState<Colaborador[]>([]);
+  const [supervisores, setSupervisores] = useState<Supervisor[]>([]);
+  const [centrosCusto, setCentrosCusto] = useState<CentroCusto[]>([]);
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   const [selectedTecnico, setSelectedTecnico] = useState<Tables<"tecnicos"> | null>(null);
@@ -106,6 +126,36 @@ const Equipes = () => {
   // Estados para edição inline
   const [editingJornada, setEditingJornada] = useState<string | null>(null);
   const [jornadaValue, setJornadaValue] = useState("");
+  
+  // Estado para migração de supervisores
+  const [migracaoDialogOpen, setMigracaoDialogOpen] = useState(false);
+  const [migracaoLoading, setMigracaoLoading] = useState(false);
+
+  // Função para executar a migração de supervisores
+  const handleMigrarSupervisores = async () => {
+    setMigracaoLoading(true);
+    try {
+      const result = await migrarSupervisoresEquipes();
+      
+      if (result.success) {
+        toast.success(`Migração concluída! ${result.updated} equipes atualizadas.`);
+      } else {
+        toast.error(`Migração com erros. ${result.updated} atualizadas. Erros: ${result.errors.length}`);
+        console.error("Detalhes da migração:", result);
+      }
+      
+      // Exibir detalhes no console
+      console.table(result.details);
+      
+      // Recarregar dados
+      fetchTecnicos();
+    } catch (error: any) {
+      toast.error(`Erro na migração: ${error.message}`);
+    } finally {
+      setMigracaoLoading(false);
+      setMigracaoDialogOpen(false);
+    }
+  };
 
   // Buscar todos os colaboradores disponíveis
   const fetchTodosColaboradores = async () => {
@@ -120,13 +170,40 @@ const Equipes = () => {
     }
   };
 
+  // Buscar supervisores
+  const fetchSupervisores = async () => {
+    const { data, error } = await supabase
+      .from("coordenadores_supervisores")
+      .select("id, codigo, nome, tipo")
+      .eq("tipo", "supervisor")
+      .eq("ativo", true)
+      .order("nome");
+
+    if (!error && data) {
+      setSupervisores(data);
+    }
+  };
+
+  // Buscar centros de custo
+  const fetchCentrosCusto = async () => {
+    const { data, error } = await supabase
+      .from("centros_custo")
+      .select("id, codigo, nome")
+      .eq("ativo", true)
+      .order("nome");
+
+    if (!error && data) {
+      setCentrosCusto(data);
+    }
+  };
+
   const fetchTecnicos = async () => {
     setLoading(true);
     
-    // Buscar técnicos com centro de custo
+    // Buscar técnicos com centro de custo e supervisor
     const { data: tecnicosData, error: tecnicosError } = await supabase
       .from("tecnicos")
-      .select("*, centros_custo:centro_custo_id(id, codigo, nome)")
+      .select("*, centros_custo:centro_custo_id(id, codigo, nome), supervisor:supervisor_id(id, codigo, nome)")
       .order("codigo");
 
     if (tecnicosError) {
@@ -176,6 +253,8 @@ const Equipes = () => {
   useEffect(() => {
     fetchTecnicos();
     fetchTodosColaboradores();
+    fetchSupervisores();
+    fetchCentrosCusto();
   }, []);
 
   const handleEdit = (tecnico: Tables<"tecnicos">) => {
@@ -344,6 +423,43 @@ const Equipes = () => {
     }
   };
 
+  // Atualizar centro de custo inline
+  const handleUpdateCentroCusto = async (tecnicoId: string, novoCentroCustoId: string | null) => {
+    const { error } = await supabase
+      .from("tecnicos")
+      .update({ centro_custo_id: novoCentroCustoId })
+      .eq("id", tecnicoId);
+
+    if (error) {
+      toast.error("Erro ao atualizar centro de custo");
+    } else {
+      const cc = centrosCusto.find(c => c.id === novoCentroCustoId);
+      toast.success(cc ? `Centro de custo alterado para "${cc.nome}"` : "Centro de custo removido");
+      fetchTecnicos();
+    }
+  };
+
+  // Atualizar supervisor inline
+  const handleUpdateSupervisor = async (tecnicoId: string, novoSupervisorId: string) => {
+    if (!novoSupervisorId) {
+      toast.error("Supervisor é obrigatório");
+      return;
+    }
+    
+    const { error } = await supabase
+      .from("tecnicos")
+      .update({ supervisor_id: novoSupervisorId })
+      .eq("id", tecnicoId);
+
+    if (error) {
+      toast.error("Erro ao atualizar supervisor");
+    } else {
+      const sup = supervisores.find(s => s.id === novoSupervisorId);
+      toast.success(`Supervisor alterado para "${sup?.nome}"`);
+      fetchTecnicos();
+    }
+  };
+
   // Adicionar colaborador à equipe
   const handleAddColaborador = async (equipeId: string, colaboradorId: string, slotIndex: number) => {
     const equipe = tecnicos.find(t => t.id === equipeId);
@@ -502,6 +618,82 @@ const Equipes = () => {
               Kit
             </div>
           </SelectItem>
+        </SelectContent>
+      </Select>
+    );
+  };
+
+  // Componente para célula de centro de custo com edição inline
+  const CentroCustoCell = ({ equipe }: { equipe: EquipeComColaboradores }) => {
+    const ccAtual = (equipe as any).centros_custo;
+    const ccId = (equipe as any).centro_custo_id || "";
+
+    return (
+      <Select
+        value={ccId || "_none_"}
+        onValueChange={(value) => handleUpdateCentroCusto(equipe.id, value === "_none_" ? null : value)}
+        disabled={!podeEditar}
+      >
+        <SelectTrigger 
+          className={cn(
+            "h-7 w-[130px] text-xs font-medium border",
+            ccAtual ? "bg-blue-50 text-blue-700 border-blue-200" : "bg-gray-50 text-gray-500 border-gray-200",
+            !podeEditar && "cursor-not-allowed opacity-60"
+          )}
+          title={!podeEditar ? "Você não tem permissão para editar" : undefined}
+        >
+          <SelectValue placeholder="Selecionar..." />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="_none_">
+            <span className="text-muted-foreground">Nenhum</span>
+          </SelectItem>
+          {centrosCusto.map((cc) => (
+            <SelectItem key={cc.id} value={cc.id}>
+              {cc.nome}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    );
+  };
+
+  // Componente para célula de supervisor com edição inline
+  const SupervisorCell = ({ equipe }: { equipe: EquipeComColaboradores }) => {
+    const supAtual = (equipe as any).supervisor;
+    const supId = (equipe as any).supervisor_id || "";
+
+    return (
+      <Select
+        value={supId || "_none_"}
+        onValueChange={(value) => {
+          if (value !== "_none_") {
+            handleUpdateSupervisor(equipe.id, value);
+          }
+        }}
+        disabled={!podeEditar}
+      >
+        <SelectTrigger 
+          className={cn(
+            "h-7 w-[150px] text-xs font-medium border",
+            supAtual ? "bg-purple-50 text-purple-700 border-purple-200" : "bg-red-50 text-red-600 border-red-200",
+            !podeEditar && "cursor-not-allowed opacity-60"
+          )}
+          title={!podeEditar ? "Você não tem permissão para editar" : supAtual ? supAtual.nome : "Selecione um supervisor"}
+        >
+          <SelectValue placeholder="Selecionar..." />
+        </SelectTrigger>
+        <SelectContent>
+          {!supId && (
+            <SelectItem value="_none_" disabled>
+              <span className="text-destructive">Selecione...</span>
+            </SelectItem>
+          )}
+          {supervisores.map((sup) => (
+            <SelectItem key={sup.id} value={sup.id}>
+              {sup.nome}
+            </SelectItem>
+          ))}
         </SelectContent>
       </Select>
     );
@@ -818,6 +1010,17 @@ const Equipes = () => {
             ]}
             disabled={loading}
           />
+          {podeEditar && (
+            <Button 
+              variant="outline"
+              className="gap-2" 
+              onClick={() => setMigracaoDialogOpen(true)}
+              title="Vincular supervisores às equipes conforme mapeamento inicial"
+            >
+              <Settings2 className="h-4 w-4" />
+              Migrar Supervisores
+            </Button>
+          )}
           <Button 
             className="gap-2" 
             onClick={() => { setSelectedTecnico(null); setFormOpen(true); }}
@@ -850,7 +1053,8 @@ const Equipes = () => {
                   <TableHead className="w-[180px]">Colaborador 2</TableHead>
                   <TableHead className="w-[180px]">Colaborador 3</TableHead>
                   <TableHead className="w-[100px]">Status</TableHead>
-                  <TableHead className="w-[150px]">Centro Custo</TableHead>
+                  <TableHead className="w-[150px]">Supervisor</TableHead>
+                  <TableHead className="w-[140px]">Centro Custo</TableHead>
                   <TableHead>Habilidades</TableHead>
                   <TableHead className="w-[120px] text-right">Ações</TableHead>
                 </TableRow>
@@ -953,13 +1157,10 @@ const Equipes = () => {
                         </div>
                       </TableCell>
                       <TableCell>
-                        {(tecnico as any).centros_custo ? (
-                          <Badge variant="outline" className="text-xs">
-                            {(tecnico as any).centros_custo.nome}
-                          </Badge>
-                        ) : (
-                          <span className="text-muted-foreground text-sm">-</span>
-                        )}
+                        <SupervisorCell equipe={tecnico} />
+                      </TableCell>
+                      <TableCell>
+                        <CentroCustoCell equipe={tecnico} />
                       </TableCell>
                       <TableCell>
                         {tecnico.habilidades && tecnico.habilidades.length > 0 ? (
@@ -1047,6 +1248,41 @@ const Equipes = () => {
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Dialog de migração de supervisores */}
+      <AlertDialog open={migracaoDialogOpen} onOpenChange={setMigracaoDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Migrar Supervisores</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação irá vincular os supervisores às equipes conforme o mapeamento inicial configurado.
+              <br /><br />
+              <span className="text-muted-foreground text-xs">
+                • Equipes que já possuem supervisor configurado serão ignoradas.
+                <br />
+                • Verifique se os supervisores TARCISIO JESUS DOS SANTOS e MANUEL ABREU NOVAES NETO estão cadastrados em Coordenadores/Supervisores.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={migracaoLoading}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleMigrarSupervisores} 
+              disabled={migracaoLoading}
+              className="gap-2"
+            >
+              {migracaoLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Migrando...
+                </>
+              ) : (
+                "Executar Migração"
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -224,10 +224,10 @@ const Roteirizacao = () => {
     const loadTerritorios = async () => {
       const loaded = await carregarTerritorios();
       setTerritorios(loaded);
-      // Marcar todos os territórios ativos por padrão (com polígono válido)
-      const territoriosAtivos = loaded.filter(t => t.ativo && t.poligono.length >= 3);
-      if (territoriosAtivos.length > 0) {
-        setTerritoriosSelecionados(territoriosAtivos.map(t => t.id));
+      // Marcar todos os territórios ativos por padrão (com polígono válido E equipes vinculadas)
+      const territoriosAtivosComEquipes = loaded.filter(t => t.ativo && t.poligono.length >= 3 && t.equipeIds && t.equipeIds.length > 0);
+      if (territoriosAtivosComEquipes.length > 0) {
+        setTerritoriosSelecionados(territoriosAtivosComEquipes.map(t => t.id));
       }
     };
     loadTerritorios();
@@ -1999,7 +1999,14 @@ const Roteirizacao = () => {
                   />
                 </div>
                 {usarTerritorios && (
-                  <span className="text-xs text-muted-foreground">{territoriosSelecionados.length} de {territorios.filter(t => t.ativo && t.poligono.length >= 3).length} selecionados</span>
+                  <span className="text-xs text-muted-foreground">
+                    {territoriosSelecionados.length} de {territorios.filter(t => t.ativo && t.poligono.length >= 3 && t.equipeIds && t.equipeIds.length > 0).length} selecionados
+                    {territorios.filter(t => t.ativo && t.poligono.length >= 3 && (!t.equipeIds || t.equipeIds.length === 0)).length > 0 && (
+                      <span className="text-orange-500 ml-1">
+                        ({territorios.filter(t => t.ativo && t.poligono.length >= 3 && (!t.equipeIds || t.equipeIds.length === 0)).length} sem equipes)
+                      </span>
+                    )}
+                  </span>
                 )}
               </div>
             {usarTerritorios && (
@@ -2014,33 +2021,39 @@ const Roteirizacao = () => {
                     return (
                       <label 
                         key={territorio.id} 
-                        className={`flex items-center gap-1.5 text-xs text-foreground cursor-pointer hover:bg-muted/50 p-1 rounded border ${
+                        className={`flex items-center gap-1.5 text-xs text-foreground p-1 rounded border ${
                           temEquipes 
-                            ? 'border-transparent' 
-                            : 'border-dashed border-orange-400/50 bg-orange-50/50 dark:bg-orange-950/20'
+                            ? 'cursor-pointer hover:bg-muted/50 border-transparent' 
+                            : 'cursor-not-allowed border-dashed border-orange-400/50 bg-orange-50/50 dark:bg-orange-950/20 opacity-70'
                         }`}
-                        title={temEquipes ? `Equipes: ${equipesVinculadas.map(e => e?.codigo).join(", ")}` : 'Sem equipes vinculadas'}
+                        title={temEquipes ? `Equipes: ${equipesVinculadas.map(e => e?.codigo).join(", ")}` : '⚠️ Sem equipes vinculadas - vincule equipes em Cadastros → Territórios'}
                       >
                         <input
                           type="checkbox"
                           checked={checked}
+                          disabled={!temEquipes}
                           onChange={(e) => {
+                            if (!temEquipes) return;
                             if (e.target.checked) {
                               setTerritoriosSelecionados((prev) => [...prev, territorio.id]);
                             } else {
                               setTerritoriosSelecionados((prev) => prev.filter((id) => id !== territorio.id));
                             }
                           }}
-                          className="h-3 w-3 flex-shrink-0"
+                          className={`h-3 w-3 flex-shrink-0 ${!temEquipes ? 'cursor-not-allowed' : ''}`}
                         />
                         <div
                           className={`h-2.5 w-2.5 rounded-full flex-shrink-0 ${!temEquipes ? 'border border-dashed border-orange-400' : ''}`}
                           style={{ backgroundColor: temEquipes ? territorio.cor : 'transparent' }}
                         />
                         <span className="font-medium truncate text-[11px]">{territorio.nome}</span>
-                        {temEquipes && (
+                        {temEquipes ? (
                           <span className="text-muted-foreground text-[9px] truncate">
                             {equipesVinculadas.map(e => e?.codigo).join(", ")}
+                          </span>
+                        ) : (
+                          <span className="text-orange-500 text-[9px] truncate">
+                            (sem equipes)
                           </span>
                         )}
                       </label>
@@ -2052,16 +2065,17 @@ const Roteirizacao = () => {
                     variant="ghost"
                     size="sm"
                     onClick={() => {
-                      const ativos = territorios.filter(t => t.ativo && t.poligono.length >= 3);
-                      if (territoriosSelecionados.length === ativos.length) {
+                      // Selecionar apenas territórios com equipes vinculadas
+                      const ativosComEquipes = territorios.filter(t => t.ativo && t.poligono.length >= 3 && t.equipeIds && t.equipeIds.length > 0);
+                      if (territoriosSelecionados.length === ativosComEquipes.length) {
                         setTerritoriosSelecionados([]);
                       } else {
-                        setTerritoriosSelecionados(ativos.map(t => t.id));
+                        setTerritoriosSelecionados(ativosComEquipes.map(t => t.id));
                       }
                     }}
                     className="flex-1 text-xs h-7"
                   >
-                    {territoriosSelecionados.length === territorios.filter(t => t.ativo && t.poligono.length >= 3).length ? "Desselecionar Todos" : "Selecionar Todos"}
+                    {territoriosSelecionados.length === territorios.filter(t => t.ativo && t.poligono.length >= 3 && t.equipeIds && t.equipeIds.length > 0).length ? "Desselecionar Todos" : "Selecionar Todos"}
                   </Button>
                 <Button
                   variant="outline"

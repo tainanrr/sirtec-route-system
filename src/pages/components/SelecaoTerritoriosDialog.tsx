@@ -42,7 +42,10 @@ export default function SelecaoTerritoriosDialog({
     setSelecionados(territoriosSelecionados);
   }, [territoriosSelecionados]);
 
-  const territoriosAtivos = territorios.filter(t => t.ativo && t.equipeIds && t.equipeIds.length > 0 && t.poligono.length >= 3);
+  // Mostrar todos os territórios ativos (com ou sem equipes) para permitir gerenciamento
+  const territoriosAtivos = territorios.filter(t => t.ativo && t.poligono.length >= 3);
+  // Territórios prontos para roteirização (com equipes vinculadas)
+  const territoriosProntosParaRoteirizacao = territoriosAtivos.filter(t => t.equipeIds && t.equipeIds.length > 0);
 
   const handleToggleTerritorio = (territorioId: string) => {
     setSelecionados(prev => {
@@ -55,10 +58,11 @@ export default function SelecaoTerritoriosDialog({
   };
 
   const handleSelecionarTodos = () => {
-    if (selecionados.length === territoriosAtivos.length) {
+    if (selecionados.length === territoriosProntosParaRoteirizacao.length) {
       setSelecionados([]);
     } else {
-      setSelecionados(territoriosAtivos.map(t => t.id));
+      // Selecionar apenas territórios que têm equipes vinculadas
+      setSelecionados(territoriosProntosParaRoteirizacao.map(t => t.id));
     }
   };
 
@@ -121,14 +125,19 @@ export default function SelecaoTerritoriosDialog({
               Nenhum território ativo encontrado
             </p>
             <p className="text-sm text-muted-foreground">
-              Certifique-se de que existem territórios cadastrados, ativos e com equipe atribuída.
+              Certifique-se de que existem territórios cadastrados e ativos em Cadastros → Territórios.
             </p>
           </div>
         ) : (
           <>
             <div className="flex items-center justify-between mb-4">
               <div className="text-sm text-muted-foreground">
-                {selecionados.length} de {territoriosAtivos.length} territórios selecionados
+                {selecionados.length} de {territoriosProntosParaRoteirizacao.length} territórios selecionados
+                {territoriosAtivos.length > territoriosProntosParaRoteirizacao.length && (
+                  <span className="text-amber-500 ml-2">
+                    ({territoriosAtivos.length - territoriosProntosParaRoteirizacao.length} sem equipes)
+                  </span>
+                )}
               </div>
               <Button
                 variant="outline"
@@ -137,7 +146,7 @@ export default function SelecaoTerritoriosDialog({
                 className="gap-2"
               >
                 <CheckCircle2 className="h-4 w-4" />
-                {selecionados.length === territoriosAtivos.length ? "Desselecionar Todos" : "Selecionar Todos"}
+                {selecionados.length === territoriosProntosParaRoteirizacao.length ? "Desselecionar Todos" : "Selecionar Todos"}
               </Button>
             </div>
 
@@ -145,7 +154,8 @@ export default function SelecaoTerritoriosDialog({
               {territoriosAtivos.map((territorio) => {
                 const estaSelecionado = selecionados.includes(territorio.id);
                 const estaEditando = editandoEquipes === territorio.id;
-                const equipesVinculadas = territorio.equipeIds
+                const temEquipes = territorio.equipeIds && territorio.equipeIds.length > 0;
+                const equipesVinculadas = (territorio.equipeIds || [])
                   .map(id => equipes.find(e => e.id === id))
                   .filter(e => e !== undefined) as Equipe[];
 
@@ -156,16 +166,27 @@ export default function SelecaoTerritoriosDialog({
                       rounded-lg border p-4 transition-all
                       ${estaSelecionado 
                         ? 'border-primary bg-primary/5' 
-                        : 'border-border bg-card hover:bg-muted/50'
+                        : temEquipes 
+                          ? 'border-border bg-card hover:bg-muted/50'
+                          : 'border-amber-500/50 bg-amber-50/50 dark:bg-amber-950/20'
                       }
                     `}
                   >
                     <div className="flex items-start gap-3">
                       <Checkbox
                         checked={estaSelecionado}
-                        onCheckedChange={() => handleToggleTerritorio(territorio.id)}
+                        onCheckedChange={() => {
+                          if (!temEquipes) {
+                            // Se não tem equipes, iniciar edição automaticamente
+                            handleIniciarEdicaoEquipes(territorio.id);
+                            return;
+                          }
+                          handleToggleTerritorio(territorio.id);
+                        }}
                         className="mt-1"
                         onClick={(e) => e.stopPropagation()}
+                        disabled={!temEquipes}
+                        title={!temEquipes ? "Vincule equipes primeiro" : undefined}
                       />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-2">
@@ -258,9 +279,22 @@ export default function SelecaoTerritoriosDialog({
                                 ))}
                               </div>
                             ) : (
-                              <Badge variant="outline" className="text-xs">
-                                Sem equipes
-                              </Badge>
+                              <div className="flex items-center gap-2 mt-1">
+                                <Badge variant="outline" className="text-xs border-amber-500 text-amber-600 bg-amber-50">
+                                  ⚠️ Sem equipes vinculadas
+                                </Badge>
+                                <Button
+                                  variant="link"
+                                  size="sm"
+                                  className="h-auto p-0 text-xs text-amber-600 hover:text-amber-700"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleIniciarEdicaoEquipes(territorio.id);
+                                  }}
+                                >
+                                  Vincular agora
+                                </Button>
+                              </div>
                             )}
                             <div className="text-xs text-muted-foreground mt-2">
                               {territorio.poligono.length} pontos no polígono

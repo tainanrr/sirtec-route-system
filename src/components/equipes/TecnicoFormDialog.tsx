@@ -68,6 +68,7 @@ const tecnicoSchema = z.object({
   min_colaboradores: z.number().min(1).max(10),
   max_colaboradores: z.number().min(1).max(10),
   centro_custo_id: z.string().optional(),
+  supervisor_id: z.string().min(1, "Supervisor é obrigatório"),
 }).refine(data => data.max_colaboradores >= data.min_colaboradores, {
   message: "Máximo deve ser maior ou igual ao mínimo",
   path: ["max_colaboradores"],
@@ -78,6 +79,14 @@ interface CentroCusto {
   id: string;
   codigo: string;
   nome: string;
+}
+
+// Interface para Supervisor
+interface Supervisor {
+  id: string;
+  codigo: string;
+  nome: string;
+  tipo: string;
 }
 
 // Tipos de equipe disponíveis
@@ -115,6 +124,7 @@ export function TecnicoFormDialog({
   const { logCriar, logEditar } = useLogSistema();
   const [skillsDisponiveis, setSkillsDisponiveis] = useState<Skill[]>([]);
   const [centrosCusto, setCentrosCusto] = useState<CentroCusto[]>([]);
+  const [supervisores, setSupervisores] = useState<Supervisor[]>([]);
   const [almoco, setAlmoco] = useState({
     duracao: 60,
     janelaInicio: "11:00",
@@ -147,6 +157,7 @@ export function TecnicoFormDialog({
       min_colaboradores: 1,
       max_colaboradores: 2,
       centro_custo_id: "",
+      supervisor_id: "",
     },
   });
 
@@ -179,6 +190,23 @@ export function TecnicoFormDialog({
       setCentrosCusto(data || []);
     } catch (error) {
       console.error("Erro ao carregar centros de custo:", error);
+    }
+  };
+
+  // Carregar supervisores
+  const fetchSupervisores = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("coordenadores_supervisores")
+        .select("id, codigo, nome, tipo")
+        .eq("tipo", "supervisor")
+        .eq("ativo", true)
+        .order("nome");
+
+      if (error) throw error;
+      setSupervisores(data || []);
+    } catch (error) {
+      console.error("Erro ao carregar supervisores:", error);
     }
   };
 
@@ -374,6 +402,7 @@ export function TecnicoFormDialog({
       fetchColaboradores();
       fetchSkills();
       fetchCentrosCusto();
+      fetchSupervisores();
     }
   }, [open]);
 
@@ -399,6 +428,7 @@ export function TecnicoFormDialog({
         min_colaboradores: (tecnico as any).min_colaboradores || 1,
         max_colaboradores: (tecnico as any).max_colaboradores || 2,
         centro_custo_id: (tecnico as any).centro_custo_id || "",
+        supervisor_id: (tecnico as any).supervisor_id || "",
       });
       setHabilidades(tecnico.habilidades || []);
       
@@ -437,6 +467,7 @@ export function TecnicoFormDialog({
         min_colaboradores: 1,
         max_colaboradores: 2,
         centro_custo_id: "",
+        supervisor_id: "",
       });
       setHabilidades([]);
       setAlmoco({ duracao: 60, janelaInicio: "11:00", janelaFim: "14:00" });
@@ -487,6 +518,7 @@ export function TecnicoFormDialog({
         min_colaboradores: data.min_colaboradores,
         max_colaboradores: data.max_colaboradores,
         centro_custo_id: (data.centro_custo_id && data.centro_custo_id !== "_none_") ? data.centro_custo_id : null,
+        supervisor_id: data.supervisor_id,
       };
 
       // Adicionar coordenadas se fornecidas
@@ -730,6 +762,35 @@ export function TecnicoFormDialog({
                       </FormControl>
                       <FormDescription>
                         Placa padrão do veículo da equipe (pode ser alterada na abertura do turno)
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {/* Campo de Supervisor (Obrigatório) */}
+                <FormField
+                  control={form.control}
+                  name="supervisor_id"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Supervisor *</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || ""}>
+                        <FormControl>
+                          <SelectTrigger className={!field.value ? "border-destructive" : ""}>
+                            <SelectValue placeholder="Selecione um supervisor" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {supervisores.map((sup) => (
+                            <SelectItem key={sup.id} value={sup.id}>
+                              {sup.nome}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        Supervisor responsável pela equipe (obrigatório)
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
