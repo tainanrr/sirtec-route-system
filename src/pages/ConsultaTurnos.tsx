@@ -1019,7 +1019,7 @@ export default function ConsultaTurnos() {
 
         {/* Dialog de Detalhes do Turno */}
         <Dialog open={detalhesOpen} onOpenChange={setDetalhesOpen}>
-          <DialogContent className="max-w-5xl max-h-[90vh] flex flex-col">
+          <DialogContent className="max-w-6xl max-h-[90vh] flex flex-col overflow-hidden">
             <DialogHeader>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -1121,10 +1121,10 @@ export default function ConsultaTurnos() {
                         : "border-red-500/50 bg-red-50/30"
                   )}>
                     <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-4 flex-wrap">
                         <div className="flex items-center gap-3">
                           <div className={cn(
-                            "h-12 w-12 rounded-xl flex items-center justify-center",
+                            "h-12 w-12 rounded-xl flex items-center justify-center flex-shrink-0",
                             estatisticasTurno.percentualProdutivo >= 80 
                               ? "bg-green-100 text-green-600" 
                               : estatisticasTurno.percentualProdutivo >= 60
@@ -1134,22 +1134,22 @@ export default function ConsultaTurnos() {
                             <Activity className="h-6 w-6" />
                           </div>
                           <div>
-                            <p className="text-xs text-muted-foreground">Eficiência do Turno</p>
+                            <p className="text-xs text-muted-foreground whitespace-nowrap">Eficiência do Turno</p>
                             <p className="text-2xl font-bold">
                               {estatisticasTurno.percentualProdutivo.toFixed(0)}%
                             </p>
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="text-xs text-muted-foreground">Tempo Ocioso</p>
+                          <p className="text-xs text-muted-foreground whitespace-nowrap">Tempo Ocioso</p>
                           <p className={cn(
-                            "text-lg font-semibold",
+                            "text-lg font-semibold whitespace-nowrap",
                             estatisticasTurno.percentualOcioso > 30 ? "text-red-600" : 
                             estatisticasTurno.percentualOcioso > 20 ? "text-amber-600" : "text-green-600"
                           )}>
                             {formatDuracao(estatisticasTurno.tempoOcioso)}
                           </p>
-                          <p className="text-xs text-muted-foreground">
+                          <p className="text-xs text-muted-foreground whitespace-nowrap">
                             ({estatisticasTurno.percentualOcioso.toFixed(1)}% do turno)
                           </p>
                         </div>
