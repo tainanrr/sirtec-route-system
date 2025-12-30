@@ -240,38 +240,43 @@ export default function RetornosCampoAtividades() {
   // ============================================
 
   const handleCreate = (type: "retorno" | "atividade") => {
-    setCurrentType(type);
-    setEditingItem(null);
+    try {
+      setCurrentType(type);
+      setEditingItem(null);
 
-    if (type === "retorno") {
-      setRetornoForm({
-        codigo: "",
-        descricao: "",
-        tipo: "executado",
-        categoria: "",
-        gera_producao: true,
-        finaliza_os: true,
-        requer_justificativa: false,
-        cor: "#22c55e",
-        ativo: true,
-        observacoes: "",
-      });
-    } else {
-      setAtividadeForm({
-        codigo: "",
-        descricao: "",
-        categoria: "",
-        grupo: "",
-        valor_unitario: "0",
-        unidade: "UN",
-        requer_foto: false,
-        qtd_min_fotos: "0",
-        ativo: true,
-        observacoes: "",
-      });
+      if (type === "retorno") {
+        setRetornoForm({
+          codigo: "",
+          descricao: "",
+          tipo: "executado",
+          categoria: "",
+          gera_producao: true,
+          finaliza_os: true,
+          requer_justificativa: false,
+          cor: "#22c55e",
+          ativo: true,
+          observacoes: "",
+        });
+      } else {
+        setAtividadeForm({
+          codigo: "",
+          descricao: "",
+          categoria: "",
+          grupo: "",
+          valor_unitario: "0",
+          unidade: "UN",
+          requer_foto: false,
+          qtd_min_fotos: "0",
+          ativo: true,
+          observacoes: "",
+        });
+      }
+
+      setDialogOpen(true);
+    } catch (error: any) {
+      console.error("Erro ao abrir dialog de criação:", error);
+      toast.error(`Erro ao abrir formulário: ${error.message || "Erro desconhecido"}`);
     }
-
-    setDialogOpen(true);
   };
 
   const handleEdit = (type: "retorno" | "atividade", item: any) => {

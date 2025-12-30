@@ -864,9 +864,6 @@ export default function AppOrdemDetalhe() {
                 <Image className="h-4 w-4 text-muted-foreground" />
                 <span className="text-sm font-medium">Fotos ({qtdFotos})</span>
               </div>
-              {isActive && (
-                <Badge variant="destructive" className="text-xs">Toque no X para excluir</Badge>
-              )}
             </div>
             <div className="grid grid-cols-3 gap-3">
               {anexos?.filter(a => a.tipo === "foto").map((anexo) => (

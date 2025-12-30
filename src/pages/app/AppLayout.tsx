@@ -379,7 +379,7 @@ export default function AppLayout() {
       )}
 
       {/* Alerta de Turno Desatualizado - Destaque */}
-      {turnoDesatualizado && !alertaTurnoFechado && (
+      {turnoDesatualizado && (
         <div className="bg-gradient-to-r from-red-600 via-red-500 to-orange-500 text-white px-4 py-3 shadow-lg">
           <div className="flex items-start gap-3">
             <div className="p-1.5 bg-white/20 rounded-full">
@@ -401,15 +401,6 @@ export default function AppLayout() {
                   onClick={() => navigate("/app")}
                 >
                   Ir para Início
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-xs text-white/80 hover:text-white hover:bg-white/10"
-                  onClick={() => setAlertaTurnoFechado(true)}
-                >
-                  <X className="h-3 w-3 mr-1" />
-                  Fechar alerta
                 </Button>
               </div>
             </div>

@@ -316,6 +316,40 @@ export default function AppOrdens() {
     return diasDiferenca < LIMITE_DIAS_PASSADO;
   };
 
+  // Limpar cache de dados antigos quando a data selecionada muda
+  useEffect(() => {
+    const hoje = startOfDay(new Date());
+    const diasDiferenca = differenceInDays(hoje, startOfDay(selectedDate));
+    
+    // Se a data selecionada está além do limite de 3 dias, limpar cache local
+    if (diasDiferenca > LIMITE_DIAS_PASSADO) {
+      // Limpar dados do localStorage relacionados a ordens antigas
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('page-state-app-ordens') || key.startsWith('app-ordens'))) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach(key => localStorage.removeItem(key));
+      
+      // Invalidar queries antigas
+      queryClient.removeQueries({ 
+        queryKey: ["ordens-planejadas"],
+        predicate: (query) => {
+          const queryKey = query.queryKey as any[];
+          const dataKey = queryKey.find(k => typeof k === 'string' && k.includes('yyyy-MM-dd'));
+          if (dataKey) {
+            const dataQuery = new Date(dataKey);
+            const diasDiff = differenceInDays(hoje, startOfDay(dataQuery));
+            return diasDiff > LIMITE_DIAS_PASSADO;
+          }
+          return false;
+        }
+      });
+    }
+  }, [selectedDate, queryClient]);
+
   // Funções de navegação de data
   const goToPreviousDay = () => {
     if (podeIrParaAnterior()) {
@@ -476,18 +510,21 @@ export default function AppOrdens() {
             
             const isConcluida = status === "concluida";
             const isCancelada = status === "cancelada";
+            const isEmAndamento = status === "em_deslocamento" || status === "em_andamento" || status === "em_execucao";
             
             return (
             <Card
               key={ordem.id}
                 className={`cursor-pointer hover:shadow-md transition-all ${
-                  isConcluida 
-                    ? "border-l-4 border-l-green-500 bg-green-50/50" 
-                    : isCancelada
-                      ? "border-l-4 border-l-gray-400 bg-gray-50/50 opacity-60"
-                      : ordem.ordens_servico.regulada 
-                        ? "border-l-4 border-l-red-500" 
-                        : ""
+                  isEmAndamento
+                    ? "border-l-4 border-l-orange-500 bg-orange-50/50 ring-2 ring-orange-200"
+                    : isConcluida 
+                      ? "border-l-4 border-l-green-500 bg-green-50/50" 
+                      : isCancelada
+                        ? "border-l-4 border-l-gray-400 bg-gray-50/50 opacity-60"
+                        : ordem.ordens_servico.regulada 
+                          ? "border-l-4 border-l-red-500" 
+                          : ""
                 }`}
                 onClick={() => navigate(`/app/ordens/${ordem.ordens_servico!.id}`)}
             >

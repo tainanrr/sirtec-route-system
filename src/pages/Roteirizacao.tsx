@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { useTelaPermissao } from "@/hooks/usePermissoes";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -187,6 +188,30 @@ const Roteirizacao = () => {
   const [filtroDataConsulta, setFiltroDataConsulta] = useState<string>("");
   const [planejamentosEncontrados, setPlanejamentosEncontrados] = useState<any[]>([]);
   const [carregandoPlanejamentos, setCarregandoPlanejamentos] = useState(false);
+
+  // Buscar OSs em andamento para destacar na lista
+  const { data: osEmAndamento } = useQuery({
+    queryKey: ["os-em-andamento-roteirizacao"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("planejamento_ordens")
+        .select(`
+          ordem_servico_id,
+          equipe_id,
+          ordens_servico:ordem_servico_id (id, numero, status)
+        `)
+        .in("ordens_servico.status", ["em_deslocamento", "no_local", "em_andamento", "em_execucao"]);
+      
+      if (error) {
+        console.error("Erro ao buscar OSs em andamento:", error);
+        return [];
+      }
+      
+      // Retornar um Set com os IDs das OSs em andamento
+      return new Set((data || []).map((d: any) => d.ordem_servico_id).filter(Boolean));
+    },
+    refetchInterval: 10000, // Atualizar a cada 10 segundos
+  });
 
   // Carregar equipes do Supabase (apenas ativas)
   useEffect(() => {
@@ -2821,6 +2846,7 @@ const Roteirizacao = () => {
                                 // Se for SERVICO, renderizar normalmente
                                 const os = servico.ordemServico!;
                                 const foraDoPrazo = estaForaDoPrazo(os, servico.horaFim);
+                                const estaEmAndamento = osEmAndamento?.has(os.id) || false;
                                       
                                       return (
                                         <Draggable
@@ -2844,7 +2870,8 @@ const Roteirizacao = () => {
                                                 snapshot.isDragging && "shadow-lg ring-2 ring-primary z-50 cursor-grabbing",
                                                 !snapshot.isDragging && "hover:bg-muted/50 cursor-grab",
                                                 foraDoPrazo && "border-danger/50 bg-danger/5",
-                                                osSelecionadaNoEditor === os.id && "ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-950"
+                                                osSelecionadaNoEditor === os.id && "ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-950",
+                                                estaEmAndamento && "ring-2 ring-green-500 bg-green-50 dark:bg-green-950 border-green-300 dark:border-green-700"
                                               )}
                                             >
                                               {/* Linha superior: Número da ordem */}
@@ -2983,6 +3010,11 @@ const Roteirizacao = () => {
                                                   <div className="flex items-center gap-0.5">
                                                     <span className="font-medium text-[9px] text-foreground truncate">{os.numero}</span>
                                                     {os.regulada && <Zap className="h-2 w-2 text-danger flex-shrink-0" />}
+                                                    {estaEmAndamento && (
+                                                      <Badge className="bg-green-500 hover:bg-green-600 text-[7px] px-0.5 py-0">
+                                                        EM ANDAMENTO
+                                                      </Badge>
+                                                    )}
                                                     {foraDoPrazo && (
                                                       <Badge variant="destructive" className="text-[7px] px-0.5 py-0">
                                                         FORA

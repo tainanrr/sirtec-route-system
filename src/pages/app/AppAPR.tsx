@@ -210,13 +210,13 @@ export default function AppAPR() {
     },
   });
 
-  // Buscar ordem de serviço
+  // Buscar ordem de serviço (incluindo status para verificar chegada)
   const { data: ordem } = useQuery({
     queryKey: ["ordem-apr", ordemId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("ordens_servico")
-        .select("numero, tipo, endereco")
+        .select("numero, tipo, endereco, status, chegada_local_at")
         .eq("id", ordemId)
         .maybeSingle();
 
@@ -225,6 +225,14 @@ export default function AppAPR() {
     },
     enabled: !!ordemId,
   });
+  
+  // Verificar se a equipe já chegou no local (permitir APR apenas após chegada)
+  const chegouNoLocal = ordem?.chegada_local_at || 
+    ordem?.status === "no_local" || 
+    ordem?.status === "em_execucao" || 
+    ordem?.status === "em_andamento" || 
+    ordem?.status === "concluida" ||
+    ordem?.status === "pausada";
 
   // Verificar se já existe APR preenchida para esta OS
   const { data: respostaExistente } = useQuery({
@@ -1393,8 +1401,19 @@ export default function AppAPR() {
   };
 
   const getProgressoGrupo = (grupo: GrupoPerguntas) => {
+    // Contar apenas perguntas obrigatórias para determinar se o grupo está completo
+    const perguntasObrigatoriasGrupo = grupo.perguntas.filter(p => p.obrigatoria);
+    const obrigatoriasRespondidas = perguntasObrigatoriasGrupo.filter(p => isPerguntaRespondida(p)).length;
+    const totalObrigatorias = perguntasObrigatoriasGrupo.length;
+    
+    // Para exibição, mostrar total de perguntas respondidas vs total
     const respondidas = grupo.perguntas.filter(p => isPerguntaRespondida(p)).length;
-    return { respondidas, total: grupo.perguntas.length };
+    
+    return { 
+      respondidas, 
+      total: grupo.perguntas.length,
+      obrigatoriasCompletas: totalObrigatorias === 0 || obrigatoriasRespondidas === totalObrigatorias
+    };
   };
 
   if (loadingChecklist) {
@@ -1439,9 +1458,17 @@ export default function AppAPR() {
     );
   }
 
+  // Filtrar apenas perguntas obrigatórias para o cálculo de progresso
+  const perguntasObrigatorias = todasPerguntas.filter(p => p.obrigatoria);
+  const perguntasObrigatoriasRespondidas = perguntasObrigatorias.filter(p => isPerguntaRespondida(p)).length;
+  const totalPerguntasObrigatorias = perguntasObrigatorias.length;
+  const progresso = totalPerguntasObrigatorias > 0 
+    ? Math.round((perguntasObrigatoriasRespondidas / totalPerguntasObrigatorias) * 100) 
+    : 0;
+  
+  // Manter contadores totais para exibição
   const perguntasRespondidas = todasPerguntas.filter(p => isPerguntaRespondida(p)).length;
   const totalPerguntas = todasPerguntas.length;
-  const progresso = totalPerguntas > 0 ? Math.round((perguntasRespondidas / totalPerguntas) * 100) : 0;
 
   return (
     <div className="pb-6">
@@ -1478,7 +1505,7 @@ export default function AppAPR() {
         {/* Barra de progresso */}
         <div className="mt-3">
           <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-            <span>{perguntasRespondidas} de {totalPerguntas} respondidas</span>
+            <span>{perguntasObrigatoriasRespondidas} de {totalPerguntasObrigatorias} obrigatórias respondidas</span>
             <span>{progresso}%</span>
           </div>
           <div className="h-2 bg-muted rounded-full overflow-hidden">
@@ -1507,8 +1534,26 @@ export default function AppAPR() {
         </div>
       )}
 
+      {/* Aviso de bloqueio - ainda não chegou no local */}
+      {!chegouNoLocal && !aprConcluida && (
+        <div className="mx-4 mt-4">
+          <Card className="bg-orange-50 border-orange-300">
+            <CardContent className="p-4 flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-orange-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium text-orange-800">Aguardando Chegada no Local</p>
+                <p className="text-sm text-orange-700 mt-1">
+                  A APR só pode ser preenchida após a chegada no local da OS. 
+                  Registre sua chegada antes de preencher a Análise Preliminar de Riscos.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Grupos e Perguntas */}
-      <div className="p-4 space-y-3">
+      <div className={`p-4 space-y-3 ${!chegouNoLocal && !aprConcluida ? 'opacity-50 pointer-events-none' : ''}`}>
         {checklist.descricao && (
           <Card className="bg-violet-50 border-violet-200">
             <CardContent className="p-4">
@@ -1520,9 +1565,10 @@ export default function AppAPR() {
         {checklist.grupos
           .sort((a, b) => a.ordem - b.ordem)
           .map((grupo) => {
-            const { respondidas, total } = getProgressoGrupo(grupo);
+            const { respondidas, total, obrigatoriasCompletas } = getProgressoGrupo(grupo);
             const isExpanded = gruposExpandidos.has(grupo.id);
-            const todasRespondidas = respondidas === total && total > 0;
+            // Grupo fica verde quando todas as obrigatórias estão preenchidas
+            const grupoCompleto = obrigatoriasCompletas && total > 0;
             const temPendencia = grupo.perguntas.some(p => pendenciasHighlight.has(p.id));
 
             return (
@@ -1533,7 +1579,7 @@ export default function AppAPR() {
               >
                 <Card 
                   ref={(el) => grupoRefs.current[grupo.id] = el}
-                  className={`${todasRespondidas ? 'border-green-300 bg-green-50/50' : ''} ${temPendencia ? 'border-red-400 ring-2 ring-red-200' : ''}`}
+                  className={`${grupoCompleto ? 'border-green-300 bg-green-50/50' : ''} ${temPendencia ? 'border-red-400 ring-2 ring-red-200' : ''}`}
                 >
                   <CollapsibleTrigger asChild>
                     <CardHeader className="pb-2 cursor-pointer hover:bg-muted/50 transition-colors">
@@ -1552,8 +1598,8 @@ export default function AppAPR() {
                           )}
                         </div>
                         <Badge 
-                          variant={todasRespondidas ? "default" : temPendencia ? "destructive" : "secondary"}
-                          className={todasRespondidas ? "bg-green-600" : ""}
+                          variant={grupoCompleto ? "default" : temPendencia ? "destructive" : "secondary"}
+                          className={grupoCompleto ? "bg-green-600" : ""}
                         >
                           {respondidas}/{total}
                         </Badge>
@@ -1617,7 +1663,7 @@ export default function AppAPR() {
           })}
 
         {/* Botão Salvar */}
-        {!aprConcluida && (
+        {!aprConcluida && chegouNoLocal && (
           <Button
             className="w-full bg-violet-600 hover:bg-violet-700"
             size="lg"

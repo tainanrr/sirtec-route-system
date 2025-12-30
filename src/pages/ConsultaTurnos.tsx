@@ -81,6 +81,7 @@ import {
   ExternalLink,
   X,
   Activity,
+  Truck,
 } from "lucide-react";
 import { format, parseISO, differenceInMinutes } from "date-fns";
 import { verificarOsEmAndamento } from "@/lib/authUtils";
@@ -175,6 +176,12 @@ interface OsPlanejadaTurno {
     status: string;
     cliente_nome: string | null;
     concluido_at: string | null;
+    prazo: string | null;
+    updated_at: string | null;
+    deslocamento_iniciado_at: string | null;
+    chegada_local_at: string | null;
+    execucao_iniciada_at: string | null;
+    pausado_at: string | null;
   };
   // Info de execução
   executada: boolean;
@@ -187,6 +194,12 @@ interface OsPlanejadaTurno {
     equipeId: string;
     equipeCodigo: string;
   };
+  // Último movimento específico desta OS (baseado nos timestamps da OS)
+  ultimoMovimento?: string | null;
+  // Posição de execução (ordem em que foi executada)
+  posicaoExecutada?: number | null;
+  // Indica se há quebra de sequência (pulou uma OS)
+  quebraSequencia?: boolean;
 }
 
 // Constantes de paginação
@@ -372,7 +385,21 @@ export default function ConsultaTurnos() {
             id,
             ordem_na_rota,
             ordem_servico_id,
-            ordens_servico:ordem_servico_id (id, numero, tipo, endereco, status, cliente_nome, concluido_at),
+            ordens_servico:ordem_servico_id (
+              id, 
+              numero, 
+              tipo, 
+              endereco, 
+              status, 
+              cliente_nome, 
+              concluido_at,
+              prazo,
+              updated_at,
+              deslocamento_iniciado_at,
+              chegada_local_at,
+              execucao_iniciada_at,
+              pausado_at
+            ),
             planejamentos!inner (id, data_planejamento)
           `)
           .eq("equipe_id", selectedTurno.equipe_id)
@@ -425,6 +452,18 @@ export default function ConsultaTurnos() {
         }
       }
       
+      // Calcular posição de execução baseado na ordem de criação das produções
+      // Ordenar produções por created_at para determinar a ordem real de execução
+      const producoesOrdenadas = [...producoes].sort((a, b) => 
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
+      
+      // Mapear OS -> posição de execução
+      const posicaoExecucaoPorOS = new Map<string, number>();
+      producoesOrdenadas.forEach((prod, index) => {
+        posicaoExecucaoPorOS.set(prod.ordem_servico_id, index + 1);
+      });
+      
       // Processar OSs planejadas
       const osPlanejadaProcessadas: OsPlanejadaTurno[] = osPlanejadas
         .filter((op: any) => op.ordens_servico)
@@ -433,6 +472,33 @@ export default function ConsultaTurnos() {
           const executadaNesteTurno = osIdsExecutadasNesteTurno.has(osId);
           const producao = producoesPorOS.get(osId);
           const executadaEmOutroTurno = execucoesOutrosTurnos.get(osId);
+          
+          // Calcular último movimento específico desta OS
+          // Usar apenas os campos que têm valor (indicando que a OS passou por esse estado)
+          const movimentos: { tipo: string; data: string }[] = [];
+          if (op.ordens_servico.deslocamento_iniciado_at) {
+            movimentos.push({ tipo: "deslocamento", data: op.ordens_servico.deslocamento_iniciado_at });
+          }
+          if (op.ordens_servico.chegada_local_at) {
+            movimentos.push({ tipo: "chegada", data: op.ordens_servico.chegada_local_at });
+          }
+          if (op.ordens_servico.execucao_iniciada_at) {
+            movimentos.push({ tipo: "execucao", data: op.ordens_servico.execucao_iniciada_at });
+          }
+          if (op.ordens_servico.pausado_at) {
+            movimentos.push({ tipo: "pausa", data: op.ordens_servico.pausado_at });
+          }
+          if (op.ordens_servico.concluido_at) {
+            movimentos.push({ tipo: "conclusao", data: op.ordens_servico.concluido_at });
+          }
+          
+          // Pegar o movimento mais recente (não usar updated_at pois é genérico)
+          const ultimoMovimento = movimentos.length > 0 
+            ? movimentos.sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime())[0].data
+            : null;
+          
+          // Posição de execução
+          const posicaoExecutada = posicaoExecucaoPorOS.get(osId) || null;
           
           return {
             id: op.id,
@@ -443,8 +509,35 @@ export default function ConsultaTurnos() {
             executadaNesteTurno,
             producao,
             executadaEmOutroTurno,
+            ultimoMovimento,
+            posicaoExecutada,
+            quebraSequencia: false, // Será calculado depois
           };
         });
+      
+      // Calcular quebras de sequência
+      // Uma quebra ocorre quando a posição executada não corresponde à esperada na sequência
+      let ultimaPosicaoEsperada = 0;
+      const osExecutadasOrdenadas = osPlanejadaProcessadas
+        .filter(os => os.posicaoExecutada !== null)
+        .sort((a, b) => (a.posicaoExecutada || 0) - (b.posicaoExecutada || 0));
+      
+      osExecutadasOrdenadas.forEach((os, index) => {
+        if (index === 0) {
+          ultimaPosicaoEsperada = os.ordem_na_rota;
+        } else {
+          // Verificar se pulou alguma OS planejada
+          const posicaoPlanejadaAnterior = osExecutadasOrdenadas[index - 1].ordem_na_rota;
+          const posicaoPlanejadaAtual = os.ordem_na_rota;
+          
+          // Se a posição planejada atual é menor que a anterior (voltou), é uma quebra
+          // OU se pulou mais de 1 posição na sequência planejada original
+          if (posicaoPlanejadaAtual < posicaoPlanejadaAnterior) {
+            const osOriginal = osPlanejadaProcessadas.find(o => o.ordem_servico_id === os.ordem_servico_id);
+            if (osOriginal) osOriginal.quebraSequencia = true;
+          }
+        }
+      });
       
       return {
         producoes,
@@ -1129,10 +1222,13 @@ export default function ConsultaTurnos() {
                           <Table>
                             <TableHeader>
                               <TableRow>
-                                <TableHead className="w-[60px]">#</TableHead>
+                                <TableHead className="w-[60px]">Plan.</TableHead>
+                                <TableHead className="w-[60px]">Exec.</TableHead>
                                 <TableHead>OS</TableHead>
                                 <TableHead>Tipo</TableHead>
                                 <TableHead>Status</TableHead>
+                                <TableHead>Último Movimento</TableHead>
+                                <TableHead>Prazo</TableHead>
                                 <TableHead>Execução</TableHead>
                                 <TableHead className="text-right">Valor</TableHead>
                                 <TableHead></TableHead>
@@ -1140,11 +1236,49 @@ export default function ConsultaTurnos() {
                             </TableHeader>
                             <TableBody>
                               {turnoDetalhes.osPlanejadas.map(os => {
-                                // Determinar o status visual
+                                // Determinar o status visual baseado no status real da OS
                                 let statusBadge;
                                 let statusInfo = "";
                                 
-                                if (os.executadaNesteTurno) {
+                                // Usar o status real da OS, não apenas se foi executada
+                                const statusReal = os.ordens_servico.status;
+                                
+                                if (statusReal === "concluida") {
+                                  statusBadge = (
+                                    <Badge className="bg-green-500 hover:bg-green-600 text-xs">
+                                      <CheckCircle2 className="h-3 w-3 mr-1" />
+                                      Concluída
+                                    </Badge>
+                                  );
+                                } else if (statusReal === "cancelada") {
+                                  statusBadge = (
+                                    <Badge variant="destructive" className="text-xs">
+                                      <XCircle className="h-3 w-3 mr-1" />
+                                      Cancelada
+                                    </Badge>
+                                  );
+                                } else if (statusReal === "em_execucao" || statusReal === "em_andamento") {
+                                  statusBadge = (
+                                    <Badge className="bg-blue-500 hover:bg-blue-600 text-xs">
+                                      <Play className="h-3 w-3 mr-1" />
+                                      Em Execução
+                                    </Badge>
+                                  );
+                                } else if (statusReal === "em_deslocamento") {
+                                  statusBadge = (
+                                    <Badge className="bg-orange-500 hover:bg-orange-600 text-xs">
+                                      <Truck className="h-3 w-3 mr-1" />
+                                      Em Deslocamento
+                                    </Badge>
+                                  );
+                                } else if (statusReal === "pausada") {
+                                  statusBadge = (
+                                    <Badge variant="outline" className="border-amber-500 text-amber-700 text-xs">
+                                      <Pause className="h-3 w-3 mr-1" />
+                                      Pausada
+                                    </Badge>
+                                  );
+                                } else if (os.executadaNesteTurno) {
                                   statusBadge = (
                                     <Badge className="bg-green-500 hover:bg-green-600 text-xs">
                                       <CheckCircle2 className="h-3 w-3 mr-1" />
@@ -1159,20 +1293,6 @@ export default function ConsultaTurnos() {
                                     </Badge>
                                   );
                                   statusInfo = `Executada em ${os.executadaEmOutroTurno.data} pela equipe ${os.executadaEmOutroTurno.equipeCodigo}`;
-                                } else if (os.ordens_servico.status === "concluida") {
-                                  statusBadge = (
-                                    <Badge variant="outline" className="border-green-500 text-green-700 text-xs">
-                                      <CheckCircle2 className="h-3 w-3 mr-1" />
-                                      Concluída
-                                    </Badge>
-                                  );
-                                } else if (os.ordens_servico.status === "cancelada") {
-                                  statusBadge = (
-                                    <Badge variant="destructive" className="text-xs">
-                                      <XCircle className="h-3 w-3 mr-1" />
-                                      Cancelada
-                                    </Badge>
-                                  );
                                 } else {
                                   statusBadge = (
                                     <Badge variant="outline" className="border-amber-500 text-amber-700 text-xs">
@@ -1188,13 +1308,31 @@ export default function ConsultaTurnos() {
                                     className={cn(
                                       os.executadaNesteTurno && "bg-green-50/50",
                                       os.executadaEmOutroTurno && "bg-blue-50/50",
-                                      !os.executadaNesteTurno && !os.executadaEmOutroTurno && os.ordens_servico.status !== "concluida" && os.ordens_servico.status !== "cancelada" && "bg-amber-50/30"
+                                      !os.executadaNesteTurno && !os.executadaEmOutroTurno && os.ordens_servico.status !== "concluida" && os.ordens_servico.status !== "cancelada" && "bg-amber-50/30",
+                                      os.quebraSequencia && "ring-2 ring-orange-400"
                                     )}
                                   >
                                     <TableCell>
                                       <Badge variant="outline" className="font-mono">
                                         {os.ordem_na_rota}
                                       </Badge>
+                                    </TableCell>
+                                    <TableCell>
+                                      {os.posicaoExecutada ? (
+                                        <Badge 
+                                          variant={os.quebraSequencia ? "destructive" : "default"}
+                                          className={cn(
+                                            "font-mono",
+                                            os.quebraSequencia 
+                                              ? "bg-orange-500 hover:bg-orange-600" 
+                                              : "bg-green-600 hover:bg-green-700"
+                                          )}
+                                        >
+                                          {os.posicaoExecutada}
+                                        </Badge>
+                                      ) : (
+                                        <span className="text-muted-foreground text-xs">-</span>
+                                      )}
                                     </TableCell>
                                     <TableCell>
                                       <span className="font-mono text-sm">{os.ordens_servico.numero}</span>
@@ -1207,6 +1345,34 @@ export default function ConsultaTurnos() {
                                           <p className="text-[10px] text-muted-foreground">{statusInfo}</p>
                                         )}
                                       </div>
+                                    </TableCell>
+                                    <TableCell>
+                                      {os.ultimoMovimento ? (
+                                        <div className="text-xs">
+                                          <div className="font-medium">
+                                            {format(parseISO(os.ultimoMovimento), "dd/MM/yyyy")}
+                                          </div>
+                                          <div className="text-muted-foreground">
+                                            {format(parseISO(os.ultimoMovimento), "HH:mm")}
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <span className="text-xs text-muted-foreground">-</span>
+                                      )}
+                                    </TableCell>
+                                    <TableCell>
+                                      {os.ordens_servico.prazo ? (
+                                        <div className="text-xs">
+                                          <div className="font-medium">
+                                            {format(parseISO(os.ordens_servico.prazo), "dd/MM/yyyy")}
+                                          </div>
+                                          <div className="text-muted-foreground">
+                                            {format(parseISO(os.ordens_servico.prazo), "HH:mm")}
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <span className="text-xs text-muted-foreground">-</span>
+                                      )}
                                     </TableCell>
                                     <TableCell>
                                       {os.producao?.retornos_campo ? (
