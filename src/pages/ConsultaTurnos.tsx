@@ -1285,7 +1285,6 @@ export default function ConsultaTurnos() {
                                 <TableHead>Retorno</TableHead>
                                 <TableHead>Último Movimento</TableHead>
                                 <TableHead>Prazo</TableHead>
-                                <TableHead>Execução</TableHead>
                                 <TableHead className="text-right">Valor</TableHead>
                                 <TableHead></TableHead>
                               </TableRow>
@@ -1456,22 +1455,6 @@ export default function ConsultaTurnos() {
                                             {format(parseISO(os.ordens_servico.prazo), "HH:mm")}
                                           </div>
                                         </div>
-                                      ) : (
-                                        <span className="text-xs text-muted-foreground">-</span>
-                                      )}
-                                    </TableCell>
-                                    <TableCell>
-                                      {os.producao?.retornos_campo ? (
-                                        <Badge 
-                                          variant="outline" 
-                                          className={cn(
-                                            "text-xs",
-                                            os.producao.retornos_campo.tipo === "executado" && "border-green-500 text-green-700",
-                                            os.producao.retornos_campo.tipo === "impedimento" && "border-red-500 text-red-700"
-                                          )}
-                                        >
-                                          {os.producao.retornos_campo.descricao}
-                                        </Badge>
                                       ) : (
                                         <span className="text-xs text-muted-foreground">-</span>
                                       )}
