@@ -326,20 +326,20 @@ export function TimelinePrevistoRealizado({ dateISO, equipes, onSelectEquipe, on
     return list;
   }, [totalMin, widthPx, dayStartMin]);
 
-  // Scroll para hora atual ao carregar
+  // Scroll para hora atual ou início ao carregar
   useEffect(() => {
-    if (nowLine && timelineScrollRef.current) {
-      setTimeout(() => {
-        const scrollTo = Math.max(0, nowLine - 300);
-        if (timelineScrollRef.current) {
-          timelineScrollRef.current.scrollLeft = scrollTo;
-        }
-        if (headerScrollRef.current) {
-          headerScrollRef.current.scrollLeft = scrollTo;
-        }
-      }, 100);
-    }
-  }, [nowLine]);
+    setTimeout(() => {
+      // Se há linha AGORA, scrollar para ela
+      // Se não há (turno passado), scrollar para o início
+      const scrollTo = nowLine ? Math.max(0, nowLine - 300) : 0;
+      if (timelineScrollRef.current) {
+        timelineScrollRef.current.scrollLeft = scrollTo;
+      }
+      if (headerScrollRef.current) {
+        headerScrollRef.current.scrollLeft = scrollTo;
+      }
+    }, 100);
+  }, [nowLine, dateISO]);
 
   // Calcular progresso de uma equipe
   const calcularProgresso = (equipe: TimelineEquipeCompleta) => {
@@ -754,15 +754,11 @@ export function TimelinePrevistoRealizado({ dateISO, equipes, onSelectEquipe, on
                           const temDadosPrevistos = startMin && endMin;
                           if (!temDadosPrevistos) {
                             // Calcular posição baseada na ordem na rota para visualização simplificada
-                            const totalOrdens = equipe.ordens.length;
-                            const minutosDisponiveis = dayEndMin - dayStartMin - 120; // Deixar margem
-                            const intervaloEntreOS = minutosDisponiveis / Math.max(1, totalOrdens);
-                            const osStartMin = dayStartMin + 60 + (os.ordemNaRota - 1) * intervaloEntreOS;
-                            const osEndMin = osStartMin + 30; // 30 min por OS aproximado
-                            
-                            const osStartX = Math.max(55, Math.round(((osStartMin - dayStartMin) / totalMin) * widthPx));
-                            const osEndX = Math.min(widthPx - 5, Math.round(((osEndMin - dayStartMin) / totalMin) * widthPx));
-                            const osW = Math.max(50, osEndX - osStartX);
+                            // Usar largura fixa por OS para melhor visualização
+                            const larguraFixaOS = 70; // pixels por OS
+                            const espacamentoOS = 10; // pixels entre OSs
+                            const osStartX = 60 + (os.ordemNaRota - 1) * (larguraFixaOS + espacamentoOS);
+                            const osW = larguraFixaOS;
                             
                             const foiConcluida = os.status === "concluida";
                             const dentroDoPrazo = foiConcluidaDentroDoPrazo(os);
