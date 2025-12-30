@@ -38,15 +38,12 @@ import {
   Check,
   CheckCircle,
   XCircle,
-  Settings2,
-  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { TecnicoFormDialog } from "@/components/equipes/TecnicoFormDialog";
 import type { Tables } from "@/integrations/supabase/types";
-import { migrarSupervisoresEquipes } from "@/lib/migracaoSupervisores";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -126,36 +123,6 @@ const Equipes = () => {
   // Estados para edição inline
   const [editingJornada, setEditingJornada] = useState<string | null>(null);
   const [jornadaValue, setJornadaValue] = useState("");
-  
-  // Estado para migração de supervisores
-  const [migracaoDialogOpen, setMigracaoDialogOpen] = useState(false);
-  const [migracaoLoading, setMigracaoLoading] = useState(false);
-
-  // Função para executar a migração de supervisores
-  const handleMigrarSupervisores = async () => {
-    setMigracaoLoading(true);
-    try {
-      const result = await migrarSupervisoresEquipes();
-      
-      if (result.success) {
-        toast.success(`Migração concluída! ${result.updated} equipes atualizadas.`);
-      } else {
-        toast.error(`Migração com erros. ${result.updated} atualizadas. Erros: ${result.errors.length}`);
-        console.error("Detalhes da migração:", result);
-      }
-      
-      // Exibir detalhes no console
-      console.table(result.details);
-      
-      // Recarregar dados
-      fetchTecnicos();
-    } catch (error: any) {
-      toast.error(`Erro na migração: ${error.message}`);
-    } finally {
-      setMigracaoLoading(false);
-      setMigracaoDialogOpen(false);
-    }
-  };
 
   // Buscar todos os colaboradores disponíveis
   const fetchTodosColaboradores = async () => {
@@ -1010,17 +977,6 @@ const Equipes = () => {
             ]}
             disabled={loading}
           />
-          {podeEditar && (
-            <Button 
-              variant="outline"
-              className="gap-2" 
-              onClick={() => setMigracaoDialogOpen(true)}
-              title="Vincular supervisores às equipes conforme mapeamento inicial"
-            >
-              <Settings2 className="h-4 w-4" />
-              Migrar Supervisores
-            </Button>
-          )}
           <Button 
             className="gap-2" 
             onClick={() => { setSelectedTecnico(null); setFormOpen(true); }}
@@ -1248,41 +1204,6 @@ const Equipes = () => {
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               Excluir
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Dialog de migração de supervisores */}
-      <AlertDialog open={migracaoDialogOpen} onOpenChange={setMigracaoDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Migrar Supervisores</AlertDialogTitle>
-            <AlertDialogDescription>
-              Esta ação irá vincular os supervisores às equipes conforme o mapeamento inicial configurado.
-              <br /><br />
-              <span className="text-muted-foreground text-xs">
-                • Equipes que já possuem supervisor configurado serão ignoradas.
-                <br />
-                • Verifique se os supervisores TARCISIO JESUS DOS SANTOS e MANUEL ABREU NOVAES NETO estão cadastrados em Coordenadores/Supervisores.
-              </span>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={migracaoLoading}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={handleMigrarSupervisores} 
-              disabled={migracaoLoading}
-              className="gap-2"
-            >
-              {migracaoLoading ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Migrando...
-                </>
-              ) : (
-                "Executar Migração"
-              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

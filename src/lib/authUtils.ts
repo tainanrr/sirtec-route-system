@@ -34,6 +34,17 @@ export interface ValidarLoginEquipeResult {
   max_colaboradores?: number;
 }
 
+// Interface para turno existente
+export interface TurnoExistente {
+  id: string;
+  hora_inicio: string;
+  data_turno: string;
+  placa_veiculo: string | null;
+  km_inicial: number | null;
+  status: string;
+  colaboradores?: ColaboradorEquipe[];
+}
+
 /**
  * Autentica uma equipe usando usuário e senha
  */
@@ -187,6 +198,67 @@ export async function validarLoginEquipe(
 }
 
 /**
+ * Verifica se existe um turno aberto para a equipe
+ */
+export async function verificarTurnoAberto(
+  equipeId: string
+): Promise<{ success: boolean; turno?: TurnoExistente; message?: string }> {
+  try {
+    // Buscar turno aberto
+    const { data: turnoData, error: turnoError } = await supabase
+      .from("turnos")
+      .select("*")
+      .eq("equipe_id", equipeId)
+      .eq("status", "aberto")
+      .order("hora_inicio", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (turnoError) {
+      console.error("Erro ao verificar turno:", turnoError);
+      return { success: false, message: turnoError.message };
+    }
+
+    if (!turnoData) {
+      return { success: true };
+    }
+
+    // Buscar colaboradores do turno
+    const { data: colaboradoresData } = await supabase
+      .from("turno_colaboradores")
+      .select(`
+        colaborador_id,
+        funcao_turno,
+        colaboradores:colaborador_id (id, cpf, nome, cargo)
+      `)
+      .eq("turno_id", turnoData.id);
+
+    const colaboradores: ColaboradorEquipe[] = (colaboradoresData || []).map((c: any) => ({
+      id: c.colaborador_id,
+      cpf: c.colaboradores?.cpf || "",
+      nome: c.colaboradores?.nome || "Desconhecido",
+      cargo: c.colaboradores?.cargo || null,
+      funcao: c.funcao_turno || "membro",
+    }));
+
+    const turnoExistente: TurnoExistente = {
+      id: turnoData.id,
+      hora_inicio: turnoData.hora_inicio,
+      data_turno: turnoData.hora_inicio?.substring(0, 10) || new Date().toISOString().substring(0, 10),
+      placa_veiculo: turnoData.placa_veiculo,
+      km_inicial: turnoData.km_inicial,
+      status: turnoData.status,
+      colaboradores,
+    };
+
+    return { success: true, turno: turnoExistente };
+  } catch (error: any) {
+    console.error("Erro ao verificar turno:", error);
+    return { success: false, message: error.message || "Erro ao verificar turno" };
+  }
+}
+
+/**
  * Abre um novo turno para a equipe
  */
 export async function abrirTurno(
@@ -225,14 +297,74 @@ export async function abrirTurno(
 }
 
 /**
+ * Verifica se há OS parcialmente preenchida para a equipe
+ */
+export async function verificarOsEmAndamento(
+  equipeId: string
+): Promise<{ temOsEmAndamento: boolean; osEmAndamento?: { id: string; numero: string; status: string } }> {
+  try {
+    // Buscar OS em status intermediário (iniciada mas não concluída)
+    const { data, error } = await supabase
+      .from("planejamento_ordens")
+      .select(`
+        ordem_servico_id,
+        ordens_servico:ordem_servico_id (id, numero, status)
+      `)
+      .eq("equipe_id", equipeId);
+
+    if (error) {
+      console.error("Erro ao verificar OS em andamento:", error);
+      return { temOsEmAndamento: false };
+    }
+
+    // Status que indicam OS parcialmente preenchida
+    const statusEmAndamento = ["em_deslocamento", "no_local", "em_andamento", "em_execucao"];
+    
+    const osAtiva = data?.find((d: any) => 
+      d.ordens_servico && statusEmAndamento.includes(d.ordens_servico.status)
+    );
+
+    if (osAtiva?.ordens_servico) {
+      return {
+        temOsEmAndamento: true,
+        osEmAndamento: {
+          id: osAtiva.ordens_servico.id,
+          numero: osAtiva.ordens_servico.numero,
+          status: osAtiva.ordens_servico.status,
+        },
+      };
+    }
+
+    return { temOsEmAndamento: false };
+  } catch (error) {
+    console.error("Erro ao verificar OS em andamento:", error);
+    return { temOsEmAndamento: false };
+  }
+}
+
+/**
  * Fecha um turno aberto
  */
 export async function fecharTurno(
   turnoId: string,
   kmFinal?: number,
-  observacoes?: string
-): Promise<{ success: boolean; message?: string }> {
+  observacoes?: string,
+  equipeId?: string,
+  ignorarVerificacaoOS?: boolean
+): Promise<{ success: boolean; message?: string; osEmAndamento?: { id: string; numero: string; status: string } }> {
   try {
+    // Verificar se há OS em andamento (se equipeId for fornecido e não ignorar verificação)
+    if (equipeId && !ignorarVerificacaoOS) {
+      const verificacaoOS = await verificarOsEmAndamento(equipeId);
+      if (verificacaoOS.temOsEmAndamento && verificacaoOS.osEmAndamento) {
+        return {
+          success: false,
+          message: `Não é possível fechar o turno. A OS ${verificacaoOS.osEmAndamento.numero} está com preenchimento em andamento. Finalize ou cancele a OS antes de encerrar o turno.`,
+          osEmAndamento: verificacaoOS.osEmAndamento,
+        };
+      }
+    }
+
     const { data, error } = await supabase.rpc("fechar_turno", {
       p_turno_id: turnoId,
       p_km_final: kmFinal || null,

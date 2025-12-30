@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -9,6 +9,14 @@ import { usePageState } from "@/contexts/ScrollRestoreContext";
 import { getAppParentRoute } from "@/lib/appNavigation";
 import { useRetornoCampo } from "@/hooks/useRetornoCampo";
 import RetornoCampoSelector from "@/components/app/RetornoCampoSelector";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -151,6 +159,12 @@ export default function AppOrdemDetalhe() {
   } | null>(null);
   const [tentouIniciarSemApr, setTentouIniciarSemApr] = useState(false);
   const { buscarSkillId, registrarProducao, atualizarOrdemComRetorno } = useRetornoCampo();
+  
+  // Estado para diálogo de OS em andamento
+  const [osEmAndamentoDialog, setOsEmAndamentoDialog] = useState<{
+    open: boolean;
+    os: { id: string; numero: string; tipo: string } | null;
+  }>({ open: false, os: null });
 
   const handleBack = () => {
     saveState({ observacao });
@@ -262,6 +276,33 @@ export default function AppOrdemDetalhe() {
       return data;
     },
     enabled: !!(equipe?.id || equipeAuth?.id),
+    refetchInterval: 10000,
+  });
+
+  // Buscar se há OUTRA OS em andamento (diferente da atual) - para bloquear início de múltiplas OS
+  const { data: outraOsEmAndamento } = useQuery({
+    queryKey: ["outra-os-em-andamento", equipe?.id || equipeAuth?.id, id],
+    queryFn: async () => {
+      const equipeId = equipe?.id || equipeAuth?.id;
+      if (!equipeId) return null;
+      
+      const { data, error } = await supabase
+        .from("planejamento_ordens")
+        .select(`
+          ordem_servico_id,
+          ordens_servico:ordem_servico_id (id, numero, tipo, status)
+        `)
+        .eq("equipe_id", equipeId)
+        .neq("ordem_servico_id", id) // Excluir a OS atual
+        .in("ordens_servico.status", ["em_deslocamento", "no_local", "em_andamento", "em_execucao"]);
+      
+      if (error) return null;
+      
+      // Filtrar apenas as que realmente estão em andamento
+      const osAtivas = data?.filter(d => d.ordens_servico?.status) || [];
+      return osAtivas.length > 0 ? osAtivas[0].ordens_servico : null;
+    },
+    enabled: !!(equipe?.id || equipeAuth?.id) && !!id,
     refetchInterval: 10000,
   });
 
@@ -447,6 +488,19 @@ export default function AppOrdemDetalhe() {
     if (intervaloAtivo && (newStatus === "em_deslocamento" || newStatus === "em_execucao")) {
       const nomeIntervalo = intervaloAtivo.tipo_intervalo?.nome || "Intervalo";
       toast.error(`Finalize o intervalo "${nomeIntervalo}" antes de continuar!`, { duration: 4000 });
+      return;
+    }
+
+    // Verificar se há outra OS em andamento (impede iniciar múltiplas OS)
+    if (outraOsEmAndamento && newStatus === "em_deslocamento") {
+      setOsEmAndamentoDialog({
+        open: true,
+        os: {
+          id: outraOsEmAndamento.id,
+          numero: outraOsEmAndamento.numero,
+          tipo: outraOsEmAndamento.tipo,
+        },
+      });
       return;
     }
 
@@ -944,6 +998,64 @@ export default function AppOrdemDetalhe() {
           onConfirm={handleRetornoCampoConfirm}
         />
       )}
+
+      {/* Dialog de OS em Andamento */}
+      <Dialog 
+        open={osEmAndamentoDialog.open} 
+        onOpenChange={(open) => setOsEmAndamentoDialog(prev => ({ ...prev, open }))}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="p-2 rounded-full bg-amber-100">
+                <AlertTriangle className="h-6 w-6 text-amber-600" />
+              </div>
+              <DialogTitle className="text-lg">OS já em andamento</DialogTitle>
+            </div>
+            <DialogDescription asChild>
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Você já possui uma Ordem de Serviço em andamento. 
+                  Finalize o preenchimento dela antes de iniciar uma nova.
+                </p>
+                
+                {osEmAndamentoDialog.os && (
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+                    <p className="font-semibold text-amber-900">
+                      OS {osEmAndamentoDialog.os.numero}
+                    </p>
+                    <p className="text-sm text-amber-700 mt-0.5">
+                      {osEmAndamentoDialog.os.tipo}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+
+          <DialogFooter className="flex gap-2 sm:gap-2">
+            <Button 
+              variant="outline" 
+              onClick={() => setOsEmAndamentoDialog({ open: false, os: null })}
+              className="flex-1"
+            >
+              Fechar
+            </Button>
+            <Button 
+              onClick={() => {
+                if (osEmAndamentoDialog.os) {
+                  setOsEmAndamentoDialog({ open: false, os: null });
+                  navigate(`/app/ordens/${osEmAndamentoDialog.os.id}`);
+                }
+              }}
+              className="flex-1"
+            >
+              <Play className="h-4 w-4 mr-2" />
+              Ir para OS
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

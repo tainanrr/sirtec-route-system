@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { autenticarEquipe, EquipeAuthResult, validarLoginEquipe, ColaboradorEquipe, abrirTurno, fecharTurno } from "@/lib/authUtils";
+import { autenticarEquipe, EquipeAuthResult, validarLoginEquipe, ColaboradorEquipe, abrirTurno, fecharTurno, verificarTurnoAberto, TurnoExistente } from "@/lib/authUtils";
 import { supabase } from "@/integrations/supabase/client";
 import { logApp } from "@/lib/logUtils";
 
@@ -39,11 +39,14 @@ interface EquipeAuthContextType {
     success: boolean;
     colaboradores?: ColaboradorEquipe[];
     message?: string;
+    turnoExistente?: TurnoExistente;
   }>;
+  // Acessar turno existente
+  acessarTurnoExistente: (turnoExistente: TurnoExistente) => void;
   // Abrir turno com colaboradores selecionados
   iniciarTurno: (colaboradoresIds: string[], kmInicial?: number, colaboradoresFull?: ColaboradorEquipe[]) => Promise<{ success: boolean; message?: string }>;
   // Fechar turno
-  encerrarTurno: (kmFinal?: number, observacoes?: string) => Promise<boolean>;
+  encerrarTurno: (kmFinal?: number, observacoes?: string) => Promise<{ success: boolean; message?: string; osEmAndamento?: { id: string; numero: string; status: string } }>;
   logout: () => void;
   isAuthenticated: boolean;
   temTurnoAberto: boolean;
@@ -113,6 +116,7 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
     success: boolean;
     colaboradores?: ColaboradorEquipe[];
     message?: string;
+    turnoExistente?: TurnoExistente;
   }> => {
     setIsLoading(true);
     setError(null);
@@ -136,6 +140,9 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
         setColaboradoresPendentes(result.colaboradores || []);
         localStorage.setItem("equipe_auth", JSON.stringify(equipeData));
         
+        // Verificar se já existe turno aberto para esta equipe
+        const turnoResult = await verificarTurnoAberto(result.equipe_id);
+        
         // Registrar log de login no app
         const colaboradoresNomes = (result.colaboradores || []).map(c => c.nome).join(", ");
         const lider = (result.colaboradores || []).find(c => c.funcao === "lider");
@@ -155,6 +162,7 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
         return {
           success: true,
           colaboradores: result.colaboradores || [],
+          turnoExistente: turnoResult.turno,
         };
       } else {
         setError(result.message || "Equipe não encontrada");
@@ -172,6 +180,46 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Acessar turno existente
+  const acessarTurnoExistente = (turnoExistente: TurnoExistente) => {
+    if (!equipe) return;
+    
+    const turnoData: Turno = {
+      id: turnoExistente.id,
+      equipe_id: equipe.id,
+      data_turno: turnoExistente.data_turno,
+      hora_inicio: turnoExistente.hora_inicio,
+      placa_veiculo: turnoExistente.placa_veiculo || equipe.placa_veiculo || "",
+      km_inicial: turnoExistente.km_inicial || undefined,
+      status: "aberto",
+      colaboradores: turnoExistente.colaboradores || [],
+    };
+    
+    setTurno(turnoData);
+    localStorage.setItem("turno_auth", JSON.stringify(turnoData));
+    setColaboradoresPendentes([]);
+    
+    // Log de acesso ao turno existente
+    const colaboradoresNomes = turnoExistente.colaboradores?.map(c => c.nome).join(", ") || "";
+    logApp(
+      "acessar_turno",
+      "turnos",
+      `Acessou turno existente - Equipe ${equipe.codigo} - Turno de ${turnoExistente.data_turno}`,
+      { 
+        id: turnoExistente.colaboradores?.[0]?.id,
+        nome: colaboradoresNomes || equipe.nome,
+        equipeId: equipe.id,
+        equipeCodigo: equipe.codigo
+      },
+      { 
+        equipeId: equipe.id, 
+        equipeCodigo: equipe.codigo,
+        tabela: "turnos",
+        registroId: turnoExistente.id,
+      }
+    );
   };
 
   // Iniciar turno com colaboradores selecionados
@@ -249,17 +297,18 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
   };
 
   // Encerrar turno
-  const encerrarTurno = async (kmFinal?: number, observacoes?: string): Promise<boolean> => {
+  const encerrarTurno = async (kmFinal?: number, observacoes?: string): Promise<{ success: boolean; message?: string; osEmAndamento?: { id: string; numero: string; status: string } }> => {
     if (!turno) {
       setError("Nenhum turno aberto");
-      return false;
+      return { success: false, message: "Nenhum turno aberto" };
     }
 
     setIsLoading(true);
     setError(null);
 
     try {
-      const result = await fecharTurno(turno.id, kmFinal, observacoes);
+      // Passar equipe_id para verificação de OS em andamento
+      const result = await fecharTurno(turno.id, kmFinal, observacoes, equipe?.id);
 
       if (result.success) {
         // Registrar log de fechamento de turno
@@ -286,14 +335,18 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
         
         setTurno(null);
         localStorage.removeItem("turno_auth");
-        return true;
+        return { success: true };
       } else {
         setError(result.message || "Erro ao encerrar turno");
-        return false;
+        return { 
+          success: false, 
+          message: result.message, 
+          osEmAndamento: result.osEmAndamento 
+        };
       }
     } catch (err: any) {
       setError(err.message || "Erro ao encerrar turno");
-      return false;
+      return { success: false, message: err.message || "Erro ao encerrar turno" };
     } finally {
       setIsLoading(false);
     }
@@ -335,6 +388,7 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
         error,
         login,
         loginEquipe,
+        acessarTurnoExistente,
         iniciarTurno,
         encerrarTurno,
         logout,

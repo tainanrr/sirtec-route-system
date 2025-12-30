@@ -463,12 +463,19 @@ export default function AppHome() {
     setIsClosingTurno(true);
     try {
       const km = kmFinal ? parseInt(kmFinal) : undefined;
-      const success = await encerrarTurno(km);
-      if (success) {
+      const result = await encerrarTurno(km);
+      if (result.success) {
         toast.success("Turno encerrado com sucesso!");
         navigate("/app/login");
       } else {
-        toast.error("Erro ao encerrar turno");
+        // Verificar se há OS em andamento
+        if (result.osEmAndamento) {
+          toast.error(result.message || "Erro ao encerrar turno", { duration: 6000 });
+          // Navegar para a OS em questão
+          navigate(`/app/ordens/${result.osEmAndamento.id}`);
+        } else {
+          toast.error(result.message || "Erro ao encerrar turno");
+        }
       }
     } catch (error) {
       toast.error("Erro ao encerrar turno");

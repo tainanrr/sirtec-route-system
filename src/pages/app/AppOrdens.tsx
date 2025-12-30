@@ -35,7 +35,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { format, addDays, subDays, isToday, isTomorrow, isYesterday } from "date-fns";
+import { format, addDays, subDays, isToday, isTomorrow, isYesterday, differenceInDays, startOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 import { getDadosSkills } from "@/lib/skillsUtils";
@@ -306,8 +306,24 @@ export default function AppOrdens() {
     return matchesSearch;
   });
 
+  // Limite de 3 dias para visualização de rotas antigas (para não sobrecarregar com fotos/anexos)
+  const LIMITE_DIAS_PASSADO = 3;
+  
+  // Verificar se pode navegar para o dia anterior
+  const podeIrParaAnterior = () => {
+    const hoje = startOfDay(new Date());
+    const diasDiferenca = differenceInDays(hoje, startOfDay(selectedDate));
+    return diasDiferenca < LIMITE_DIAS_PASSADO;
+  };
+
   // Funções de navegação de data
-  const goToPreviousDay = () => setSelectedDate(prev => subDays(prev, 1));
+  const goToPreviousDay = () => {
+    if (podeIrParaAnterior()) {
+      setSelectedDate(prev => subDays(prev, 1));
+    } else {
+      toast.error(`Você pode visualizar rotas de até ${LIMITE_DIAS_PASSADO} dias atrás`);
+    }
+  };
   const goToNextDay = () => setSelectedDate(prev => addDays(prev, 1));
   const goToToday = () => setSelectedDate(new Date());
 
@@ -379,7 +395,13 @@ export default function AppOrdens() {
 
       {/* Seletor de Data */}
       <div className="flex items-center justify-between bg-muted/50 rounded-lg p-2">
-        <Button variant="ghost" size="icon" onClick={goToPreviousDay}>
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          onClick={goToPreviousDay}
+          disabled={!podeIrParaAnterior()}
+          title={!podeIrParaAnterior() ? `Limite de ${LIMITE_DIAS_PASSADO} dias` : "Dia anterior"}
+        >
           <ChevronRight className="h-5 w-5 rotate-180" />
         </Button>
         <Button 

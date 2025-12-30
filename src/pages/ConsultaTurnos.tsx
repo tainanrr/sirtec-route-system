@@ -82,7 +82,8 @@ import {
   X,
   Activity,
 } from "lucide-react";
-import { format, parseISO, differenceInMinutes, differenceInHours } from "date-fns";
+import { format, parseISO, differenceInMinutes } from "date-fns";
+import { verificarOsEmAndamento } from "@/lib/authUtils";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -158,6 +159,33 @@ interface ChecklistTurno {
   };
   ordens_servico?: {
     numero: string;
+  };
+}
+
+// Interface para OS Planejada no turno
+interface OsPlanejadaTurno {
+  id: string;
+  ordem_na_rota: number;
+  ordem_servico_id: string;
+  ordens_servico: {
+    id: string;
+    numero: string;
+    tipo: string;
+    endereco: string;
+    status: string;
+    cliente_nome: string | null;
+    concluido_at: string | null;
+  };
+  // Info de execução
+  executada: boolean;
+  executadaNesteTurno: boolean;
+  producao?: ProducaoTurno;
+  // Info se executada em outro turno
+  executadaEmOutroTurno?: {
+    turnoId: string;
+    data: string;
+    equipeId: string;
+    equipeCodigo: string;
   };
 }
 
@@ -302,8 +330,8 @@ export default function ConsultaTurnos() {
       const dataInicio = selectedTurno.hora_inicio.substring(0, 10);
       const dataFim = selectedTurno.hora_fim?.substring(0, 10) || format(new Date(), "yyyy-MM-dd");
       
-      // Buscar produções, intervalos e checklists em paralelo
-      const [producaoRes, intervalosRes, checklistsRes] = await Promise.all([
+      // Buscar produções, intervalos, checklists e OSs planejadas em paralelo
+      const [producaoRes, intervalosRes, checklistsRes, osPlanejadaRes] = await Promise.all([
         supabase
           .from("producao_equipes")
           .select(`
@@ -337,12 +365,92 @@ export default function ConsultaTurnos() {
           .gte("created_at", dataInicio + "T00:00:00")
           .lte("created_at", dataFim + "T23:59:59")
           .order("created_at"),
+        // Buscar OSs planejadas para a equipe naquele dia
+        supabase
+          .from("planejamento_ordens")
+          .select(`
+            id,
+            ordem_na_rota,
+            ordem_servico_id,
+            ordens_servico:ordem_servico_id (id, numero, tipo, endereco, status, cliente_nome, concluido_at),
+            planejamentos!inner (id, data_planejamento)
+          `)
+          .eq("equipe_id", selectedTurno.equipe_id)
+          .eq("planejamentos.data_planejamento", dataInicio)
+          .order("ordem_na_rota"),
       ]);
       
+      const producoes = (producaoRes.data || []) as ProducaoTurno[];
+      const osPlanejadas = osPlanejadaRes.data || [];
+      
+      // Mapear produções por ordem_servico_id para fácil acesso
+      const producoesPorOS = new Map<string, ProducaoTurno>();
+      producoes.forEach(p => {
+        producoesPorOS.set(p.ordem_servico_id, p);
+      });
+      
+      // Buscar execuções em outros turnos para as OSs que não foram executadas neste turno
+      const osIdsPlanejadas = osPlanejadas.map((op: any) => op.ordem_servico_id);
+      const osIdsExecutadasNesteTurno = new Set(producoes.map(p => p.ordem_servico_id));
+      const osIdsPendentesNesteTurno = osIdsPlanejadas.filter(id => !osIdsExecutadasNesteTurno.has(id));
+      
+      // Buscar se essas OSs foram executadas em outros turnos
+      let execucoesOutrosTurnos: Map<string, { turnoId: string; data: string; equipeId: string; equipeCodigo: string }> = new Map();
+      
+      if (osIdsPendentesNesteTurno.length > 0) {
+        const { data: outrasProd } = await supabase
+          .from("producao_equipes")
+          .select(`
+            ordem_servico_id,
+            equipe_id,
+            turno_id,
+            created_at,
+            tecnicos:equipe_id (codigo)
+          `)
+          .in("ordem_servico_id", osIdsPendentesNesteTurno)
+          .not("turno_id", "is", null);
+        
+        if (outrasProd) {
+          outrasProd.forEach((prod: any) => {
+            // Verificar se não é do turno atual
+            if (prod.turno_id !== selectedTurno.id) {
+              execucoesOutrosTurnos.set(prod.ordem_servico_id, {
+                turnoId: prod.turno_id,
+                data: prod.created_at?.substring(0, 10) || "",
+                equipeId: prod.equipe_id,
+                equipeCodigo: prod.tecnicos?.codigo || "N/A",
+              });
+            }
+          });
+        }
+      }
+      
+      // Processar OSs planejadas
+      const osPlanejadaProcessadas: OsPlanejadaTurno[] = osPlanejadas
+        .filter((op: any) => op.ordens_servico)
+        .map((op: any) => {
+          const osId = op.ordem_servico_id;
+          const executadaNesteTurno = osIdsExecutadasNesteTurno.has(osId);
+          const producao = producoesPorOS.get(osId);
+          const executadaEmOutroTurno = execucoesOutrosTurnos.get(osId);
+          
+          return {
+            id: op.id,
+            ordem_na_rota: op.ordem_na_rota,
+            ordem_servico_id: osId,
+            ordens_servico: op.ordens_servico,
+            executada: executadaNesteTurno || !!executadaEmOutroTurno || op.ordens_servico.status === "concluida",
+            executadaNesteTurno,
+            producao,
+            executadaEmOutroTurno,
+          };
+        });
+      
       return {
-        producoes: (producaoRes.data || []) as ProducaoTurno[],
+        producoes,
         intervalos: (intervalosRes.data || []) as IntervaloTurno[],
         checklists: (checklistsRes.data || []) as ChecklistTurno[],
+        osPlanejadas: osPlanejadaProcessadas,
       };
     },
     enabled: !!selectedTurno,
@@ -356,14 +464,21 @@ export default function ConsultaTurnos() {
     const producoes = turnoDetalhes.producoes;
     const intervalos = turnoDetalhes.intervalos;
     const checklists = turnoDetalhes.checklists;
+    const osPlanejadas = turnoDetalhes.osPlanejadas || [];
     
     // Valor total produzido
     const valorTotal = producoes.reduce((acc, p) => acc + (p.valor_total || 0), 0);
     
-    // Quantidade de OSs
+    // Quantidade de OSs (produção registrada neste turno)
     const qtdOSs = producoes.length;
     const osExecutadas = producoes.filter(p => p.retornos_campo?.tipo === "executado").length;
     const osImpedimentos = producoes.filter(p => p.retornos_campo?.tipo === "impedimento").length;
+    
+    // Estatísticas das OSs planejadas
+    const qtdOsPlanejadas = osPlanejadas.length;
+    const osExecutadasNesteTurno = osPlanejadas.filter(os => os.executadaNesteTurno).length;
+    const osExecutadasOutroTurno = osPlanejadas.filter(os => os.executadaEmOutroTurno).length;
+    const osPendentes = osPlanejadas.filter(os => !os.executadaNesteTurno && !os.executadaEmOutroTurno && os.ordens_servico.status !== "concluida").length;
     
     // Tempo total de intervalos
     const tempoIntervalos = intervalos.reduce((acc, i) => {
@@ -413,6 +528,12 @@ export default function ConsultaTurnos() {
       percentualProdutivo,
       tempoAPR,
       tempoEstimadoOSs,
+      // Estatísticas de OSs planejadas
+      qtdOsPlanejadas,
+      osExecutadasNesteTurno,
+      osExecutadasOutroTurno,
+      osPendentes,
+      taxaExecucao: qtdOsPlanejadas > 0 ? (osExecutadasNesteTurno / qtdOsPlanejadas) * 100 : 0,
     };
   }, [selectedTurno, turnoDetalhes]);
 
@@ -465,6 +586,17 @@ export default function ConsultaTurnos() {
     
     setIsProcessing(true);
     try {
+      // Verificar se há OS em andamento antes de encerrar
+      const verificacao = await verificarOsEmAndamento(selectedTurno.equipe_id);
+      if (verificacao.temOsEmAndamento && verificacao.osEmAndamento) {
+        toast.error(
+          `Não é possível fechar o turno. A OS ${verificacao.osEmAndamento.numero} está com preenchimento em andamento. Finalize ou cancele a OS antes de encerrar o turno.`,
+          { duration: 6000 }
+        );
+        setEncerrarDialogOpen(false);
+        return;
+      }
+
       const { error } = await supabase
         .from("turnos")
         .update({
@@ -776,13 +908,17 @@ export default function ConsultaTurnos() {
                       <CardContent className="p-4">
                         <div className="flex items-center gap-2 text-blue-600 mb-1">
                           <FileText className="h-4 w-4" />
-                          <span className="text-xs font-medium">OSs Atendidas</span>
+                          <span className="text-xs font-medium">OSs Planejadas</span>
                         </div>
                         <p className="text-2xl font-bold text-blue-700">
-                          {estatisticasTurno.qtdOSs}
+                          {estatisticasTurno.osExecutadasNesteTurno}/{estatisticasTurno.qtdOsPlanejadas}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {estatisticasTurno.osExecutadas} exec. • {estatisticasTurno.osImpedimentos} imped.
+                          {estatisticasTurno.osPendentes > 0 && <span className="text-amber-600">{estatisticasTurno.osPendentes} pend.</span>}
+                          {estatisticasTurno.osExecutadasOutroTurno > 0 && <span className="text-blue-500 ml-1">{estatisticasTurno.osExecutadasOutroTurno} outro turno</span>}
+                          {estatisticasTurno.osPendentes === 0 && estatisticasTurno.osExecutadasOutroTurno === 0 && (
+                            <span className="text-green-600">Todas executadas</span>
+                          )}
                         </p>
                       </CardContent>
                     </Card>
@@ -791,10 +927,13 @@ export default function ConsultaTurnos() {
                       <CardContent className="p-4">
                         <div className="flex items-center gap-2 text-purple-600 mb-1">
                           <Target className="h-4 w-4" />
-                          <span className="text-xs font-medium">Assertividade</span>
+                          <span className="text-xs font-medium">Taxa Execução</span>
                         </div>
                         <p className="text-2xl font-bold text-purple-700">
-                          {estatisticasTurno.assertividade.toFixed(0)}%
+                          {estatisticasTurno.taxaExecucao?.toFixed(0) || 0}%
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          do planejado
                         </p>
                       </CardContent>
                     </Card>
@@ -938,8 +1077,12 @@ export default function ConsultaTurnos() {
                   )}
 
                   {/* Tabs com detalhes */}
-                  <Tabs defaultValue="producao" className="w-full">
-                    <TabsList className="grid grid-cols-3">
+                  <Tabs defaultValue="os-planejadas" className="w-full">
+                    <TabsList className="grid grid-cols-4">
+                      <TabsTrigger value="os-planejadas" className="text-xs">
+                        <Route className="h-4 w-4 mr-1" />
+                        OSs ({turnoDetalhes?.osPlanejadas?.length || 0})
+                      </TabsTrigger>
                       <TabsTrigger value="producao" className="text-xs">
                         <DollarSign className="h-4 w-4 mr-1" />
                         Produção ({turnoDetalhes?.producoes.length || 0})
@@ -953,6 +1096,158 @@ export default function ConsultaTurnos() {
                         Checklists ({turnoDetalhes?.checklists.length || 0})
                       </TabsTrigger>
                     </TabsList>
+
+                    {/* Tab OSs Planejadas */}
+                    <TabsContent value="os-planejadas" className="mt-4">
+                      {!turnoDetalhes?.osPlanejadas || turnoDetalhes.osPlanejadas.length === 0 ? (
+                        <Card className="p-8 text-center">
+                          <Route className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                          <p className="text-muted-foreground">Nenhuma OS planejada encontrada para este dia</p>
+                        </Card>
+                      ) : (
+                        <Card>
+                          {/* Resumo das OSs */}
+                          <div className="p-3 border-b bg-muted/30">
+                            <div className="flex flex-wrap gap-3 text-xs">
+                              <span className="flex items-center gap-1">
+                                <div className="h-2 w-2 rounded-full bg-green-500" />
+                                Executadas neste turno: <strong>{estatisticasTurno?.osExecutadasNesteTurno || 0}</strong>
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <div className="h-2 w-2 rounded-full bg-blue-500" />
+                                Executadas em outro turno: <strong>{estatisticasTurno?.osExecutadasOutroTurno || 0}</strong>
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <div className="h-2 w-2 rounded-full bg-amber-500" />
+                                Pendentes: <strong>{estatisticasTurno?.osPendentes || 0}</strong>
+                              </span>
+                              <span className="ml-auto font-medium">
+                                Taxa de execução: {estatisticasTurno?.taxaExecucao?.toFixed(0) || 0}%
+                              </span>
+                            </div>
+                          </div>
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="w-[60px]">#</TableHead>
+                                <TableHead>OS</TableHead>
+                                <TableHead>Tipo</TableHead>
+                                <TableHead>Status</TableHead>
+                                <TableHead>Execução</TableHead>
+                                <TableHead className="text-right">Valor</TableHead>
+                                <TableHead></TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {turnoDetalhes.osPlanejadas.map(os => {
+                                // Determinar o status visual
+                                let statusBadge;
+                                let statusInfo = "";
+                                
+                                if (os.executadaNesteTurno) {
+                                  statusBadge = (
+                                    <Badge className="bg-green-500 hover:bg-green-600 text-xs">
+                                      <CheckCircle2 className="h-3 w-3 mr-1" />
+                                      Executada
+                                    </Badge>
+                                  );
+                                } else if (os.executadaEmOutroTurno) {
+                                  statusBadge = (
+                                    <Badge variant="outline" className="border-blue-500 text-blue-700 text-xs">
+                                      <ExternalLink className="h-3 w-3 mr-1" />
+                                      Outro Turno
+                                    </Badge>
+                                  );
+                                  statusInfo = `Executada em ${os.executadaEmOutroTurno.data} pela equipe ${os.executadaEmOutroTurno.equipeCodigo}`;
+                                } else if (os.ordens_servico.status === "concluida") {
+                                  statusBadge = (
+                                    <Badge variant="outline" className="border-green-500 text-green-700 text-xs">
+                                      <CheckCircle2 className="h-3 w-3 mr-1" />
+                                      Concluída
+                                    </Badge>
+                                  );
+                                } else if (os.ordens_servico.status === "cancelada") {
+                                  statusBadge = (
+                                    <Badge variant="destructive" className="text-xs">
+                                      <XCircle className="h-3 w-3 mr-1" />
+                                      Cancelada
+                                    </Badge>
+                                  );
+                                } else {
+                                  statusBadge = (
+                                    <Badge variant="outline" className="border-amber-500 text-amber-700 text-xs">
+                                      <Clock className="h-3 w-3 mr-1" />
+                                      Pendente
+                                    </Badge>
+                                  );
+                                }
+                                
+                                return (
+                                  <TableRow 
+                                    key={os.id}
+                                    className={cn(
+                                      os.executadaNesteTurno && "bg-green-50/50",
+                                      os.executadaEmOutroTurno && "bg-blue-50/50",
+                                      !os.executadaNesteTurno && !os.executadaEmOutroTurno && os.ordens_servico.status !== "concluida" && os.ordens_servico.status !== "cancelada" && "bg-amber-50/30"
+                                    )}
+                                  >
+                                    <TableCell>
+                                      <Badge variant="outline" className="font-mono">
+                                        {os.ordem_na_rota}
+                                      </Badge>
+                                    </TableCell>
+                                    <TableCell>
+                                      <span className="font-mono text-sm">{os.ordens_servico.numero}</span>
+                                    </TableCell>
+                                    <TableCell className="text-sm">{os.ordens_servico.tipo}</TableCell>
+                                    <TableCell>
+                                      <div className="space-y-1">
+                                        {statusBadge}
+                                        {statusInfo && (
+                                          <p className="text-[10px] text-muted-foreground">{statusInfo}</p>
+                                        )}
+                                      </div>
+                                    </TableCell>
+                                    <TableCell>
+                                      {os.producao?.retornos_campo ? (
+                                        <Badge 
+                                          variant="outline" 
+                                          className={cn(
+                                            "text-xs",
+                                            os.producao.retornos_campo.tipo === "executado" && "border-green-500 text-green-700",
+                                            os.producao.retornos_campo.tipo === "impedimento" && "border-red-500 text-red-700"
+                                          )}
+                                        >
+                                          {os.producao.retornos_campo.descricao}
+                                        </Badge>
+                                      ) : (
+                                        <span className="text-xs text-muted-foreground">-</span>
+                                      )}
+                                    </TableCell>
+                                    <TableCell className="text-right font-medium">
+                                      {os.producao?.valor_total ? formatCurrency(os.producao.valor_total) : "-"}
+                                    </TableCell>
+                                    <TableCell>
+                                      <Button 
+                                        variant="ghost" 
+                                        size="sm"
+                                        onClick={() => {
+                                          setSelectedOsId(os.ordem_servico_id);
+                                          setOsDialogOpen(true);
+                                        }}
+                                        title="Ver OS"
+                                      >
+                                        <Eye className="h-3 w-3" />
+                                      </Button>
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                          </Table>
+                        </Card>
+                      )}
+                    </TabsContent>
 
                     {/* Tab Produção */}
                     <TabsContent value="producao" className="mt-4">

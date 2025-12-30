@@ -224,10 +224,10 @@ const Roteirizacao = () => {
     const loadTerritorios = async () => {
       const loaded = await carregarTerritorios();
       setTerritorios(loaded);
-      // Marcar todos os territórios ativos por padrão (com polígono válido E equipes vinculadas)
-      const territoriosAtivosComEquipes = loaded.filter(t => t.ativo && t.poligono.length >= 3 && t.equipeIds && t.equipeIds.length > 0);
-      if (territoriosAtivosComEquipes.length > 0) {
-        setTerritoriosSelecionados(territoriosAtivosComEquipes.map(t => t.id));
+      // Marcar todos os territórios ativos por padrão (com polígono válido)
+      const territoriosAtivos = loaded.filter(t => t.ativo && t.poligono.length >= 3);
+      if (territoriosAtivos.length > 0) {
+        setTerritoriosSelecionados(territoriosAtivos.map(t => t.id));
       }
     };
     loadTerritorios();
@@ -2000,7 +2000,7 @@ const Roteirizacao = () => {
                 </div>
                 {usarTerritorios && (
                   <span className="text-xs text-muted-foreground">
-                    {territoriosSelecionados.length} de {territorios.filter(t => t.ativo && t.poligono.length >= 3 && t.equipeIds && t.equipeIds.length > 0).length} selecionados
+                    {territoriosSelecionados.length} de {territorios.filter(t => t.ativo && t.poligono.length >= 3).length} selecionados
                     {territorios.filter(t => t.ativo && t.poligono.length >= 3 && (!t.equipeIds || t.equipeIds.length === 0)).length > 0 && (
                       <span className="text-orange-500 ml-1">
                         ({territorios.filter(t => t.ativo && t.poligono.length >= 3 && (!t.equipeIds || t.equipeIds.length === 0)).length} sem equipes)
@@ -2021,17 +2021,16 @@ const Roteirizacao = () => {
                     return (
                       <label 
                         key={territorio.id} 
-                        className={`flex items-center gap-1.5 text-xs text-foreground p-1 rounded border ${
+                        className={`flex items-center gap-1.5 text-xs text-foreground p-1 rounded border cursor-pointer hover:bg-muted/50 ${
                           temEquipes 
-                            ? 'cursor-pointer hover:bg-muted/50 border-transparent' 
-                            : 'cursor-not-allowed border-dashed border-orange-400/50 bg-orange-50/50 dark:bg-orange-950/20 opacity-70'
+                            ? 'border-transparent' 
+                            : 'border-dashed border-orange-400/50 bg-orange-50/50 dark:bg-orange-950/20'
                         }`}
                         title={temEquipes ? `Equipes: ${equipesVinculadas.map(e => e?.codigo).join(", ")}` : '⚠️ Sem equipes vinculadas - vincule equipes em Cadastros → Territórios'}
                       >
                         <input
                           type="checkbox"
                           checked={checked}
-                          disabled={!temEquipes}
                           onChange={(e) => {
                             if (!temEquipes) return;
                             if (e.target.checked) {
@@ -2065,12 +2064,12 @@ const Roteirizacao = () => {
                     variant="ghost"
                     size="sm"
                     onClick={() => {
-                      // Selecionar apenas territórios com equipes vinculadas
-                      const ativosComEquipes = territorios.filter(t => t.ativo && t.poligono.length >= 3 && t.equipeIds && t.equipeIds.length > 0);
-                      if (territoriosSelecionados.length === ativosComEquipes.length) {
+                      // Selecionar todos os territórios ativos
+                      const ativos = territorios.filter(t => t.ativo && t.poligono.length >= 3);
+                      if (territoriosSelecionados.length === ativos.length) {
                         setTerritoriosSelecionados([]);
                       } else {
-                        setTerritoriosSelecionados(ativosComEquipes.map(t => t.id));
+                        setTerritoriosSelecionados(ativos.map(t => t.id));
                       }
                     }}
                     className="flex-1 text-xs h-7"

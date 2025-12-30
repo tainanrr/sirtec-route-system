@@ -1,14 +1,16 @@
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
-import { Home, Route, LogOut, Wifi, WifiOff, Package, MessageCircle, BarChart3, Timer } from "lucide-react";
+import { Home, Route, LogOut, Wifi, WifiOff, Package, MessageCircle, BarChart3, Timer, AlertTriangle, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { ScrollRestoreProvider } from "@/contexts/ScrollRestoreContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
-import { format } from "date-fns";
+import { format, parseISO, isBefore, startOfDay, isToday } from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 type AppSection = "home" | "ordens" | "estoque" | "chat" | "resultados";
 
@@ -25,6 +27,23 @@ export default function AppLayout() {
   const [tempoOcioso, setTempoOcioso] = useState(0);
   
   const dataHoje = format(new Date(), "yyyy-MM-dd");
+  const [alertaTurnoFechado, setAlertaTurnoFechado] = useState(false);
+
+  // Verificar se o turno é de um dia anterior (desatualizado)
+  const turnoDesatualizado = useMemo(() => {
+    if (!turno?.hora_inicio) return false;
+    const dataTurno = startOfDay(parseISO(turno.hora_inicio));
+    const hoje = startOfDay(new Date());
+    return isBefore(dataTurno, hoje);
+  }, [turno?.hora_inicio]);
+
+  // Data do turno formatada
+  const dataTurnoFormatada = useMemo(() => {
+    if (!turno?.hora_inicio) return "";
+    const data = parseISO(turno.hora_inicio);
+    if (isToday(data)) return "hoje";
+    return format(data, "dd/MM/yyyy", { locale: ptBR });
+  }, [turno?.hora_inicio]);
 
   // Buscar intervalo ativo (não finalizado)
   const { data: intervaloAtivo } = useQuery({
@@ -356,6 +375,45 @@ export default function AppLayout() {
         <div className="bg-amber-500 text-amber-950 px-4 py-2 text-center text-sm font-medium">
           <WifiOff className="h-4 w-4 inline mr-2" />
           Você está offline. Algumas funcionalidades podem não estar disponíveis.
+        </div>
+      )}
+
+      {/* Alerta de Turno Desatualizado - Destaque */}
+      {turnoDesatualizado && !alertaTurnoFechado && (
+        <div className="bg-gradient-to-r from-red-600 via-red-500 to-orange-500 text-white px-4 py-3 shadow-lg">
+          <div className="flex items-start gap-3">
+            <div className="p-1.5 bg-white/20 rounded-full">
+              <AlertTriangle className="h-5 w-5" />
+            </div>
+            <div className="flex-1">
+              <p className="font-bold text-sm">
+                ⚠️ Turno desatualizado!
+              </p>
+              <p className="text-xs text-white/90 mt-0.5">
+                Você está logado em um turno de <strong>{dataTurnoFormatada}</strong>. 
+                Feche este turno e abra um novo com a data de hoje.
+              </p>
+              <div className="flex gap-2 mt-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="h-7 text-xs bg-white/20 hover:bg-white/30 text-white border-0"
+                  onClick={() => navigate("/app")}
+                >
+                  Ir para Início
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs text-white/80 hover:text-white hover:bg-white/10"
+                  onClick={() => setAlertaTurnoFechado(true)}
+                >
+                  <X className="h-3 w-3 mr-1" />
+                  Fechar alerta
+                </Button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
