@@ -60,9 +60,6 @@ interface NavItem {
   requireAdmin?: boolean; // Se requer admin
 }
 
-// Menus temporariamente desabilitados (não utilizados no projeto)
-const DISABLED_MENUS = ["Dashboard", "Torre de Controle", "Operação", "Cérebro"];
-
 // Definição dos itens de navegação com permissões
 // NOTA: Os códigos de permissão devem corresponder aos cadastrados em Admin > Permissões
 const navItemsConfig: NavItem[] = [
@@ -330,8 +327,6 @@ export function Sidebar({ isDark, setIsDark, collapsed = false }: SidebarProps) 
             );
           }
 
-          const isDisabled = DISABLED_MENUS.includes(item.label);
-
           if (collapsed) {
             return (
               <Link
@@ -339,12 +334,11 @@ export function Sidebar({ isDark, setIsDark, collapsed = false }: SidebarProps) 
                 to={item.href || "/"}
                 className={cn(
                   "nav-item justify-center text-sidebar-foreground",
-                  isActive(item.href) && "active",
-                  isDisabled && "text-red-500 opacity-60"
+                  isActive(item.href) && "active"
                 )}
-                title={isDisabled ? `${item.label} (não utilizado)` : item.label}
+                title={item.label}
               >
-                <item.icon className={cn("h-5 w-5", isDisabled && "text-red-500")} />
+                <item.icon className="h-5 w-5" />
               </Link>
             );
           }
@@ -355,17 +349,11 @@ export function Sidebar({ isDark, setIsDark, collapsed = false }: SidebarProps) 
               onClick={() => setIsMobileOpen(false)}
               className={cn(
                 "nav-item text-sidebar-foreground",
-                isActive(item.href) && "active",
-                isDisabled && "text-red-500 opacity-60"
+                isActive(item.href) && "active"
               )}
             >
-              <item.icon className={cn("h-5 w-5", isDisabled && "text-red-500")} />
-              <span className={cn(isDisabled && "line-through text-red-500")}>
-                {item.label}
-              </span>
-              {isDisabled && (
-                <span className="ml-auto text-[9px] text-red-400 font-normal">(N/A)</span>
-              )}
+              <item.icon className="h-5 w-5" />
+              {item.label}
             </Link>
           );
         })}
