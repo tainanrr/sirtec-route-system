@@ -637,6 +637,9 @@ export default function TipoServicoRetornosConfig({
       parcial: [],
     };
 
+    console.log("[RetornosConfig] todosRetornos:", todosRetornos.length);
+    console.log("[RetornosConfig] retornosVinculados:", retornosVinculados.length);
+
     todosRetornos
       .filter(r => !retornosVinculados.some(v => v.retorno_campo_id === r.id))
       .forEach(r => {
@@ -647,6 +650,12 @@ export default function TipoServicoRetornosConfig({
           agrupados.executado.push(r);
         }
       });
+
+    console.log("[RetornosConfig] retornosNaoVinculados:", {
+      executado: agrupados.executado.length,
+      impedimento: agrupados.impedimento.length,
+      parcial: agrupados.parcial.length,
+    });
 
     return agrupados;
   }, [todosRetornos, retornosVinculados]);
@@ -720,9 +729,12 @@ export default function TipoServicoRetornosConfig({
                   </span>
                 </div>
                 
-                <Popover open={addRetornoOpen} onOpenChange={setAddRetornoOpen}>
+                <Popover open={addRetornoOpen} onOpenChange={(open) => {
+                    console.log("[RetornosConfig] Popover onOpenChange:", open);
+                    setAddRetornoOpen(open);
+                  }}>
                   <PopoverTrigger asChild>
-                    <Button size="sm">
+                    <Button size="sm" onClick={() => console.log("[RetornosConfig] Botão Adicionar clicado")}>
                       <Plus className="h-4 w-4 mr-1" />
                       Adicionar Retorno
                     </Button>
