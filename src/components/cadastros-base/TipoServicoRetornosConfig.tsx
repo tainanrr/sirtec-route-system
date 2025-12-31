@@ -868,59 +868,59 @@ export default function TipoServicoRetornosConfig({
                                   onDragOver={handleDragOver}
                                   onDrop={(e) => handleDrop(e, retornoVinculado.id, tipo)}
                                 >
-                                  <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-muted/50">
-                                    <div className="flex items-center gap-3 flex-1 text-left">
-                                      <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab shrink-0" />
-                                      <span 
-                                        className="w-4 h-4 rounded-full shrink-0" 
-                                        style={{ backgroundColor: retorno?.cor || "#6b7280" }}
-                                      />
-                                      <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-2">
-                                          <span className="font-mono font-semibold">{retorno?.codigo}</span>
-                                          {retornoVinculado.padrao && (
-                                            <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300">
-                                              Padrão
-                                            </Badge>
-                                          )}
+                                  <div className="flex items-center px-4 py-3 hover:bg-muted/50">
+                                    <AccordionTrigger className="flex-1 hover:no-underline p-0">
+                                      <div className="flex items-center gap-3 flex-1 text-left">
+                                        <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab shrink-0" />
+                                        <span 
+                                          className="w-4 h-4 rounded-full shrink-0" 
+                                          style={{ backgroundColor: retorno?.cor || "#6b7280" }}
+                                        />
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center gap-2">
+                                            <span className="font-mono font-semibold">{retorno?.codigo}</span>
+                                            {retornoVinculado.padrao && (
+                                              <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300">
+                                                Padrão
+                                              </Badge>
+                                            )}
+                                          </div>
+                                          <p className="text-sm text-muted-foreground truncate">
+                                            {retorno?.descricao}
+                                          </p>
                                         </div>
-                                        <p className="text-sm text-muted-foreground truncate">
-                                          {retorno?.descricao}
-                                        </p>
-                                      </div>
-                                      <div className="flex items-center gap-2 shrink-0">
-                                        <Badge variant="secondary">
+                                        <Badge variant="secondary" className="shrink-0">
                                           {atividades.length} atividades
                                         </Badge>
-                                        <div className="flex items-center gap-1">
-                                          <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-7 w-7"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              handleMoverRetorno(retornoVinculado.id, 'up');
-                                            }}
-                                            disabled={index === 0 || saving}
-                                          >
-                                            <ChevronUp className="h-4 w-4" />
-                                          </Button>
-                                          <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-7 w-7"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              handleMoverRetorno(retornoVinculado.id, 'down');
-                                            }}
-                                            disabled={index === retornosDoGrupo.length - 1 || saving}
-                                          >
-                                            <ChevronDown className="h-4 w-4" />
-                                          </Button>
-                                        </div>
                                       </div>
+                                    </AccordionTrigger>
+                                    <div className="flex items-center gap-1 ml-2 shrink-0">
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleMoverRetorno(retornoVinculado.id, 'up');
+                                        }}
+                                        disabled={index === 0 || saving}
+                                      >
+                                        <ChevronUp className="h-4 w-4" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleMoverRetorno(retornoVinculado.id, 'down');
+                                        }}
+                                        disabled={index === retornosDoGrupo.length - 1 || saving}
+                                      >
+                                        <ChevronDown className="h-4 w-4" />
+                                      </Button>
                                     </div>
-                                  </AccordionTrigger>
+                                  </div>
 
                                   <AccordionContent className="px-4 pb-4">
                                     <div className="space-y-4">
