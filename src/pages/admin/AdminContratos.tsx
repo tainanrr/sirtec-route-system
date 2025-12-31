@@ -52,6 +52,7 @@ import {
   FilterConfig,
 } from "@/components/ui/data-table-filters";
 import { ExportButton } from "@/components/ui/export-button";
+import { cn } from "@/lib/utils";
 
 interface Contrato {
   id: string;
@@ -136,6 +137,30 @@ export default function AdminContratos() {
       toast.error("Erro ao carregar contratos");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Atualizar status inline
+  const handleUpdateStatus = async (contratoId: string, novoStatus: string) => {
+    const contrato = contratos.find(c => c.id === contratoId);
+    if (!contrato) return;
+
+    const { error } = await supabase
+      .from("contratos")
+      .update({ status: novoStatus })
+      .eq("id", contratoId);
+
+    if (error) {
+      toast.error("Erro ao atualizar status");
+    } else {
+      const statusLabel = statusOptions.find(s => s.value === novoStatus)?.label || novoStatus;
+      toast.success(`Status alterado para "${statusLabel}"`);
+      
+      // Log de edição
+      logEditar("contratos", "contratos", contratoId, contrato, { status: novoStatus },
+        `Alterou status do contrato ${contrato.codigo} para "${statusLabel}"`);
+      
+      fetchContratos();
     }
   };
 
@@ -469,12 +494,32 @@ export default function AdminContratos() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <Badge
-                        variant="secondary"
-                        className={`${statusOpt?.color} text-white`}
+                      <Select
+                        value={contrato.status}
+                        onValueChange={(value) => handleUpdateStatus(contrato.id, value)}
+                        disabled={!podeEditar}
                       >
-                        {statusOpt?.label || contrato.status}
-                      </Badge>
+                        <SelectTrigger 
+                          className={cn(
+                            "h-7 w-[100px] text-xs font-medium border text-white",
+                            statusOpt?.color,
+                            !podeEditar && "cursor-not-allowed opacity-60"
+                          )}
+                          title={!podeEditar ? "Você não tem permissão para editar" : "Clique para alterar o status"}
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {statusOptions.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              <div className="flex items-center gap-2">
+                                <span className={`h-2 w-2 rounded-full ${opt.color}`} />
+                                {opt.label}
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
