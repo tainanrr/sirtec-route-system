@@ -72,6 +72,7 @@ interface OrdemPlanejada {
     status: string;
     prazo: string | null;
     regulada: boolean | null;
+    avulsa: boolean | null;
     latitude: number | null;
     longitude: number | null;
     created_at: string;
@@ -146,23 +147,12 @@ export default function AppOrdens() {
       }
 
       const dataFormatada = format(selectedDate, "yyyy-MM-dd");
+      const dataInicio = `${dataFormatada}T00:00:00`;
+      const dataFim = `${dataFormatada}T23:59:59`;
       console.log("[DEBUG AppOrdens] Buscando ordens para equipe:", equipeId, "data:", dataFormatada);
 
-      // Debug: buscar todos os planejamentos para a data
-      const { data: planejamentosData } = await supabase
-        .from("planejamentos")
-        .select("*")
-        .eq("data_planejamento", dataFormatada);
-      console.log("[DEBUG AppOrdens] Planejamentos para data:", planejamentosData);
-
-      // Debug: buscar todas as ordens da equipe (sem filtro de data)
-      const { data: todasOrdensEquipe } = await supabase
-        .from("planejamento_ordens")
-        .select("*, planejamentos(*)")
-        .eq("equipe_id", equipeId);
-      console.log("[DEBUG AppOrdens] Todas ordens da equipe (qualquer data):", todasOrdensEquipe);
-
-      const { data, error } = await supabase
+      // Buscar ordens planejadas
+      const { data: ordensPlanejadasData, error: errorPlanejadas } = await supabase
         .from("planejamento_ordens")
         .select(`
           id,
@@ -182,6 +172,7 @@ export default function AppOrdens() {
             status,
             prazo,
             regulada,
+            avulsa,
             latitude,
             longitude,
             created_at
@@ -197,42 +188,74 @@ export default function AppOrdens() {
         .eq("planejamentos.status", "aberto")
         .order("ordem_na_rota", { ascending: true });
 
-      if (error) {
-        console.error("[DEBUG AppOrdens] Erro ao buscar ordens:", error);
-        throw error;
+      if (errorPlanejadas) {
+        console.error("[DEBUG AppOrdens] Erro ao buscar ordens planejadas:", errorPlanejadas);
       }
 
-      console.log("[DEBUG AppOrdens] Ordens filtradas encontradas:", data?.length || 0, data);
+      // Buscar OSs avulsas da equipe criadas no dia (que não estão no planejamento)
+      const { data: ordensAvulsasData, error: errorAvulsas } = await supabase
+        .from("ordens_servico")
+        .select(`
+          id,
+          numero,
+          tipo,
+          endereco,
+          cliente_nome,
+          status,
+          prazo,
+          regulada,
+          avulsa,
+          latitude,
+          longitude,
+          created_at
+        `)
+        .eq("tecnico_id", equipeId)
+        .eq("avulsa", true)
+        .gte("created_at", dataInicio)
+        .lte("created_at", dataFim)
+        .order("created_at", { ascending: true });
+
+      if (errorAvulsas) {
+        console.error("[DEBUG AppOrdens] Erro ao buscar ordens avulsas:", errorAvulsas);
+      }
+
+      // Mesclar ordens planejadas e avulsas
+      const todasOrdens: OrdemPlanejada[] = [];
       
-      // Debug: verificar coordenadas
-      if (data && data.length > 0) {
-        console.log("[DEBUG AppOrdens] Verificando coordenadas das OSs:");
-        data.forEach((ordem: any) => {
-          const os = ordem.ordens_servico;
-          console.log(`  OS ${ordem.ordem_na_rota}:`, {
-            numero: os?.numero,
-            lat: os?.latitude,
-            lng: os?.longitude,
-            endereco: os?.endereco,
-            os_completa: os
-          });
-        });
-        
-        // Verificar quantas OSs têm coordenadas
-        const comCoordenadas = data.filter((o: any) => o.ordens_servico?.latitude && o.ordens_servico?.longitude);
-        const semCoordenadas = data.filter((o: any) => !o.ordens_servico?.latitude || !o.ordens_servico?.longitude);
-        console.log(`[DEBUG AppOrdens] OSs com coordenadas: ${comCoordenadas.length}, sem coordenadas: ${semCoordenadas.length}`);
-        
-        if (semCoordenadas.length > 0) {
-          console.warn("[DEBUG AppOrdens] OSs SEM coordenadas:", semCoordenadas.map((o: any) => ({
-            ordem: o.ordem_na_rota,
-            numero: o.ordens_servico?.numero,
-            id: o.ordens_servico?.id
-          })));
-        }
+      // Adicionar ordens planejadas
+      if (ordensPlanejadasData) {
+        todasOrdens.push(...(ordensPlanejadasData as OrdemPlanejada[]));
       }
       
-      return (data || []) as OrdemPlanejada[];
+      // Adicionar ordens avulsas (convertendo para o formato esperado)
+      if (ordensAvulsasData) {
+        const idsJaIncluidos = new Set(todasOrdens.map(o => o.ordens_servico?.id));
+        
+        ordensAvulsasData.forEach((osAvulsa, index) => {
+          // Só adicionar se não estiver já no planejamento
+          if (!idsJaIncluidos.has(osAvulsa.id)) {
+            const maxOrdem = todasOrdens.length > 0 
+              ? Math.max(...todasOrdens.map(o => o.ordem_na_rota || 0))
+              : 0;
+            
+            todasOrdens.push({
+              id: `avulsa-${osAvulsa.id}`,
+              ordem_na_rota: maxOrdem + index + 1,
+              hora_inicio_estimada: null,
+              hora_fim_estimada: null,
+              distancia_km: null,
+              tempo_estimado_minutos: null,
+              planejamento_id: "",
+              ordens_servico: osAvulsa,
+              planejamentos: null,
+            });
+          }
+        });
+      }
+
+      console.log("[DEBUG AppOrdens] Total ordens (planejadas + avulsas):", todasOrdens.length);
+      
+      return todasOrdens;
     },
     enabled: !!(equipe?.id || equipeAuth?.id),
     refetchInterval: 30000,
@@ -524,6 +547,7 @@ export default function AppOrdens() {
             const isConcluida = status === "concluida";
             const isCancelada = status === "cancelada";
             const isEmAndamento = status === "em_deslocamento" || status === "em_andamento" || status === "em_execucao" || status === "no_local";
+            const isAvulsa = ordem.ordens_servico.avulsa || ordem.ordens_servico.numero.startsWith("AVL-");
             
             return (
             <Card
@@ -535,9 +559,11 @@ export default function AppOrdens() {
                       ? "border-l-4 border-l-green-500 bg-green-50/50" 
                       : isCancelada
                         ? "border-l-4 border-l-gray-400 bg-gray-50/50 opacity-60"
-                        : ordem.ordens_servico.regulada 
-                          ? "border-l-4 border-l-red-500" 
-                          : ""
+                        : isAvulsa
+                          ? "border-l-4 border-l-violet-500 bg-violet-50/30"
+                          : ordem.ordens_servico.regulada 
+                            ? "border-l-4 border-l-red-500" 
+                            : ""
                 }`}
                 onClick={() => navigate(`/app/ordens/${ordem.ordens_servico!.id}`)}
             >
@@ -556,7 +582,12 @@ export default function AppOrdens() {
                         {ordem.ordens_servico.regulada && (
                           <Badge variant="destructive" className="text-xs">
                             URGENTE
-                      </Badge>
+                          </Badge>
+                        )}
+                        {isAvulsa && (
+                          <Badge className="text-xs bg-violet-600 hover:bg-violet-700">
+                            AVULSA
+                          </Badge>
                         )}
                       </div>
                       

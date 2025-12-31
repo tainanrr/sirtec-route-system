@@ -182,6 +182,7 @@ interface OsPlanejadaTurno {
     chegada_local_at: string | null;
     execucao_iniciada_at: string | null;
     pausado_at: string | null;
+    avulsa: boolean | null;
   };
   // Info de execução
   executada: boolean;
@@ -434,7 +435,8 @@ export default function ConsultaTurnos() {
               deslocamento_iniciado_at,
               chegada_local_at,
               execucao_iniciada_at,
-              pausado_at
+              pausado_at,
+              avulsa
             ),
             planejamentos!inner (id, data_planejamento)
           `)
@@ -1418,7 +1420,12 @@ export default function ConsultaTurnos() {
                                       })()}
                                     </TableCell>
                                     <TableCell>
-                                      <span className="font-mono text-sm">{os.ordens_servico.numero}</span>
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-mono text-sm">{os.ordens_servico.numero}</span>
+                                        {(os.ordens_servico.avulsa || os.ordens_servico.numero.startsWith("AVL-")) && (
+                                          <Badge className="text-[10px] bg-violet-600 hover:bg-violet-700">AVULSA</Badge>
+                                        )}
+                                      </div>
                                     </TableCell>
                                     <TableCell className="text-sm">
                                       {tiposServico?.get(os.ordens_servico.tipo) || os.ordens_servico.tipo}

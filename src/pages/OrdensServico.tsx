@@ -1285,6 +1285,9 @@ const OrdensServico = () => {
                     <div className="flex items-center gap-2">
                       {os.regulada && <Zap className="h-4 w-4 text-danger" />}
                       {os.numero}
+                      {((os as any).avulsa || os.numero.startsWith("AVL-")) && (
+                        <Badge className="text-[10px] bg-violet-600 hover:bg-violet-700 px-1">AVULSA</Badge>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell>{os.tipo_nome || tipoLabels[os.tipo] || os.tipo}</TableCell>

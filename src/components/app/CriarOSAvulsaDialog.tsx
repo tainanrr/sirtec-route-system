@@ -217,6 +217,7 @@ export default function CriarOSAvulsaDialog({
           tecnico_id: equipeId,
           prazo: null, // OS avulsa não tem prazo
           regulada: false,
+          avulsa: true, // Marca como OS avulsa
           deslocamento_iniciado_at: agora,
           chegada_local_at: agora,
         })
