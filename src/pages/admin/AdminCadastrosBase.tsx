@@ -64,6 +64,7 @@ import PrecificacaoServicos from "@/components/cadastros-base/PrecificacaoServic
 import UnidadesGruposFeriados from "@/components/cadastros-base/UnidadesGruposFeriados";
 import TipoServicoRetornosConfig from "@/components/cadastros-base/TipoServicoRetornosConfig";
 import RetornosCampoAtividades from "@/components/cadastros-base/RetornosCampoAtividades";
+import ValoresPorContratoTab from "@/components/cadastros-base/ValoresPorContratoTab";
 
 // Usando tabela skills como Tipos de Serviço
 interface TipoServico {
@@ -1016,145 +1017,164 @@ export default function AdminCadastrosBase() {
           <div className="space-y-4">
             {/* Form para Tipo de Serviço (Skills) */}
             {currentFormType === "tipo-servico" && (
-              <>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Código *</Label>
-                    <Input
-                      value={tipoServicoForm.codigo}
-                      onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, codigo: e.target.value.toUpperCase() })}
-                      placeholder="Ex: CORTE, RELIGA"
-                      className="font-mono"
-                      disabled={!!editingItem}
-                    />
-                    <p className="text-xs text-muted-foreground">Código único (não pode ser alterado após criação)</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Nome *</Label>
-                    <Input
-                      value={tipoServicoForm.nome}
-                      onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, nome: e.target.value })}
-                      placeholder="Ex: Corte de Energia"
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Grupo de Serviço</Label>
-                    <Input
-                      value={tipoServicoForm.grupo_servico}
-                      onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, grupo_servico: e.target.value })}
-                      placeholder="Ex: Comercial, Técnico, Emergência"
-                    />
-                    <p className="text-xs text-muted-foreground">Usado para filtros e agrupamentos</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Descrição</Label>
-                    <Textarea
-                      value={tipoServicoForm.descricao}
-                      onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, descricao: e.target.value })}
-                      placeholder="Descrição do tipo de serviço..."
-                      rows={2}
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Tempo de Execução (min) *</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={1440}
-                      value={tipoServicoForm.tempo_execucao_minutos}
-                      onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, tempo_execucao_minutos: e.target.value })}
-                      placeholder="30"
-                    />
-                    <p className="text-xs text-muted-foreground">Usado na roteirização</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Valor (R$)</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min={0}
-                      value={tipoServicoForm.valor}
-                      onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, valor: e.target.value })}
-                      placeholder="0.00"
-                    />
-                    <p className="text-xs text-muted-foreground">Valor de referência</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Ícone</Label>
-                    <Select
-                      value={tipoServicoForm.icone || "none"}
-                      onValueChange={(v) => setTipoServicoForm({ ...tipoServicoForm, icone: v === "none" ? "" : v })}
-                    >
-                      <SelectTrigger><SelectValue placeholder="Nenhum" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Nenhum</SelectItem>
-                        <SelectItem value="Zap">⚡ Zap (Raio)</SelectItem>
-                        <SelectItem value="Power">🔌 Power (Energia)</SelectItem>
-                        <SelectItem value="AlertCircle">⚠️ AlertCircle (Alerta)</SelectItem>
-                        <SelectItem value="CheckCircle">✅ CheckCircle (Concluído)</SelectItem>
-                        <SelectItem value="Wrench">🔧 Wrench (Ferramenta)</SelectItem>
-                        <SelectItem value="Settings">⚙️ Settings (Configurações)</SelectItem>
-                        <SelectItem value="Search">🔍 Search (Busca/Inspeção)</SelectItem>
-                        <SelectItem value="Clipboard">📋 Clipboard (Checklist)</SelectItem>
-                        <SelectItem value="FileText">📄 FileText (Documento)</SelectItem>
-                        <SelectItem value="MapPin">📍 MapPin (Localização)</SelectItem>
-                        <SelectItem value="Home">🏠 Home (Casa)</SelectItem>
-                        <SelectItem value="Building">🏢 Building (Prédio)</SelectItem>
-                        <SelectItem value="Tool">🛠️ Tool (Ferramenta)</SelectItem>
-                        <SelectItem value="Plug">🔌 Plug (Tomada)</SelectItem>
-                        <SelectItem value="Shield">🛡️ Shield (Proteção)</SelectItem>
-                        <SelectItem value="AlertTriangle">⚠️ AlertTriangle (Atenção)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Cor</Label>
-                    <div className="flex items-center gap-2">
+              <Tabs defaultValue="geral" className="w-full">
+                <TabsList className="grid w-full grid-cols-2 mb-4">
+                  <TabsTrigger value="geral">Dados Gerais</TabsTrigger>
+                  <TabsTrigger value="valores" disabled={!editingItem}>
+                    <DollarSign className="h-4 w-4 mr-1" />
+                    Valores por Contrato
+                  </TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="geral" className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Código *</Label>
                       <Input
-                        type="color"
-                        value={tipoServicoForm.cor}
-                        onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, cor: e.target.value })}
-                        className="w-14 h-10 p-1"
-                      />
-                      <Input
-                        value={tipoServicoForm.cor}
-                        onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, cor: e.target.value })}
-                        placeholder="#3b82f6"
+                        value={tipoServicoForm.codigo}
+                        onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, codigo: e.target.value.toUpperCase() })}
+                        placeholder="Ex: CORTE, RELIGA"
                         className="font-mono"
+                        disabled={!!editingItem}
+                      />
+                      <p className="text-xs text-muted-foreground">Código único (não pode ser alterado após criação)</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Nome *</Label>
+                      <Input
+                        value={tipoServicoForm.nome}
+                        onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, nome: e.target.value })}
+                        placeholder="Ex: Corte de Energia"
                       />
                     </div>
                   </div>
-                </div>
-                <div className="grid grid-cols-3 gap-3 pt-2">
-                  <div className="flex items-center justify-between rounded-lg border p-3">
-                    <div className="space-y-0.5">
-                      <Label>Regulada</Label>
-                      <p className="text-xs text-muted-foreground">Nota regulada (ANEEL)</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Grupo de Serviço</Label>
+                      <Input
+                        value={tipoServicoForm.grupo_servico}
+                        onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, grupo_servico: e.target.value })}
+                        placeholder="Ex: Comercial, Técnico, Emergência"
+                      />
+                      <p className="text-xs text-muted-foreground">Usado para filtros e agrupamentos</p>
                     </div>
-                    <Switch checked={tipoServicoForm.regulada} onCheckedChange={(v) => setTipoServicoForm({ ...tipoServicoForm, regulada: v })} />
-                  </div>
-                  <div className="flex items-center justify-between rounded-lg border p-3 border-violet-200 bg-violet-50/50">
-                    <div className="space-y-0.5">
-                      <Label>Permite Avulso</Label>
-                      <p className="text-xs text-muted-foreground">Criar OS pelo app</p>
+                    <div className="space-y-2">
+                      <Label>Descrição</Label>
+                      <Textarea
+                        value={tipoServicoForm.descricao}
+                        onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, descricao: e.target.value })}
+                        placeholder="Descrição do tipo de serviço..."
+                        rows={2}
+                      />
                     </div>
-                    <Switch checked={tipoServicoForm.permite_avulso} onCheckedChange={(v) => setTipoServicoForm({ ...tipoServicoForm, permite_avulso: v })} />
                   </div>
-                  <div className="flex items-center justify-between rounded-lg border p-3">
-                    <div className="space-y-0.5">
-                      <Label>Ativo</Label>
-                      <p className="text-xs text-muted-foreground">Tipos inativos não aparecem</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Tempo de Execução Previsto (min) *</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={1440}
+                        value={tipoServicoForm.tempo_execucao_minutos}
+                        onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, tempo_execucao_minutos: e.target.value })}
+                        placeholder="30"
+                      />
+                      <p className="text-xs text-muted-foreground">Usado na roteirização</p>
                     </div>
-                    <Switch checked={tipoServicoForm.ativo} onCheckedChange={(v) => setTipoServicoForm({ ...tipoServicoForm, ativo: v })} />
+                    <div className="space-y-2">
+                      <Label>Valor Previsto (R$)</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        value={tipoServicoForm.valor}
+                        onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, valor: e.target.value })}
+                        placeholder="0.00"
+                      />
+                      <p className="text-xs text-muted-foreground">Valor de referência geral (configure valores por contrato na aba Valores)</p>
+                    </div>
                   </div>
-                </div>
-              </>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Ícone</Label>
+                      <Select
+                        value={tipoServicoForm.icone || "none"}
+                        onValueChange={(v) => setTipoServicoForm({ ...tipoServicoForm, icone: v === "none" ? "" : v })}
+                      >
+                        <SelectTrigger><SelectValue placeholder="Nenhum" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Nenhum</SelectItem>
+                          <SelectItem value="Zap">⚡ Zap (Raio)</SelectItem>
+                          <SelectItem value="Power">🔌 Power (Energia)</SelectItem>
+                          <SelectItem value="AlertCircle">⚠️ AlertCircle (Alerta)</SelectItem>
+                          <SelectItem value="CheckCircle">✅ CheckCircle (Concluído)</SelectItem>
+                          <SelectItem value="Wrench">🔧 Wrench (Ferramenta)</SelectItem>
+                          <SelectItem value="Settings">⚙️ Settings (Configurações)</SelectItem>
+                          <SelectItem value="Search">🔍 Search (Busca/Inspeção)</SelectItem>
+                          <SelectItem value="Clipboard">📋 Clipboard (Checklist)</SelectItem>
+                          <SelectItem value="FileText">📄 FileText (Documento)</SelectItem>
+                          <SelectItem value="MapPin">📍 MapPin (Localização)</SelectItem>
+                          <SelectItem value="Home">🏠 Home (Casa)</SelectItem>
+                          <SelectItem value="Building">🏢 Building (Prédio)</SelectItem>
+                          <SelectItem value="Tool">🛠️ Tool (Ferramenta)</SelectItem>
+                          <SelectItem value="Plug">🔌 Plug (Tomada)</SelectItem>
+                          <SelectItem value="Shield">🛡️ Shield (Proteção)</SelectItem>
+                          <SelectItem value="AlertTriangle">⚠️ AlertTriangle (Atenção)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Cor</Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="color"
+                          value={tipoServicoForm.cor}
+                          onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, cor: e.target.value })}
+                          className="w-14 h-10 p-1"
+                        />
+                        <Input
+                          value={tipoServicoForm.cor}
+                          onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, cor: e.target.value })}
+                          placeholder="#3b82f6"
+                          className="font-mono"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 pt-2">
+                    <div className="flex items-center justify-between rounded-lg border p-3">
+                      <div className="space-y-0.5">
+                        <Label>Regulada</Label>
+                        <p className="text-xs text-muted-foreground">Nota regulada (ANEEL)</p>
+                      </div>
+                      <Switch checked={tipoServicoForm.regulada} onCheckedChange={(v) => setTipoServicoForm({ ...tipoServicoForm, regulada: v })} />
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg border p-3 border-violet-200 bg-violet-50/50">
+                      <div className="space-y-0.5">
+                        <Label>Permite Avulso</Label>
+                        <p className="text-xs text-muted-foreground">Criar OS pelo app</p>
+                      </div>
+                      <Switch checked={tipoServicoForm.permite_avulso} onCheckedChange={(v) => setTipoServicoForm({ ...tipoServicoForm, permite_avulso: v })} />
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg border p-3">
+                      <div className="space-y-0.5">
+                        <Label>Ativo</Label>
+                        <p className="text-xs text-muted-foreground">Tipos inativos não aparecem</p>
+                      </div>
+                      <Switch checked={tipoServicoForm.ativo} onCheckedChange={(v) => setTipoServicoForm({ ...tipoServicoForm, ativo: v })} />
+                    </div>
+                  </div>
+                </TabsContent>
+                
+                <TabsContent value="valores">
+                  {editingItem && (
+                    <ValoresPorContratoTab 
+                      skillCodigo={(editingItem as TipoServico).codigo}
+                      skillNome={(editingItem as TipoServico).nome}
+                    />
+                  )}
+                </TabsContent>
+              </Tabs>
             )}
 
             {/* Form para Tipo de Intervalo */}
