@@ -71,6 +71,7 @@ interface TipoServico {
   codigo: string;
   nome: string;
   descricao: string | null;
+  grupo_servico: string | null;
   tempo_execucao_minutos: number;
   valor: number | null;
   regulada: boolean;
@@ -157,6 +158,7 @@ export default function AdminCadastrosBase() {
     codigo: "",
     nome: "",
     descricao: "",
+    grupo_servico: "",
     tempo_execucao_minutos: "30",
     valor: "0",
     regulada: false,
@@ -359,6 +361,7 @@ export default function AdminCadastrosBase() {
         codigo: "",
         nome: "",
         descricao: "",
+        grupo_servico: "",
         tempo_execucao_minutos: "30",
         valor: "0",
         regulada: false,
@@ -397,6 +400,7 @@ export default function AdminCadastrosBase() {
         codigo: item.codigo,
         nome: item.nome,
         descricao: item.descricao || "",
+        grupo_servico: item.grupo_servico || "",
         tempo_execucao_minutos: item.tempo_execucao_minutos?.toString() || "30",
         valor: item.valor?.toString() || "0",
         regulada: item.regulada || false,
@@ -443,6 +447,7 @@ export default function AdminCadastrosBase() {
           codigo: tipoServicoForm.codigo.toUpperCase(),
           nome: tipoServicoForm.nome,
           descricao: tipoServicoForm.descricao || null,
+          grupo_servico: tipoServicoForm.grupo_servico || null,
           tempo_execucao_minutos: parseInt(tipoServicoForm.tempo_execucao_minutos) || 30,
           valor: parseFloat(tipoServicoForm.valor) || 0,
           regulada: tipoServicoForm.regulada,
@@ -746,6 +751,7 @@ export default function AdminCadastrosBase() {
                 <TableRow>
                   <SortableTableHead column="codigo" label="Código" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} />
                   <SortableTableHead column="nome" label="Nome" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} />
+                  <SortableTableHead column="grupo_servico" label="Grupo" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} />
                   <TableHead>Descrição</TableHead>
                   <SortableTableHead column="tempo_execucao_minutos" label="Tempo" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} className="text-center" />
                   <SortableTableHead column="valor" label="Valor" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} className="text-center" />
@@ -779,6 +785,13 @@ export default function AdminCadastrosBase() {
                       <TableRow key={item.id} className="group">
                         <TableCell className="font-mono font-semibold">{item.codigo}</TableCell>
                         <TableCell className="font-medium">{item.nome}</TableCell>
+                        <TableCell>
+                          {item.grupo_servico ? (
+                            <Badge variant="outline" className="bg-slate-50">{item.grupo_servico}</Badge>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
                         <TableCell className="text-muted-foreground max-w-xs truncate">
                           {item.descricao || "-"}
                         </TableCell>
@@ -1025,14 +1038,25 @@ export default function AdminCadastrosBase() {
                     />
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <Label>Descrição</Label>
-                  <Textarea
-                    value={tipoServicoForm.descricao}
-                    onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, descricao: e.target.value })}
-                    placeholder="Descrição do tipo de serviço..."
-                    rows={2}
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Grupo de Serviço</Label>
+                    <Input
+                      value={tipoServicoForm.grupo_servico}
+                      onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, grupo_servico: e.target.value })}
+                      placeholder="Ex: Comercial, Técnico, Emergência"
+                    />
+                    <p className="text-xs text-muted-foreground">Usado para filtros e agrupamentos</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Descrição</Label>
+                    <Textarea
+                      value={tipoServicoForm.descricao}
+                      onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, descricao: e.target.value })}
+                      placeholder="Descrição do tipo de serviço..."
+                      rows={2}
+                    />
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
