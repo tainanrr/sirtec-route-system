@@ -27,7 +27,8 @@ import {
   RefreshCw,
   Loader2,
   Map as MapIcon,
-  X
+  X,
+  Plus
 } from "lucide-react";
 import {
   Dialog,
@@ -39,6 +40,7 @@ import { format, addDays, subDays, isToday, isTomorrow, isYesterday, differenceI
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 import { getDadosSkills } from "@/lib/skillsUtils";
+import CriarOSAvulsaDialog from "@/components/app/CriarOSAvulsaDialog";
 
 // Função para formatar tempo em minutos para formato legível
 const formatarTempo = (minutos: number | null | undefined): string => {
@@ -117,6 +119,7 @@ export default function AppOrdens() {
   });
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showMap, setShowMap] = useState(() => Boolean(initialState?.showMap));
+  const [showCriarAvulsa, setShowCriarAvulsa] = useState(false);
 
   // Persistir estado de UI desta tela (além do scroll)
   useEffect(() => {
@@ -407,6 +410,15 @@ export default function AppOrdens() {
           <Button 
             variant="ghost" 
             size="icon" 
+            onClick={() => setShowCriarAvulsa(true)}
+            title="Criar OS Avulsa"
+            className="text-violet-600 hover:text-violet-700 hover:bg-violet-100"
+          >
+            <Plus className="h-5 w-5" />
+          </Button>
+          <Button 
+            variant="ghost" 
+            size="icon" 
             onClick={() => setShowMap(true)}
             disabled={!ordensPlanejadas || ordensPlanejadas.length === 0}
             title="Ver roteiro no mapa"
@@ -625,6 +637,16 @@ export default function AppOrdens() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Modal de Criar OS Avulsa */}
+      <CriarOSAvulsaDialog
+        open={showCriarAvulsa}
+        onOpenChange={setShowCriarAvulsa}
+        onSuccess={(osId) => {
+          // Navegar para a OS criada
+          navigate(`/app/ordens/${osId}`);
+        }}
+      />
     </div>
   );
 }

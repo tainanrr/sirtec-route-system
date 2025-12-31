@@ -74,6 +74,7 @@ interface TipoServico {
   tempo_execucao_minutos: number;
   valor: number | null;
   regulada: boolean;
+  permite_avulso: boolean;
   icone: string | null;
   cor: string | null;
   ativo: boolean;
@@ -159,6 +160,7 @@ export default function AdminCadastrosBase() {
     tempo_execucao_minutos: "30",
     valor: "0",
     regulada: false,
+    permite_avulso: false,
     icone: "",
     cor: "#3b82f6",
     ativo: true,
@@ -360,6 +362,7 @@ export default function AdminCadastrosBase() {
         tempo_execucao_minutos: "30",
         valor: "0",
         regulada: false,
+        permite_avulso: false,
         icone: "",
         cor: "#3b82f6",
         ativo: true,
@@ -397,6 +400,7 @@ export default function AdminCadastrosBase() {
         tempo_execucao_minutos: item.tempo_execucao_minutos?.toString() || "30",
         valor: item.valor?.toString() || "0",
         regulada: item.regulada || false,
+        permite_avulso: item.permite_avulso || false,
         icone: item.icone || "",
         cor: item.cor || "#3b82f6",
         ativo: item.ativo,
@@ -442,6 +446,7 @@ export default function AdminCadastrosBase() {
           tempo_execucao_minutos: parseInt(tipoServicoForm.tempo_execucao_minutos) || 30,
           valor: parseFloat(tipoServicoForm.valor) || 0,
           regulada: tipoServicoForm.regulada,
+          permite_avulso: tipoServicoForm.permite_avulso,
           icone: tipoServicoForm.icone || null,
           cor: tipoServicoForm.cor || "#3b82f6",
           ativo: tipoServicoForm.ativo,
@@ -745,6 +750,7 @@ export default function AdminCadastrosBase() {
                   <SortableTableHead column="tempo_execucao_minutos" label="Tempo" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} className="text-center" />
                   <SortableTableHead column="valor" label="Valor" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} className="text-center" />
                   <SortableTableHead column="regulada" label="Regulada" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} className="text-center" />
+                  <TableHead className="text-center">Avulso</TableHead>
                   <TableHead className="text-center">Ícone</TableHead>
                   <SortableTableHead column="ativo" label="Status" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} />
                   <TableHead className="text-right">Ações</TableHead>
@@ -753,13 +759,13 @@ export default function AdminCadastrosBase() {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center py-8">
+                        <TableCell colSpan={10} className="text-center py-8">
                       <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
                     </TableCell>
                   </TableRow>
                 ) : sortedTiposServico?.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center py-8">
+                    <TableCell colSpan={10} className="text-center py-8">
                       <Wrench className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                       <p className="text-muted-foreground">
                         {hasActiveFilters ? "Nenhum resultado" : "Nenhum tipo cadastrado"}
@@ -791,6 +797,19 @@ export default function AdminCadastrosBase() {
                         <TableCell className="text-center">
                           {item.regulada ? (
                             <Badge variant="default" className="bg-green-600">
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Sim
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary">
+                              <XCircle className="h-3 w-3 mr-1" />
+                              Não
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {item.permite_avulso ? (
+                            <Badge variant="default" className="bg-violet-600">
                               <CheckCircle className="h-3 w-3 mr-1" />
                               Sim
                             </Badge>
@@ -1088,15 +1107,22 @@ export default function AdminCadastrosBase() {
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-6 pt-2">
-                  <div className="flex items-center justify-between rounded-lg border p-3 flex-1">
+                <div className="grid grid-cols-3 gap-3 pt-2">
+                  <div className="flex items-center justify-between rounded-lg border p-3">
                     <div className="space-y-0.5">
-                      <Label>Nota Regulada</Label>
-                      <p className="text-xs text-muted-foreground">Marque se é uma nota regulada</p>
+                      <Label>Regulada</Label>
+                      <p className="text-xs text-muted-foreground">Nota regulada (ANEEL)</p>
                     </div>
                     <Switch checked={tipoServicoForm.regulada} onCheckedChange={(v) => setTipoServicoForm({ ...tipoServicoForm, regulada: v })} />
                   </div>
-                  <div className="flex items-center justify-between rounded-lg border p-3 flex-1">
+                  <div className="flex items-center justify-between rounded-lg border p-3 border-violet-200 bg-violet-50/50">
+                    <div className="space-y-0.5">
+                      <Label>Permite Avulso</Label>
+                      <p className="text-xs text-muted-foreground">Criar OS pelo app</p>
+                    </div>
+                    <Switch checked={tipoServicoForm.permite_avulso} onCheckedChange={(v) => setTipoServicoForm({ ...tipoServicoForm, permite_avulso: v })} />
+                  </div>
+                  <div className="flex items-center justify-between rounded-lg border p-3">
                     <div className="space-y-0.5">
                       <Label>Ativo</Label>
                       <p className="text-xs text-muted-foreground">Tipos inativos não aparecem</p>
