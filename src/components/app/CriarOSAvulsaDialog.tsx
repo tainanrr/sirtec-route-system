@@ -474,7 +474,7 @@ export default function CriarOSAvulsaDialog({
               <div className="text-xs text-violet-600 space-y-0.5">
                 <p>• Tipo: {tipoSelecionado.nome}</p>
                 <p>• Tempo estimado: ~{tipoSelecionado.tempo_execucao_minutos} minutos</p>
-                {tipoSelecionado.valor && <p>• Valor: R$ {tipoSelecionado.valor.toFixed(2)}</p>}
+                {tipoSelecionado.valor && <p>• Valor Prev.: R$ {tipoSelecionado.valor.toFixed(2)}</p>}
                 <p>• Status inicial: Em Execução</p>
               </div>
             </div>
