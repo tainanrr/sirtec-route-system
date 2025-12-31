@@ -36,8 +36,8 @@ CREATE INDEX IF NOT EXISTS idx_tipo_servico_retorno_atividades_retorno ON public
 -- Criar tabela de atividades se não existir (para as tabelas de preço)
 CREATE TABLE IF NOT EXISTS public.atividades (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  codigo VARCHAR(100) NOT NULL UNIQUE,
-  descricao VARCHAR(255) NOT NULL,
+  codigo VARCHAR(255) NOT NULL UNIQUE,
+  descricao VARCHAR(500) NOT NULL,
   categoria VARCHAR(100),
   grupo VARCHAR(100),
   valor_unitario NUMERIC(10, 2) DEFAULT 0,
@@ -49,6 +49,10 @@ CREATE TABLE IF NOT EXISTS public.atividades (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Caso a tabela já exista, ajustar o tamanho dos campos
+ALTER TABLE public.atividades ALTER COLUMN codigo TYPE VARCHAR(255);
+ALTER TABLE public.atividades ALTER COLUMN descricao TYPE VARCHAR(500);
 
 CREATE INDEX IF NOT EXISTS idx_atividades_codigo ON public.atividades(codigo);
 
