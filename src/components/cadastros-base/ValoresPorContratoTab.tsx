@@ -206,6 +206,36 @@ export default function ValoresPorContratoTab({ skillCodigo, skillNome }: Props)
     }
   };
 
+  // Atualizar valor previsto das OSs em aberto (não concluídas/canceladas)
+  const atualizarValorOSsEmAberto = async (contratoId: string, novoValor: number) => {
+    try {
+      // Status que indicam OSs em aberto (não finalizadas)
+      const statusEmAberto = ["pendente", "planejada", "andamento", "atrasada", "em_deslocamento", "no_local", "em_execucao", "pausada"];
+      
+      // Atualizar valor de todas as OSs em aberto deste tipo e contrato
+      const { data, error, count } = await supabase
+        .from("ordens_servico")
+        .update({ valor: novoValor })
+        .eq("tipo", skillCodigo.toLowerCase())
+        .eq("contrato_id", contratoId)
+        .in("status", statusEmAberto)
+        .select("id");
+
+      if (error) {
+        console.error("Erro ao atualizar OSs em aberto:", error);
+        return 0;
+      }
+
+      const qtdAtualizada = data?.length || 0;
+      console.log(`[ValoresPorContrato] ${qtdAtualizada} OS(s) em aberto atualizadas com novo valor R$ ${novoValor.toFixed(2)}`);
+      
+      return qtdAtualizada;
+    } catch (error) {
+      console.error("Erro ao atualizar OSs em aberto:", error);
+      return 0;
+    }
+  };
+
   // Salvar valor para um contrato
   const salvarValor = async (contratoId: string, novoValor: number, automatico: boolean, qtdAmostras: number = 0) => {
     setSaving(contratoId);
@@ -237,6 +267,9 @@ export default function ValoresPorContratoTab({ skillCodigo, skillNome }: Props)
 
       if (result.error) throw result.error;
 
+      // Atualizar valor previsto das OSs em aberto deste tipo e contrato
+      const qtdOSsAtualizadas = await atualizarValorOSsEmAberto(contratoId, novoValor);
+
       // Atualizar estado local
       setValores(prev => prev.map(v => 
         v.contrato_id === contratoId 
@@ -251,7 +284,11 @@ export default function ValoresPorContratoTab({ skillCodigo, skillNome }: Props)
           : v
       ));
 
-      toast.success("Valor salvo com sucesso!");
+      if (qtdOSsAtualizadas > 0) {
+        toast.success(`Valor salvo! ${qtdOSsAtualizadas} OS(s) em aberto atualizadas.`);
+      } else {
+        toast.success("Valor salvo com sucesso!");
+      }
     } catch (error) {
       console.error("Erro ao salvar valor:", error);
       toast.error("Erro ao salvar valor");
