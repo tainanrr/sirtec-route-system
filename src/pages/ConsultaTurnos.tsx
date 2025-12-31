@@ -515,16 +515,38 @@ export default function ConsultaTurnos() {
         }
       }
       
-      // Calcular posição de execução baseado na ordem de criação das produções
-      // Ordenar produções por created_at para determinar a ordem real de execução
-      const producoesOrdenadas = [...producoes].sort((a, b) => 
-        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      // Calcular posição de execução baseado na ordem de conclusão/execução das OSs
+      // Combinar produções + OSs avulsas concluídas para determinar a ordem real de execução
+      const osExecutadasComData: { osId: string; dataExecucao: string }[] = [];
+      
+      // Adicionar OSs das produções
+      producoes.forEach(prod => {
+        osExecutadasComData.push({
+          osId: prod.ordem_servico_id,
+          dataExecucao: prod.created_at
+        });
+      });
+      
+      // Adicionar OSs avulsas concluídas que não estão nas produções
+      const osIdsNasProducoes = new Set(producoes.map(p => p.ordem_servico_id));
+      osAvulsas.forEach((osAvulsa: any) => {
+        if (!osIdsNasProducoes.has(osAvulsa.id) && (osAvulsa.concluido_at || osAvulsa.execucao_iniciada_at)) {
+          osExecutadasComData.push({
+            osId: osAvulsa.id,
+            dataExecucao: osAvulsa.concluido_at || osAvulsa.execucao_iniciada_at
+          });
+        }
+      });
+      
+      // Ordenar por data de execução
+      osExecutadasComData.sort((a, b) => 
+        new Date(a.dataExecucao).getTime() - new Date(b.dataExecucao).getTime()
       );
       
       // Mapear OS -> posição de execução
       const posicaoExecucaoPorOS = new Map<string, number>();
-      producoesOrdenadas.forEach((prod, index) => {
-        posicaoExecucaoPorOS.set(prod.ordem_servico_id, index + 1);
+      osExecutadasComData.forEach((item, index) => {
+        posicaoExecucaoPorOS.set(item.osId, index + 1);
       });
       
       // Processar OSs planejadas
