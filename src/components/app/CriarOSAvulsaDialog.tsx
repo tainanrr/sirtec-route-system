@@ -204,7 +204,7 @@ export default function CriarOSAvulsaDialog({
         .insert({
           numero: numeroOS,
           tipo: tipoSelecionado.codigo,
-          status: "em_execucao", // Já inicia em execução
+          status: "no_local", // Inicia como "no local" - equipe precisa fazer APR antes de iniciar
           endereco: endereco.trim(),
           cliente_nome: clienteNome.trim() || null,
           instalacao: instalacao.trim() || null,
@@ -217,7 +217,6 @@ export default function CriarOSAvulsaDialog({
           tecnico_id: equipeId,
           prazo: null, // OS avulsa não tem prazo
           regulada: false,
-          execucao_iniciada_at: agora,
           deslocamento_iniciado_at: agora,
           chegada_local_at: agora,
         })
@@ -475,7 +474,7 @@ export default function CriarOSAvulsaDialog({
                 <p>• Tipo: {tipoSelecionado.nome}</p>
                 <p>• Tempo estimado: ~{tipoSelecionado.tempo_execucao_minutos} minutos</p>
                 {tipoSelecionado.valor && <p>• Valor Prev.: R$ {tipoSelecionado.valor.toFixed(2)}</p>}
-                <p>• Status inicial: Em Execução</p>
+                <p>• Status inicial: No Local (faça a APR para iniciar)</p>
               </div>
             </div>
           )}
