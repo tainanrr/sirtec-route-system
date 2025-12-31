@@ -739,7 +739,7 @@ export default function TipoServicoRetornosConfig({
                       Adicionar Retorno
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-[450px] p-0" align="end">
+                  <PopoverContent className="w-[450px] p-0 z-[9999]" align="end">
                     <Command>
                       <CommandInput 
                         placeholder="Buscar retorno de campo..." 
@@ -992,7 +992,7 @@ export default function TipoServicoRetornosConfig({
                                                 Adicionar Atividade
                                               </Button>
                                             </PopoverTrigger>
-                                            <PopoverContent className="w-[450px] p-0" align="end">
+                                            <PopoverContent className="w-[450px] p-0 z-[9999]" align="end">
                                               <Command>
                                                 <CommandInput 
                                                   placeholder="Buscar atividade..." 
