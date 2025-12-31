@@ -380,8 +380,8 @@ export default function ConsultaTurnos() {
       const dataInicio = selectedTurno.hora_inicio.substring(0, 10);
       const dataFim = selectedTurno.hora_fim?.substring(0, 10) || format(new Date(), "yyyy-MM-dd");
       
-      // Buscar produções, intervalos, checklists e OSs planejadas em paralelo
-      const [producaoRes, intervalosRes, checklistsRes, osPlanejadaRes] = await Promise.all([
+      // Buscar produções, intervalos, checklists, OSs planejadas e OSs avulsas em paralelo
+      const [producaoRes, intervalosRes, checklistsRes, osPlanejadaRes, osAvulsasRes] = await Promise.all([
         supabase
           .from("producao_equipes")
           .select(`
@@ -443,10 +443,35 @@ export default function ConsultaTurnos() {
           .eq("equipe_id", selectedTurno.equipe_id)
           .eq("planejamentos.data_planejamento", dataInicio)
           .order("ordem_na_rota"),
+        // Buscar OSs avulsas da equipe criadas no dia do turno
+        supabase
+          .from("ordens_servico")
+          .select(`
+            id, 
+            numero, 
+            tipo, 
+            endereco, 
+            status, 
+            cliente_nome, 
+            concluido_at,
+            prazo,
+            updated_at,
+            deslocamento_iniciado_at,
+            chegada_local_at,
+            execucao_iniciada_at,
+            pausado_at,
+            avulsa
+          `)
+          .eq("tecnico_id", selectedTurno.equipe_id)
+          .eq("avulsa", true)
+          .gte("created_at", dataInicio + "T00:00:00")
+          .lte("created_at", dataFim + "T23:59:59")
+          .order("created_at"),
       ]);
       
       const producoes = (producaoRes.data || []) as ProducaoTurno[];
       const osPlanejadas = osPlanejadaRes.data || [];
+      const osAvulsas = osAvulsasRes.data || [];
       
       // Mapear produções por ordem_servico_id para fácil acesso
       const producoesPorOS = new Map<string, ProducaoTurno>();
@@ -605,11 +630,76 @@ export default function ConsultaTurnos() {
         }
       });
       
+      // Adicionar OSs avulsas à lista (que não estão no planejamento)
+      const idsOsPlanejadas = new Set(osPlanejadaProcessadas.map(os => os.ordem_servico_id));
+      const maxOrdemNaRota = osPlanejadaProcessadas.length > 0 
+        ? Math.max(...osPlanejadaProcessadas.map(os => os.ordem_na_rota))
+        : 0;
+      
+      const osAvulsasProcessadas: OsPlanejadaTurno[] = osAvulsas
+        .filter((osAvulsa: any) => !idsOsPlanejadas.has(osAvulsa.id))
+        .map((osAvulsa: any, index: number) => {
+          const osId = osAvulsa.id;
+          const executadaNesteTurno = osIdsExecutadasNesteTurno.has(osId);
+          const producao = producoesPorOS.get(osId);
+          
+          // Calcular último movimento específico desta OS
+          const movimentos: { tipo: string; data: string }[] = [];
+          if (osAvulsa.deslocamento_iniciado_at) {
+            movimentos.push({ tipo: "deslocamento", data: osAvulsa.deslocamento_iniciado_at });
+          }
+          if (osAvulsa.chegada_local_at) {
+            movimentos.push({ tipo: "chegada", data: osAvulsa.chegada_local_at });
+          }
+          if (osAvulsa.execucao_iniciada_at) {
+            movimentos.push({ tipo: "execucao", data: osAvulsa.execucao_iniciada_at });
+          }
+          if (osAvulsa.pausado_at) {
+            movimentos.push({ tipo: "pausa", data: osAvulsa.pausado_at });
+          }
+          if (osAvulsa.concluido_at) {
+            movimentos.push({ tipo: "conclusao", data: osAvulsa.concluido_at });
+          }
+          
+          const ultimoMovimento = movimentos.length > 0 
+            ? movimentos.sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime())[0].data
+            : null;
+          
+          const posicaoExecutada = posicaoExecucaoPorOS.get(osId) || null;
+          const retornoCampo = producao?.retornos_campo || null;
+          
+          const dataTurno = dataInicio;
+          const dataConclusao = osAvulsa.concluido_at 
+            ? osAvulsa.concluido_at.substring(0, 10) 
+            : null;
+          const concluidaForaDoTurno = dataConclusao && dataConclusao !== dataTurno;
+          
+          return {
+            id: `avulsa-${osAvulsa.id}`,
+            ordem_na_rota: maxOrdemNaRota + index + 1, // Posição após as planejadas
+            ordem_servico_id: osId,
+            ordens_servico: osAvulsa,
+            executada: executadaNesteTurno || osAvulsa.status === "concluida",
+            executadaNesteTurno,
+            producao,
+            executadaEmOutroTurno: undefined,
+            ultimoMovimento,
+            posicaoExecutada,
+            quebraSequencia: false,
+            retornoCampo,
+            concluidaForaDoTurno,
+            dataConclusao,
+          };
+        });
+      
+      // Mesclar OSs planejadas com avulsas
+      const todasOsPlanejadas = [...osPlanejadaProcessadas, ...osAvulsasProcessadas];
+      
       return {
         producoes,
         intervalos: (intervalosRes.data || []) as IntervaloTurno[],
         checklists: (checklistsRes.data || []) as ChecklistTurno[],
-        osPlanejadas: osPlanejadaProcessadas,
+        osPlanejadas: todasOsPlanejadas,
       };
     },
     enabled: !!selectedTurno,
