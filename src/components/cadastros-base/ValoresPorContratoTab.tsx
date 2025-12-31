@@ -1,11 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { 
   Table, 
@@ -19,16 +17,10 @@ import {
   RefreshCw, 
   Calculator, 
   Lock, 
-  Unlock, 
-  DollarSign,
-  History,
   AlertCircle,
-  CheckCircle2,
   Loader2
 } from "lucide-react";
 import { toast } from "sonner";
-import { format } from "date-fns";
-import { ptBR } from "date-fns/locale";
 
 interface Contrato {
   id: string;
@@ -325,122 +317,97 @@ export default function ValoresPorContratoTab({ skillCodigo, skillNome }: Props)
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h4 className="font-medium">Valores por Contrato</h4>
-          <p className="text-sm text-muted-foreground">
-            Configure o valor do serviço para cada contrato. Valores automáticos são calculados 
-            com base nas últimas 1000 execuções.
-          </p>
-        </div>
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <p className="text-sm text-muted-foreground">
+          Configure valores por contrato. <strong>Auto</strong> = média das últimas 1000 execuções.
+        </p>
         <Button 
           variant="outline" 
           size="sm"
           onClick={recalcularTodos}
           disabled={calculando !== null}
         >
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Recalcular Todos
+          <RefreshCw className="h-4 w-4 mr-1" />
+          Recalcular
         </Button>
       </div>
 
-      <div className="rounded-md border">
+      <div className="max-h-[400px] overflow-y-auto rounded-md border">
         <Table>
-          <TableHeader>
+          <TableHeader className="sticky top-0 bg-background z-10">
             <TableRow>
-              <TableHead>Contrato</TableHead>
-              <TableHead className="text-center w-32">Modo</TableHead>
-              <TableHead className="text-center w-40">Valor (R$)</TableHead>
-              <TableHead className="text-center w-24">Amostras</TableHead>
-              <TableHead className="text-center w-40">Última Atualização</TableHead>
-              <TableHead className="text-right w-32">Ações</TableHead>
+              <TableHead className="w-[180px]">Contrato</TableHead>
+              <TableHead className="text-center w-[90px]">Modo</TableHead>
+              <TableHead className="text-center w-[100px]">Valor</TableHead>
+              <TableHead className="text-center w-[50px]"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {valores.map((valor) => (
               <TableRow key={valor.contrato_id} className="group">
-                <TableCell>
-                  <div>
-                    <span className="font-medium">{valor.contrato_codigo}</span>
-                    <p className="text-sm text-muted-foreground">{valor.contrato_nome}</p>
+                <TableCell className="py-2">
+                  <div className="truncate max-w-[170px]" title={`${valor.contrato_codigo} - ${valor.contrato_nome}`}>
+                    <span className="font-mono text-xs">{valor.contrato_codigo}</span>
+                    <p className="text-xs text-muted-foreground truncate">{valor.contrato_nome}</p>
                   </div>
                 </TableCell>
-                <TableCell className="text-center">
-                  <div className="flex items-center justify-center gap-2">
+                <TableCell className="text-center py-2">
+                  <div className="flex items-center justify-center gap-1">
                     <Switch
                       checked={valor.valor_automatico}
                       onCheckedChange={() => alternarModo(valor.contrato_id)}
                       disabled={calculando === valor.contrato_id || saving === valor.contrato_id}
+                      className="scale-75"
                     />
                     <Badge 
                       variant={valor.valor_automatico ? "default" : "outline"}
-                      className={valor.valor_automatico ? "bg-blue-100 text-blue-700" : ""}
+                      className={`text-[10px] px-1 ${valor.valor_automatico ? "bg-blue-100 text-blue-700" : ""}`}
                     >
                       {valor.valor_automatico ? (
-                        <><Calculator className="h-3 w-3 mr-1" />Auto</>
+                        <><Calculator className="h-2.5 w-2.5 mr-0.5" />Auto</>
                       ) : (
-                        <><Lock className="h-3 w-3 mr-1" />Manual</>
+                        <><Lock className="h-2.5 w-2.5 mr-0.5" />Fix</>
                       )}
                     </Badge>
                   </div>
                 </TableCell>
-                <TableCell className="text-center">
+                <TableCell className="text-center py-2">
                   {valor.valor_automatico ? (
-                    <div className="flex items-center justify-center">
-                      <span className="font-mono font-medium text-green-600">
-                        {formatCurrency(valor.valor)}
-                      </span>
-                    </div>
+                    <span className="font-mono text-sm font-medium text-green-600">
+                      {formatCurrency(valor.valor)}
+                    </span>
                   ) : (
-                    <div className="flex items-center gap-1">
-                      <Input
-                        type="number"
-                        step="0.01"
-                        min={0}
-                        value={valor.valor}
-                        onChange={(e) => atualizarValorManual(valor.contrato_id, e.target.value)}
-                        className="w-28 text-right font-mono"
-                        onBlur={() => salvarValorManual(valor.contrato_id)}
-                        disabled={saving === valor.contrato_id}
-                      />
-                    </div>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={valor.valor}
+                      onChange={(e) => atualizarValorManual(valor.contrato_id, e.target.value)}
+                      className="w-24 h-7 text-right font-mono text-sm"
+                      onBlur={() => salvarValorManual(valor.contrato_id)}
+                      disabled={saving === valor.contrato_id}
+                    />
                   )}
-                  {valor.valor_calculado && valor.valor_calculado !== valor.valor && (
-                    <div className="text-xs text-orange-600 mt-1">
-                      Sugestão: {formatCurrency(valor.valor_calculado)}
-                    </div>
+                  {valor.qtd_amostras > 0 && (
+                    <span className="text-[10px] text-muted-foreground">
+                      ({valor.qtd_amostras} amostras)
+                    </span>
                   )}
                 </TableCell>
-                <TableCell className="text-center">
-                  {valor.qtd_amostras > 0 ? (
-                    <Badge variant="secondary" className="font-mono">
-                      <History className="h-3 w-3 mr-1" />
-                      {valor.qtd_amostras}
-                    </Badge>
-                  ) : (
-                    <span className="text-muted-foreground">-</span>
-                  )}
-                </TableCell>
-                <TableCell className="text-center text-sm text-muted-foreground">
-                  {valor.ultima_atualizacao ? (
-                    format(new Date(valor.ultima_atualizacao), "dd/MM/yy HH:mm", { locale: ptBR })
-                  ) : (
-                    "-"
-                  )}
-                </TableCell>
-                <TableCell className="text-right">
+                <TableCell className="text-center py-2">
                   <Button
                     variant="ghost"
-                    size="sm"
+                    size="icon"
+                    className="h-7 w-7"
                     onClick={() => calcularEAplicar(valor.contrato_id)}
                     disabled={calculando === valor.contrato_id || saving === valor.contrato_id}
-                    title="Calcular valor médio"
+                    title="Recalcular valor"
                   >
                     {calculando === valor.contrato_id || saving === valor.contrato_id ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     ) : (
-                      <RefreshCw className="h-4 w-4" />
+                      <RefreshCw className="h-3.5 w-3.5" />
                     )}
                   </Button>
                 </TableCell>
@@ -450,20 +417,9 @@ export default function ValoresPorContratoTab({ skillCodigo, skillNome }: Props)
         </Table>
       </div>
 
-      <div className="bg-muted/50 rounded-lg p-4 text-sm">
-        <div className="flex items-start gap-2">
-          <AlertCircle className="h-4 w-4 mt-0.5 text-blue-500" />
-          <div className="space-y-1">
-            <p className="font-medium">Como funciona o cálculo automático:</p>
-            <ul className="list-disc list-inside text-muted-foreground space-y-1">
-              <li>Busca as últimas 1000 execuções deste tipo de serviço para cada contrato</li>
-              <li>Calcula a média dos valores registrados na produção</li>
-              <li>Valores em modo <strong>Auto</strong> são atualizados automaticamente</li>
-              <li>Valores em modo <strong>Manual</strong> são preservados até você alterá-los</li>
-            </ul>
-          </div>
-        </div>
-      </div>
+      <p className="text-xs text-muted-foreground">
+        💡 <strong>Auto</strong>: valor atualizado automaticamente | <strong>Fix</strong>: valor manual fixo
+      </p>
     </div>
   );
 }
