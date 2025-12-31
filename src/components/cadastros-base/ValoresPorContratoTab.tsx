@@ -158,12 +158,17 @@ export default function ValoresPorContratoTab({ skillCodigo, skillNome }: Props)
         console.log(`[ValoresPorContrato] ATENÇÃO: ${producoesSemContrato.length} produções do tipo "${skillCodigo}" NÃO têm contrato vinculado!`);
       }
 
-      // Filtrar com valor > 0 para cálculo da média (OSs com valor 0 são geralmente impedimentos)
-      const producoesFiltradas = producoesPorTipoEContrato
-        .filter((p: any) => p.valor_total > 0)
-        .slice(0, 1000);
+      // Considerar TODAS as produções (inclusive com valor 0)
+      // OSs com valor 0 devem ser consideradas na média pois representam execuções reais
+      const producoesFiltradas = producoesPorTipoEContrato.slice(0, 1000);
       
-      console.log(`[ValoresPorContrato] Produções com valor > 0: ${producoesFiltradas.length}`);
+      // Estatísticas para informação
+      const producoesComValor = producoesFiltradas.filter((p: any) => p.valor_total > 0);
+      const producoesZeradas = producoesFiltradas.filter((p: any) => p.valor_total === 0 || p.valor_total === null);
+      
+      console.log(`[ValoresPorContrato] Total de produções para cálculo: ${producoesFiltradas.length}`);
+      console.log(`[ValoresPorContrato] - Com valor > 0: ${producoesComValor.length}`);
+      console.log(`[ValoresPorContrato] - Com valor = 0: ${producoesZeradas.length}`);
 
       if (producoesFiltradas.length === 0) {
         // Verificar se há produções sem contrato
@@ -172,13 +177,13 @@ export default function ValoresPorContratoTab({ skillCodigo, skillNome }: Props)
         } else if (producoesPorTipo.length === 0) {
           toast.info(`Nenhuma execução encontrada para ${skillNome}`);
         } else {
-          toast.info(`${producoesPorTipo.length} execuções de ${skillNome} encontradas, mas nenhuma com valor > 0 e contrato vinculado`);
+          toast.info(`Nenhuma execução de ${skillNome} encontrada para este contrato`);
         }
         setCalculando(null);
         return null;
       }
 
-      // Calcular média
+      // Calcular média considerando TODAS as produções (inclusive zeradas)
       const soma = producoesFiltradas.reduce((acc: number, p: any) => acc + (p.valor_total || 0), 0);
       const media = soma / producoesFiltradas.length;
 
@@ -189,7 +194,7 @@ export default function ValoresPorContratoTab({ skillCodigo, skillNome }: Props)
           : v
       ));
 
-      toast.success(`Valor médio calculado: R$ ${media.toFixed(2)} (${producoesFiltradas.length} amostras com valor > 0)`);
+      toast.success(`Valor médio: R$ ${media.toFixed(2)} (${producoesFiltradas.length} amostras - ${producoesComValor.length} com valor, ${producoesZeradas.length} zeradas)`);
       
       return { media, amostras: producoesFiltradas.length };
     } catch (error) {
