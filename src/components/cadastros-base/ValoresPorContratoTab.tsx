@@ -22,6 +22,32 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+/**
+ * Normaliza uma string para comparação, removendo acentos e convertendo para lowercase
+ */
+function normalizarParaComparacao(str: string): string {
+  return str
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // Remove acentos
+    .replace(/[^a-z0-9]/g, ""); // Remove caracteres especiais
+}
+
+/**
+ * Verifica se o tipo da OS corresponde ao código da skill
+ * Exemplos:
+ * - "ligacao_nova" ou "Ligação Nova" corresponde a "LIGAÇÃO"
+ * - "religacao_energia" ou "Religação de Energia" corresponde a "RELIGAÇÃO"
+ */
+function tipoCorrespondeSkill(tipoOS: string, skillCodigo: string): boolean {
+  const tipoNorm = normalizarParaComparacao(tipoOS);
+  const skillNorm = normalizarParaComparacao(skillCodigo);
+  
+  // Verifica se o tipo começa com o código da skill normalizado
+  // ou se contém o código da skill
+  return tipoNorm.startsWith(skillNorm) || tipoNorm.includes(skillNorm);
+}
+
 interface Contrato {
   id: string;
   codigo: string;
@@ -132,12 +158,16 @@ export default function ValoresPorContratoTab({ skillCodigo, skillNome }: Props)
       if (error) throw error;
 
       // Filtrar pelo tipo de serviço e contrato
+      // Usa função de comparação flexível para lidar com diferentes formatos de tipo
       const producoesFiltradas = (producoes || [])
-        .filter((p: any) => 
-          p.ordens_servico?.tipo === skillCodigo && 
-          p.ordens_servico?.contrato_id === contratoId &&
-          p.valor_total > 0
-        )
+        .filter((p: any) => {
+          const tipoOS = p.ordens_servico?.tipo || "";
+          const contratoOS = p.ordens_servico?.contrato_id;
+          
+          return tipoCorrespondeSkill(tipoOS, skillCodigo) && 
+                 contratoOS === contratoId &&
+                 p.valor_total > 0;
+        })
         .slice(0, 1000); // Pegar apenas as últimas 1000
 
       if (producoesFiltradas.length === 0) {
