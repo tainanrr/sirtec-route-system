@@ -114,8 +114,7 @@ export default function ValoresPorContratoTab({ skillCodigo, skillNome }: Props)
   const calcularValorMedio = async (contratoId: string) => {
     setCalculando(contratoId);
     try {
-      // Buscar OSs concluídas deste tipo de serviço para este contrato
-      // Usando producao_equipes que tem valor_total e está vinculado a OS
+      // Buscar TODAS as produções com seus tipos de OS
       const { data: producoes, error } = await supabase
         .from("producao_equipes")
         .select(`
@@ -125,29 +124,56 @@ export default function ValoresPorContratoTab({ skillCodigo, skillNome }: Props)
             contrato_id
           )
         `)
-        .not("valor_total", "is", null)
         .order("created_at", { ascending: false })
         .limit(5000); // Buscar mais para filtrar depois
 
       if (error) throw error;
 
+      // Debug: mostrar no console quantas produções foram encontradas
+      console.log(`[ValoresPorContrato] Total de produções carregadas: ${producoes?.length || 0}`);
+      console.log(`[ValoresPorContrato] Buscando tipo: "${skillCodigo}" (lowercase: "${skillCodigo.toLowerCase()}")`);
+      console.log(`[ValoresPorContrato] Buscando contrato: "${contratoId}"`);
+
       // Filtrar pelo tipo de serviço e contrato
       // Comparação EXATA do tipo (apenas normaliza case para lowercase)
       const skillCodigoLower = skillCodigo.toLowerCase();
-      const producoesFiltradas = (producoes || [])
-        .filter((p: any) => {
-          const tipoOS = (p.ordens_servico?.tipo || "").toLowerCase();
-          const contratoOS = p.ordens_servico?.contrato_id;
-          
-          // Comparação exata do tipo
-          return tipoOS === skillCodigoLower && 
-                 contratoOS === contratoId &&
-                 p.valor_total > 0;
-        })
-        .slice(0, 1000); // Pegar apenas as últimas 1000
+      
+      // Primeiro, filtrar apenas pelo tipo para debug
+      const producoesPorTipo = (producoes || []).filter((p: any) => {
+        const tipoOS = (p.ordens_servico?.tipo || "").toLowerCase();
+        return tipoOS === skillCodigoLower;
+      });
+      console.log(`[ValoresPorContrato] Produções do tipo "${skillCodigo}": ${producoesPorTipo.length}`);
+      
+      // Agora filtrar por contrato
+      const producoesPorTipoEContrato = producoesPorTipo.filter((p: any) => {
+        const contratoOS = p.ordens_servico?.contrato_id;
+        return contratoOS === contratoId;
+      });
+      console.log(`[ValoresPorContrato] Produções do tipo "${skillCodigo}" COM contrato "${contratoId}": ${producoesPorTipoEContrato.length}`);
+      
+      // Verificar quantas OSs desse tipo NÃO tem contrato
+      const producoesSemContrato = producoesPorTipo.filter((p: any) => !p.ordens_servico?.contrato_id);
+      if (producoesSemContrato.length > 0) {
+        console.log(`[ValoresPorContrato] ATENÇÃO: ${producoesSemContrato.length} produções do tipo "${skillCodigo}" NÃO têm contrato vinculado!`);
+      }
+
+      // Filtrar com valor > 0 para cálculo da média (OSs com valor 0 são geralmente impedimentos)
+      const producoesFiltradas = producoesPorTipoEContrato
+        .filter((p: any) => p.valor_total > 0)
+        .slice(0, 1000);
+      
+      console.log(`[ValoresPorContrato] Produções com valor > 0: ${producoesFiltradas.length}`);
 
       if (producoesFiltradas.length === 0) {
-        toast.info(`Nenhuma execução encontrada para ${skillNome} neste contrato`);
+        // Verificar se há produções sem contrato
+        if (producoesSemContrato.length > 0) {
+          toast.warning(`Encontradas ${producoesSemContrato.length} execuções de ${skillNome}, mas SEM contrato vinculado. Execute a migration para vincular contratos às OSs.`);
+        } else if (producoesPorTipo.length === 0) {
+          toast.info(`Nenhuma execução encontrada para ${skillNome}`);
+        } else {
+          toast.info(`${producoesPorTipo.length} execuções de ${skillNome} encontradas, mas nenhuma com valor > 0 e contrato vinculado`);
+        }
         setCalculando(null);
         return null;
       }
@@ -163,7 +189,7 @@ export default function ValoresPorContratoTab({ skillCodigo, skillNome }: Props)
           : v
       ));
 
-      toast.success(`Valor médio calculado: R$ ${media.toFixed(2)} (${producoesFiltradas.length} amostras)`);
+      toast.success(`Valor médio calculado: R$ ${media.toFixed(2)} (${producoesFiltradas.length} amostras com valor > 0)`);
       
       return { media, amostras: producoesFiltradas.length };
     } catch (error) {
