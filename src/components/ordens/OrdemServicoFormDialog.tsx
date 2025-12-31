@@ -69,6 +69,7 @@ function tipoParaSkillCodigo(tipo: string): string {
 const ordemSchema = z.object({
   numero: z.string().min(1, "Número é obrigatório").max(50),
   tipo: z.string().min(1, "Tipo é obrigatório"),
+  contrato_id: z.string().min(1, "Contrato é obrigatório"),
   status: z.enum(["pendente", "planejada", "andamento", "concluida", "atrasada", "cancelada"]),
   endereco: z.string().min(5, "Endereço é obrigatório").max(255),
   cliente_nome: z.string().max(100).optional(),
@@ -95,6 +96,12 @@ interface OrdemServicoFormDialogProps {
   onSuccess: () => void;
 }
 
+interface Contrato {
+  id: string;
+  codigo: string;
+  nome: string;
+}
+
 export function OrdemServicoFormDialog({
   open,
   onOpenChange,
@@ -104,6 +111,7 @@ export function OrdemServicoFormDialog({
   const [isLoading, setIsLoading] = useState(false);
   const [tecnicos, setTecnicos] = useState<Tables<"tecnicos">[]>([]);
   const [skills, setSkills] = useState<Tables<"skills">[]>([]);
+  const [contratos, setContratos] = useState<Contrato[]>([]);
   const isEditing = !!ordem;
   const { logCriar, logEditar } = useLogSistema();
 
@@ -112,6 +120,7 @@ export function OrdemServicoFormDialog({
     defaultValues: {
       numero: "",
       tipo: "",
+      contrato_id: "",
       status: "pendente",
       endereco: "",
       cliente_nome: "",
@@ -139,6 +148,18 @@ export function OrdemServicoFormDialog({
       if (data) setTecnicos(data);
     };
     fetchTecnicos();
+  }, []);
+
+  useEffect(() => {
+    const fetchContratos = async () => {
+      const { data } = await supabase
+        .from("contratos")
+        .select("id, codigo, nome")
+        .eq("status", "ativo")
+        .order("codigo");
+      if (data) setContratos(data);
+    };
+    fetchContratos();
   }, []);
 
   useEffect(() => {
@@ -193,6 +214,7 @@ export function OrdemServicoFormDialog({
       form.reset({
         numero: ordem.numero,
         tipo: ordem.tipo,
+        contrato_id: (ordem as any).contrato_id || "",
         status: ordem.status as OrdemFormData["status"],
         endereco: ordem.endereco,
         cliente_nome: ordem.cliente_nome || "",
@@ -245,6 +267,7 @@ export function OrdemServicoFormDialog({
       form.reset({
         numero: "",
         tipo: tipoPadrao,
+        contrato_id: contratos.length > 0 ? contratos[0].id : "",
         status: "pendente",
         endereco: "",
         cliente_nome: "",
@@ -262,7 +285,7 @@ export function OrdemServicoFormDialog({
         prioridade: "NORMAL",
       });
     }
-  }, [ordem, form, skills]);
+  }, [ordem, form, skills, contratos]);
 
   const onSubmit = async (data: OrdemFormData) => {
     setIsLoading(true);
@@ -278,6 +301,7 @@ export function OrdemServicoFormDialog({
       const payload = {
         numero: data.numero,
         tipo: data.tipo,
+        contrato_id: data.contrato_id || null,
         status: data.status,
         endereco: data.endereco,
         cliente_nome: data.cliente_nome || null,
@@ -393,6 +417,37 @@ export function OrdemServicoFormDialog({
                 )}
               />
             </div>
+
+            <FormField
+              control={form.control}
+              name="contrato_id"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Contrato *</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione um contrato" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {contratos.length === 0 ? (
+                        <SelectItem value="_loading" disabled>
+                          Carregando contratos...
+                        </SelectItem>
+                      ) : (
+                        contratos.map((contrato) => (
+                          <SelectItem key={contrato.id} value={contrato.id}>
+                            {contrato.codigo} - {contrato.nome}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <div className="grid grid-cols-2 gap-4">
               <FormField
