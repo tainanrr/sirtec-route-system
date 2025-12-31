@@ -23,13 +23,15 @@ CREATE TABLE IF NOT EXISTS public.tipo_servico_retorno_atividades (
   tipo_servico_retorno_id UUID NOT NULL REFERENCES public.tipo_servico_retornos(id) ON DELETE CASCADE,
   atividade_id UUID NOT NULL REFERENCES public.atividades(id) ON DELETE CASCADE,
   ordem INTEGER DEFAULT 0,
-  obrigatorio BOOLEAN DEFAULT false,
-  selecionado_padrao BOOLEAN DEFAULT false,
-  qtd_padrao INTEGER DEFAULT 1,
-  ativo BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(tipo_servico_retorno_id, atividade_id)
 );
+
+-- Adicionar colunas extras se não existirem
+ALTER TABLE public.tipo_servico_retorno_atividades ADD COLUMN IF NOT EXISTS obrigatorio BOOLEAN DEFAULT false;
+ALTER TABLE public.tipo_servico_retorno_atividades ADD COLUMN IF NOT EXISTS selecionado_padrao BOOLEAN DEFAULT false;
+ALTER TABLE public.tipo_servico_retorno_atividades ADD COLUMN IF NOT EXISTS qtd_padrao INTEGER DEFAULT 1;
+ALTER TABLE public.tipo_servico_retorno_atividades ADD COLUMN IF NOT EXISTS ativo BOOLEAN DEFAULT true;
 
 CREATE INDEX IF NOT EXISTS idx_tipo_servico_retorno_atividades_retorno ON public.tipo_servico_retorno_atividades(tipo_servico_retorno_id);
 
