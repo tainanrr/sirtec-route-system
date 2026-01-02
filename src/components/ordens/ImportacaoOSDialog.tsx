@@ -136,33 +136,60 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
     onOpenChange(false);
   };
 
-  const carregarDadosReferencia = async () => {
-    const { data: skills } = await supabase
-      .from("skills")
-      .select("*")
-      .eq("ativo", true);
-    setSkillsDisponiveis(skills || []);
+  // Estados para validação de contrato e centro de custo
+  const [contratosMap, setContratosMap] = useState<Map<string, string>>(new Map());
+  const [centrosCustoMap, setCentrosCustoMap] = useState<Map<string, string>>(new Map());
 
-    // Buscar OSs existentes com status ativo (não concluídas/canceladas)
-    // Agrupamos por número e pegamos o status mais recente
-    const { data: osExistentes } = await supabase
-      .from("ordens_servico")
-      .select("numero, status")
-      .not("status", "in", "(concluida,cancelada)");
-    
+  const carregarDadosReferencia = async () => {
+    const [skillsRes, osRes, contratosRes, centrosCustoRes] = await Promise.all([
+      supabase.from("skills").select("*").eq("ativo", true),
+      supabase.from("ordens_servico").select("numero, status").not("status", "in", "(concluida,cancelada)"),
+      supabase.from("contratos").select("id, codigo").eq("status", "ativo"),
+      supabase.from("centros_custo").select("id, nome").eq("ativo", true),
+    ]);
+
+    const skills = skillsRes.data || [];
+    setSkillsDisponiveis(skills);
+
+    // Mapa de OSs existentes
     const osMap = new Map<string, OSExistente>();
-    (osExistentes || []).forEach(os => {
-      // Se já existe no mapa, manter (primeira ocorrência)
+    (osRes.data || []).forEach(os => {
       if (!osMap.has(os.numero)) {
         osMap.set(os.numero, { numero: os.numero, status: os.status });
       }
     });
     setOsExistentesMap(osMap);
 
-    return { skills: skills || [], osExistentesMap: osMap };
+    // Mapa de contratos (código -> id)
+    const contMap = new Map<string, string>();
+    (contratosRes.data || []).forEach(c => {
+      contMap.set(c.codigo.toUpperCase(), c.id);
+    });
+    setContratosMap(contMap);
+
+    // Mapa de centros de custo (nome -> id)
+    const ccMap = new Map<string, string>();
+    (centrosCustoRes.data || []).forEach(cc => {
+      ccMap.set(cc.nome.toUpperCase(), cc.id);
+    });
+    setCentrosCustoMap(ccMap);
+
+    return { 
+      skills, 
+      osExistentesMap: osMap,
+      contratosMap: contMap,
+      centrosCustoMap: ccMap,
+    };
   };
 
-  const validarLinha = (row: Record<string, any>, index: number, skills: any[], osExistentesMap: Map<string, OSExistente>): LinhaImportacao => {
+  const validarLinha = (
+    row: Record<string, any>, 
+    index: number, 
+    skills: any[], 
+    osExistentesMap: Map<string, OSExistente>,
+    contratosMap: Map<string, string>,
+    centrosCustoMap: Map<string, string>
+  ): LinhaImportacao => {
     const erros: string[] = [];
     const avisos: string[] = [];
 
@@ -172,11 +199,9 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
     } else {
       const osExistente = osExistentesMap.get(numero);
       if (osExistente) {
-        // Permitir criar nova OS se a existente está concluída ou cancelada
         if (osExistente.status === "concluida" || osExistente.status === "cancelada") {
           avisos.push(`Existe OS "${numero}" (${osExistente.status}) - será criada nova OS com código único`);
         } else {
-          // OS existe com status ativo (pendente, em_andamento, etc) - bloquear
           erros.push(`Número "${numero}" já existe com status "${osExistente.status}"`);
         }
       }
@@ -197,6 +222,32 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
       erros.push("Endereço é obrigatório");
     }
 
+    // Validar Contrato (se informado)
+    const contrato = (row.contrato || "").toString().trim().toUpperCase();
+    if (contrato) {
+      if (!contratosMap.has(contrato)) {
+        erros.push(`Contrato "${contrato}" não cadastrado ou inativo`);
+      }
+    }
+
+    // Validar Centro de Custo (se informado)
+    const centroCusto = (row.centro_custo || row.centro_custos || "").toString().trim().toUpperCase();
+    if (centroCusto) {
+      if (!centrosCustoMap.has(centroCusto)) {
+        erros.push(`Centro de Custo "${centroCusto}" não cadastrado ou inativo`);
+      }
+    }
+
+    // Validar Zona Cadastral (se informado)
+    const zonaCadastral = (row.zona_cadastral || "").toString().trim();
+    if (zonaCadastral) {
+      const zonasValidas = ["urbana", "rural", "indefinida"];
+      if (!zonasValidas.includes(zonaCadastral.toLowerCase())) {
+        avisos.push(`Zona cadastral "${zonaCadastral}" inválida. Valores válidos: Urbana, Rural, Indefinida`);
+      }
+    }
+
+    // Validar prazo
     if (row.prazo) {
       const prazoStr = row.prazo.toString().trim();
       const brasileiroMatch = prazoStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{1,2}))?/);
@@ -204,6 +255,18 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
         const date = new Date(prazoStr);
         if (isNaN(date.getTime())) {
           avisos.push(`Formato de prazo inválido: "${prazoStr}". Use DD/MM/YYYY ou DD/MM/YYYY HH:mm`);
+        }
+      }
+    }
+
+    // Validar data_geracao
+    if (row.data_geracao) {
+      const dataGeracaoStr = row.data_geracao.toString().trim();
+      const brasileiroMatch = dataGeracaoStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{1,2}))?/);
+      if (!brasileiroMatch) {
+        const date = new Date(dataGeracaoStr);
+        if (isNaN(date.getTime())) {
+          avisos.push(`Formato de data_geracao inválido: "${dataGeracaoStr}". Use DD/MM/YYYY ou DD/MM/YYYY HH:mm`);
         }
       }
     }
@@ -241,7 +304,7 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
 
     try {
       setProgresso({ atual: 10, total: 100 });
-      const { skills, osExistentesMap: osMap } = await carregarDadosReferencia();
+      const { skills, osExistentesMap: osMap, contratosMap: contMap, centrosCustoMap: ccMap } = await carregarDadosReferencia();
 
       setProgresso({ atual: 30, total: 100 });
       const arrayBuffer = await file.arrayBuffer();
@@ -269,7 +332,7 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
 
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
-        const linha = validarLinha(row, i, skills, osMap);
+        const linha = validarLinha(row, i, skills, osMap, contMap, ccMap);
 
         const numero = (row.numero || "").toString().trim();
         if (numero && numerosNoArquivo.has(numero)) {
@@ -403,6 +466,17 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
       const tipo = (row.tipo || "").toString().toLowerCase().trim();
       const skillDados = skillsMap.get(tipo) || { tempoExecucao: 15, valor: 0, regulada: false };
 
+      // Buscar IDs de contrato e centro de custo
+      const contratoCodigo = (row.contrato || "").toString().trim().toUpperCase();
+      const centroCustoNome = (row.centro_custo || row.centro_custos || "").toString().trim().toUpperCase();
+      
+      // Processar zona cadastral
+      const zonaCadastralRaw = (row.zona_cadastral || "").toString().trim().toLowerCase();
+      let zonaCadastral: string | null = null;
+      if (zonaCadastralRaw === "urbana") zonaCadastral = "Urbana";
+      else if (zonaCadastralRaw === "rural") zonaCadastral = "Rural";
+      else if (zonaCadastralRaw === "indefinida" || zonaCadastralRaw) zonaCadastral = "Indefinida";
+
       ordensParaInserir.push({
         numero: (row.numero || "").toString().trim(),
         tipo,
@@ -419,6 +493,12 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
         latitude: row.latitude ? parseFloat(row.latitude.toString().replace(",", ".")) : null,
         longitude: row.longitude ? parseFloat(row.longitude.toString().replace(",", ".")) : null,
         observacoes: row.observacoes ? row.observacoes.toString().trim() : null,
+        // Novos campos
+        contrato_id: contratoCodigo ? contratosMap.get(contratoCodigo) : null,
+        centro_custo_id: centroCustoNome ? centrosCustoMap.get(centroCustoNome) : null,
+        tensao_medicao: row.tensao_medicao ? row.tensao_medicao.toString().trim() : null,
+        data_geracao: processarPrazo(row.data_geracao),
+        zona_cadastral: zonaCadastral,
         // codigo será gerado automaticamente pelo trigger no banco
       });
     }
@@ -576,8 +656,8 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
                       className="cursor-pointer"
                     />
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Colunas esperadas: numero, tipo, endereco, cliente_nome, cliente_cpf, instalacao, medidor, prazo, latitude, longitude, observacoes
+                  <p className="text-xs text-muted-foreground max-w-lg text-center">
+                    Colunas esperadas: numero, tipo, endereco, cliente_nome, cliente_cpf, instalacao, medidor, prazo, latitude, longitude, observacoes, <strong>contrato</strong>, <strong>centro_custo</strong>, <strong>tensao_medicao</strong>, <strong>data_geracao</strong>, <strong>zona_cadastral</strong>
                   </p>
                 </>
               )}

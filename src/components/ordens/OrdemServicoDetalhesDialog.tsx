@@ -118,7 +118,9 @@ export function OrdemServicoDetalhesDialog({
         .select(`
           *,
           tecnicos:tecnico_id (id, codigo, nome),
-          equipe_planejada:equipe_planejada_id (id, codigo, nome)
+          equipe_planejada:equipe_planejada_id (id, codigo, nome),
+          contratos:contrato_id (id, codigo, nome),
+          centros_custo:centro_custo_id (id, codigo, nome)
         `)
         .eq("id", ordemId)
         .single();
@@ -634,6 +636,61 @@ export function OrdemServicoDetalhesDialog({
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Informações Adicionais - Novos Campos */}
+                {((ordem as any).contratos || (ordem as any).centros_custo || (ordem as any).tensao_medicao || (ordem as any).data_geracao || (ordem as any).zona_cadastral) && (
+                  <Card>
+                    <CardContent className="pt-4">
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+                        {(ordem as any).contratos && (
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-1">Contrato</p>
+                            <Badge variant="outline" className="font-mono">
+                              {(ordem as any).contratos.codigo}
+                            </Badge>
+                          </div>
+                        )}
+                        {(ordem as any).centros_custo && (
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-1">Centro de Custo</p>
+                            <p className="font-medium text-sm">{(ordem as any).centros_custo.nome}</p>
+                          </div>
+                        )}
+                        {(ordem as any).tensao_medicao && (
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-1">Tensão Medição</p>
+                            <p className="font-medium text-sm">{(ordem as any).tensao_medicao}</p>
+                          </div>
+                        )}
+                        {(ordem as any).data_geracao && (
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-1">Data Geração</p>
+                            <p className="font-medium text-sm">
+                              {format(new Date((ordem as any).data_geracao), "dd/MM/yyyy HH:mm")}
+                            </p>
+                          </div>
+                        )}
+                        {(ordem as any).zona_cadastral && (
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-1">Zona Cadastral</p>
+                            <Badge 
+                              variant="outline" 
+                              className={
+                                (ordem as any).zona_cadastral === "Urbana" 
+                                  ? "bg-blue-50 text-blue-700 border-blue-200" 
+                                  : (ordem as any).zona_cadastral === "Rural"
+                                    ? "bg-green-50 text-green-700 border-green-200"
+                                    : "bg-gray-50 text-gray-700 border-gray-200"
+                              }
+                            >
+                              {(ordem as any).zona_cadastral}
+                            </Badge>
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* Observações - Separadas em Coelba e Equipe */}
                 {(ordem.observacoes || (ordem as any).observacoes_equipe) && (

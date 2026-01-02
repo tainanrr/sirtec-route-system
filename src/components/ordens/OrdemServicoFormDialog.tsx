@@ -70,18 +70,22 @@ const ordemSchema = z.object({
   numero: z.string().min(1, "Número é obrigatório").max(50),
   tipo: z.string().min(1, "Tipo é obrigatório"),
   contrato_id: z.string().min(1, "Contrato é obrigatório"),
+  centro_custo_id: z.string().optional(),
   status: z.enum(["pendente", "planejada", "andamento", "concluida", "atrasada", "cancelada"]),
   endereco: z.string().min(5, "Endereço é obrigatório").max(255),
   cliente_nome: z.string().max(100).optional(),
   cliente_cpf: z.string().max(14).optional(),
   instalacao: z.string().max(50).optional(),
   medidor: z.string().max(50).optional(),
+  tensao_medicao: z.string().max(50).optional(),
   duracao_estimada: z.coerce.number().min(5).max(480).optional(),
   valor: z.coerce.number().min(0).optional(),
   regulada: z.boolean(),
   observacoes: z.string().max(500).optional(),
   tecnico_id: z.string().optional(),
   prazo: z.string().optional(),
+  data_geracao: z.string().optional(),
+  zona_cadastral: z.enum(["Urbana", "Rural", "Indefinida"]).optional(),
   latitude: z.coerce.number().optional(),
   longitude: z.coerce.number().optional(),
   prioridade: z.enum(["ALTA", "NORMAL"]).optional(),
@@ -102,6 +106,12 @@ interface Contrato {
   nome: string;
 }
 
+interface CentroCusto {
+  id: string;
+  codigo: string;
+  nome: string;
+}
+
 export function OrdemServicoFormDialog({
   open,
   onOpenChange,
@@ -112,6 +122,7 @@ export function OrdemServicoFormDialog({
   const [tecnicos, setTecnicos] = useState<Tables<"tecnicos">[]>([]);
   const [skills, setSkills] = useState<Tables<"skills">[]>([]);
   const [contratos, setContratos] = useState<Contrato[]>([]);
+  const [centrosCusto, setCentrosCusto] = useState<CentroCusto[]>([]);
   const isEditing = !!ordem;
   const { logCriar, logEditar } = useLogSistema();
 
@@ -121,18 +132,22 @@ export function OrdemServicoFormDialog({
       numero: "",
       tipo: "",
       contrato_id: "",
+      centro_custo_id: "",
       status: "pendente",
       endereco: "",
       cliente_nome: "",
       cliente_cpf: "",
       instalacao: "",
       medidor: "",
+      tensao_medicao: "",
       duracao_estimada: 30,
       valor: 0,
       regulada: false,
       observacoes: "",
       tecnico_id: "",
       prazo: "",
+      data_geracao: "",
+      zona_cadastral: "Indefinida",
       latitude: undefined,
       longitude: undefined,
       prioridade: "NORMAL",
@@ -160,6 +175,18 @@ export function OrdemServicoFormDialog({
       if (data) setContratos(data);
     };
     fetchContratos();
+  }, []);
+
+  useEffect(() => {
+    const fetchCentrosCusto = async () => {
+      const { data } = await supabase
+        .from("centros_custo")
+        .select("id, codigo, nome")
+        .eq("ativo", true)
+        .order("nome");
+      if (data) setCentrosCusto(data);
+    };
+    fetchCentrosCusto();
   }, []);
 
   useEffect(() => {
@@ -211,22 +238,31 @@ export function OrdemServicoFormDialog({
         ? new Date(ordem.prazo).toISOString().slice(0, 16)
         : "";
       
+      // Formatar data_geracao para input datetime-local
+      const dataGeracaoFormatted = (ordem as any).data_geracao 
+        ? new Date((ordem as any).data_geracao).toISOString().slice(0, 16)
+        : "";
+      
       form.reset({
         numero: ordem.numero,
         tipo: ordem.tipo,
         contrato_id: (ordem as any).contrato_id || "",
+        centro_custo_id: (ordem as any).centro_custo_id || "",
         status: ordem.status as OrdemFormData["status"],
         endereco: ordem.endereco,
         cliente_nome: ordem.cliente_nome || "",
         cliente_cpf: ordem.cliente_cpf || "",
         instalacao: ordem.instalacao || "",
         medidor: ordem.medidor || "",
+        tensao_medicao: (ordem as any).tensao_medicao || "",
         duracao_estimada: ordem.duracao_estimada || 30,
         valor: Number(ordem.valor) || 0,
         regulada: ordem.regulada || false,
         observacoes: ordem.observacoes || "",
         tecnico_id: ordem.tecnico_id || "",
         prazo: prazoFormatted,
+        data_geracao: dataGeracaoFormatted,
+        zona_cadastral: ((ordem as any).zona_cadastral as "Urbana" | "Rural" | "Indefinida") || "Indefinida",
         latitude: ordem.latitude ? Number(ordem.latitude) : undefined,
         longitude: ordem.longitude ? Number(ordem.longitude) : undefined,
         prioridade: (ordem.prioridade as "ALTA" | "NORMAL") || "NORMAL",
@@ -268,18 +304,22 @@ export function OrdemServicoFormDialog({
         numero: "",
         tipo: tipoPadrao,
         contrato_id: contratos.length > 0 ? contratos[0].id : "",
+        centro_custo_id: "",
         status: "pendente",
         endereco: "",
         cliente_nome: "",
         cliente_cpf: "",
         instalacao: "",
         medidor: "",
+        tensao_medicao: "",
         duracao_estimada: duracaoPadrao,
         valor: valorPadrao,
         regulada: reguladaPadrao,
         observacoes: "",
         tecnico_id: "",
         prazo: "",
+        data_geracao: "",
+        zona_cadastral: "Indefinida",
         latitude: undefined,
         longitude: undefined,
         prioridade: "NORMAL",
@@ -295,25 +335,37 @@ export function OrdemServicoFormDialog({
         ? new Date(data.prazo).toISOString()
         : null;
       
+      // Converter data_geracao de string para timestamp se fornecido
+      const dataGeracaoTimestamp = data.data_geracao 
+        ? new Date(data.data_geracao).toISOString()
+        : null;
+      
       // Converter tecnico_id vazio ou "none" para null
       const tecnicoId = !data.tecnico_id || data.tecnico_id === "none" ? null : data.tecnico_id;
+      
+      // Converter centro_custo_id vazio ou "none" para null
+      const centroCustoId = !data.centro_custo_id || data.centro_custo_id === "none" ? null : data.centro_custo_id;
       
       const payload = {
         numero: data.numero,
         tipo: data.tipo,
         contrato_id: data.contrato_id || null,
+        centro_custo_id: centroCustoId,
         status: data.status,
         endereco: data.endereco,
         cliente_nome: data.cliente_nome || null,
         cliente_cpf: data.cliente_cpf || null,
         instalacao: data.instalacao || null,
         medidor: data.medidor || null,
+        tensao_medicao: data.tensao_medicao || null,
         observacoes: data.observacoes || null,
         tecnico_id: tecnicoId,
         valor: data.valor || null,
         duracao_estimada: data.duracao_estimada || null,
         regulada: data.regulada,
         prazo: prazoTimestamp,
+        data_geracao: dataGeracaoTimestamp,
+        zona_cadastral: data.zona_cadastral || null,
         latitude: data.latitude || null,
         longitude: data.longitude || null,
         prioridade: data.prioridade || "NORMAL",
@@ -579,6 +631,74 @@ export function OrdemServicoFormDialog({
               />
             </div>
 
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="tensao_medicao"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Tensão de Medição</FormLabel>
+                    <FormControl>
+                      <Input placeholder="220V, 380V..." {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="zona_cadastral"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Zona Cadastral</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value || "Indefinida"}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="Urbana">Urbana</SelectItem>
+                        <SelectItem value="Rural">Rural</SelectItem>
+                        <SelectItem value="Indefinida">Indefinida</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <FormField
+              control={form.control}
+              name="centro_custo_id"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Centro de Custo</FormLabel>
+                  <Select 
+                    onValueChange={(value) => field.onChange(value === "none" ? "" : value)} 
+                    value={field.value || "none"}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione um centro de custo" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="none">Não definido</SelectItem>
+                      {centrosCusto.map((cc) => (
+                        <SelectItem key={cc.id} value={cc.id}>
+                          {cc.nome}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
             <div className="grid grid-cols-3 gap-4">
               <FormField
                 control={form.control}
@@ -627,13 +747,27 @@ export function OrdemServicoFormDialog({
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <FormField
                 control={form.control}
                 name="prazo"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Prazo</FormLabel>
+                    <FormControl>
+                      <Input type="datetime-local" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="data_geracao"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Data Geração</FormLabel>
                     <FormControl>
                       <Input type="datetime-local" {...field} />
                     </FormControl>
