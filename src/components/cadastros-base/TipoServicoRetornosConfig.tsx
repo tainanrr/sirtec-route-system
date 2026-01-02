@@ -182,18 +182,6 @@ const GRUPOS_PADRAO: GrupoRetorno[] = [
     ordem: 1,
     ativo: true,
   },
-  {
-    id: "default-parcial",
-    codigo: "parcial",
-    nome: "Parcial",
-    cor: "#eab308",
-    cor_fundo: "#fefce8",
-    cor_texto: "#a16207",
-    cor_borda: "#fef08a",
-    icone: "clock",
-    ordem: 2,
-    ativo: true,
-  },
 ];
 
 // ============================================
