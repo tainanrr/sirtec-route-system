@@ -142,18 +142,18 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
 
   const carregarDadosReferencia = async () => {
     const [skillsRes, osRes, contratosRes, centrosCustoRes] = await Promise.all([
-      supabase.from("skills").select("*").eq("ativo", true),
+      (supabase as any).from("skills").select("*").eq("ativo", true),
       supabase.from("ordens_servico").select("numero, status").not("status", "in", "(concluida,cancelada)"),
-      supabase.from("contratos").select("id, codigo").eq("status", "ativo"),
-      supabase.from("centros_custo").select("id, nome").eq("ativo", true),
+      (supabase as any).from("contratos").select("id, codigo").eq("status", "ativo"),
+      (supabase as any).from("centros_custo").select("id, nome").eq("ativo", true),
     ]);
 
-    const skills = skillsRes.data || [];
+    const skills = (skillsRes.data || []) as any[];
     setSkillsDisponiveis(skills);
 
     // Mapa de OSs existentes
     const osMap = new Map<string, OSExistente>();
-    (osRes.data || []).forEach(os => {
+    ((osRes.data || []) as any[]).forEach((os: any) => {
       if (!osMap.has(os.numero)) {
         osMap.set(os.numero, { numero: os.numero, status: os.status });
       }
@@ -162,14 +162,14 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
 
     // Mapa de contratos (código -> id)
     const contMap = new Map<string, string>();
-    (contratosRes.data || []).forEach(c => {
+    ((contratosRes.data || []) as any[]).forEach((c: any) => {
       contMap.set(c.codigo.toUpperCase(), c.id);
     });
     setContratosMap(contMap);
 
     // Mapa de centros de custo (nome -> id)
     const ccMap = new Map<string, string>();
-    (centrosCustoRes.data || []).forEach(cc => {
+    ((centrosCustoRes.data || []) as any[]).forEach((cc: any) => {
       ccMap.set(cc.nome.toUpperCase(), cc.id);
     });
     setCentrosCustoMap(ccMap);
@@ -313,10 +313,28 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
       const firstSheetName = workbook.SheetNames[0];
       const worksheet = workbook.Sheets[firstSheetName];
       
-      const rows = XLSX.utils.sheet_to_json(worksheet, { 
+      const rawRows = XLSX.utils.sheet_to_json(worksheet, { 
         raw: false,
         defval: ""
       }) as Record<string, any>[];
+
+      // Normalizar headers para minúsculo e sem espaços extras
+      const rows = rawRows.map(row => {
+        const normalizedRow: Record<string, any> = {};
+        for (const [key, value] of Object.entries(row)) {
+          // Converter header para minúsculo e remover espaços, acentos e caracteres especiais
+          const normalizedKey = key
+            .toLowerCase()
+            .trim()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "") // Remove acentos
+            .replace(/\s+/g, "_"); // Substitui espaços por _
+          normalizedRow[normalizedKey] = value;
+        }
+        return normalizedRow;
+      });
+
+      console.log("[Importação] Headers normalizados:", rows.length > 0 ? Object.keys(rows[0]) : []);
 
       if (rows.length === 0) {
         toast.error("Nenhuma linha encontrada no arquivo Excel.");
@@ -453,9 +471,14 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
     console.log("[Importação] Mapas carregados:", {
       contratos: contMap.size,
       centrosCusto: ccMap.size,
-      contratosKeys: Array.from(contMap.keys()),
-      centrosCustoKeys: Array.from(ccMap.keys()),
+      contratosKeys: Array.from(contMap.keys()).slice(0, 10), // Primeiros 10
+      centrosCustoKeys: Array.from(ccMap.keys()).slice(0, 10), // Primeiros 10
     });
+    
+    // Log da primeira linha selecionada para ver os campos disponíveis
+    if (linhasSelecionadas.length > 0) {
+      console.log("[Importação] Primeira linha de dados:", linhasSelecionadas[0].dados);
+    }
 
     // Criar mapa de skills uma vez
     const skillsMap = new Map<string, { tempoExecucao: number; valor: number; regulada: boolean }>();
@@ -480,18 +503,24 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
       const contratoCodigo = (row.contrato || "").toString().trim().toUpperCase();
       const centroCustoNome = (row.centro_custo || row.centro_custos || "").toString().trim().toUpperCase();
       
-      // Debug log para verificar os valores
-      if (contratoCodigo || centroCustoNome) {
-        console.log("[Importação] Processando:", {
-          contratoCodigo,
-          contratoId: contMap.get(contratoCodigo),
-          centroCustoNome,
-          centroCustoId: ccMap.get(centroCustoNome),
-        });
-      }
-      
       // Processar zona cadastral
       const zonaCadastralRaw = (row.zona_cadastral || "").toString().trim().toLowerCase();
+      
+      // Debug log para verificar os valores (sempre mostra para as primeiras linhas)
+      const index = linhasSelecionadas.indexOf(linha);
+      if (index < 3) {
+        console.log(`[Importação] Linha ${index + 1}:`, {
+          numero: (row.numero || "").toString().trim(),
+          tipo,
+          contratoCodigo: contratoCodigo || "(vazio)",
+          contratoId: contMap.get(contratoCodigo) || "(não encontrado)",
+          centroCustoNome: centroCustoNome || "(vazio)",
+          centroCustoId: ccMap.get(centroCustoNome) || "(não encontrado)",
+          tensao_medicao: row.tensao_medicao || "(vazio)",
+          data_geracao: row.data_geracao || "(vazio)",
+          zona_cadastral: zonaCadastralRaw || "(vazio)",
+        });
+      }
       let zonaCadastral: string | null = null;
       if (zonaCadastralRaw === "urbana") zonaCadastral = "Urbana";
       else if (zonaCadastralRaw === "rural") zonaCadastral = "Rural";
