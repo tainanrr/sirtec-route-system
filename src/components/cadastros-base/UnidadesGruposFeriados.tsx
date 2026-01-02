@@ -15,7 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  Plus, Pencil, Trash2, Loader2, Ruler, FolderTree, CalendarDays, XCircle, AlertCircle,
+  Plus, Pencil, Trash2, Loader2, Ruler, FolderTree, CalendarDays, AlertCircle,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -61,17 +61,6 @@ interface Feriado {
   centros_custo?: { codigo: string; nome: string } | null;
 }
 
-interface MotivoCancelamento {
-  id: string;
-  codigo: string;
-  nome: string;
-  descricao: string | null;
-  tipo: string;
-  requer_justificativa: boolean;
-  gera_reagendamento: boolean;
-  ativo: boolean;
-}
-
 interface Contrato {
   id: string;
   codigo: string;
@@ -91,20 +80,11 @@ const tipoFeriadoOptions = [
   { value: "ponto_facultativo", label: "Ponto Facultativo", color: "bg-gray-500" },
 ];
 
-const tipoMotivoOptions = [
-  { value: "os", label: "Ordem de Serviço", color: "bg-blue-500" },
-  { value: "rota", label: "Rota", color: "bg-green-500" },
-  { value: "agendamento", label: "Agendamento", color: "bg-yellow-500" },
-  { value: "turno", label: "Turno", color: "bg-purple-500" },
-  { value: "outro", label: "Outro", color: "bg-gray-500" },
-];
-
 export default function UnidadesGruposFeriados() {
   const [activeTab, setActiveTab] = useState("unidades");
   const [unidades, setUnidades] = useState<Unidade[]>([]);
   const [grupos, setGrupos] = useState<Grupo[]>([]);
   const [feriados, setFeriados] = useState<Feriado[]>([]);
-  const [motivosCancelamento, setMotivosCancelamento] = useState<MotivoCancelamento[]>([]);
   const [contratos, setContratos] = useState<Contrato[]>([]);
   const [centrosCusto, setCentrosCusto] = useState<CentroCusto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -119,23 +99,20 @@ export default function UnidadesGruposFeriados() {
   const [unidadeForm, setUnidadeForm] = useState({ codigo: "", nome: "", descricao: "", simbolo: "", ativo: true });
   const [grupoForm, setGrupoForm] = useState({ codigo: "", nome: "", descricao: "", contrato_id: "todos", cor: "#3B82F6", ordem: "0", ativo: true });
   const [feriadoForm, setFeriadoForm] = useState({ data: "", nome: "", tipo: "nacional", estado: "", cidade: "", contrato_id: "", centro_custo_id: "", nacional: false, recorrente: false, ativo: true });
-  const [motivoForm, setMotivoForm] = useState({ codigo: "", nome: "", descricao: "", tipo: "os", requer_justificativa: false, gera_reagendamento: false, ativo: true });
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [unidRes, grupoRes, ferRes, motivoRes, contRes, ccRes] = await Promise.all([
+      const [unidRes, grupoRes, ferRes, contRes, ccRes] = await Promise.all([
         supabase.from("unidades_medida").select("*").order("codigo"),
         supabase.from("grupos_servico").select("*, contratos(codigo, nome)").order("codigo"),
         supabase.from("feriados").select("*, contratos(codigo, nome), centros_custo(codigo, nome)").order("data", { ascending: false }),
-        supabase.from("motivos_cancelamento").select("*").order("codigo"),
         supabase.from("contratos").select("id, codigo, nome").eq("status", "ativo").order("codigo"),
         supabase.from("centros_custo").select("id, codigo, nome").eq("ativo", true).order("nome"),
       ]);
       setUnidades(unidRes.data || []);
       setGrupos(grupoRes.data || []);
       setFeriados(ferRes.data || []);
-      setMotivosCancelamento(motivoRes.data || []);
       setContratos(contRes.data || []);
       setCentrosCusto(ccRes.data || []);
     } catch (error: any) {
@@ -150,7 +127,6 @@ export default function UnidadesGruposFeriados() {
   const { sortConfig: unidadeSortConfig, handleSort: handleUnidadeSort, sortedData: sortedUnidades } = useSortableTable(unidades, { column: "codigo", direction: "asc" });
   const { sortConfig: grupoSortConfig, handleSort: handleGrupoSort, sortedData: sortedGrupos } = useSortableTable(grupos, { column: "codigo", direction: "asc" });
   const { sortConfig: feriadoSortConfig, handleSort: handleFeriadoSort, sortedData: sortedFeriados } = useSortableTable(feriados, { column: "data", direction: "desc" });
-  const { sortConfig: motivoSortConfig, handleSort: handleMotivoSort, sortedData: sortedMotivos } = useSortableTable(motivosCancelamento, { column: "codigo", direction: "asc" });
 
   const handleCreate = (type: string) => {
     setCurrentType(type);
@@ -158,7 +134,6 @@ export default function UnidadesGruposFeriados() {
     if (type === "unidade") setUnidadeForm({ codigo: "", nome: "", descricao: "", simbolo: "", ativo: true });
     if (type === "grupo") setGrupoForm({ codigo: "", nome: "", descricao: "", contrato_id: "todos", cor: "#3B82F6", ordem: "0", ativo: true });
     if (type === "feriado") setFeriadoForm({ data: "", nome: "", tipo: "nacional", estado: "", cidade: "", contrato_id: "", centro_custo_id: "", nacional: false, recorrente: false, ativo: true });
-    if (type === "motivo") setMotivoForm({ codigo: "", nome: "", descricao: "", tipo: "os", requer_justificativa: false, gera_reagendamento: false, ativo: true });
     setDialogOpen(true);
   };
 
@@ -168,7 +143,6 @@ export default function UnidadesGruposFeriados() {
     if (type === "unidade") setUnidadeForm({ codigo: item.codigo, nome: item.nome, descricao: item.descricao || "", simbolo: item.simbolo || "", ativo: item.ativo });
     if (type === "grupo") setGrupoForm({ codigo: item.codigo, nome: item.nome, descricao: item.descricao || "", contrato_id: item.contrato_id || "todos", cor: item.cor || "#3B82F6", ordem: item.ordem?.toString() || "0", ativo: item.ativo });
     if (type === "feriado") setFeriadoForm({ data: item.data, nome: item.nome, tipo: item.tipo, estado: item.estado || "", cidade: item.cidade || "", contrato_id: item.contrato_id || "", centro_custo_id: item.centro_custo_id || "", nacional: item.nacional || false, recorrente: item.recorrente, ativo: item.ativo });
-    if (type === "motivo") setMotivoForm({ codigo: item.codigo, nome: item.nome, descricao: item.descricao || "", tipo: item.tipo, requer_justificativa: item.requer_justificativa, gera_reagendamento: item.gera_reagendamento, ativo: item.ativo });
     setDialogOpen(true);
   };
 
@@ -206,12 +180,6 @@ export default function UnidadesGruposFeriados() {
           ativo: feriadoForm.ativo,
         };
       }
-      if (currentType === "motivo") {
-        if (!motivoForm.codigo || !motivoForm.nome) { toast.error("Preencha os campos obrigatórios"); setSaving(false); return; }
-        table = "motivos_cancelamento";
-        payload = { ...motivoForm, codigo: motivoForm.codigo.toUpperCase(), descricao: motivoForm.descricao || null };
-      }
-
       if (editingItem) {
         const { error } = await supabase.from(table).update(payload).eq("id", editingItem.id);
         if (error) throw error;
@@ -237,7 +205,6 @@ export default function UnidadesGruposFeriados() {
       if (currentType === "unidade") table = "unidades_medida";
       if (currentType === "grupo") table = "grupos_servico";
       if (currentType === "feriado") table = "feriados";
-      if (currentType === "motivo") table = "motivos_cancelamento";
       const { error } = await supabase.from(table).delete().eq("id", itemToDelete.id);
       if (error) throw error;
       toast.success("Registro excluído");
@@ -251,11 +218,10 @@ export default function UnidadesGruposFeriados() {
   return (
     <div className="space-y-4">
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="unidades" className="flex items-center gap-2"><Ruler className="h-4 w-4" />Unidades</TabsTrigger>
           <TabsTrigger value="grupos" className="flex items-center gap-2"><FolderTree className="h-4 w-4" />Grupos</TabsTrigger>
           <TabsTrigger value="feriados" className="flex items-center gap-2"><CalendarDays className="h-4 w-4" />Feriados</TabsTrigger>
-          <TabsTrigger value="motivos" className="flex items-center gap-2"><XCircle className="h-4 w-4" />Motivos Cancel.</TabsTrigger>
         </TabsList>
 
         {/* Tab Unidades */}
@@ -412,60 +378,6 @@ export default function UnidadesGruposFeriados() {
           </div>
         </TabsContent>
 
-        {/* Tab Motivos Cancelamento */}
-        <TabsContent value="motivos" className="mt-4 space-y-4">
-          <div className="flex justify-between items-center">
-            <ExportButton data={motivosCancelamento} filename="motivos_cancelamento" columns={[
-              { key: "codigo", label: "Código" }, { key: "nome", label: "Nome" }, { key: "tipo", label: "Tipo" }, { key: "ativo", label: "Ativo", format: (v: any) => v ? "Sim" : "Não" },
-            ]} />
-            <Button onClick={() => handleCreate("motivo")}><Plus className="h-4 w-4 mr-2" />Novo Motivo</Button>
-          </div>
-          <div className="rounded-xl border bg-card overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <SortableTableHead column="codigo" label="Código" sortConfig={motivoSortConfig} onSort={handleMotivoSort} />
-                  <SortableTableHead column="nome" label="Nome" sortConfig={motivoSortConfig} onSort={handleMotivoSort} />
-                  <TableHead>Tipo</TableHead>
-                  <TableHead>Configurações</TableHead>
-                  <SortableTableHead column="ativo" label="Status" sortConfig={motivoSortConfig} onSort={handleMotivoSort} />
-                  <TableHead className="text-right">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow><TableCell colSpan={6} className="text-center py-8"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></TableCell></TableRow>
-                ) : sortedMotivos?.length === 0 ? (
-                  <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Nenhum motivo cadastrado</TableCell></TableRow>
-                ) : (
-                  sortedMotivos?.map((item) => {
-                    const tipoOpt = tipoMotivoOptions.find(t => t.value === item.tipo);
-                    return (
-                      <TableRow key={item.id} className="group">
-                        <TableCell className="font-mono">{item.codigo}</TableCell>
-                        <TableCell className="font-medium">{item.nome}</TableCell>
-                        <TableCell><Badge className={`${tipoOpt?.color} text-white`}>{tipoOpt?.label}</Badge></TableCell>
-                        <TableCell>
-                          <div className="flex gap-1">
-                            {item.requer_justificativa && <Badge variant="outline">📝 Justificativa</Badge>}
-                            {item.gera_reagendamento && <Badge variant="outline">🔄 Reagenda</Badge>}
-                          </div>
-                        </TableCell>
-                        <TableCell><Badge variant={item.ativo ? "default" : "secondary"}>{item.ativo ? "Ativo" : "Inativo"}</Badge></TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Button variant="ghost" size="sm" onClick={() => handleEdit("motivo", item)}><Pencil className="h-4 w-4" /></Button>
-                            <Button variant="ghost" size="sm" onClick={() => { setCurrentType("motivo"); setItemToDelete(item); setDeleteDialogOpen(true); }}><Trash2 className="h-4 w-4 text-destructive" /></Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </TabsContent>
       </Tabs>
 
       {/* Dialog Criar/Editar */}
@@ -477,7 +389,6 @@ export default function UnidadesGruposFeriados() {
               {currentType === "unidade" && "Unidade de Medida"}
               {currentType === "grupo" && "Grupo de Serviço"}
               {currentType === "feriado" && "Feriado"}
-              {currentType === "motivo" && "Motivo de Cancelamento"}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
@@ -546,26 +457,6 @@ export default function UnidadesGruposFeriados() {
                   <div className="flex items-center gap-2"><Switch checked={feriadoForm.recorrente} onCheckedChange={(v) => setFeriadoForm({ ...feriadoForm, recorrente: v })} /><Label>Recorrente (anual)</Label></div>
                   <div className="flex items-center gap-2"><Switch checked={feriadoForm.ativo} onCheckedChange={(v) => setFeriadoForm({ ...feriadoForm, ativo: v })} /><Label>Ativo</Label></div>
                 </div>
-              </>
-            )}
-            {currentType === "motivo" && (
-              <>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2"><Label>Código *</Label><Input value={motivoForm.codigo} onChange={(e) => setMotivoForm({ ...motivoForm, codigo: e.target.value.toUpperCase() })} /></div>
-                  <div className="space-y-2">
-                    <Label>Tipo *</Label>
-                    <Select value={motivoForm.tipo} onValueChange={(v) => setMotivoForm({ ...motivoForm, tipo: v })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>{tipoMotivoOptions.map((t) => (<SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>))}</SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="space-y-2"><Label>Nome *</Label><Input value={motivoForm.nome} onChange={(e) => setMotivoForm({ ...motivoForm, nome: e.target.value })} /></div>
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2"><Switch checked={motivoForm.requer_justificativa} onCheckedChange={(v) => setMotivoForm({ ...motivoForm, requer_justificativa: v })} /><Label>Requer Justificativa</Label></div>
-                  <div className="flex items-center gap-2"><Switch checked={motivoForm.gera_reagendamento} onCheckedChange={(v) => setMotivoForm({ ...motivoForm, gera_reagendamento: v })} /><Label>Gera Reagendamento</Label></div>
-                </div>
-                <div className="flex items-center gap-2"><Switch checked={motivoForm.ativo} onCheckedChange={(v) => setMotivoForm({ ...motivoForm, ativo: v })} /><Label>Ativo</Label></div>
               </>
             )}
           </div>
