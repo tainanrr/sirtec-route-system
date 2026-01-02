@@ -746,7 +746,7 @@ export default function TipoServicoRetornosConfig({
                         value={searchRetorno}
                         onValueChange={setSearchRetorno}
                       />
-                      <CommandList className="max-h-[400px]">
+                      <CommandList className="max-h-[300px] overflow-y-auto">
                         <CommandEmpty>Nenhum retorno encontrado.</CommandEmpty>
                         
                         {/* Grupos de retornos */}
@@ -999,7 +999,7 @@ export default function TipoServicoRetornosConfig({
                                                   value={searchAtividade}
                                                   onValueChange={setSearchAtividade}
                                                 />
-                                                <CommandList>
+                                                <CommandList className="max-h-[300px] overflow-y-auto">
                                                   <CommandEmpty>Nenhuma atividade encontrada.</CommandEmpty>
                                                   <CommandGroup heading="Atividades disponíveis">
                                                     {atividadesDisponiveis
