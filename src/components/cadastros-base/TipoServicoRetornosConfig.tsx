@@ -156,6 +156,46 @@ const ICONES_DISPONIVEIS = {
   "file-text": FileText,
 };
 
+// Grupos padrão (fallback caso a tabela não exista)
+const GRUPOS_PADRAO: GrupoRetorno[] = [
+  {
+    id: "default-executado",
+    codigo: "executado",
+    nome: "Executado",
+    cor: "#22c55e",
+    cor_fundo: "#f0fdf4",
+    cor_texto: "#15803d",
+    cor_borda: "#bbf7d0",
+    icone: "check-circle",
+    ordem: 0,
+    ativo: true,
+  },
+  {
+    id: "default-impedimento",
+    codigo: "impedimento",
+    nome: "Impedimento",
+    cor: "#ef4444",
+    cor_fundo: "#fef2f2",
+    cor_texto: "#b91c1c",
+    cor_borda: "#fecaca",
+    icone: "alert-triangle",
+    ordem: 1,
+    ativo: true,
+  },
+  {
+    id: "default-parcial",
+    codigo: "parcial",
+    nome: "Parcial",
+    cor: "#eab308",
+    cor_fundo: "#fefce8",
+    cor_texto: "#a16207",
+    cor_borda: "#fef08a",
+    icone: "clock",
+    ordem: 2,
+    ativo: true,
+  },
+];
+
 // ============================================
 // COMPONENTE PRINCIPAL
 // ============================================
@@ -213,21 +253,34 @@ export default function TipoServicoRetornosConfig({
     
     setLoading(true);
     try {
-      // Carregar grupos, retornos e atividades disponíveis
-      const [gruposRes, retornosRes, atividadesRes] = await Promise.all([
-        supabase.from("grupos_retorno").select("*").eq("ativo", true).order("ordem"),
+      // Carregar retornos e atividades disponíveis
+      const [retornosRes, atividadesRes] = await Promise.all([
         supabase.from("retornos_campo").select("*").eq("ativo", true).order("descricao"),
         supabase.from("atividades").select("*").eq("ativo", true).order("descricao"),
       ]);
 
-      if (gruposRes.error) throw gruposRes.error;
       if (retornosRes.error) throw retornosRes.error;
       if (atividadesRes.error) throw atividadesRes.error;
 
-      const gruposData = gruposRes.data || [];
-      setGrupos(gruposData);
       setTodosRetornos(retornosRes.data || []);
       setTodasAtividades(atividadesRes.data || []);
+
+      // Tentar carregar grupos do banco, usar padrão se falhar ou estiver vazio
+      let gruposData: GrupoRetorno[] = [];
+      try {
+        const gruposRes = await supabase.from("grupos_retorno").select("*").eq("ativo", true).order("ordem");
+        if (!gruposRes.error && gruposRes.data && gruposRes.data.length > 0) {
+          gruposData = gruposRes.data;
+        } else {
+          // Usar grupos padrão se a tabela não existir ou estiver vazia
+          gruposData = GRUPOS_PADRAO;
+        }
+      } catch {
+        // Usar grupos padrão se houver erro (ex: tabela não existe)
+        gruposData = GRUPOS_PADRAO;
+      }
+      
+      setGrupos(gruposData);
       
       // Expandir todos os grupos por padrão
       setExpandedGroups(gruposData.map(g => g.codigo));
