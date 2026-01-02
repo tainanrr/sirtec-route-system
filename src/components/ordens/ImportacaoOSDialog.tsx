@@ -330,6 +330,24 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
             .replace(/[\u0300-\u036f]/g, "") // Remove acentos
             .replace(/\s+/g, "_"); // Substitui espaços por _
           normalizedRow[normalizedKey] = value;
+          
+          // Criar aliases para campos com nomes variados
+          // Centro de Custo(s)
+          if (normalizedKey === "centro_de_custos" || normalizedKey === "centro_de_custo" || normalizedKey === "centros_de_custo") {
+            normalizedRow["centro_custo"] = value;
+          }
+          // Tensão da/de Medição
+          if (normalizedKey === "tensao_da_medicao" || normalizedKey === "tensao_de_medicao") {
+            normalizedRow["tensao_medicao"] = value;
+          }
+          // Data de Geração
+          if (normalizedKey === "data_de_geracao") {
+            normalizedRow["data_geracao"] = value;
+          }
+          // Zona Cadastral
+          if (normalizedKey === "zona_cadastral") {
+            normalizedRow["zona_cadastral"] = value;
+          }
         }
         return normalizedRow;
       });

@@ -36,9 +36,19 @@ import { useLogSistema } from "@/hooks/useLogSistema";
 
 /**
  * Converte código da skill (ex: "CORTE") para formato tipo usado no banco (ex: "corte")
+ * Deve ser igual à função usada na ImportacaoOSDialog
  */
 function skillCodigoParaTipo(codigo: string): string {
-  return codigo.toLowerCase().replace(/[^a-z0-9]/g, "_");
+  const mapeamentoInverso: Record<string, string> = {
+    "CORTE": "corte",
+    "RELIG": "religacao",
+    "INSP": "inspecao",
+    "VIST": "vistoria",
+    "TROCA_MED": "troca_medidor",
+    "LEIT": "leitura",
+    "ENT_FAT": "entrega_fatura",
+  };
+  return mapeamentoInverso[codigo.toUpperCase()] || codigo.toLowerCase();
 }
 
 /**
