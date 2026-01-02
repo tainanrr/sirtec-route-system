@@ -85,45 +85,36 @@ import ExpectativaEquipesDialog from "./components/ExpectativaEquipesDialog";
 import SelecaoTerritoriosDialog from "./components/SelecaoTerritoriosDialog";
 import SelecaoOpcoesRoteiroDialog from "./components/SelecaoOpcoesRoteiroDialog";
 
-const tipoLabels: Record<string, string> = {
-  // Formato do banco (minúsculas, sem acento)
-  corte: "Corte",
-  religa: "Religa",
-  ligacao: "Ligação Nova",
-  inspecao: "Inspeção",
-  inspeção: "Inspeção",
-  manutencao: "Manutenção",
-  manutenção: "Manutenção",
-  troca_medidor: "Troca de Medidor",
-  // Formato normalizado (maiúsculas, com acento)
-  CORTE: "Corte",
-  RELIGA: "Religa",
-  LIGAÇÃO: "Ligação Nova",
-  LIGACAO: "Ligação Nova", // Variação sem acento em maiúsculas
-  INSPEÇÃO: "Inspeção",
-  INSPECAO: "Inspeção", // Variação sem acento em maiúsculas
-  MANUTENÇÃO: "Manutenção",
-  MANUTENCAO: "Manutenção", // Variação sem acento em maiúsculas
-  TROCA_MEDIDOR: "Troca de Medidor",
-};
+// Mapa dinâmico de tipo -> nome (preenchido com dados do banco)
+let skillsNomesMap: Map<string, string> = new Map();
 
 /**
- * Obtém o label formatado para um tipo de OS
+ * Obtém o label formatado para um tipo de OS usando o nome da skill do banco
  */
 function obterLabelTipo(tipo: string): string {
-  // Tentar primeiro com o tipo exato
-  if (tipoLabels[tipo]) return tipoLabels[tipo];
+  if (!tipo) return "";
   
-  // Tentar com lowercase
-  const tipoLower = tipo.toLowerCase();
-  if (tipoLabels[tipoLower]) return tipoLabels[tipoLower];
+  // Normalizar o tipo para comparação
+  const tipoNorm = tipo.toLowerCase().trim();
   
-  // Tentar com uppercase
-  const tipoUpper = tipo.toUpperCase();
-  if (tipoLabels[tipoUpper]) return tipoLabels[tipoUpper];
+  // Buscar no mapa de skills
+  if (skillsNomesMap.has(tipoNorm)) {
+    return skillsNomesMap.get(tipoNorm)!;
+  }
   
-  // Fallback: retornar o tipo original
-  return tipo;
+  // Tentar variações
+  for (const [key, value] of skillsNomesMap.entries()) {
+    if (key.toLowerCase() === tipoNorm) {
+      return value;
+    }
+  }
+  
+  // Fallback: formatar o tipo removendo sufixos e capitalizando
+  return tipo
+    .replace(/ -$/, "") // Remove sufixo " -"
+    .split(/[\s_]+/)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
 }
 
 const Roteirizacao = () => {
@@ -242,6 +233,38 @@ const Roteirizacao = () => {
     };
 
     fetchEquipes();
+  }, []);
+
+  // Carregar nomes das skills para exibição
+  useEffect(() => {
+    const fetchSkillsNomes = async () => {
+      try {
+        const { data, error } = await (supabase as any)
+          .from("skills")
+          .select("codigo, nome")
+          .eq("ativo", true);
+        
+        if (error) throw error;
+        
+        // Preencher o mapa de nomes
+        const novoMapa = new Map<string, string>();
+        (data || []).forEach((skill: any) => {
+          // Mapear código normalizado (minúsculo, sem " -") para nome
+          const codigoNorm = skill.codigo.toLowerCase().replace(/ -$/, "").trim();
+          novoMapa.set(codigoNorm, skill.nome);
+          
+          // Também mapear o código exato
+          novoMapa.set(skill.codigo.toLowerCase(), skill.nome);
+        });
+        
+        skillsNomesMap = novoMapa;
+        console.log("[Roteirização] Skills carregadas para exibição:", novoMapa.size);
+      } catch (error) {
+        console.error("Erro ao carregar nomes das skills:", error);
+      }
+    };
+    
+    fetchSkillsNomes();
   }, []);
 
   // Carregar territórios do Supabase
