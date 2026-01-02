@@ -1389,7 +1389,7 @@ export default function TipoServicoRetornosConfig({
 
       {/* Dialog de Edição de Atividade */}
       <Dialog open={editAtividadeOpen} onOpenChange={setEditAtividadeOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md z-[9999]">
           <DialogHeader>
             <DialogTitle>Configurar Atividade</DialogTitle>
             <DialogDescription>
@@ -1493,7 +1493,7 @@ export default function TipoServicoRetornosConfig({
 
       {/* Dialog de Gerenciamento de Grupos */}
       <Dialog open={gruposDialogOpen} onOpenChange={setGruposDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto z-[9999]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FolderCog className="h-5 w-5" />
@@ -1676,7 +1676,7 @@ export default function TipoServicoRetornosConfig({
 
       {/* Dialog de Edição de Grupo */}
       <Dialog open={editGrupoOpen} onOpenChange={setEditGrupoOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md z-[9999]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Palette className="h-5 w-5" />
@@ -1792,7 +1792,7 @@ export default function TipoServicoRetornosConfig({
 
       {/* Dialog para Mover Retorno entre Grupos */}
       <Dialog open={moverRetornoOpen} onOpenChange={setMoverRetornoOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md z-[9999]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <MoveRight className="h-5 w-5" />
