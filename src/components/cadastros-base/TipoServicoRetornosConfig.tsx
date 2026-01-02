@@ -69,6 +69,9 @@ import {
   CheckCircle2,
   AlertTriangle,
   Clock,
+  FolderCog,
+  MoveRight,
+  Palette,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -121,6 +124,19 @@ interface RetornoAtividade {
   atividade?: Atividade;
 }
 
+interface GrupoRetorno {
+  id: string;
+  codigo: string;
+  nome: string;
+  cor: string;
+  cor_fundo: string;
+  cor_texto: string;
+  cor_borda: string;
+  icone: string;
+  ordem: number;
+  ativo: boolean;
+}
+
 interface Props {
   tipoServicoId: string;
   tipoServicoCodigo: string;
@@ -129,32 +145,15 @@ interface Props {
   onOpenChange: (open: boolean) => void;
 }
 
-// Configuração dos grupos
-const GRUPOS_RETORNO = {
-  executado: {
-    label: "Executado",
-    icon: CheckCircle2,
-    color: "bg-green-500",
-    bgColor: "bg-green-50",
-    textColor: "text-green-700",
-    borderColor: "border-green-200",
-  },
-  impedimento: {
-    label: "Impedimento",
-    icon: AlertTriangle,
-    color: "bg-red-500",
-    bgColor: "bg-red-50",
-    textColor: "text-red-700",
-    borderColor: "border-red-200",
-  },
-  parcial: {
-    label: "Parcial",
-    icon: Clock,
-    color: "bg-yellow-500",
-    bgColor: "bg-yellow-50",
-    textColor: "text-yellow-700",
-    borderColor: "border-yellow-200",
-  },
+// Mapeamento de ícones disponíveis
+const ICONES_DISPONIVEIS = {
+  "check-circle": CheckCircle2,
+  "alert-triangle": AlertTriangle,
+  "clock": Clock,
+  "check": Check,
+  "x-circle": XCircle,
+  "layers": Layers,
+  "file-text": FileText,
 };
 
 // ============================================
@@ -173,6 +172,7 @@ export default function TipoServicoRetornosConfig({
   const [todosRetornos, setTodosRetornos] = useState<RetornoCampo[]>([]);
   const [todasAtividades, setTodasAtividades] = useState<Atividade[]>([]);
   const [atividadesPorRetorno, setAtividadesPorRetorno] = useState<Record<string, RetornoAtividade[]>>({});
+  const [grupos, setGrupos] = useState<GrupoRetorno[]>([]);
 
   // Estados de UI
   const [loading, setLoading] = useState(true);
@@ -183,8 +183,26 @@ export default function TipoServicoRetornosConfig({
   const [selectedAtividade, setSelectedAtividade] = useState<RetornoAtividade | null>(null);
   const [searchRetorno, setSearchRetorno] = useState("");
   const [searchAtividade, setSearchAtividade] = useState("");
-  const [expandedGroups, setExpandedGroups] = useState<string[]>(["executado", "impedimento", "parcial"]);
+  const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   const [draggedItem, setDraggedItem] = useState<string | null>(null);
+  
+  // Estados para gerenciamento de grupos
+  const [gruposDialogOpen, setGruposDialogOpen] = useState(false);
+  const [editGrupoOpen, setEditGrupoOpen] = useState(false);
+  const [selectedGrupo, setSelectedGrupo] = useState<GrupoRetorno | null>(null);
+  const [novoGrupo, setNovoGrupo] = useState<Partial<GrupoRetorno>>({
+    codigo: "",
+    nome: "",
+    cor: "#6b7280",
+    cor_fundo: "#f3f4f6",
+    cor_texto: "#374151",
+    cor_borda: "#e5e7eb",
+    icone: "check-circle",
+  });
+  
+  // Estado para mover retorno entre grupos
+  const [moverRetornoOpen, setMoverRetornoOpen] = useState(false);
+  const [retornoParaMover, setRetornoParaMover] = useState<RetornoCampo | null>(null);
 
   // ============================================
   // CARREGAR DADOS
@@ -195,17 +213,24 @@ export default function TipoServicoRetornosConfig({
     
     setLoading(true);
     try {
-      // Carregar todos os retornos e atividades disponíveis
-      const [retornosRes, atividadesRes] = await Promise.all([
+      // Carregar grupos, retornos e atividades disponíveis
+      const [gruposRes, retornosRes, atividadesRes] = await Promise.all([
+        supabase.from("grupos_retorno").select("*").eq("ativo", true).order("ordem"),
         supabase.from("retornos_campo").select("*").eq("ativo", true).order("descricao"),
         supabase.from("atividades").select("*").eq("ativo", true).order("descricao"),
       ]);
 
+      if (gruposRes.error) throw gruposRes.error;
       if (retornosRes.error) throw retornosRes.error;
       if (atividadesRes.error) throw atividadesRes.error;
 
+      const gruposData = gruposRes.data || [];
+      setGrupos(gruposData);
       setTodosRetornos(retornosRes.data || []);
       setTodasAtividades(atividadesRes.data || []);
+      
+      // Expandir todos os grupos por padrão
+      setExpandedGroups(gruposData.map(g => g.codigo));
 
       // Carregar retornos vinculados a este tipo de serviço
       const { data: vinculados, error: vinculadosError } = await supabase
@@ -259,33 +284,34 @@ export default function TipoServicoRetornosConfig({
   // ============================================
 
   const retornosAgrupados = useMemo(() => {
-    const grupos: Record<string, TipoServicoRetorno[]> = {
-      executado: [],
-      impedimento: [],
-      parcial: [],
-    };
+    const gruposMap: Record<string, TipoServicoRetorno[]> = {};
+    
+    // Inicializar todos os grupos
+    grupos.forEach(g => {
+      gruposMap[g.codigo] = [];
+    });
 
     // Agrupar por tipo
     retornosVinculados.forEach(retorno => {
-      const tipo = retorno.retorno?.tipo || "executado";
-      if (grupos[tipo]) {
-        grupos[tipo].push(retorno);
-      } else {
-        grupos.executado.push(retorno); // fallback
+      const tipo = retorno.retorno?.tipo || grupos[0]?.codigo || "executado";
+      if (gruposMap[tipo]) {
+        gruposMap[tipo].push(retorno);
+      } else if (grupos.length > 0) {
+        gruposMap[grupos[0].codigo].push(retorno); // fallback para primeiro grupo
       }
     });
 
     // Ordenar cada grupo por descrição (alfabético)
-    Object.keys(grupos).forEach(key => {
-      grupos[key].sort((a, b) => {
+    Object.keys(gruposMap).forEach(key => {
+      gruposMap[key].sort((a, b) => {
         const descA = a.retorno?.descricao || "";
         const descB = b.retorno?.descricao || "";
         return descA.localeCompare(descB, 'pt-BR');
       });
     });
 
-    return grupos;
-  }, [retornosVinculados]);
+    return gruposMap;
+  }, [retornosVinculados, grupos]);
 
   // ============================================
   // HANDLERS - RETORNOS
@@ -626,16 +652,180 @@ export default function TipoServicoRetornosConfig({
   };
 
   // ============================================
+  // HANDLERS - GRUPOS
+  // ============================================
+
+  const handleCriarGrupo = async () => {
+    if (!novoGrupo.codigo || !novoGrupo.nome) {
+      toast.error("Código e nome são obrigatórios");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const { data, error } = await supabase
+        .from("grupos_retorno")
+        .insert({
+          codigo: novoGrupo.codigo,
+          nome: novoGrupo.nome,
+          cor: novoGrupo.cor,
+          cor_fundo: novoGrupo.cor_fundo,
+          cor_texto: novoGrupo.cor_texto,
+          cor_borda: novoGrupo.cor_borda,
+          icone: novoGrupo.icone,
+          ordem: grupos.length,
+          ativo: true,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setGrupos([...grupos, data]);
+      setExpandedGroups([...expandedGroups, data.codigo]);
+      setNovoGrupo({
+        codigo: "",
+        nome: "",
+        cor: "#6b7280",
+        cor_fundo: "#f3f4f6",
+        cor_texto: "#374151",
+        cor_borda: "#e5e7eb",
+        icone: "check-circle",
+      });
+      toast.success("Grupo criado com sucesso");
+    } catch (error: any) {
+      console.error("Erro ao criar grupo:", error);
+      toast.error(error.message || "Erro ao criar grupo");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleEditarGrupo = async () => {
+    if (!selectedGrupo) return;
+
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from("grupos_retorno")
+        .update({
+          nome: selectedGrupo.nome,
+          cor: selectedGrupo.cor,
+          cor_fundo: selectedGrupo.cor_fundo,
+          cor_texto: selectedGrupo.cor_texto,
+          cor_borda: selectedGrupo.cor_borda,
+          icone: selectedGrupo.icone,
+        })
+        .eq("id", selectedGrupo.id);
+
+      if (error) throw error;
+
+      setGrupos(grupos.map(g => g.id === selectedGrupo.id ? selectedGrupo : g));
+      setEditGrupoOpen(false);
+      toast.success("Grupo atualizado com sucesso");
+    } catch (error: any) {
+      console.error("Erro ao atualizar grupo:", error);
+      toast.error("Erro ao atualizar grupo");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleExcluirGrupo = async (grupoId: string) => {
+    const grupo = grupos.find(g => g.id === grupoId);
+    if (!grupo) return;
+
+    // Verificar se há retornos neste grupo
+    const retornosNoGrupo = todosRetornos.filter(r => r.tipo === grupo.codigo);
+    if (retornosNoGrupo.length > 0) {
+      toast.error(`Não é possível excluir. Existem ${retornosNoGrupo.length} retornos neste grupo.`);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from("grupos_retorno")
+        .delete()
+        .eq("id", grupoId);
+
+      if (error) throw error;
+
+      setGrupos(grupos.filter(g => g.id !== grupoId));
+      toast.success("Grupo excluído com sucesso");
+    } catch (error: any) {
+      console.error("Erro ao excluir grupo:", error);
+      toast.error("Erro ao excluir grupo");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleMoverRetornoParaGrupo = async (novoGrupoCodigo: string) => {
+    if (!retornoParaMover) return;
+
+    setSaving(true);
+    try {
+      // Atualizar o tipo do retorno de campo
+      const { error } = await supabase
+        .from("retornos_campo")
+        .update({ tipo: novoGrupoCodigo })
+        .eq("id", retornoParaMover.id);
+
+      if (error) throw error;
+
+      // Atualizar estado local
+      setTodosRetornos(todosRetornos.map(r => 
+        r.id === retornoParaMover.id ? { ...r, tipo: novoGrupoCodigo } : r
+      ));
+
+      // Atualizar retornos vinculados se necessário
+      setRetornosVinculados(retornosVinculados.map(rv => 
+        rv.retorno_campo_id === retornoParaMover.id 
+          ? { ...rv, retorno: { ...rv.retorno!, tipo: novoGrupoCodigo } }
+          : rv
+      ));
+
+      setMoverRetornoOpen(false);
+      setRetornoParaMover(null);
+      toast.success("Retorno movido para o novo grupo");
+    } catch (error: any) {
+      console.error("Erro ao mover retorno:", error);
+      toast.error("Erro ao mover retorno");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleAbrirMoverRetorno = (retorno: RetornoCampo) => {
+    setRetornoParaMover(retorno);
+    setMoverRetornoOpen(true);
+  };
+
+  // ============================================
   // HELPERS
   // ============================================
 
-  const retornosNaoVinculados = useMemo(() => {
-    // Agrupar por tipo
-    const agrupados: Record<string, RetornoCampo[]> = {
-      executado: [],
-      impedimento: [],
-      parcial: [],
+  const getGrupoConfig = (codigo: string) => {
+    const grupo = grupos.find(g => g.codigo === codigo);
+    if (!grupo) return null;
+    
+    const IconComponent = ICONES_DISPONIVEIS[grupo.icone as keyof typeof ICONES_DISPONIVEIS] || CheckCircle2;
+    
+    return {
+      ...grupo,
+      IconComponent,
     };
+  };
+
+  const retornosNaoVinculados = useMemo(() => {
+    // Agrupar por tipo usando grupos dinâmicos
+    const agrupados: Record<string, RetornoCampo[]> = {};
+    
+    // Inicializar grupos
+    grupos.forEach(g => {
+      agrupados[g.codigo] = [];
+    });
 
     console.log("[RetornosConfig] todosRetornos:", todosRetornos.length);
     console.log("[RetornosConfig] retornosVinculados:", retornosVinculados.length);
@@ -643,22 +833,18 @@ export default function TipoServicoRetornosConfig({
     todosRetornos
       .filter(r => !retornosVinculados.some(v => v.retorno_campo_id === r.id))
       .forEach(r => {
-        const tipo = r.tipo || "executado";
+        const tipo = r.tipo || grupos[0]?.codigo || "executado";
         if (agrupados[tipo]) {
           agrupados[tipo].push(r);
-        } else {
-          agrupados.executado.push(r);
+        } else if (grupos.length > 0) {
+          agrupados[grupos[0].codigo].push(r);
         }
       });
 
-    console.log("[RetornosConfig] retornosNaoVinculados:", {
-      executado: agrupados.executado.length,
-      impedimento: agrupados.impedimento.length,
-      parcial: agrupados.parcial.length,
-    });
+    console.log("[RetornosConfig] retornosNaoVinculados:", agrupados);
 
     return agrupados;
-  }, [todosRetornos, retornosVinculados]);
+  }, [todosRetornos, retornosVinculados, grupos]);
 
   const getAtividadesNaoVinculadas = (retornoVinculadoId: string) => {
     const vinculadas = atividadesPorRetorno[retornoVinculadoId] || [];
@@ -718,27 +904,40 @@ export default function TipoServicoRetornosConfig({
             </div>
           ) : (
             <div className="space-y-4">
-              {/* Cabeçalho com botão de adicionar */}
+              {/* Cabeçalho com botões */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Badge variant="outline" className="text-sm">
                     {retornosVinculados.length} Retornos configurados
+                  </Badge>
+                  <Badge variant="secondary" className="text-sm">
+                    {grupos.length} Grupos
                   </Badge>
                   <span className="text-xs text-muted-foreground">
                     (Arraste para reordenar)
                   </span>
                 </div>
                 
-                <Popover open={addRetornoOpen} onOpenChange={(open) => {
-                    console.log("[RetornosConfig] Popover onOpenChange:", open);
-                    setAddRetornoOpen(open);
-                  }}>
-                  <PopoverTrigger asChild>
-                    <Button size="sm" onClick={() => console.log("[RetornosConfig] Botão Adicionar clicado")}>
-                      <Plus className="h-4 w-4 mr-1" />
-                      Adicionar Retorno
-                    </Button>
-                  </PopoverTrigger>
+                <div className="flex items-center gap-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => setGruposDialogOpen(true)}
+                  >
+                    <FolderCog className="h-4 w-4 mr-1" />
+                    Gerenciar Grupos
+                  </Button>
+                  
+                  <Popover open={addRetornoOpen} onOpenChange={(open) => {
+                      console.log("[RetornosConfig] Popover onOpenChange:", open);
+                      setAddRetornoOpen(open);
+                    }}>
+                    <PopoverTrigger asChild>
+                      <Button size="sm" onClick={() => console.log("[RetornosConfig] Botão Adicionar clicado")}>
+                        <Plus className="h-4 w-4 mr-1" />
+                        Adicionar Retorno
+                      </Button>
+                    </PopoverTrigger>
                   <PopoverContent className="w-[450px] p-0 z-[9999]" align="end">
                     <Command>
                       <CommandInput 
@@ -750,8 +949,8 @@ export default function TipoServicoRetornosConfig({
                         <CommandEmpty>Nenhum retorno encontrado.</CommandEmpty>
                         
                         {/* Grupos de retornos */}
-                        {Object.entries(GRUPOS_RETORNO).map(([tipo, config]) => {
-                          const retornosDoTipo = retornosNaoVinculados[tipo] || [];
+                        {grupos.map((grupo) => {
+                          const retornosDoTipo = retornosNaoVinculados[grupo.codigo] || [];
                           const retornosFiltrados = retornosDoTipo.filter(r =>
                             r.codigo.toLowerCase().includes(searchRetorno.toLowerCase()) ||
                             r.descricao.toLowerCase().includes(searchRetorno.toLowerCase())
@@ -759,15 +958,15 @@ export default function TipoServicoRetornosConfig({
 
                           if (retornosFiltrados.length === 0) return null;
 
-                          const IconComponent = config.icon;
+                          const IconComponent = ICONES_DISPONIVEIS[grupo.icone as keyof typeof ICONES_DISPONIVEIS] || CheckCircle2;
 
                           return (
                             <CommandGroup 
-                              key={tipo}
+                              key={grupo.codigo}
                               heading={
                                 <div className="flex items-center gap-2">
-                                  <IconComponent className={cn("h-4 w-4", config.textColor)} />
-                                  <span className={config.textColor}>{config.label}</span>
+                                  <IconComponent className="h-4 w-4" style={{ color: grupo.cor_texto }} />
+                                  <span style={{ color: grupo.cor_texto }}>{grupo.nome}</span>
                                   <Badge variant="secondary" className="text-xs">
                                     {retornosFiltrados.length}
                                   </Badge>
@@ -803,7 +1002,8 @@ export default function TipoServicoRetornosConfig({
                       </CommandList>
                     </Command>
                   </PopoverContent>
-                </Popover>
+                  </Popover>
+                </div>
               </div>
 
               {/* Lista de retornos agrupados */}
@@ -817,34 +1017,29 @@ export default function TipoServicoRetornosConfig({
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {Object.entries(GRUPOS_RETORNO).map(([tipo, config]) => {
-                    const retornosDoGrupo = retornosAgrupados[tipo] || [];
+                  {grupos.map((grupo) => {
+                    const retornosDoGrupo = retornosAgrupados[grupo.codigo] || [];
                     if (retornosDoGrupo.length === 0) return null;
 
-                    const IconComponent = config.icon;
-                    const isExpanded = expandedGroups.includes(tipo);
+                    const IconComponent = ICONES_DISPONIVEIS[grupo.icone as keyof typeof ICONES_DISPONIVEIS] || CheckCircle2;
+                    const isExpanded = expandedGroups.includes(grupo.codigo);
 
                     return (
                       <div 
-                        key={tipo}
-                        className={cn(
-                          "border rounded-lg overflow-hidden",
-                          config.borderColor
-                        )}
+                        key={grupo.codigo}
+                        className="border rounded-lg overflow-hidden"
+                        style={{ borderColor: grupo.cor_borda }}
                       >
                         {/* Cabeçalho do grupo */}
                         <button
-                          onClick={() => toggleGroup(tipo)}
-                          className={cn(
-                            "w-full px-4 py-3 flex items-center justify-between",
-                            config.bgColor,
-                            "hover:opacity-90 transition-opacity"
-                          )}
+                          onClick={() => toggleGroup(grupo.codigo)}
+                          className="w-full px-4 py-3 flex items-center justify-between hover:opacity-90 transition-opacity"
+                          style={{ backgroundColor: grupo.cor_fundo }}
                         >
                           <div className="flex items-center gap-3">
-                            <IconComponent className={cn("h-5 w-5", config.textColor)} />
-                            <span className={cn("font-semibold", config.textColor)}>
-                              {config.label}
+                            <IconComponent className="h-5 w-5" style={{ color: grupo.cor_texto }} />
+                            <span className="font-semibold" style={{ color: grupo.cor_texto }}>
+                              {grupo.nome}
                             </span>
                             <Badge variant="secondary">
                               {retornosDoGrupo.length}
@@ -853,9 +1048,9 @@ export default function TipoServicoRetornosConfig({
                           <ChevronDown 
                             className={cn(
                               "h-5 w-5 transition-transform",
-                              config.textColor,
                               isExpanded && "transform rotate-180"
                             )} 
+                            style={{ color: grupo.cor_texto }}
                           />
                         </button>
 
@@ -878,7 +1073,7 @@ export default function TipoServicoRetornosConfig({
                                   draggable
                                   onDragStart={(e) => handleDragStart(e, retornoVinculado.id)}
                                   onDragOver={handleDragOver}
-                                  onDrop={(e) => handleDrop(e, retornoVinculado.id, tipo)}
+                                  onDrop={(e) => handleDrop(e, retornoVinculado.id, grupo.codigo)}
                                 >
                                   <div className="flex items-center px-4 py-3 hover:bg-muted/50">
                                     <AccordionTrigger className="flex-1 hover:no-underline p-0">
@@ -963,6 +1158,15 @@ export default function TipoServicoRetornosConfig({
                                             Definir como Padrão
                                           </Button>
                                         )}
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => retorno && handleAbrirMoverRetorno(retorno)}
+                                          disabled={saving}
+                                        >
+                                          <MoveRight className="h-3 w-3 mr-1" />
+                                          Mover Grupo
+                                        </Button>
                                         <Button
                                           variant="outline"
                                           size="sm"
@@ -1229,6 +1433,361 @@ export default function TipoServicoRetornosConfig({
             <Button onClick={handleSalvarAtividade} disabled={saving}>
               {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Salvar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog de Gerenciamento de Grupos */}
+      <Dialog open={gruposDialogOpen} onOpenChange={setGruposDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FolderCog className="h-5 w-5" />
+              Gerenciar Grupos de Retornos
+            </DialogTitle>
+            <DialogDescription>
+              Crie, edite ou exclua grupos para organizar os retornos de campo
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6">
+            {/* Criar novo grupo */}
+            <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
+              <h4 className="font-semibold flex items-center gap-2">
+                <Plus className="h-4 w-4" />
+                Criar Novo Grupo
+              </h4>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Código</Label>
+                  <Input
+                    placeholder="ex: pendente"
+                    value={novoGrupo.codigo || ""}
+                    onChange={(e) => setNovoGrupo({ ...novoGrupo, codigo: e.target.value.toLowerCase().replace(/\s/g, "_") })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Nome</Label>
+                  <Input
+                    placeholder="ex: Pendente"
+                    value={novoGrupo.nome || ""}
+                    onChange={(e) => setNovoGrupo({ ...novoGrupo, nome: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-4 gap-4">
+                <div className="space-y-2">
+                  <Label>Cor Principal</Label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={novoGrupo.cor || "#6b7280"}
+                      onChange={(e) => setNovoGrupo({ ...novoGrupo, cor: e.target.value })}
+                      className="w-10 h-10 rounded cursor-pointer border"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Cor Fundo</Label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={novoGrupo.cor_fundo || "#f3f4f6"}
+                      onChange={(e) => setNovoGrupo({ ...novoGrupo, cor_fundo: e.target.value })}
+                      className="w-10 h-10 rounded cursor-pointer border"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Cor Texto</Label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={novoGrupo.cor_texto || "#374151"}
+                      onChange={(e) => setNovoGrupo({ ...novoGrupo, cor_texto: e.target.value })}
+                      className="w-10 h-10 rounded cursor-pointer border"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Cor Borda</Label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={novoGrupo.cor_borda || "#e5e7eb"}
+                      onChange={(e) => setNovoGrupo({ ...novoGrupo, cor_borda: e.target.value })}
+                      className="w-10 h-10 rounded cursor-pointer border"
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Ícone</Label>
+                <Select
+                  value={novoGrupo.icone || "check-circle"}
+                  onValueChange={(v) => setNovoGrupo({ ...novoGrupo, icone: v })}
+                >
+                  <SelectTrigger className="w-[200px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(ICONES_DISPONIVEIS).map(([key, Icon]) => (
+                      <SelectItem key={key} value={key}>
+                        <div className="flex items-center gap-2">
+                          <Icon className="h-4 w-4" />
+                          <span>{key}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button onClick={handleCriarGrupo} disabled={saving || !novoGrupo.codigo || !novoGrupo.nome}>
+                {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Criar Grupo
+              </Button>
+            </div>
+
+            {/* Lista de grupos existentes */}
+            <div className="space-y-4">
+              <h4 className="font-semibold">Grupos Existentes ({grupos.length})</h4>
+              {grupos.length === 0 ? (
+                <p className="text-muted-foreground text-center py-4">
+                  Nenhum grupo cadastrado
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {grupos.map((grupo) => {
+                    const IconComponent = ICONES_DISPONIVEIS[grupo.icone as keyof typeof ICONES_DISPONIVEIS] || CheckCircle2;
+                    const retornosNoGrupo = todosRetornos.filter(r => r.tipo === grupo.codigo).length;
+                    
+                    return (
+                      <div
+                        key={grupo.id}
+                        className="flex items-center justify-between p-3 border rounded-lg"
+                        style={{ borderColor: grupo.cor_borda, backgroundColor: grupo.cor_fundo }}
+                      >
+                        <div className="flex items-center gap-3">
+                          <IconComponent className="h-5 w-5" style={{ color: grupo.cor_texto }} />
+                          <div>
+                            <span className="font-semibold" style={{ color: grupo.cor_texto }}>
+                              {grupo.nome}
+                            </span>
+                            <span className="text-xs ml-2 text-muted-foreground">
+                              ({grupo.codigo})
+                            </span>
+                          </div>
+                          <Badge variant="secondary" className="text-xs">
+                            {retornosNoGrupo} retornos
+                          </Badge>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => {
+                              setSelectedGrupo(grupo);
+                              setEditGrupoOpen(true);
+                            }}
+                          >
+                            <Edit3 className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            onClick={() => handleExcluirGrupo(grupo.id)}
+                            disabled={saving || retornosNoGrupo > 0}
+                            title={retornosNoGrupo > 0 ? "Não é possível excluir grupo com retornos" : "Excluir grupo"}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setGruposDialogOpen(false)}>
+              Fechar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog de Edição de Grupo */}
+      <Dialog open={editGrupoOpen} onOpenChange={setEditGrupoOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Palette className="h-5 w-5" />
+              Editar Grupo
+            </DialogTitle>
+            <DialogDescription>
+              Código: {selectedGrupo?.codigo}
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedGrupo && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Nome</Label>
+                <Input
+                  value={selectedGrupo.nome}
+                  onChange={(e) => setSelectedGrupo({ ...selectedGrupo, nome: e.target.value })}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Cor Principal</Label>
+                  <input
+                    type="color"
+                    value={selectedGrupo.cor}
+                    onChange={(e) => setSelectedGrupo({ ...selectedGrupo, cor: e.target.value })}
+                    className="w-full h-10 rounded cursor-pointer border"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Cor Fundo</Label>
+                  <input
+                    type="color"
+                    value={selectedGrupo.cor_fundo}
+                    onChange={(e) => setSelectedGrupo({ ...selectedGrupo, cor_fundo: e.target.value })}
+                    className="w-full h-10 rounded cursor-pointer border"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Cor Texto</Label>
+                  <input
+                    type="color"
+                    value={selectedGrupo.cor_texto}
+                    onChange={(e) => setSelectedGrupo({ ...selectedGrupo, cor_texto: e.target.value })}
+                    className="w-full h-10 rounded cursor-pointer border"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Cor Borda</Label>
+                  <input
+                    type="color"
+                    value={selectedGrupo.cor_borda}
+                    onChange={(e) => setSelectedGrupo({ ...selectedGrupo, cor_borda: e.target.value })}
+                    className="w-full h-10 rounded cursor-pointer border"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Ícone</Label>
+                <Select
+                  value={selectedGrupo.icone}
+                  onValueChange={(v) => setSelectedGrupo({ ...selectedGrupo, icone: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(ICONES_DISPONIVEIS).map(([key, Icon]) => (
+                      <SelectItem key={key} value={key}>
+                        <div className="flex items-center gap-2">
+                          <Icon className="h-4 w-4" />
+                          <span>{key}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Preview do grupo */}
+              <div className="space-y-2">
+                <Label>Preview</Label>
+                <div
+                  className="p-3 rounded-lg border flex items-center gap-3"
+                  style={{
+                    backgroundColor: selectedGrupo.cor_fundo,
+                    borderColor: selectedGrupo.cor_borda,
+                  }}
+                >
+                  {(() => {
+                    const Icon = ICONES_DISPONIVEIS[selectedGrupo.icone as keyof typeof ICONES_DISPONIVEIS] || CheckCircle2;
+                    return <Icon className="h-5 w-5" style={{ color: selectedGrupo.cor_texto }} />;
+                  })()}
+                  <span className="font-semibold" style={{ color: selectedGrupo.cor_texto }}>
+                    {selectedGrupo.nome}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditGrupoOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleEditarGrupo} disabled={saving}>
+              {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Salvar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog para Mover Retorno entre Grupos */}
+      <Dialog open={moverRetornoOpen} onOpenChange={setMoverRetornoOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MoveRight className="h-5 w-5" />
+              Mover Retorno para Outro Grupo
+            </DialogTitle>
+            <DialogDescription>
+              {retornoParaMover?.codigo} - {retornoParaMover?.descricao}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Grupo atual: <strong>{grupos.find(g => g.codigo === retornoParaMover?.tipo)?.nome || retornoParaMover?.tipo}</strong>
+            </p>
+            
+            <div className="space-y-2">
+              <Label>Selecione o novo grupo:</Label>
+              <div className="space-y-2">
+                {grupos
+                  .filter(g => g.codigo !== retornoParaMover?.tipo)
+                  .map((grupo) => {
+                    const IconComponent = ICONES_DISPONIVEIS[grupo.icone as keyof typeof ICONES_DISPONIVEIS] || CheckCircle2;
+                    
+                    return (
+                      <button
+                        key={grupo.id}
+                        onClick={() => handleMoverRetornoParaGrupo(grupo.codigo)}
+                        disabled={saving}
+                        className="w-full flex items-center gap-3 p-3 border rounded-lg hover:opacity-80 transition-opacity text-left"
+                        style={{
+                          backgroundColor: grupo.cor_fundo,
+                          borderColor: grupo.cor_borda,
+                        }}
+                      >
+                        <IconComponent className="h-5 w-5" style={{ color: grupo.cor_texto }} />
+                        <span className="font-semibold" style={{ color: grupo.cor_texto }}>
+                          {grupo.nome}
+                        </span>
+                      </button>
+                    );
+                  })}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMoverRetornoOpen(false)}>
+              Cancelar
             </Button>
           </DialogFooter>
         </DialogContent>
