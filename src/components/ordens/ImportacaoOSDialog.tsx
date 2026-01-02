@@ -447,6 +447,16 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
     const total = linhasSelecionadas.length;
     setProgresso({ atual: 0, total });
 
+    // Recarregar dados de referência para garantir que estão atualizados
+    const { contratosMap: contMap, centrosCustoMap: ccMap } = await carregarDadosReferencia();
+    
+    console.log("[Importação] Mapas carregados:", {
+      contratos: contMap.size,
+      centrosCusto: ccMap.size,
+      contratosKeys: Array.from(contMap.keys()),
+      centrosCustoKeys: Array.from(ccMap.keys()),
+    });
+
     // Criar mapa de skills uma vez
     const skillsMap = new Map<string, { tempoExecucao: number; valor: number; regulada: boolean }>();
     for (const skill of skillsDisponiveis) {
@@ -466,9 +476,19 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
       const tipo = (row.tipo || "").toString().toLowerCase().trim();
       const skillDados = skillsMap.get(tipo) || { tempoExecucao: 15, valor: 0, regulada: false };
 
-      // Buscar IDs de contrato e centro de custo
+      // Buscar IDs de contrato e centro de custo usando os mapas carregados
       const contratoCodigo = (row.contrato || "").toString().trim().toUpperCase();
       const centroCustoNome = (row.centro_custo || row.centro_custos || "").toString().trim().toUpperCase();
+      
+      // Debug log para verificar os valores
+      if (contratoCodigo || centroCustoNome) {
+        console.log("[Importação] Processando:", {
+          contratoCodigo,
+          contratoId: contMap.get(contratoCodigo),
+          centroCustoNome,
+          centroCustoId: ccMap.get(centroCustoNome),
+        });
+      }
       
       // Processar zona cadastral
       const zonaCadastralRaw = (row.zona_cadastral || "").toString().trim().toLowerCase();
@@ -493,9 +513,9 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
         latitude: row.latitude ? parseFloat(row.latitude.toString().replace(",", ".")) : null,
         longitude: row.longitude ? parseFloat(row.longitude.toString().replace(",", ".")) : null,
         observacoes: row.observacoes ? row.observacoes.toString().trim() : null,
-        // Novos campos
-        contrato_id: contratoCodigo ? contratosMap.get(contratoCodigo) : null,
-        centro_custo_id: centroCustoNome ? centrosCustoMap.get(centroCustoNome) : null,
+        // Novos campos - usando os mapas locais carregados
+        contrato_id: contratoCodigo ? contMap.get(contratoCodigo) : null,
+        centro_custo_id: centroCustoNome ? ccMap.get(centroCustoNome) : null,
         tensao_medicao: row.tensao_medicao ? row.tensao_medicao.toString().trim() : null,
         data_geracao: processarPrazo(row.data_geracao),
         zona_cadastral: zonaCadastral,

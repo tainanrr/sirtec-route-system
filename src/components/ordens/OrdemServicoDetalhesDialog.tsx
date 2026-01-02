@@ -533,9 +533,38 @@ export function OrdemServicoDetalhesDialog({
                           Cliente
                         </div>
                         <p className="font-medium">{ordem.cliente_nome || "-"}</p>
+                        {ordem.cliente_cpf && (
+                          <p className="text-sm text-muted-foreground">CPF: {ordem.cliente_cpf}</p>
+                        )}
                         {ordem.cliente_telefone && (
                           <p className="text-sm text-muted-foreground">{ordem.cliente_telefone}</p>
                         )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Instalação, Medidor e outras informações */}
+                <Card>
+                  <CardContent className="pt-4">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Instalação</p>
+                        <p className="font-mono font-medium">{ordem.instalacao || "-"}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Medidor</p>
+                        <p className="font-mono font-medium">{ordem.medidor || "-"}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Duração Estimada</p>
+                        <p className="font-medium">{ordem.duracao_estimada ? `${ordem.duracao_estimada} min` : "-"}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Prioridade</p>
+                        <Badge variant={(ordem as any).prioridade === "ALTA" ? "destructive" : "outline"}>
+                          {(ordem as any).prioridade || "NORMAL"}
+                        </Badge>
                       </div>
                     </div>
                   </CardContent>
@@ -638,59 +667,70 @@ export function OrdemServicoDetalhesDialog({
                 </Card>
 
                 {/* Informações Adicionais - Novos Campos */}
-                {((ordem as any).contratos || (ordem as any).centros_custo || (ordem as any).tensao_medicao || (ordem as any).data_geracao || (ordem as any).zona_cadastral) && (
-                  <Card>
-                    <CardContent className="pt-4">
-                      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
-                        {(ordem as any).contratos && (
-                          <div>
-                            <p className="text-xs text-muted-foreground mb-1">Contrato</p>
-                            <Badge variant="outline" className="font-mono">
-                              {(ordem as any).contratos.codigo}
-                            </Badge>
-                          </div>
-                        )}
-                        {(ordem as any).centros_custo && (
-                          <div>
-                            <p className="text-xs text-muted-foreground mb-1">Centro de Custo</p>
-                            <p className="font-medium text-sm">{(ordem as any).centros_custo.nome}</p>
-                          </div>
-                        )}
-                        {(ordem as any).tensao_medicao && (
-                          <div>
-                            <p className="text-xs text-muted-foreground mb-1">Tensão Medição</p>
-                            <p className="font-medium text-sm">{(ordem as any).tensao_medicao}</p>
-                          </div>
-                        )}
-                        {(ordem as any).data_geracao && (
-                          <div>
-                            <p className="text-xs text-muted-foreground mb-1">Data Geração</p>
-                            <p className="font-medium text-sm">
-                              {format(new Date((ordem as any).data_geracao), "dd/MM/yyyy HH:mm")}
-                            </p>
-                          </div>
-                        )}
-                        {(ordem as any).zona_cadastral && (
-                          <div>
-                            <p className="text-xs text-muted-foreground mb-1">Zona Cadastral</p>
-                            <Badge 
-                              variant="outline" 
-                              className={
-                                (ordem as any).zona_cadastral === "Urbana" 
-                                  ? "bg-blue-50 text-blue-700 border-blue-200" 
-                                  : (ordem as any).zona_cadastral === "Rural"
-                                    ? "bg-green-50 text-green-700 border-green-200"
-                                    : "bg-gray-50 text-gray-700 border-gray-200"
-                              }
-                            >
-                              {(ordem as any).zona_cadastral}
-                            </Badge>
-                          </div>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Informações Adicionais</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Contrato</p>
+                        {(ordem as any).contratos ? (
+                          <Badge variant="outline" className="font-mono">
+                            {(ordem as any).contratos.codigo}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
                         )}
                       </div>
-                    </CardContent>
-                  </Card>
-                )}
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Centro de Custo</p>
+                        {(ordem as any).centros_custo ? (
+                          <p className="font-medium text-sm">{(ordem as any).centros_custo.nome}</p>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Tensão Medição</p>
+                        {(ordem as any).tensao_medicao ? (
+                          <p className="font-medium text-sm">{(ordem as any).tensao_medicao}</p>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Data Geração</p>
+                        {(ordem as any).data_geracao ? (
+                          <p className="font-medium text-sm">
+                            {format(new Date((ordem as any).data_geracao), "dd/MM/yyyy HH:mm")}
+                          </p>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Zona Cadastral</p>
+                        {(ordem as any).zona_cadastral ? (
+                          <Badge 
+                            variant="outline" 
+                            className={
+                              (ordem as any).zona_cadastral === "Urbana" 
+                                ? "bg-blue-50 text-blue-700 border-blue-200" 
+                                : (ordem as any).zona_cadastral === "Rural"
+                                  ? "bg-green-50 text-green-700 border-green-200"
+                                  : "bg-gray-50 text-gray-700 border-gray-200"
+                            }
+                          >
+                            {(ordem as any).zona_cadastral}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
 
                 {/* Observações - Separadas em Coelba e Equipe */}
                 {(ordem.observacoes || (ordem as any).observacoes_equipe) && (

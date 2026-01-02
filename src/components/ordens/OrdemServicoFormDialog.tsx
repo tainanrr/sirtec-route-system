@@ -120,7 +120,7 @@ export function OrdemServicoFormDialog({
 }: OrdemServicoFormDialogProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [tecnicos, setTecnicos] = useState<Tables<"tecnicos">[]>([]);
-  const [skills, setSkills] = useState<Tables<"skills">[]>([]);
+  const [skills, setSkills] = useState<any[]>([]);
   const [contratos, setContratos] = useState<Contrato[]>([]);
   const [centrosCusto, setCentrosCusto] = useState<CentroCusto[]>([]);
   const isEditing = !!ordem;
@@ -167,24 +167,24 @@ export function OrdemServicoFormDialog({
 
   useEffect(() => {
     const fetchContratos = async () => {
-      const { data } = await supabase
+      const { data } = await (supabase as any)
         .from("contratos")
         .select("id, codigo, nome")
         .eq("status", "ativo")
         .order("codigo");
-      if (data) setContratos(data);
+      if (data) setContratos(data as Contrato[]);
     };
     fetchContratos();
   }, []);
 
   useEffect(() => {
     const fetchCentrosCusto = async () => {
-      const { data } = await supabase
+      const { data } = await (supabase as any)
         .from("centros_custo")
         .select("id, codigo, nome")
         .eq("ativo", true)
         .order("nome");
-      if (data) setCentrosCusto(data);
+      if (data) setCentrosCusto(data as CentroCusto[]);
     };
     fetchCentrosCusto();
   }, []);
@@ -231,6 +231,7 @@ export function OrdemServicoFormDialog({
     return () => subscription.unsubscribe();
   }, [form, isEditing]);
 
+  // Efeito para resetar o formulário quando a ordem muda (apenas quando ordem é definida/alterada)
   useEffect(() => {
     if (ordem) {
       // Formatar prazo para input datetime-local
@@ -242,6 +243,16 @@ export function OrdemServicoFormDialog({
       const dataGeracaoFormatted = (ordem as any).data_geracao 
         ? new Date((ordem as any).data_geracao).toISOString().slice(0, 16)
         : "";
+      
+      console.log("[FormDialog] Carregando OS para edição:", {
+        numero: ordem.numero,
+        tipo: ordem.tipo,
+        contrato_id: (ordem as any).contrato_id,
+        centro_custo_id: (ordem as any).centro_custo_id,
+        tensao_medicao: (ordem as any).tensao_medicao,
+        data_geracao: (ordem as any).data_geracao,
+        zona_cadastral: (ordem as any).zona_cadastral,
+      });
       
       form.reset({
         numero: ordem.numero,
@@ -265,7 +276,7 @@ export function OrdemServicoFormDialog({
         zona_cadastral: ((ordem as any).zona_cadastral as "Urbana" | "Rural" | "Indefinida") || "Indefinida",
         latitude: ordem.latitude ? Number(ordem.latitude) : undefined,
         longitude: ordem.longitude ? Number(ordem.longitude) : undefined,
-        prioridade: (ordem.prioridade as "ALTA" | "NORMAL") || "NORMAL",
+        prioridade: ((ordem as any).prioridade as "ALTA" | "NORMAL") || "NORMAL",
       });
 
       // Carregar dados da skill após resetar o formulário
@@ -294,16 +305,22 @@ export function OrdemServicoFormDialog({
       };
 
       carregarDadosSkillAoEditar();
-    } else {
-      const tipoPadrao = skills && skills.length > 0 ? skillCodigoParaTipo(skills[0].codigo) : "";
-      const duracaoPadrao = skills && skills.length > 0 ? skills[0].tempo_execucao_minutos : 30;
-      const valorPadrao = skills && skills.length > 0 ? Number(skills[0].valor || 0) : 0;
-      const reguladaPadrao = skills && skills.length > 0 ? (skills[0].regulada || false) : false;
+    }
+  }, [ordem, form]);
+  
+  // Efeito separado para inicializar o formulário quando é uma nova OS
+  useEffect(() => {
+    if (!ordem && skills.length > 0) {
+      const tipoPadrao = skillCodigoParaTipo(skills[0].codigo);
+      const duracaoPadrao = skills[0].tempo_execucao_minutos || 30;
+      const valorPadrao = Number(skills[0].valor || 0);
+      const reguladaPadrao = skills[0].regulada || false;
+      const contratoPadrao = contratos.length > 0 ? contratos[0].id : "";
 
       form.reset({
         numero: "",
         tipo: tipoPadrao,
-        contrato_id: contratos.length > 0 ? contratos[0].id : "",
+        contrato_id: contratoPadrao,
         centro_custo_id: "",
         status: "pendente",
         endereco: "",
@@ -325,7 +342,7 @@ export function OrdemServicoFormDialog({
         prioridade: "NORMAL",
       });
     }
-  }, [ordem, form, skills, contratos]);
+  }, [ordem, skills, contratos, form]);
 
   const onSubmit = async (data: OrdemFormData) => {
     setIsLoading(true);
