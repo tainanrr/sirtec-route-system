@@ -396,8 +396,8 @@ export function calcularExpectativaEquipesPorTerritorio(
   equipes: Equipe[],
   territorios: Territorio[]
 ): ExpectativaTerritorio[] {
-  // Filtrar apenas territórios ativos com equipe atribuída
-  const territoriosAtivos = territorios.filter(t => t.ativo && t.equipeIds && t.equipeIds.length > 0 && t.poligono.length >= 3);
+  // Filtrar apenas territórios ativos (com ou sem equipes vinculadas)
+  const territoriosAtivos = territorios.filter(t => t.ativo && t.poligono.length >= 3);
   
   if (territoriosAtivos.length === 0) {
     return [];
@@ -439,8 +439,8 @@ export function calcularExpectativaEquipesPorTerritorio(
       ? tempoTotalDemandaMin / tempoUtilPorEquipeMin
       : 0;
 
-    // Encontrar equipes atribuídas ao território
-    const equipesVinculadas = territorio.equipeIds
+    // Encontrar equipes atribuídas ao território (pode não haver nenhuma)
+    const equipesVinculadas = (territorio.equipeIds || [])
       .map(id => equipes.find(e => e.id === id))
       .filter(e => e !== undefined);
     const equipeCodigos = equipesVinculadas.map(e => e!.codigo);

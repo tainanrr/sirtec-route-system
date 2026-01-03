@@ -71,17 +71,12 @@ export async function mapSupabaseOrdemServicoToOrdemServico(
   };
   
   const tipoNormalizado = normalizarTipo(ordemSupabase.tipo) as OrdemServico["tipo"];
-  console.log(`[ORDEM_SERVICO] Tipo original: "${ordemSupabase.tipo}" -> normalizado: "${tipoNormalizado}"`);
   
   // Buscar dados da skill usando o código (sem acentos)
   let skillData = dadosSkills?.get(codigoSkill);
   if (!skillData) {
     const { getDadosSkill } = await import("./skillsUtils");
-    console.log(`[ORDEM_SERVICO] Buscando skill individual para código: ${codigoSkill} (tipo: ${tipoNormalizado})`);
     skillData = await getDadosSkill(codigoSkill);
-    console.log(`[ORDEM_SERVICO] Dados da skill encontrados:`, skillData);
-  } else {
-    console.log(`[ORDEM_SERVICO] Usando dados da skill do cache para código: ${codigoSkill} (tipo: ${tipoNormalizado})`, skillData);
   }
 
   // SEMPRE usar dados da skill se disponível, caso contrário usar valor da OS como fallback
@@ -99,8 +94,6 @@ export async function mapSupabaseOrdemServicoToOrdemServico(
     : (ordemSupabase.regulada !== null && ordemSupabase.regulada !== undefined
         ? ordemSupabase.regulada
         : false);
-  
-  console.log(`[ORDEM_SERVICO] OS ${ordemSupabase.numero} (${tipoNormalizado}, código skill: ${codigoSkill}): regulada=${regulada} (skill: ${skillData?.regulada}, banco: ${ordemSupabase.regulada})`);
 
   // Tempo de execução: SEMPRE priorizar skill, depois duracao_estimada da OS, depois 15min padrão
   const tempoExecucao = skillData?.tempoExecucao !== undefined && skillData.tempoExecucao > 0
@@ -108,22 +101,39 @@ export async function mapSupabaseOrdemServicoToOrdemServico(
     : (ordemSupabase.duracao_estimada !== null && ordemSupabase.duracao_estimada !== undefined && ordemSupabase.duracao_estimada > 0
         ? ordemSupabase.duracao_estimada
         : 15);
-  
-  console.log(`[ORDEM_SERVICO] OS ${ordemSupabase.numero} (tipo: ${tipoNormalizado}, código skill: ${codigoSkill}): tempoExecucao=${tempoExecucao} (skill: ${skillData?.tempoExecucao}, banco: ${ordemSupabase.duracao_estimada}), valor=${valor} (skill: ${skillData?.valor}, banco: ${ordemSupabase.valor}), regulada=${regulada} (skill: ${skillData?.regulada}, banco: ${ordemSupabase.regulada})`);
 
   // Determinar prioridade baseado em prazo
   const temPrazo = ordemSupabase.prazo !== null;
   const prioridade: "ALTA" | "NORMAL" = temPrazo ? "ALTA" : "NORMAL";
+
+  // Validar e processar coordenadas
+  // Coordenadas válidas para Brasil: lat entre -35 e 5, lng entre -75 e -32
+  // Se inválidas, usar fallback de Vitória da Conquista, BA
+  const latValida = typeof ordemSupabase.latitude === 'number' && 
+                    !isNaN(ordemSupabase.latitude) && 
+                    ordemSupabase.latitude >= -35 && 
+                    ordemSupabase.latitude <= 5;
+  const lngValida = typeof ordemSupabase.longitude === 'number' && 
+                    !isNaN(ordemSupabase.longitude) && 
+                    ordemSupabase.longitude >= -75 && 
+                    ordemSupabase.longitude <= -32;
+  
+  const latitude = latValida ? ordemSupabase.latitude! : -14.8661;
+  const longitude = lngValida ? ordemSupabase.longitude! : -40.8394;
+  
+  // Log de coordenadas inválidas removido para não poluir o console
+  // Se necessário debug, descomentar:
+  // if (!latValida || !lngValida) {
+  //   console.warn(`[ORDEM_SERVICO] OS ${ordemSupabase.numero} tem coordenadas inválidas (lat: ${ordemSupabase.latitude}, lng: ${ordemSupabase.longitude}), usando fallback`);
+  // }
 
   return {
     id: ordemSupabase.id,
     numero: ordemSupabase.numero,
     tipo: tipoNormalizado,
     endereco: ordemSupabase.endereco,
-    // Usar coordenadas do banco diretamente (preservar valores originais)
-    // Fallback para Vitória da Conquista, BA se não houver coordenada
-    latitude: ordemSupabase.latitude ?? -14.8661,
-    longitude: ordemSupabase.longitude ?? -40.8394,
+    latitude: latitude,
+    longitude: longitude,
     prazo: ordemSupabase.prazo ? new Date(ordemSupabase.prazo) : null,
     valor: valor,
     tempoExecucao: tempoExecucao,
@@ -168,9 +178,7 @@ export async function mapSupabaseOrdensServicoToOrdemServico(
 
   // Buscar todos os códigos únicos das skills (sem acentos) e obter dados em lote
   const codigosSkillsUnicos = [...new Set(ordensSupabase.map((os) => tipoParaSkillCodigo(os.tipo)))];
-  console.log(`[ORDEM_SERVICO] Códigos de skills únicos encontrados:`, codigosSkillsUnicos);
   const dadosSkills = await getDadosSkills(codigosSkillsUnicos);
-  console.log(`[ORDEM_SERVICO] Dados das skills carregados:`, Array.from(dadosSkills.entries()));
 
   // Converter cada ordem
   const ordensConvertidas = await Promise.all(

@@ -281,23 +281,75 @@ const Roteirizacao = () => {
     loadTerritorios();
   }, []);
 
-  // Carregar ordens de serviço do Supabase
+  // Carregar ordens de serviço do Supabase com paginação
+  // O Supabase tem limite de 1000 registros por consulta, então carregamos em lotes
   useEffect(() => {
     const fetchOrdensServico = async () => {
       setLoadingOrdens(true);
       try {
-        const { data, error } = await supabase
-          .from("ordens_servico")
-          .select("*")
-          .in("status", ["pendente"]) // Apenas OSs pendentes (não planejadas)
-          .order("created_at", { ascending: false });
+        const PAGE_SIZE = 1000; // Máximo permitido pelo Supabase
+        let allData: Tables<"ordens_servico">[] = [];
+        let offset = 0;
+        let hasMore = true;
+        let totalCount = 0;
 
-        if (error) throw error;
+        console.log(`[Roteirização] Iniciando carregamento de OSs em lotes de ${PAGE_SIZE}...`);
+
+        // Primeiro, obter a contagem total
+        const { count: initialCount, error: countError } = await supabase
+          .from("ordens_servico")
+          .select("*", { count: "exact", head: true })
+          .in("status", ["pendente", "atrasada"]);
+
+        if (countError) throw countError;
+        totalCount = initialCount || 0;
+        console.log(`[Roteirização] Total de OSs disponíveis: ${totalCount}`);
+
+        // Carregar em lotes até ter todas as OSs
+        while (hasMore) {
+          const { data, error } = await supabase
+            .from("ordens_servico")
+            .select("*")
+            .in("status", ["pendente", "atrasada"])
+            .order("created_at", { ascending: false })
+            .range(offset, offset + PAGE_SIZE - 1);
+
+          if (error) throw error;
+
+          if (data && data.length > 0) {
+            allData = [...allData, ...data];
+            console.log(`[Roteirização] Carregado lote: ${data.length} OSs (total carregado: ${allData.length}/${totalCount})`);
+            offset += PAGE_SIZE;
+            
+            // Se retornou menos que o tamanho da página, não há mais dados
+            if (data.length < PAGE_SIZE) {
+              hasMore = false;
+            }
+          } else {
+            hasMore = false;
+          }
+
+          // Limite de segurança: máximo 100.000 registros
+          if (allData.length >= 100000) {
+            console.warn(`[Roteirização] Limite de segurança atingido: ${allData.length} OSs`);
+            toast.warning(`Atenção: Existem mais OSs disponíveis, mas foram carregadas apenas as 100.000 mais recentes.`);
+            hasMore = false;
+          }
+        }
 
         // Converter para formato OrdemServico e aplicar dados das skills
         // Isso garante que valores, regulada e tempoExecucao venham das skills
-        const ordensConvertidas = await mapSupabaseOrdensServicoToOrdemServico(data || []);
+        const ordensConvertidas = await mapSupabaseOrdensServicoToOrdemServico(allData);
         setOrdensServico(ordensConvertidas);
+        console.log(`[Roteirização] ✅ Carregamento completo: ${ordensConvertidas.length} OSs disponíveis para roteirização`);
+        
+        // Debug: Verificar coordenadas das OSs carregadas
+        const ossComCoordenadasValidas = ordensConvertidas.filter(os => 
+          typeof os.latitude === 'number' && !isNaN(os.latitude) && os.latitude >= -35 && os.latitude <= 5 &&
+          typeof os.longitude === 'number' && !isNaN(os.longitude) && os.longitude >= -75 && os.longitude <= -32
+        );
+        console.log(`[Roteirização] OSs com coordenadas válidas: ${ossComCoordenadasValidas.length} de ${ordensConvertidas.length}`);
+        
       } catch (error: any) {
         console.error("Erro ao carregar ordens de serviço:", error);
         toast.error("Erro ao carregar ordens de serviço");
@@ -514,7 +566,9 @@ const Roteirizacao = () => {
 
   // TODAS as OSs não alocadas (para exibição no mapa - SEM filtro de território)
   const osPendentesTodas = useMemo(() => {
-    return ordensServico.filter((os) => !osAlocadas.has(os.id));
+    const pendentes = ordensServico.filter((os) => !osAlocadas.has(os.id));
+    console.log(`[Roteirização] OSs para o mapa: ${pendentes.length} (total: ${ordensServico.length}, alocadas: ${osAlocadas.size})`);
+    return pendentes;
   }, [ordensServico, osAlocadas]);
 
   // Filtrar OSs pendentes considerando territórios selecionados e filtros de tipos (para lista e roteirização)
@@ -559,11 +613,35 @@ const Roteirizacao = () => {
     return filtradas;
   }, [osPendentesTodas, usarTerritorios, territoriosSelecionados, territorios, filtrosTiposServicos]);
 
-  // Obter tipos únicos de TODAS as OSs (não apenas pendentes) para o filtro
+  // Buscar todos os tipos de serviços (skills) cadastrados e ativos
+  const { data: tiposServicosCadastrados } = useQuery({
+    queryKey: ["skills-ativos-roteirizacao"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("skills")
+        .select("codigo, nome")
+        .eq("ativo", true)
+        .order("nome");
+      
+      if (error) {
+        console.error("Erro ao buscar tipos de serviços:", error);
+        return [];
+      }
+      
+      return data || [];
+    },
+  });
+
+  // Obter tipos únicos de TODOS os tipos de serviços cadastrados (não apenas das OSs carregadas)
   const todosTiposDisponiveis = useMemo(() => {
+    // Usar os tipos de serviços cadastrados no banco de dados
+    if (tiposServicosCadastrados && tiposServicosCadastrados.length > 0) {
+      return tiposServicosCadastrados.map(skill => skill.codigo.toLowerCase()).sort();
+    }
+    // Fallback: usar tipos das OSs se não houver skills cadastrados
     const tipos = new Set(ordensServico.map(os => os.tipo.toLowerCase()));
     return Array.from(tipos).sort();
-  }, [ordensServico]);
+  }, [tiposServicosCadastrados, ordensServico]);
 
   // V19.6/V19.7: Calcular OSs URGENTES que NÃO estão em nenhum território selecionado
   // Urgente = RELIGA OU (Regulada com prazo vencido ou vencendo hoje)
@@ -906,17 +984,34 @@ const Roteirizacao = () => {
       setDataPlanejamento("");
       
       // Recarregar OSs para refletir mudanças (apenas pendentes, não planejadas)
-      console.log("[PLANEJAMENTO] Recarregando OSs...");
-      const { data: dataOSs } = await supabase
-        .from("ordens_servico")
-        .select("*")
-        .eq("status", "pendente") // Apenas OSs pendentes (não planejadas)
-        .order("created_at", { ascending: false });
+      // Usar paginação para carregar todas as OSs
+      console.log("[PLANEJAMENTO] Recarregando OSs com paginação...");
+      const PAGE_SIZE = 1000;
+      let allOSs: Tables<"ordens_servico">[] = [];
+      let offset = 0;
+      let hasMore = true;
       
-      if (dataOSs) {
-        const ordensConvertidas = await mapSupabaseOrdensServicoToOrdemServico(dataOSs);
-        setOrdensServico(ordensConvertidas);
+      while (hasMore) {
+        const { data: dataOSs } = await supabase
+          .from("ordens_servico")
+          .select("*")
+          .in("status", ["pendente", "atrasada"])
+          .order("created_at", { ascending: false })
+          .range(offset, offset + PAGE_SIZE - 1);
+        
+        if (dataOSs && dataOSs.length > 0) {
+          allOSs = [...allOSs, ...dataOSs];
+          offset += PAGE_SIZE;
+          if (dataOSs.length < PAGE_SIZE) hasMore = false;
+        } else {
+          hasMore = false;
+        }
+        if (allOSs.length >= 100000) hasMore = false;
       }
+      
+      console.log(`[PLANEJAMENTO] Recarregadas ${allOSs.length} OSs`);
+      const ordensConvertidas = await mapSupabaseOrdensServicoToOrdemServico(allOSs);
+      setOrdensServico(ordensConvertidas);
 
     } catch (error: any) {
       console.error("[PLANEJAMENTO] Erro ao salvar planejamento:", error);
@@ -1054,17 +1149,34 @@ const Roteirizacao = () => {
       // Recarregar planejamentos
       handleConsultarPlanejamentos();
       
-      // Recarregar OSs (apenas pendentes, não planejadas)
-      const { data: dataOSs } = await supabase
-        .from("ordens_servico")
-        .select("*")
-        .eq("status", "pendente") // Apenas OSs pendentes (não planejadas)
-        .order("created_at", { ascending: false });
+      // Recarregar OSs (apenas pendentes, não planejadas) - com paginação
+      console.log("[CANCELAR] Recarregando OSs com paginação...");
+      const PAGE_SIZE = 1000;
+      let allOSs: Tables<"ordens_servico">[] = [];
+      let offset = 0;
+      let hasMore = true;
       
-      if (dataOSs) {
-        const ordensConvertidas = await mapSupabaseOrdensServicoToOrdemServico(dataOSs);
-        setOrdensServico(ordensConvertidas);
+      while (hasMore) {
+        const { data: dataOSs } = await supabase
+          .from("ordens_servico")
+          .select("*")
+          .in("status", ["pendente", "atrasada"])
+          .order("created_at", { ascending: false })
+          .range(offset, offset + PAGE_SIZE - 1);
+        
+        if (dataOSs && dataOSs.length > 0) {
+          allOSs = [...allOSs, ...dataOSs];
+          offset += PAGE_SIZE;
+          if (dataOSs.length < PAGE_SIZE) hasMore = false;
+        } else {
+          hasMore = false;
+        }
+        if (allOSs.length >= 100000) hasMore = false;
       }
+      
+      console.log(`[CANCELAR] Recarregadas ${allOSs.length} OSs`);
+      const ordensConvertidas = await mapSupabaseOrdensServicoToOrdemServico(allOSs);
+      setOrdensServico(ordensConvertidas);
     } catch (error: any) {
       console.error("Erro ao cancelar planejamento:", error);
       const errorMessage = error.message || error.toString() || "Erro desconhecido";
@@ -2080,14 +2192,14 @@ const Roteirizacao = () => {
                           type="checkbox"
                           checked={checked}
                           onChange={(e) => {
-                            if (!temEquipes) return;
+                            // Permitir selecionar territórios mesmo sem equipes vinculadas
                             if (e.target.checked) {
                               setTerritoriosSelecionados((prev) => [...prev, territorio.id]);
                             } else {
                               setTerritoriosSelecionados((prev) => prev.filter((id) => id !== territorio.id));
                             }
                           }}
-                          className={`h-3 w-3 flex-shrink-0 ${!temEquipes ? 'cursor-not-allowed' : ''}`}
+                          className="h-3 w-3 flex-shrink-0"
                         />
                         <div
                           className={`h-2.5 w-2.5 rounded-full flex-shrink-0 ${!temEquipes ? 'border border-dashed border-orange-400' : ''}`}

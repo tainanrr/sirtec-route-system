@@ -103,13 +103,13 @@ export function MainLayout({
         />
         <main className="p-6">{children}</main>
       </div>
-      {/* Botão para colapsar/expandir sidebar */}
+      {/* Botão para colapsar/expandir sidebar - posicionado na borda direita do sidebar */}
       <Button
         variant="outline"
         size="icon"
         className={cn(
-          "fixed left-0 top-1/2 -translate-y-1/2 z-50 hidden lg:flex rounded-l-none rounded-r-lg border-l-0 shadow-lg",
-          sidebarCollapsed ? "translate-x-0" : "translate-x-64"
+          "fixed top-1/2 -translate-y-1/2 z-30 hidden lg:flex rounded-l-none rounded-r-lg border-l-0 shadow-lg bg-background/95 backdrop-blur-sm hover:bg-accent transition-all duration-300",
+          sidebarCollapsed ? "left-16" : "left-64"
         )}
         onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
       >

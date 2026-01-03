@@ -31,6 +31,19 @@ import {
   ScrollText,
   History,
   Clock,
+  Search,
+  Brain,
+  BarChart3,
+  Route,
+  Boxes,
+  Warehouse,
+  ArrowLeftRight,
+  PackageCheck,
+  Undo2,
+  Truck,
+  ScanLine,
+  Wrench,
+  FileBarChart,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -63,58 +76,96 @@ interface NavItem {
 // Definição dos itens de navegação com permissões
 // NOTA: Os códigos de permissão devem corresponder aos cadastrados em Admin > Permissões
 const navItemsConfig: NavItem[] = [
-  // Dashboard - visível para todos autenticados (sem permissão específica = sempre visível)
-  { icon: LayoutDashboard, label: "Dashboard", href: "/" },
-  { icon: Target, label: "Produção x Meta", href: "/dashboard/producao-meta" },
-  { icon: Zap, label: "Assertividade", href: "/dashboard/assertividade" },
-  { icon: Clock, label: "Tempo Ocioso", href: "/dashboard/tempo-ocioso" },
+  // Dashboards - grupo expansível
+  {
+    icon: BarChart3,
+    label: "Dashboards",
+    children: [
+      { icon: LayoutDashboard, label: "Visão Geral", href: "/" },
+      { icon: Target, label: "Produção x Meta", href: "/dashboard/producao-meta" },
+      { icon: Zap, label: "Assertividade", href: "/dashboard/assertividade" },
+      { icon: Clock, label: "Tempo Ocioso", href: "/dashboard/tempo-ocioso" },
+    ],
+  },
   { icon: LayoutDashboard, label: "__divider_1__", type: "divider" },
-  // Torre de Controle
-  { icon: Radio, label: "Torre de Controle", href: "/torre-controle", permission: "roteirizacao.torre_controle" },
-  { icon: Activity, label: "Operação", href: "/operacao", permission: "roteirizacao.torre_controle" },
-  { icon: HeartPulse, label: "Cérebro", href: "/cerebro", permission: "roteirizacao.torre_controle" },
+  // Roteirização - grupo expansível
+  {
+    icon: Route,
+    label: "Roteirização",
+    children: [
+      { icon: MapPin, label: "Planejar Rotas", href: "/roteirizacao", permission: "roteirizacao.visualizar" },
+      { icon: ListChecks, label: "Acompanhar Rotas", href: "/acompanhamento-roteirizacoes", permission: "roteirizacao.acompanhar" },
+      { icon: Activity, label: "Tempo Real", href: "/acompanhamento-tempo-real", permission: "roteirizacao.acompanhar" },
+    ],
+  },
   { icon: LayoutDashboard, label: "__divider_2__", type: "divider" },
-  // Roteirização - aceita "criar" OU "visualizar"
-  { icon: MapPin, label: "Roteirização", href: "/roteirizacao", permission: "roteirizacao.visualizar" },
-  { icon: ListChecks, label: "Acompanhamento de Roteirizações", href: "/acompanhamento-roteirizacoes", permission: "roteirizacao.acompanhar" },
-  { icon: Activity, label: "Tempo Real", href: "/acompanhamento-tempo-real", permission: "roteirizacao.acompanhar" },
+  // Torre de Controle - grupo expansível
+  {
+    icon: Radio,
+    label: "Torre de Controle",
+    children: [
+      { icon: Radio, label: "Monitoramento", href: "/torre-controle", permission: "roteirizacao.torre_controle" },
+      { icon: Activity, label: "Operação", href: "/operacao", permission: "roteirizacao.torre_controle" },
+      { icon: Brain, label: "Análise IA", href: "/cerebro", permission: "roteirizacao.torre_controle" },
+    ],
+  },
   { icon: LayoutDashboard, label: "__divider_3__", type: "divider" },
-  // Consulta de Serviços
-  { icon: ClipboardList, label: "Consulta Serviços", href: "/ordens-servico", permission: "os.visualizar" },
-  { icon: Clock, label: "Consulta Turnos", href: "/consulta-turnos", permission: "os.turnos" },
-  { icon: CheckSquare, label: "Consulta Checklists", href: "/consulta-checklists", permission: "os.checklists" },
+  // Consultas - grupo expansível
+  {
+    icon: Search,
+    label: "Consultas",
+    children: [
+      { icon: ClipboardList, label: "Ordens de Serviço", href: "/ordens-servico", permission: "os.visualizar" },
+      { icon: Clock, label: "Turnos", href: "/consulta-turnos", permission: "os.turnos" },
+      { icon: CheckSquare, label: "Checklists", href: "/consulta-checklists", permission: "os.checklists" },
+    ],
+  },
   { icon: LayoutDashboard, label: "__divider_4__", type: "divider" },
-  // Materiais - verifica módulo (qualquer permissão do módulo materiais)
-  { icon: Package, label: "Materiais", href: "/materiais", module: "materiais" },
+  // Materiais - grupo expansível com sub-itens
+  {
+    icon: Package,
+    label: "Materiais",
+    module: "materiais",
+    children: [
+      { icon: Package, label: "Painel Geral", href: "/materiais" },
+      { icon: Boxes, label: "Catálogo", href: "/materiais/catalogo" },
+      { icon: Warehouse, label: "Estoque Central", href: "/materiais/estoque" },
+      { icon: ArrowLeftRight, label: "Movimentações", href: "/materiais/movimentacoes" },
+      { icon: PackageCheck, label: "Recebimentos", href: "/materiais/recebimentos" },
+      { icon: Undo2, label: "Devoluções", href: "/materiais/devolucoes" },
+      { icon: Truck, label: "Entregas às Equipes", href: "/materiais/entregas" },
+      { icon: ScanLine, label: "Rastreabilidade", href: "/materiais/rastreabilidade" },
+      { icon: Wrench, label: "Aplicações em OS", href: "/materiais/aplicacoes" },
+      { icon: FileBarChart, label: "Relatórios", href: "/materiais/relatorios" },
+    ],
+  },
   { icon: LayoutDashboard, label: "__divider_5__", type: "divider" },
   // Cadastros - menu pai visível se tiver qualquer permissão de cadastros
   {
     icon: FolderOpen,
     label: "Cadastros",
-    // Sem module aqui - a visibilidade é controlada pelos children
     children: [
       { icon: Users, label: "Equipes", href: "/equipes", permission: "cadastros.equipes" },
       { icon: Map, label: "Territórios", href: "/territorios", permission: "cadastros.territorios" },
-      { icon: UserCheck, label: "Coordenadores e Supervisores", href: "/cadastros/coordenadores", permission: "cadastros.coordenadores" },
+      { icon: UserCheck, label: "Gestores", href: "/cadastros/coordenadores", permission: "cadastros.coordenadores" },
       { icon: Car, label: "Veículos", href: "/cadastros/veiculos", permission: "cadastros.veiculos" },
       { icon: Target, label: "Metas", href: "/cadastros/metas", permission: "cadastros.metas" },
     ],
   },
   { icon: LayoutDashboard, label: "__divider_6__", type: "divider" },
-  // Admin - visível se tiver qualquer permissão admin.* (controlado pelos children)
+  // Administração - grupo expansível
   {
     icon: Shield,
-    label: "Admin",
-    // Removido requireAdmin - agora é controlado pelas permissões dos itens filhos
+    label: "Administração",
     children: [
       { icon: Building2, label: "Contratos", href: "/admin/contratos", permission: "admin.contratos" },
       { icon: Users, label: "Usuários Web", href: "/admin/usuarios-web", permission: "admin.usuarios_web" },
-      { icon: UserCheck, label: "Colaboradores", href: "/admin/colaboradores", permission: "admin.usuarios_app" },
-      { icon: Lock, label: "Permissões", href: "/admin/permissoes", permission: "admin.permissoes" },
+      { icon: UserCheck, label: "Colaboradores App", href: "/admin/colaboradores", permission: "admin.usuarios_app" },
+      { icon: Lock, label: "Perfis e Permissões", href: "/admin/permissoes", permission: "admin.permissoes" },
       { icon: Database, label: "Cadastros Base", href: "/admin/cadastros-base", permission: "admin.cadastros_base" },
       { icon: ScrollText, label: "Procedimentos", href: "/admin/procedimentos", permission: "admin.procedimentos" },
       { icon: ClipboardList, label: "Checklists", href: "/admin/checklists", permission: "admin.checklists" },
-      { icon: History, label: "Logs", href: "/admin/logs", permission: "admin.logs" },
+      { icon: History, label: "Logs do Sistema", href: "/admin/logs", permission: "admin.logs" },
     ],
   },
 ];

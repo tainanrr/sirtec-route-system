@@ -967,31 +967,31 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
       // IMPORTANTE: Sempre exibir TODAS as OSs pendentes, não apenas as filtradas
       // Os filtros são apenas para a visualização na lista, não para o mapa
       console.log('[MAPA] DEBUG: Iterando sobre', osPendentes.length, 'OSs pendentes');
-      console.log('[MAPA] DEBUG: Primeiras 5 OSs:', osPendentes.slice(0, 5).map(os => ({
-        numero: os.numero,
-        lat: os.latitude,
-        lng: os.longitude,
-        dentroTerritorio: territorios.some(t => pontoNoPoligono(os.latitude, os.longitude, t.poligono))
-      })));
       let contadorOSsAdicionadas = 0;
       let contadorOSsForaTerritorio = 0;
+      let contadorOSsCoordenadasInvalidas = 0;
+      
       osPendentes.forEach((os) => {
+        // Validar coordenadas de forma robusta (considerar 0 como inválido para lat/lng pois seria no oceano)
+        // Coordenadas válidas para Brasil: lat entre -35 e 5, lng entre -75 e -32
+        const latValida = typeof os.latitude === 'number' && !isNaN(os.latitude) && os.latitude >= -35 && os.latitude <= 5;
+        const lngValida = typeof os.longitude === 'number' && !isNaN(os.longitude) && os.longitude >= -75 && os.longitude <= -32;
+        
+        if (!latValida || !lngValida) {
+          contadorOSsCoordenadasInvalidas++;
+          if (contadorOSsCoordenadasInvalidas <= 10) {
+            console.warn(`[MAPA] AVISO: OS ${os.numero} tem coordenadas inválidas ou fora do Brasil:`, os.latitude, os.longitude);
+          }
+          return; // Pular OSs com coordenadas inválidas
+        }
+        
         // Verificar se está dentro de algum território
-        const dentroTerritorio = territorios.some(t => pontoNoPoligono(os.latitude, os.longitude, t.poligono));
+        const dentroTerritorio = territorios.some(t => t.ativo && t.poligono.length >= 3 && pontoNoPoligono({ lat: os.latitude, lng: os.longitude }, t.poligono));
         if (!dentroTerritorio) {
           contadorOSsForaTerritorio++;
         }
         
         contadorOSsAdicionadas++;
-        if (contadorOSsAdicionadas <= 5 || contadorOSsAdicionadas === osPendentes.length || !dentroTerritorio) {
-          console.log(`[MAPA] DEBUG: Adicionando OS ${os.numero} (${os.latitude}, ${os.longitude}) - ${contadorOSsAdicionadas}/${osPendentes.length} - Dentro território: ${dentroTerritorio}`);
-        }
-        
-        // Validar coordenadas
-        if (!os.latitude || !os.longitude || isNaN(os.latitude) || isNaN(os.longitude)) {
-          console.warn(`[MAPA] AVISO: OS ${os.numero} tem coordenadas inválidas:`, os.latitude, os.longitude);
-          return; // Pular OSs com coordenadas inválidas
-        }
         
         const iconName = skillsIcons.get(os.tipo);
         const iconSVG = iconName ? getLucideIconSVG(iconName, "#000000", 20) : '';
@@ -1189,7 +1189,8 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
       });
       
       console.log('[MAPA] DEBUG: Total de OSs pendentes adicionadas ao mapa:', contadorOSsAdicionadas, 'de', osPendentes.length);
-      console.log('[MAPA] DEBUG: OSs fora dos territórios:', contadorOSsForaTerritorio, 'de', osPendentes.length);
+      console.log('[MAPA] DEBUG: OSs com coordenadas inválidas:', contadorOSsCoordenadasInvalidas);
+      console.log('[MAPA] DEBUG: OSs fora dos territórios:', contadorOSsForaTerritorio);
 
       // Adicionar marcadores e rotas das OS alocadas (filtradas)
       // Se equipeEditando estiver definida, mostrar todas as rotas mas destacar a selecionada

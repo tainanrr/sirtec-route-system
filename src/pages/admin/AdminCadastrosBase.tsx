@@ -580,9 +580,9 @@ export default function AdminCadastrosBase() {
             <DollarSign className="h-4 w-4" />
             Precificação
           </TabsTrigger>
-          <TabsTrigger value="producao" className="flex items-center gap-2">
+          <TabsTrigger value="retornos-campo" className="flex items-center gap-2">
             <Ruler className="h-4 w-4" />
-            Produção
+            Retornos de Campo
           </TabsTrigger>
           <TabsTrigger value="centros-custo" className="flex items-center gap-2">
             <Building className="h-4 w-4" />
@@ -607,8 +607,8 @@ export default function AdminCadastrosBase() {
           <PrecificacaoServicos />
         </TabsContent>
 
-        {/* Tab de Produção - Retornos de Campo e Atividades */}
-        <TabsContent value="producao" className="mt-6">
+        {/* Tab de Retornos de Campo */}
+        <TabsContent value="retornos-campo" className="mt-6">
           <RetornosCampoAtividades />
         </TabsContent>
 
