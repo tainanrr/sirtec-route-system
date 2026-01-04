@@ -2829,7 +2829,7 @@ const Roteirizacao = () => {
             <div className="relative h-[700px]">
               <MapaLeaflet
                 rotas={rotas}
-                osPendentes={osPendentesTodas}
+                osPendentes={filteredServicos}
                 equipesMock={equipesAtivas}
                 equipeHovered={equipeHovered}
                 equipeEditando={equipeEditando}
