@@ -37,6 +37,11 @@ import { pontoNoPoligono } from "@/types/territorios";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
+// Importar MarkerCluster para spiderfy de marcadores sobrepostos
+import "leaflet.markercluster";
+import "leaflet.markercluster/dist/MarkerCluster.css";
+import "leaflet.markercluster/dist/MarkerCluster.Default.css";
+
 // Importar camada de canvas para renderização ultra-performática
 import { CanvasMarkersLayer, CanvasMarker, createCanvasMarkersLayer } from "@/lib/canvasMarkersLayer";
 
@@ -119,6 +124,8 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
   
   // Ref para camada de canvas (renderização ultra-performática)
   const canvasLayerRef = useRef<CanvasMarkersLayer | null>(null);
+  // Ref para MarkerClusterGroup com spiderfy
+  const markerClusterRef = useRef<L.MarkerClusterGroup | null>(null);
   const [erro, setErro] = useState(false);
   const [erroMsg, setErroMsg] = useState("");
   const [routesGeometry, setRoutesGeometry] = useState<RouteGeometryData>({});
@@ -579,6 +586,11 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
         mapInstanceRef.current.removeLayer(canvasLayerRef.current);
         canvasLayerRef.current = null;
       }
+      // Limpar MarkerCluster
+      if (markerClusterRef.current && mapInstanceRef.current) {
+        mapInstanceRef.current.removeLayer(markerClusterRef.current);
+        markerClusterRef.current = null;
+      }
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
@@ -1018,10 +1030,9 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
         }
       });
 
-      // ========== RENDERIZAÇÃO CANVAS - ULTRA PERFORMÁTICA ==========
-      // Similar ao OpenLayers usado no sistema GPM
-      // Todos os marcadores são desenhados em um ÚNICO canvas
-      // Isso é MUITO mais rápido que criar milhares de elementos DOM
+      // ========== RENDERIZAÇÃO COM MARKERCLUSTER + SPIDERFY ==========
+      // Usa MarkerClusterGroup para agrupar marcadores sobrepostos
+      // Ao clicar em um cluster, os marcadores se abrem em formato de "aranha" (spiderfy)
       
       // Remover camada de canvas anterior se existir
       if (canvasLayerRef.current) {
@@ -1029,11 +1040,162 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
         canvasLayerRef.current = null;
       }
       
-      // Preparar marcadores para o canvas
-      const canvasMarkers: CanvasMarker[] = [];
+      // Remover cluster anterior se existir
+      if (markerClusterRef.current) {
+        map.removeLayer(markerClusterRef.current);
+        markerClusterRef.current = null;
+      }
+      
+      // Criar MarkerClusterGroup com configurações para spiderfy
+      const markerCluster = L.markerClusterGroup({
+        // Configurações para spiderfy de marcadores sobrepostos
+        maxClusterRadius: 20, // Agrupa apenas marcadores muito próximos (20 pixels)
+        spiderfyOnMaxZoom: true, // Ativa spiderfy no zoom máximo
+        showCoverageOnHover: false, // Não mostra área de cobertura
+        zoomToBoundsOnClick: false, // Não dá zoom ao clicar, apenas spiderfy
+        disableClusteringAtZoom: 19, // Desabilita clustering em zoom alto
+        spiderfyDistanceMultiplier: 1.5, // Distância entre os marcadores no spiderfy
+        spiderLegPolylineOptions: { weight: 2, color: '#666', opacity: 0.7 }, // Linhas do spiderfy
+        // Ícone customizado para o cluster
+        iconCreateFunction: (cluster) => {
+          const count = cluster.getChildCount();
+          let size = 'small';
+          let sizeNum = 30;
+          if (count >= 10) { size = 'medium'; sizeNum = 40; }
+          if (count >= 50) { size = 'large'; sizeNum = 50; }
+          
+          return L.divIcon({
+            html: `<div style="
+              background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+              width: ${sizeNum}px;
+              height: ${sizeNum}px;
+              border-radius: 50%;
+              border: 3px solid white;
+              box-shadow: 0 3px 10px rgba(0,0,0,0.4);
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              color: white;
+              font-weight: bold;
+              font-size: ${count >= 100 ? '11px' : '13px'};
+            ">${count}</div>`,
+            className: 'marker-cluster-custom',
+            iconSize: L.point(sizeNum, sizeNum),
+            iconAnchor: L.point(sizeNum / 2, sizeNum / 2),
+          });
+        },
+      });
+      
       let contadorOSsValidas = 0;
       let contadorOSsCoordenadasInvalidas = 0;
       
+      // Função para criar popup HTML
+      const criarPopupHTML = (os: OrdemServico) => {
+        const currentIndex = osPendentesDebounced.findIndex(o => o.id === os.id);
+        const temAnterior = currentIndex > 0;
+        const temProximo = currentIndex < osPendentesDebounced.length - 1;
+        
+        const prazoFormatado = os.prazo 
+          ? new Date(os.prazo).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
+          : "Sem prazo";
+        
+        const valorFormatado = os.valor 
+          ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(os.valor)
+          : "-";
+        
+        const skillData = skillsIcons.get(os.tipo);
+        const duracaoPrevista = skillData?.tempoExecucao || os.tempoExecucao;
+        const duracaoFormatada = duracaoPrevista ? `${duracaoPrevista} min` : "-";
+        
+        return `
+          <div style="min-width: 260px; font-family: system-ui, -apple-system, sans-serif;">
+            <div style="margin-bottom: 8px;">
+              <strong style="font-size: 14px; color: #1f2937;">Número:</strong>
+              <span style="margin-left: 8px; font-weight: 600;">${os.numero}</span>
+            </div>
+            <div style="margin-bottom: 8px;">
+              <strong style="font-size: 14px; color: #1f2937;">Tipo:</strong>
+              <span style="margin-left: 8px; color: #4b5563;">${obterLabelTipo(os.tipo)}</span>
+            </div>
+            <div style="margin-bottom: 8px;">
+              <strong style="font-size: 14px; color: #1f2937;">Endereço:</strong>
+              <span style="margin-left: 8px; color: #4b5563; font-size: 13px;">${os.endereco || '-'}</span>
+            </div>
+            <div style="margin-bottom: 8px;">
+              <strong style="font-size: 14px; color: #1f2937;">Prazo:</strong>
+              <span style="margin-left: 8px; ${os.prazo ? 'color: #dc2626; font-weight: 600;' : 'color: #6b7280;'}">${prazoFormatado}</span>
+            </div>
+            <div style="margin-bottom: 8px; display: flex; gap: 16px;">
+              <div>
+                <strong style="font-size: 14px; color: #1f2937;">Valor Prev.:</strong>
+                <span style="margin-left: 8px; color: #059669; font-weight: 600;">${valorFormatado}</span>
+              </div>
+              <div>
+                <strong style="font-size: 14px; color: #1f2937;">Duração Prev.:</strong>
+                <span style="margin-left: 8px; color: #4b5563;">${duracaoFormatada}</span>
+              </div>
+            </div>
+            <div style="margin-bottom: 8px;">
+              <strong style="font-size: 14px; color: #1f2937;">Equipe:</strong>
+              <span style="margin-left: 8px; color: #6b7280;">Não alocada</span>
+            </div>
+            ${os.regulada ? '<div style="margin-top: 8px; padding: 4px 8px; background-color: #fee2e2; border-radius: 4px; display: inline-block;"><span style="color: #dc2626; font-weight: bold; font-size: 12px;">REGULADA</span></div>' : ''}
+            
+            <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e5e7eb; display: flex; gap: 8px; justify-content: center;">
+              <button 
+                onclick="window.navegarOSPendente('anterior', '${os.id}')"
+                style="
+                  padding: 6px 12px;
+                  background-color: ${temAnterior ? '#3b82f6' : '#9ca3af'};
+                  color: white;
+                  border: none;
+                  border-radius: 6px;
+                  cursor: ${temAnterior ? 'pointer' : 'not-allowed'};
+                  font-size: 12px;
+                  font-weight: 600;
+                  display: flex;
+                  align-items: center;
+                  gap: 4px;
+                  opacity: ${temAnterior ? '1' : '0.5'};
+                "
+                ${!temAnterior ? 'disabled' : ''}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M15 18l-6-6 6-6"/>
+                </svg>
+                Anterior
+              </button>
+              <button 
+                onclick="window.navegarOSPendente('proximo', '${os.id}')"
+                style="
+                  padding: 6px 12px;
+                  background-color: ${temProximo ? '#3b82f6' : '#9ca3af'};
+                  color: white;
+                  border: none;
+                  border-radius: 6px;
+                  cursor: ${temProximo ? 'pointer' : 'not-allowed'};
+                  font-size: 12px;
+                  font-weight: 600;
+                  display: flex;
+                  align-items: center;
+                  gap: 4px;
+                  opacity: ${temProximo ? '1' : '0.5'};
+                "
+                ${!temProximo ? 'disabled' : ''}
+              >
+                Próximo
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M9 18l6-6-6-6"/>
+                </svg>
+              </button>
+            </div>
+            
+            ${equipeEditando ? `<div style="margin-top: 10px; text-align: center;"><button onclick="window.selecionarOSParaIncluir('${os.id}')" style="padding: 8px 16px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; width: 100%;">+ Incluir na Rota</button></div>` : ''}
+          </div>
+        `;
+      };
+      
+      // Criar marcadores para cada OS pendente
       osPendentesDebounced.forEach((os) => {
         // Validar coordenadas
         const latValida = typeof os.latitude === 'number' && !isNaN(os.latitude) && os.latitude >= -35 && os.latitude <= 5;
@@ -1046,209 +1208,93 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
         
         contadorOSsValidas++;
         
-        // Verificar se é regulada urgente (campo regulada=true E vencida/vencendo até o final do dia)
+        // Verificar se é regulada urgente
         const classificacaoOS = classificarPrazo(os.prazo);
         const isReguladaUrgente = os.regulada === true && ['hoje', 'passado'].includes(classificacaoOS);
         
-        // Obter sigla e cor do skill
+        // Obter dados do skill
         const skillData = skillsIcons.get(os.tipo);
+        const sigla = skillData?.sigla || obterLetraGrupo(os.tipo);
+        const corMarcador = skillData?.cor || '#6b7280';
+        const corBorda = obterCorBordaPrioridade(os);
         
-        // Formatar prazo para o tooltip (se regulada)
-        const prazoFormatado = os.prazo 
-          ? new Date(os.prazo).toLocaleString('pt-BR', { 
-              day: '2-digit', 
-              month: '2-digit', 
-              year: 'numeric', 
-              hour: '2-digit', 
-              minute: '2-digit' 
-            })
-          : undefined;
-        
-        canvasMarkers.push({
-          id: os.id,
-          lat: os.latitude,
-          lng: os.longitude,
-          numero: os.numero,
-          tipo: os.tipo,
-          nomeServico: skillData?.nome || obterLabelTipo(os.tipo), // Nome do tipo de serviço (do cadastro)
-          prazo: os.regulada ? prazoFormatado : undefined, // Prazo apenas para reguladas
-          cor: obterCorBordaPrioridade(os),
-          corMarcador: skillData?.cor, // Cor do preenchimento da skill
-          sigla: skillData?.sigla, // Sigla da skill
-          selecionado: osSelecionada === os.id,
-          regulada: isReguladaUrgente, // Borda vermelha apenas para reguladas vencidas/vencendo hoje
+        // Criar ícone do marcador
+        const markerIcon = L.divIcon({
+          className: 'custom-marker-pendente-cluster',
+          html: `
+            <div style="
+              background-color: ${corMarcador};
+              width: 28px;
+              height: 28px;
+              border-radius: 50%;
+              border: 2px solid ${isReguladaUrgente ? '#dc2626' : corBorda};
+              box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              color: white;
+              font-size: 11px;
+              font-weight: bold;
+            ">${sigla}</div>
+          `,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14],
+          popupAnchor: [0, -14],
         });
-      });
-      
-      // Criar camada de canvas com todos os marcadores
-      const canvasLayer = createCanvasMarkersLayer({
-        markers: canvasMarkers,
-        onMarkerClick: (marker) => {
-          // Encontrar a OS completa
-          const os = osPendentesDebounced.find(o => o.id === marker.id);
-          if (!os) return;
-          
-          // Encontrar índice da OS atual no array filtrado
-          const currentIndex = osPendentesDebounced.findIndex(o => o.id === marker.id);
-          const temAnterior = currentIndex > 0;
-          const temProximo = currentIndex < osPendentesDebounced.length - 1;
-          
-          // Criar popup na posição do marcador
-          const prazoFormatado = os.prazo 
-            ? new Date(os.prazo).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
-            : "Sem prazo";
-          
-          const valorFormatado = os.valor 
-            ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(os.valor)
-            : "-";
-          
-          // Buscar duração prevista do Tipo de Serviço cadastrado
-          const skillData = skillsIcons.get(os.tipo);
-          const duracaoPrevista = skillData?.tempoExecucao || os.tempoExecucao;
-          const duracaoFormatada = duracaoPrevista ? `${duracaoPrevista} min` : "-";
-          
-          const popupHTML = `
-            <div style="min-width: 260px; font-family: system-ui, -apple-system, sans-serif;">
-              <div style="margin-bottom: 8px;">
-                <strong style="font-size: 14px; color: #1f2937;">Número:</strong>
-                <span style="margin-left: 8px; font-weight: 600;">${os.numero}</span>
-              </div>
-              <div style="margin-bottom: 8px;">
-                <strong style="font-size: 14px; color: #1f2937;">Tipo:</strong>
-                <span style="margin-left: 8px; color: #4b5563;">${obterLabelTipo(os.tipo)}</span>
-              </div>
-              <div style="margin-bottom: 8px;">
-                <strong style="font-size: 14px; color: #1f2937;">Endereço:</strong>
-                <span style="margin-left: 8px; color: #4b5563; font-size: 13px;">${os.endereco || '-'}</span>
-              </div>
-              <div style="margin-bottom: 8px;">
-                <strong style="font-size: 14px; color: #1f2937;">Prazo:</strong>
-                <span style="margin-left: 8px; ${os.prazo ? 'color: #dc2626; font-weight: 600;' : 'color: #6b7280;'}">${prazoFormatado}</span>
-              </div>
-              <div style="margin-bottom: 8px; display: flex; gap: 16px;">
-                <div>
-                  <strong style="font-size: 14px; color: #1f2937;">Valor Prev.:</strong>
-                  <span style="margin-left: 8px; color: #059669; font-weight: 600;">${valorFormatado}</span>
-                </div>
-                <div>
-                  <strong style="font-size: 14px; color: #1f2937;">Duração Prev.:</strong>
-                  <span style="margin-left: 8px; color: #4b5563;">${duracaoFormatada}</span>
-                </div>
-              </div>
-              <div style="margin-bottom: 8px;">
-                <strong style="font-size: 14px; color: #1f2937;">Equipe:</strong>
-                <span style="margin-left: 8px; color: #6b7280;">Não alocada</span>
-              </div>
-              ${os.regulada ? '<div style="margin-top: 8px; padding: 4px 8px; background-color: #fee2e2; border-radius: 4px; display: inline-block;"><span style="color: #dc2626; font-weight: bold; font-size: 12px;">REGULADA</span></div>' : ''}
-              
-              <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e5e7eb; display: flex; gap: 8px; justify-content: center;">
-                <button 
-                  onclick="window.navegarOSPendente('anterior', '${os.id}')"
-                  style="
-                    padding: 6px 12px;
-                    background-color: ${temAnterior ? '#3b82f6' : '#9ca3af'};
-                    color: white;
-                    border: none;
-                    border-radius: 6px;
-                    cursor: ${temAnterior ? 'pointer' : 'not-allowed'};
-                    font-size: 12px;
-                    font-weight: 600;
-                    display: flex;
-                    align-items: center;
-                    gap: 4px;
-                    opacity: ${temAnterior ? '1' : '0.5'};
-                  "
-                  ${!temAnterior ? 'disabled' : ''}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M15 18l-6-6 6-6"/>
-                  </svg>
-                  Anterior
-                </button>
-                <button 
-                  onclick="window.navegarOSPendente('proximo', '${os.id}')"
-                  style="
-                    padding: 6px 12px;
-                    background-color: ${temProximo ? '#3b82f6' : '#9ca3af'};
-                    color: white;
-                    border: none;
-                    border-radius: 6px;
-                    cursor: ${temProximo ? 'pointer' : 'not-allowed'};
-                    font-size: 12px;
-                    font-weight: 600;
-                    display: flex;
-                    align-items: center;
-                    gap: 4px;
-                    opacity: ${temProximo ? '1' : '0.5'};
-                  "
-                  ${!temProximo ? 'disabled' : ''}
-                >
-                  Próximo
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M9 18l6-6-6-6"/>
-                  </svg>
-                </button>
-              </div>
-              
-              ${equipeEditando ? `<div style="margin-top: 10px; text-align: center;"><button onclick="window.selecionarOSParaIncluir('${os.id}')" style="padding: 8px 16px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; width: 100%;">+ Incluir na Rota</button></div>` : ''}
-            </div>
-          `;
-          
-          // Abrir popup do Leaflet usando ref para garantir referência válida
-          const currentMap = mapInstanceRef.current;
-          if (!currentMap) return;
-          
-          // Fechar popup existente primeiro
-          currentMap.closePopup();
-          
-          L.popup({ 
-            maxWidth: 320,
-            autoPan: true,
-            autoClose: true,
-            closeOnClick: false
-          })
-            .setLatLng([os.latitude, os.longitude])
-            .setContent(popupHTML)
-            .openOn(currentMap);
-          
-          // Configurar função global para navegação entre OSs pendentes
-          (window as any).navegarOSPendente = (direcao: string, osAtualId: string) => {
-            const indexAtual = osPendentesDebounced.findIndex(o => o.id === osAtualId);
-            let novoIndex = indexAtual;
-            
-            if (direcao === 'anterior' && indexAtual > 0) {
-              novoIndex = indexAtual - 1;
-            } else if (direcao === 'proximo' && indexAtual < osPendentesDebounced.length - 1) {
-              novoIndex = indexAtual + 1;
-            }
-            
-            if (novoIndex !== indexAtual) {
-              const novaOS = osPendentesDebounced[novoIndex];
-              // Fechar popup atual
-              map.closePopup();
-              // Centralizar no novo marcador
-              map.panTo([novaOS.latitude, novaOS.longitude]);
-              // Simular clique no novo marcador
-              setTimeout(() => {
-                canvasLayer.triggerMarkerClick(novaOS.id);
-              }, 300);
-            }
-          };
-          
-          // Configurar função global para seleção
-          (window as any).selecionarOSParaIncluir = (osId: string) => {
-            if (onOSSelecionada) onOSSelecionada(osId);
-          };
-          
-          // Se equipe está sendo editada, selecionar a OS
+        
+        // Criar marcador
+        const marker = L.marker([os.latitude, os.longitude], { icon: markerIcon });
+        
+        // Adicionar popup
+        marker.bindPopup(criarPopupHTML(os), {
+          maxWidth: 320,
+          autoPan: true,
+        });
+        
+        // Evento de clique
+        marker.on('click', () => {
           if (equipeEditando && onOSSelecionada) {
-            onOSSelecionada(marker.selecionado ? null : os.id);
+            onOSSelecionada(os.id);
           }
-        },
+        });
+        
+        // Adicionar ao cluster
+        markerCluster.addLayer(marker);
+        markersMapRef.current.set(os.id, marker);
       });
       
-      canvasLayer.addTo(map);
-      canvasLayerRef.current = canvasLayer;
+      // Adicionar cluster ao mapa
+      map.addLayer(markerCluster);
+      markerClusterRef.current = markerCluster;
+      
+      // Configurar função global para navegação entre OSs pendentes
+      (window as any).navegarOSPendente = (direcao: string, osAtualId: string) => {
+        const indexAtual = osPendentesDebounced.findIndex(o => o.id === osAtualId);
+        let novoIndex = indexAtual;
+        
+        if (direcao === 'anterior' && indexAtual > 0) {
+          novoIndex = indexAtual - 1;
+        } else if (direcao === 'proximo' && indexAtual < osPendentesDebounced.length - 1) {
+          novoIndex = indexAtual + 1;
+        }
+        
+        if (novoIndex !== indexAtual) {
+          const novaOS = osPendentesDebounced[novoIndex];
+          map.closePopup();
+          map.panTo([novaOS.latitude, novaOS.longitude]);
+          const novoMarker = markersMapRef.current.get(novaOS.id);
+          if (novoMarker) {
+            setTimeout(() => {
+              novoMarker.openPopup();
+            }, 300);
+          }
+        }
+      };
+      
+      // Configurar função global para seleção
+      (window as any).selecionarOSParaIncluir = (osId: string) => {
+        if (onOSSelecionada) onOSSelecionada(osId);
+      };
 
       // Adicionar marcadores e rotas das OS alocadas (filtradas)
       // Se equipeEditando estiver definida, mostrar todas as rotas mas destacar a selecionada
