@@ -151,6 +151,7 @@ const Roteirizacao = () => {
   const [prazoFim, setPrazoFim] = useState("");
   const [coordenadasFilter, setCoordenadasFilter] = useState<string>("all");
   const [reguladaFilter, setReguladaFilter] = useState<string>("all");
+  const [backlogLimit, setBacklogLimit] = useState(50); // Limite de itens exibidos no backlog
   
   const [rotas, setRotas] = useState<RotaEquipe[]>([]);
   const [isOtimizando, setIsOtimizando] = useState(false);
@@ -443,6 +444,11 @@ const Roteirizacao = () => {
       isCancelled = true; // Cancelar operações pendentes ao desmontar/re-executar
     };
   }, []);
+
+  // Resetar limite do backlog quando filtros mudarem
+  useEffect(() => {
+    setBacklogLimit(50);
+  }, [searchTerm, statusFilter, tiposFilter, prazoInicio, prazoFim, coordenadasFilter, reguladaFilter]);
 
   // Carregar planejamento se houver ID nos parâmetros da URL
   useEffect(() => {
@@ -3724,7 +3730,8 @@ const Roteirizacao = () => {
                   Nenhum serviço pendente
                 </div>
               ) : (
-                filteredServicos.map((servico, index) => {
+                <>
+                {filteredServicos.slice(0, backlogLimit).map((servico, index) => {
                   const motivoNaoAlocada = naoAlocadas[servico.id];
                   return (
                     <Draggable key={servico.id} draggableId={servico.id} index={index}>
@@ -3785,7 +3792,20 @@ const Roteirizacao = () => {
                       )}
                     </Draggable>
                   );
-                })
+                })}
+                {filteredServicos.length > backlogLimit && (
+                  <div className="text-center py-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setBacklogLimit(prev => prev + 50)}
+                      className="w-full"
+                    >
+                      Carregar mais ({Math.min(50, filteredServicos.length - backlogLimit)} de {filteredServicos.length - backlogLimit} restantes)
+                    </Button>
+                  </div>
+                )}
+                </>
               )}
               {provided.placeholder}
             </div>
