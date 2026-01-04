@@ -181,30 +181,28 @@ const Roteirizacao = () => {
   const [carregandoPlanejamentos, setCarregandoPlanejamentos] = useState(false);
 
   // Buscar OSs em andamento para destacar na lista
-  // Polling otimizado: 60 segundos + staleTime para evitar refetch desnecessário
+  // Polling otimizado: 2 minutos + staleTime para evitar refetch desnecessário
   const { data: osEmAndamento } = useQuery({
     queryKey: ["os-em-andamento-roteirizacao"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("planejamento_ordens")
-        .select(`
-          ordem_servico_id,
-          equipe_id,
-          ordens_servico:ordem_servico_id (id, numero, status)
-        `)
-        .in("ordens_servico.status", ["em_deslocamento", "no_local", "em_andamento", "em_execucao"]);
+        .select(`ordem_servico_id`)
+        .not("ordem_servico_id", "is", null);
       
       if (error) {
         console.error("Erro ao buscar OSs em andamento:", error);
-        return [];
+        return new Set<string>();
       }
       
       // Retornar um Set com os IDs das OSs em andamento
       return new Set((data || []).map((d: any) => d.ordem_servico_id).filter(Boolean));
     },
-    staleTime: 60000, // Dados são considerados frescos por 60 segundos
-    refetchInterval: 60000, // Atualizar a cada 60 segundos (antes era 10)
+    staleTime: 120000, // Dados são considerados frescos por 2 minutos
+    refetchInterval: 120000, // Atualizar a cada 2 minutos
     refetchOnWindowFocus: false, // Evitar refetch ao voltar para a aba
+    refetchOnMount: false, // Não refetch ao montar se já tiver dados
+    refetchOnReconnect: false, // Não refetch ao reconectar
   });
 
   // Carregar equipes do Supabase (apenas ativas)
@@ -613,9 +611,24 @@ const Roteirizacao = () => {
     return ordensServico.filter((os) => !osAlocadas.has(os.id));
   }, [ordensServico, osAlocadas]);
 
-  // Filtrar OSs pendentes considerando territórios selecionados e filtros de tipos (para lista e roteirização)
+  // Territórios ativos com polígonos válidos (memoizado para performance)
+  const territoriosAtivos = useMemo(() => {
+    return territorios.filter(t => t.ativo && t.poligono.length >= 3);
+  }, [territorios]);
+
+  // Filtrar OSs pendentes considerando territórios selecionados e filtros de tipos
   const osPendentes = useMemo(() => {
     let filtradas = osPendentesTodas;
+    
+    // Se usar territórios e houver territórios selecionados, filtrar apenas OSs dentro desses territórios
+    if (usarTerritorios && territoriosSelecionados.length > 0) {
+      const territoriosSelecionadosObjs = territorios.filter(t => territoriosSelecionados.includes(t.id));
+      filtradas = filtradas.filter(os => {
+        return territoriosSelecionadosObjs.some(t => 
+          t.ativo && t.poligono.length >= 3 && pontoNoPoligono({ lat: os.latitude, lng: os.longitude }, t.poligono)
+        );
+      });
+    }
     
     // Aplicar filtros de tipos de serviços
     if (filtrosTiposServicos.size > 0) {
@@ -639,16 +652,6 @@ const Roteirizacao = () => {
         }
         
         return true;
-      });
-    }
-    
-    // Se usar territórios e houver territórios selecionados, filtrar apenas OSs dentro desses territórios
-    if (usarTerritorios && territoriosSelecionados.length > 0) {
-      const territoriosSelecionadosObjs = territorios.filter(t => territoriosSelecionados.includes(t.id));
-      filtradas = filtradas.filter(os => {
-        return territoriosSelecionadosObjs.some(t => 
-          t.ativo && t.poligono.length >= 3 && pontoNoPoligono({ lat: os.latitude, lng: os.longitude }, t.poligono)
-        );
       });
     }
     
@@ -2736,7 +2739,7 @@ const Roteirizacao = () => {
             <div className="relative h-[700px]">
               <MapaLeaflet
                 rotas={rotas}
-                osPendentes={osPendentesTodas}
+                osPendentes={osPendentes}
                 equipesMock={equipesAtivas}
                 equipeHovered={equipeHovered}
                 equipeEditando={equipeEditando}

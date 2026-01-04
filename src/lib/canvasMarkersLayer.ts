@@ -137,15 +137,19 @@ export class CanvasMarkersLayer extends L.Layer {
   private _onMarkerClick?: (marker: CanvasMarker) => void;
   private _onMarkerHover?: (marker: CanvasMarker | null) => void;
   private _hoveredMarker: CanvasMarker | null = null;
-  private _markerRadius = 12; // Raio base maior para melhor visualização
+  private _markerRadius = 14; // Raio base para detecção de clique
   private _bounds: L.LatLngBounds | null = null;
   private _pendingImages = new Set<string>(); // URLs de imagens sendo carregadas
+  private _animationFrame: number | null = null;
+  private _hasReguladas = false; // Flag para saber se precisa animar
 
   constructor(options: CanvasMarkersLayerOptions) {
     super(options);
     this._markers = options.markers || [];
     this._onMarkerClick = options.onMarkerClick;
     this._onMarkerHover = options.onMarkerHover;
+    // Verificar se há marcadores regulados para iniciar animação
+    this._hasReguladas = this._markers.some(m => m.regulada);
   }
   
   onAdd(map: L.Map): this {
@@ -203,6 +207,9 @@ export class CanvasMarkersLayer extends L.Layer {
     }
     this._canvas = null;
     this._ctx = null;
+    
+    // Parar animação
+    this._stopAnimation();
 
     return this;
   }
@@ -210,7 +217,34 @@ export class CanvasMarkersLayer extends L.Layer {
   // Atualizar marcadores
   setMarkers(markers: CanvasMarker[]): void {
     this._markers = markers;
+    this._hasReguladas = markers.some(m => m.regulada);
     this._draw();
+    // Iniciar animação se houver reguladas (com intervalo otimizado)
+    if (this._hasReguladas && !this._animationFrame) {
+      this._startAnimation();
+    } else if (!this._hasReguladas && this._animationFrame) {
+      this._stopAnimation();
+    }
+  }
+
+  // Iniciar animação de pulso para marcadores regulados
+  // Usa setInterval com taxa muito reduzida para não sobrecarregar
+  private _startAnimation(): void {
+    // Usar setInterval com 200ms (5fps) - suficiente para efeito de pulso
+    // E muito mais leve que requestAnimationFrame (60fps)
+    this._animationFrame = window.setInterval(() => {
+      if (this._hasReguladas && this._map && this._ctx) {
+        this._draw();
+      }
+    }, 200) as unknown as number; // 200ms = 5fps
+  }
+
+  // Parar animação
+  private _stopAnimation(): void {
+    if (this._animationFrame) {
+      clearInterval(this._animationFrame);
+      this._animationFrame = null;
+    }
   }
 
   // Atualizar tamanho do canvas
@@ -372,11 +406,33 @@ export class CanvasMarkersLayer extends L.Layer {
     const sigla = marker.sigla || getLetraGrupo(marker.tipo);
     
     // Raio baseado no zoom para melhor visualização
-    const baseRadius = marker.selecionado ? 16 : (zoom >= 15 ? 14 : zoom >= 13 ? 12 : 10);
+    const baseRadius = marker.selecionado ? 18 : (zoom >= 15 ? 16 : zoom >= 13 ? 14 : 12);
     
-    // Sombra suave
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
-    ctx.shadowBlur = 4;
+    // Efeito de pulso para reguladas (usando tempo atual)
+    // Pulso mais lento (500ms) para funcionar bem com animação de 5fps
+    const time = Date.now();
+    const pulsePhase = (Math.sin(time / 500) + 1) / 2; // Valor entre 0 e 1, pulsa a cada ~1s
+    
+    // Para reguladas: desenhar anel de pulso externo primeiro
+    if (marker.regulada) {
+      const pulseRadius = baseRadius + 3 + (pulsePhase * 5); // Expande de 3 a 8 pixels além
+      const pulseOpacity = 0.5 - (pulsePhase * 0.4); // Opacidade diminui conforme expande
+      
+      ctx.beginPath();
+      ctx.arc(x, y, pulseRadius, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255, 0, 0, ${pulseOpacity})`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    
+    // Sombra suave (mais forte para reguladas)
+    if (marker.regulada) {
+      ctx.shadowColor = 'rgba(255, 0, 0, 0.5)';
+      ctx.shadowBlur = 10;
+    } else {
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
+      ctx.shadowBlur = 4;
+    }
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 2;
     
@@ -395,9 +451,9 @@ export class CanvasMarkersLayer extends L.Layer {
     
     // Borda externa
     if (marker.regulada) {
-      // Regulada urgente: borda vermelha grossa
-      ctx.strokeStyle = '#dc2626';
-      ctx.lineWidth = 3;
+      // Regulada urgente: borda vermelha VIVA e grossa
+      ctx.strokeStyle = '#ff0000'; // Vermelho puro e vivo
+      ctx.lineWidth = 4; // Mais grossa
     } else if (marker.selecionado) {
       // Selecionado: borda azul escura
       ctx.strokeStyle = '#1e40af';
@@ -417,7 +473,7 @@ export class CanvasMarkersLayer extends L.Layer {
     if (zoom >= 12) {
       // Ajustar tamanho da fonte baseado no tamanho da sigla
       const siglaLen = sigla.length;
-      const baseFontSize = marker.selecionado ? 12 : (zoom >= 15 ? 11 : zoom >= 13 ? 10 : 9);
+      const baseFontSize = marker.selecionado ? 13 : (zoom >= 15 ? 12 : zoom >= 13 ? 11 : 10);
       const fontSize = siglaLen > 2 ? baseFontSize - 2 : baseFontSize;
       ctx.font = `bold ${fontSize}px Arial`;
       ctx.fillStyle = '#ffffff';
@@ -443,14 +499,36 @@ export class CanvasMarkersLayer extends L.Layer {
   private _drawMarkerHover(ctx: CanvasRenderingContext2D, x: number, y: number, marker: CanvasMarker): void {
     const zoom = this._map?.getZoom() || 12;
     // Hover deve ser maior que o marcador normal
-    const radius = zoom >= 15 ? 18 : zoom >= 13 ? 16 : 14;
+    const radius = zoom >= 15 ? 20 : zoom >= 13 ? 18 : 16;
     // Usar cor e sigla do marcador se disponível
     const corMarcador = marker.corMarcador || getCorTipo(marker.tipo);
     const sigla = marker.sigla || getLetraGrupo(marker.tipo);
     
-    // Sombra
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-    ctx.shadowBlur = 8;
+    // Efeito de pulso para reguladas (usando tempo atual)
+    // Pulso mais lento (500ms) para funcionar bem com animação de 5fps
+    const time = Date.now();
+    const pulsePhase = (Math.sin(time / 500) + 1) / 2;
+    
+    // Para reguladas: desenhar anel de pulso externo primeiro
+    if (marker.regulada) {
+      const pulseRadius = radius + 4 + (pulsePhase * 6);
+      const pulseOpacity = 0.6 - (pulsePhase * 0.4);
+      
+      ctx.beginPath();
+      ctx.arc(x, y, pulseRadius, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255, 0, 0, ${pulseOpacity})`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    
+    // Sombra (mais forte para reguladas)
+    if (marker.regulada) {
+      ctx.shadowColor = 'rgba(255, 0, 0, 0.6)';
+      ctx.shadowBlur = 12;
+    } else {
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+      ctx.shadowBlur = 8;
+    }
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 2;
     
@@ -460,9 +538,14 @@ export class CanvasMarkersLayer extends L.Layer {
     ctx.fillStyle = corMarcador;
     ctx.fill();
     
-    // Borda branca
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 3;
+    // Borda - VERMELHA para reguladas, branca para outras
+    if (marker.regulada) {
+      ctx.strokeStyle = '#ff0000'; // Vermelho vivo mantido no hover
+      ctx.lineWidth = 4;
+    } else {
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 3;
+    }
     ctx.stroke();
     
     // Resetar sombra
@@ -471,7 +554,7 @@ export class CanvasMarkersLayer extends L.Layer {
     
     // Sigla no centro (hover)
     const siglaLen = sigla.length;
-    const fontSize = siglaLen > 2 ? 10 : 12;
+    const fontSize = siglaLen > 2 ? 11 : 13;
     ctx.font = `bold ${fontSize}px Arial`;
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
