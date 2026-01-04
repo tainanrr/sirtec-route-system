@@ -827,7 +827,8 @@ const Roteirizacao = () => {
     reguladaFilter !== "all",
   ].filter(Boolean).length;
 
-  const filteredServicos = osPendentes.filter((s) => {
+  // Usar osPendentesTodas para mostrar TODAS as OSs no Backlog (sem filtro de território)
+  const filteredServicos = osPendentesTodas.filter((s) => {
     // Busca textual
     const matchesSearch =
       s.numero.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -3498,9 +3499,9 @@ const Roteirizacao = () => {
                       ? `${loadingProgress.loaded.toLocaleString()}/${loadingProgress.total.toLocaleString()}`
                       : "..."
                   ) : (
-                    filteredServicos.length !== osPendentes.length 
-                      ? `${filteredServicos.length.toLocaleString()} de ${osPendentes.length.toLocaleString()}`
-                      : osPendentes.length.toLocaleString()
+                    filteredServicos.length !== osPendentesTodas.length 
+                      ? `${filteredServicos.length.toLocaleString()} de ${osPendentesTodas.length.toLocaleString()}`
+                      : osPendentesTodas.length.toLocaleString()
                   )}
                 </Badge>
               </div>
@@ -3677,9 +3678,9 @@ const Roteirizacao = () => {
                     {activeFiltersBacklogCount > 0 && (
                       <span className="text-xs text-muted-foreground">
                         {activeFiltersBacklogCount} filtro{activeFiltersBacklogCount > 1 ? "s" : ""} ativo{activeFiltersBacklogCount > 1 ? "s" : ""}
-                        {filteredServicos.length !== osPendentes.length && (
+                        {filteredServicos.length !== osPendentesTodas.length && (
                           <span className="ml-1">
-                            • Exibindo {filteredServicos.length} de {osPendentes.length} OSs
+                            • Exibindo {filteredServicos.length} de {osPendentesTodas.length} OSs
                           </span>
                         )}
                       </span>
