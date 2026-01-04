@@ -1047,16 +1047,15 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
       }
       
       // Criar MarkerClusterGroup com configurações para spiderfy
-      // NOTA: maxClusterRadius=3 significa que só agrupa marcadores a ~3 pixels de distância
-      // Em zoom 18, isso equivale a aproximadamente 5-10 metros
+      // NOTA: maxClusterRadius=1 significa que só agrupa marcadores NA MESMA POSIÇÃO EXATA
       const markerCluster = L.markerClusterGroup({
-        // Configurações para spiderfy apenas de marcadores MUITO próximos (~10 metros)
-        maxClusterRadius: 3, // Agrupa APENAS marcadores praticamente na mesma posição (3 pixels)
+        // Configurações para spiderfy APENAS de marcadores na MESMA coordenada
+        maxClusterRadius: 1, // Agrupa APENAS marcadores na MESMA posição (1 pixel = mesma coordenada)
         spiderfyOnMaxZoom: true, // Ativa spiderfy no zoom máximo
         showCoverageOnHover: false, // Não mostra área de cobertura
         zoomToBoundsOnClick: false, // Não dá zoom ao clicar, apenas spiderfy
-        disableClusteringAtZoom: 20, // Desabilita clustering em zoom muito alto
-        spiderfyDistanceMultiplier: 2, // Distância maior entre os marcadores no spiderfy para melhor visualização
+        disableClusteringAtZoom: 22, // Desabilita clustering apenas no zoom máximo
+        spiderfyDistanceMultiplier: 2.5, // Distância maior entre os marcadores no spiderfy
         spiderLegPolylineOptions: { weight: 2, color: '#666', opacity: 0.7 }, // Linhas do spiderfy
         // Ícone customizado para o cluster
         iconCreateFunction: (cluster) => {
