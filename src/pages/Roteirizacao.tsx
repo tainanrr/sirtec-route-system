@@ -830,7 +830,7 @@ const Roteirizacao = () => {
   ].filter(Boolean).length;
 
   // Usar osPendentesTodas para mostrar TODAS as OSs no Backlog (sem filtro de território)
-  console.log("[Roteirização] ordensServico:", ordensServico.length, "osAlocadas:", osAlocadas.size, "osPendentesTodas:", osPendentesTodas.length);
+  console.log("[Roteirização] ordensServico:", ordensServico.length, "osAlocadas:", osAlocadas.size, "osPendentesTodas:", osPendentesTodas.length, "loadingOrdens:", loadingOrdens);
   const filteredServicos = osPendentesTodas.filter((s) => {
     // Busca textual
     const matchesSearch =
