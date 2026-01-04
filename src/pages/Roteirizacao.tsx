@@ -448,7 +448,7 @@ const Roteirizacao = () => {
   // Resetar limite do backlog quando filtros mudarem
   useEffect(() => {
     setBacklogLimit(50);
-  }, [searchTerm, statusFilter, tiposFilter, prazoInicio, prazoFim, coordenadasFilter, reguladaFilter]);
+  }, [searchTerm, tiposFilter, prazoInicio, prazoFim, coordenadasFilter, reguladaFilter]);
 
   // Carregar planejamento se houver ID nos parâmetros da URL
   useEffect(() => {
