@@ -73,11 +73,8 @@ export async function mapSupabaseOrdemServicoToOrdemServico(
   const tipoNormalizado = normalizarTipo(ordemSupabase.tipo) as OrdemServico["tipo"];
   
   // Buscar dados da skill usando o código (sem acentos)
-  let skillData = dadosSkills?.get(codigoSkill);
-  if (!skillData) {
-    const { getDadosSkill } = await import("./skillsUtils");
-    skillData = await getDadosSkill(codigoSkill);
-  }
+  // OTIMIZAÇÃO: Não fazer import dinâmico aqui - usar apenas o cache passado
+  const skillData = dadosSkills?.get(codigoSkill);
 
   // SEMPRE usar dados da skill se disponível, caso contrário usar valor da OS como fallback
   // Valor: Priorizar skill, depois OS, depois 0

@@ -1,5 +1,22 @@
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { MapPin, Loader2, Maximize2, Minimize2, Filter, X, Edit, Save, XCircle } from "lucide-react";
+
+// Função de debounce para otimização de performance
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [value, delay]);
+
+  return debouncedValue;
+}
 import * as LucideIcons from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +37,9 @@ import { pontoNoPoligono } from "@/types/territorios";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
+// Importar camada de canvas para renderização ultra-performática
+import { CanvasMarkersLayer, CanvasMarker, createCanvasMarkersLayer } from "@/lib/canvasMarkersLayer";
+
 // Fix para ícones
 if (typeof window !== "undefined") {
   delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -29,6 +49,10 @@ if (typeof window !== "undefined") {
     shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
   });
 }
+
+// Constantes de otimização - carregamento em chunks para não travar a UI
+const CHUNK_SIZE = 500; // Marcadores por chunk
+const CHUNK_DELAY = 10; // ms entre chunks
 
 import { Territorio } from "@/types/territorios";
 
@@ -103,6 +127,9 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
   const polylinesRef = useRef<L.Polyline[]>([]);
   const territoriosLayersRef = useRef<L.Polygon[]>([]);
   const expectativasMarkersRef = useRef<L.Marker[]>([]);
+  
+  // Ref para camada de canvas (renderização ultra-performática)
+  const canvasLayerRef = useRef<CanvasMarkersLayer | null>(null);
   const [erro, setErro] = useState(false);
   const [erroMsg, setErroMsg] = useState("");
   const [routesGeometry, setRoutesGeometry] = useState<RouteGeometryData>({});
@@ -126,6 +153,10 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
   
   // V19.7: Estado para controlar se o mapa foi inicializado
   const [mapaInicializado, setMapaInicializado] = useState(false);
+  
+  // OTIMIZAÇÃO: Debounce nas OSs pendentes para evitar re-renderizações frequentes
+  // Quando há 8000+ OSs, cada mudança pequena causaria re-renderização pesada
+  const osPendentesDebounced = useDebounce(osPendentes, 300);
   
   // V19.6: Ref para o marker da OS urgente destacada
   const osUrgenteMarkerRef = useRef<L.Marker | null>(null);
@@ -475,7 +506,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
     setModoEdicao(false);
   };
 
-  // Adicionar animações CSS
+  // Adicionar animações CSS e estilos para tooltips otimizados
   useEffect(() => {
     const styleTag = document.createElement('style');
     styleTag.id = 'leaflet-custom-animations';
@@ -500,6 +531,23 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
           box-shadow: 0 8px 20px rgba(59, 130, 246, 1);
         }
       }
+      /* Estilos otimizados para tooltips de OSs */
+      .os-tooltip {
+        background: rgba(0,0,0,0.85);
+        color: white;
+        border: none;
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 11px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      }
+      .os-tooltip::before {
+        border-top-color: rgba(0,0,0,0.85);
+      }
+      /* Marcadores pendentes */
+      .custom-marker-pendente {
+        background: transparent !important;
+      }
     `;
     if (!document.getElementById('leaflet-custom-animations')) {
       document.head.appendChild(styleTag);
@@ -515,10 +563,11 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
     if (!mapRef.current || mapInstanceRef.current) return;
 
     try {
-      // Criar mapa
+      // Criar mapa com preferCanvas para melhor performance
       const map = L.map(mapRef.current, {
         center: [-14.8661, -40.8394], // Vitória da Conquista, BA
         zoom: 12,
+        preferCanvas: true, // Usar canvas ao invés de SVG (muito mais rápido)
       });
 
       // Adicionar tiles
@@ -535,6 +584,11 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
     }
 
     return () => {
+      // Limpar camada de canvas
+      if (canvasLayerRef.current && mapInstanceRef.current) {
+        mapInstanceRef.current.removeLayer(canvasLayerRef.current);
+        canvasLayerRef.current = null;
+      }
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
@@ -928,7 +982,8 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
       
       // Atualizar mapeamento de marcadores
       markersMapRef.current.clear();
-      // Limpar marcadores e polylines anteriores
+      
+      // Limpar marcadores anteriores
       markersRef.current.forEach((marker) => {
         map.removeLayer(marker);
       });
@@ -957,240 +1012,94 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
         }
       });
 
-      // Adicionar marcadores das OS pendentes (filtradas)
-      // IMPORTANTE: Todas as OSs pendentes devem aparecer, independente de estarem dentro ou fora dos polígonos
-      // SEMPRE usar todas as OSs pendentes originais, não apenas as filtradas
-      console.log('[MAPA] Total de OSs pendentes recebidas:', osPendentes.length);
-      console.log('[MAPA] OSs pendentes após filtros:', osPendentesFiltradas.length);
-      console.log('[MAPA] Adicionando TODAS as', osPendentes.length, 'OSs pendentes ao mapa (incluindo fora dos territórios)');
+      // ========== RENDERIZAÇÃO CANVAS - ULTRA PERFORMÁTICA ==========
+      // Similar ao OpenLayers usado no sistema GPM
+      // Todos os marcadores são desenhados em um ÚNICO canvas
+      // Isso é MUITO mais rápido que criar milhares de elementos DOM
       
-      // IMPORTANTE: Sempre exibir TODAS as OSs pendentes, não apenas as filtradas
-      // Os filtros são apenas para a visualização na lista, não para o mapa
-      console.log('[MAPA] DEBUG: Iterando sobre', osPendentes.length, 'OSs pendentes');
-      let contadorOSsAdicionadas = 0;
-      let contadorOSsForaTerritorio = 0;
+      console.log('[MAPA] Total de OSs pendentes para renderização canvas:', osPendentesDebounced.length);
+      
+      // Remover camada de canvas anterior se existir
+      if (canvasLayerRef.current) {
+        map.removeLayer(canvasLayerRef.current);
+        canvasLayerRef.current = null;
+      }
+      
+      // Preparar marcadores para o canvas
+      const canvasMarkers: CanvasMarker[] = [];
+      let contadorOSsValidas = 0;
       let contadorOSsCoordenadasInvalidas = 0;
       
-      osPendentes.forEach((os) => {
-        // Validar coordenadas de forma robusta (considerar 0 como inválido para lat/lng pois seria no oceano)
-        // Coordenadas válidas para Brasil: lat entre -35 e 5, lng entre -75 e -32
+      osPendentesDebounced.forEach((os) => {
+        // Validar coordenadas
         const latValida = typeof os.latitude === 'number' && !isNaN(os.latitude) && os.latitude >= -35 && os.latitude <= 5;
         const lngValida = typeof os.longitude === 'number' && !isNaN(os.longitude) && os.longitude >= -75 && os.longitude <= -32;
         
         if (!latValida || !lngValida) {
           contadorOSsCoordenadasInvalidas++;
-          if (contadorOSsCoordenadasInvalidas <= 10) {
-            console.warn(`[MAPA] AVISO: OS ${os.numero} tem coordenadas inválidas ou fora do Brasil:`, os.latitude, os.longitude);
-          }
-          return; // Pular OSs com coordenadas inválidas
+          return;
         }
         
-        // Verificar se está dentro de algum território
-        const dentroTerritorio = territorios.some(t => t.ativo && t.poligono.length >= 3 && pontoNoPoligono({ lat: os.latitude, lng: os.longitude }, t.poligono));
-        if (!dentroTerritorio) {
-          contadorOSsForaTerritorio++;
-        }
+        contadorOSsValidas++;
         
-        contadorOSsAdicionadas++;
-        
-        const iconName = skillsIcons.get(os.tipo);
-        const iconSVG = iconName ? getLucideIconSVG(iconName, "#000000", 20) : '';
-        const corBorda = obterCorBordaPrioridade(os);
-        const markerHTML = `
-          <div style="
-            background-color: #ffffff; 
-            width: 24px; 
-            height: 24px; 
-            border-radius: 50%; 
-            border: 2px solid ${corBorda}; 
-            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #000000;
-          ">
-            ${iconSVG}
-          </div>
-        `;
-        
-        const isSelecionada = osSelecionada === os.id;
-        const markerHTMLSelecionada = `
-          <div style="
-            background-color: #3b82f6; 
-            width: 32px; 
-            height: 32px; 
-            border-radius: 50%; 
-            border: 3px solid #1e40af; 
-            box-shadow: 0 4px 8px rgba(59, 130, 246, 0.5);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #ffffff;
-          ">
-            ${iconSVG.replace('#000000', '#ffffff')}
-          </div>
-        `;
-        
-        const marker = L.marker([os.latitude, os.longitude], {
-          icon: L.divIcon({
-            className: "custom-marker-pendente",
-            html: isSelecionada ? markerHTMLSelecionada : markerHTML,
-            iconSize: isSelecionada ? [32, 32] : [24, 24],
-            iconAnchor: isSelecionada ? [16, 16] : [12, 12],
-          }),
+        canvasMarkers.push({
+          id: os.id,
+          lat: os.latitude,
+          lng: os.longitude,
+          numero: os.numero,
+          tipo: os.tipo,
+          cor: obterCorBordaPrioridade(os),
+          selecionado: osSelecionada === os.id,
+          regulada: os.regulada,
         });
-        
-        // Encontrar índice na sequência
-        const sequenciaIndex = osSequenciaRef.current.findIndex(item => item.os.id === os.id);
-        const temAnterior = sequenciaIndex > 0;
-        const temProximo = sequenciaIndex < osSequenciaRef.current.length - 1;
-        
-        // Formatar prazo se existir
-        const prazoFormatado = os.prazo 
-          ? new Date(os.prazo).toLocaleString("pt-BR", {
-              day: "2-digit",
-              month: "2-digit",
-              year: "numeric",
-              hour: "2-digit",
-              minute: "2-digit"
-            })
-          : "Sem prazo";
-        
-        const popupContent = `
-          <div style="min-width: 200px; font-family: system-ui, -apple-system, sans-serif;">
-            <div style="margin-bottom: 8px;">
-              <strong style="font-size: 14px; color: #1f2937;">Número:</strong>
-              <span style="margin-left: 8px; font-weight: 600;">${os.numero}</span>
-            </div>
-            <div style="margin-bottom: 8px;">
-              <strong style="font-size: 14px; color: #1f2937;">Tipo:</strong>
-              <span style="margin-left: 8px;">${obterLabelTipo(os.tipo)}</span>
-            </div>
-            <div style="margin-bottom: 8px;">
-              <strong style="font-size: 14px; color: #1f2937;">Prazo:</strong>
-              <span style="margin-left: 8px; ${os.prazo ? 'color: #dc2626; font-weight: 600;' : 'color: #6b7280;'}">${prazoFormatado}</span>
-            </div>
-            <div style="margin-bottom: 8px;">
-              <strong style="font-size: 14px; color: #1f2937;">Equipe:</strong>
-              <span style="margin-left: 8px; color: #6b7280;">Não alocada</span>
-            </div>
-            <div style="margin-bottom: 8px;">
-              <strong style="font-size: 14px; color: #1f2937;">Ordem:</strong>
-              <span style="margin-left: 8px; color: #6b7280;">-</span>
-            </div>
-            ${os.regulada ? '<div style="margin-top: 8px; padding: 4px 8px; background-color: #fee2e2; border-radius: 4px; display: inline-block;"><span style="color: #dc2626; font-weight: bold; font-size: 12px;">REGULADA</span></div>' : ""}
-            ${equipeEditando ? `<div style="margin-top: 12px; padding: 8px; background-color: #dbeafe; border-radius: 6px; border: 1px solid #3b82f6;">
-              <button 
-                onclick="window.selecionarOSParaIncluir('${os.id}')"
-                style="
-                  width: 100%;
-                  padding: 8px 12px;
-                  background-color: #3b82f6;
-                  color: white;
-                  border: none;
-                  border-radius: 6px;
-                  cursor: pointer;
-                  font-size: 13px;
-                  font-weight: 600;
-                  display: flex;
-                  align-items: center;
-                  justify-content: center;
-                  gap: 6px;
-                "
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M12 5v14M5 12h14"/>
-                </svg>
-                Incluir na Rota
-              </button>
-            </div>` : ""}
-            <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e5e7eb; display: flex; gap: 8px; justify-content: center;">
-              <button 
-                id="btn-anterior-${os.id}" 
-                onclick="window.navegarOS('anterior', '${os.id}')"
-                style="
-                  padding: 6px 12px;
-                  background-color: ${temAnterior ? '#3b82f6' : '#9ca3af'};
-                  color: white;
-                  border: none;
-                  border-radius: 6px;
-                  cursor: ${temAnterior ? 'pointer' : 'not-allowed'};
-                  font-size: 12px;
-                  font-weight: 600;
-                  display: flex;
-                  align-items: center;
-                  gap: 4px;
-                  opacity: ${temAnterior ? '1' : '0.5'};
-                "
-                ${!temAnterior ? 'disabled' : ''}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M15 18l-6-6 6-6"/>
-                </svg>
-                Anterior
-              </button>
-              <button 
-                id="btn-proximo-${os.id}" 
-                onclick="window.navegarOS('proximo', '${os.id}')"
-                style="
-                  padding: 6px 12px;
-                  background-color: ${temProximo ? '#3b82f6' : '#9ca3af'};
-                  color: white;
-                  border: none;
-                  border-radius: 6px;
-                  cursor: ${temProximo ? 'pointer' : 'not-allowed'};
-                  font-size: 12px;
-                  font-weight: 600;
-                  display: flex;
-                  align-items: center;
-                  gap: 4px;
-                  opacity: ${temProximo ? '1' : '0.5'};
-                "
-                ${!temProximo ? 'disabled' : ''}
-              >
-                Próxima
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M9 18l6-6-6-6"/>
-                </svg>
-              </button>
-            </div>
-          </div>
-        `;
-        
-        const popup = L.popup().setContent(popupContent);
-        marker.bindPopup(popup);
-        
-        // Adicionar evento de clique para selecionar OS
-        if (onOSSelecionada) {
-          marker.on('click', (e) => {
-            // Se uma equipe está sendo editada, selecionar a OS
-            if (equipeEditando) {
-              onOSSelecionada(isSelecionada ? null : os.id);
-            }
-          });
-          
-          // Configurar função global para selecionar OS via popup
-          marker.on('popupopen', () => {
-            // Adicionar função global para selecionar OS
-            (window as any).selecionarOSParaIncluir = (osId: string) => {
-              if (onOSSelecionada) {
-                onOSSelecionada(osId);
-              }
-            };
-          });
-        }
-        try {
-        marker.addTo(map);
-        markersRef.current.push(marker);
-        markersMapRef.current.set(os.id, marker);
-        } catch (error) {
-          console.error(`[MAPA] ERRO ao adicionar marcador da OS ${os.numero}:`, error);
-        }
       });
       
-      console.log('[MAPA] DEBUG: Total de OSs pendentes adicionadas ao mapa:', contadorOSsAdicionadas, 'de', osPendentes.length);
-      console.log('[MAPA] DEBUG: OSs com coordenadas inválidas:', contadorOSsCoordenadasInvalidas);
-      console.log('[MAPA] DEBUG: OSs fora dos territórios:', contadorOSsForaTerritorio);
+      console.log('[MAPA] Canvas: OSs válidas para desenho:', contadorOSsValidas);
+      console.log('[MAPA] Canvas: OSs com coordenadas inválidas:', contadorOSsCoordenadasInvalidas);
+      
+      // Criar camada de canvas com todos os marcadores
+      const canvasLayer = createCanvasMarkersLayer({
+        markers: canvasMarkers,
+        onMarkerClick: (marker) => {
+          // Encontrar a OS completa
+          const os = osPendentesDebounced.find(o => o.id === marker.id);
+          if (!os) return;
+          
+          // Criar popup na posição do marcador
+          const prazoFormatado = os.prazo 
+            ? new Date(os.prazo).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
+            : "Sem prazo";
+          
+          const popupHTML = `
+            <div style="min-width:180px;font-family:system-ui,sans-serif;">
+              <div style="margin-bottom:6px;"><b>Número:</b> ${os.numero}</div>
+              <div style="margin-bottom:6px;"><b>Tipo:</b> ${obterLabelTipo(os.tipo)}</div>
+              <div style="margin-bottom:6px;"><b>Prazo:</b> <span style="${os.prazo ? 'color:#dc2626;font-weight:600' : 'color:#6b7280'}">${prazoFormatado}</span></div>
+              <div style="margin-bottom:6px;"><b>Equipe:</b> <span style="color:#6b7280">Não alocada</span></div>
+              ${os.regulada ? '<div style="margin-top:6px;padding:3px 6px;background:#fee2e2;border-radius:4px;display:inline-block;color:#dc2626;font-weight:bold;font-size:11px">REGULADA</div>' : ''}
+              ${equipeEditando ? `<div style="margin-top:10px;text-align:center"><button onclick="window.selecionarOSParaIncluir('${os.id}')" style="padding:6px 12px;background:#3b82f6;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:600">+ Incluir na Rota</button></div>` : ''}
+            </div>
+          `;
+          
+          L.popup()
+            .setLatLng([os.latitude, os.longitude])
+            .setContent(popupHTML)
+            .openOn(map);
+          
+          // Configurar função global para seleção
+          (window as any).selecionarOSParaIncluir = (osId: string) => {
+            if (onOSSelecionada) onOSSelecionada(osId);
+          };
+          
+          // Se equipe está sendo editada, selecionar a OS
+          if (equipeEditando && onOSSelecionada) {
+            onOSSelecionada(marker.selecionado ? null : os.id);
+          }
+        },
+      });
+      
+      canvasLayer.addTo(map);
+      canvasLayerRef.current = canvasLayer;
 
       // Adicionar marcadores e rotas das OS alocadas (filtradas)
       // Se equipeEditando estiver definida, mostrar todas as rotas mas destacar a selecionada
@@ -1550,7 +1459,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
         }, 100);
       }
     }
-  }, [dadosFiltrados, equipesMock, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, routesGeometry, skillsIcons, filtroEquipe, criarSequenciaOS]);
+  }, [dadosFiltrados, equipesMock, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, routesGeometry, skillsIcons, filtroEquipe, criarSequenciaOS, osPendentesDebounced]);
 
   // Função auxiliar para calcular centroide
   const calcularCentroide = (poligono: { lat: number; lng: number }[]): { lat: number; lng: number } => {

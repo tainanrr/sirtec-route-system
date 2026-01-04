@@ -281,93 +281,134 @@ const Roteirizacao = () => {
     loadTerritorios();
   }, []);
 
-  // Carregar ordens de serviço do Supabase com paginação
-  // O Supabase tem limite de 1000 registros por consulta, então carregamos em lotes
+  // Estado para progresso de carregamento
+  const [loadingProgress, setLoadingProgress] = useState({ loaded: 0, total: 0 });
+
+  // Carregar ordens de serviço do Supabase - OTIMIZADO
+  // Usa query paralela e seleciona apenas campos necessários
   useEffect(() => {
+    let isCancelled = false; // Flag para evitar atualizações após unmount ou re-execução
+    
     const fetchOrdensServico = async () => {
       setLoadingOrdens(true);
+      setLoadingProgress({ loaded: 0, total: 0 });
+      
+      const startTime = performance.now();
+      
       try {
-        const PAGE_SIZE = 1000; // Máximo permitido pelo Supabase
-        let allData: Tables<"ordens_servico">[] = [];
-        let offset = 0;
-        let hasMore = true;
-        let totalCount = 0;
-
-        console.log(`[Roteirização] Iniciando carregamento de OSs em lotes de ${PAGE_SIZE}...`);
-
-        // Primeiro, obter a contagem total
-        const { count: initialCount, error: countError } = await supabase
-          .from("ordens_servico")
-          .select("*", { count: "exact", head: true })
-          .in("status", ["pendente", "atrasada"]);
-
-        if (countError) throw countError;
-        totalCount = initialCount || 0;
-        console.log(`[Roteirização] Total de OSs disponíveis: ${totalCount}`);
-
-        // Carregar em lotes até ter todas as OSs
-        while (hasMore) {
-          const { data, error } = await supabase
+        console.log(`[Roteirização] Iniciando carregamento otimizado...`);
+        
+        // Passo 1: Obter contagem total e pre-carregar skills
+        const [countResult] = await Promise.all([
+          supabase
             .from("ordens_servico")
-            .select("*")
-            .in("status", ["pendente", "atrasada"])
-            .order("created_at", { ascending: false })
-            .range(offset, offset + PAGE_SIZE - 1);
+            .select("id", { count: "exact", head: true })
+            .in("status", ["pendente", "atrasada"]),
+          getDadosSkills([]) // Pre-carregar dados de skills
+        ]);
 
-          if (error) throw error;
+        if (countResult.error) throw countResult.error;
+        if (isCancelled) return;
+        
+        const totalCount = countResult.count || 0;
+        console.log(`[Roteirização] Total de OSs: ${totalCount} (contagem em ${(performance.now() - startTime).toFixed(0)}ms)`);
+        
+        if (totalCount === 0) {
+          setOrdensServico([]);
+          setLoadingProgress({ loaded: 0, total: 0 });
+          return;
+        }
+        
+        setLoadingProgress({ loaded: 0, total: totalCount });
 
-          if (data && data.length > 0) {
-            allData = [...allData, ...data];
-            console.log(`[Roteirização] Carregado lote: ${data.length} OSs (total carregado: ${allData.length}/${totalCount})`);
-            offset += PAGE_SIZE;
+        // Passo 2: Carregar dados em lotes paralelos
+        // IMPORTANTE: O Supabase tem limite padrão de 1000 registros por requisição
+        // O .range() especifica o intervalo mas o limite ainda se aplica
+        const PAGE_SIZE = 1000; // Limite máximo do Supabase por requisição
+        const dataMap = new Map<string, Tables<"ordens_servico">>(); // Usar Map para evitar duplicatas
+        
+        // Calcular quantas páginas precisamos
+        const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+        const PARALLEL_REQUESTS = 5; // Aumentado para compensar páginas menores
+        
+        console.log(`[Roteirização] Carregando ${totalPages} páginas de ${PAGE_SIZE} registros em lotes de ${PARALLEL_REQUESTS}...`);
+        
+        for (let pageStart = 0; pageStart < totalPages; pageStart += PARALLEL_REQUESTS) {
+          if (isCancelled) return;
+          
+          const batchPromises = [];
+          
+          // Criar requisições para este lote de páginas
+          for (let i = 0; i < PARALLEL_REQUESTS && (pageStart + i) < totalPages; i++) {
+            const pageIndex = pageStart + i;
+            const currentOffset = pageIndex * PAGE_SIZE;
             
-            // Se retornou menos que o tamanho da página, não há mais dados
-            if (data.length < PAGE_SIZE) {
-              hasMore = false;
-            }
-          } else {
-            hasMore = false;
+            batchPromises.push(
+              supabase
+                .from("ordens_servico")
+                .select("id, numero, tipo, endereco, latitude, longitude, prazo, valor, duracao_estimada, regulada, status")
+                .in("status", ["pendente", "atrasada"])
+                .order("created_at", { ascending: false })
+                .range(currentOffset, currentOffset + PAGE_SIZE - 1)
+                .then(result => ({ pageIndex, offset: currentOffset, ...result }))
+            );
           }
 
-          // Limite de segurança: máximo 100.000 registros
-          if (allData.length >= 100000) {
-            console.warn(`[Roteirização] Limite de segurança atingido: ${allData.length} OSs`);
-            toast.warning(`Atenção: Existem mais OSs disponíveis, mas foram carregadas apenas as 100.000 mais recentes.`);
-            hasMore = false;
+          if (batchPromises.length === 0) break;
+
+          const results = await Promise.all(batchPromises);
+          
+          if (isCancelled) return;
+          
+          for (const result of results) {
+            if (result.error) {
+              console.error(`[Roteirização] Erro na página ${result.pageIndex} (offset ${result.offset}):`, result.error);
+              throw result.error;
+            }
+            if (result.data && result.data.length > 0) {
+              console.log(`[Roteirização] Página ${result.pageIndex}: ${result.data.length} registros`);
+              for (const item of result.data) {
+                dataMap.set(item.id, item); // Usar Map para garantir unicidade
+              }
+            }
           }
+          
+          setLoadingProgress({ loaded: dataMap.size, total: totalCount });
+          console.log(`[Roteirização] Progresso: ${dataMap.size}/${totalCount} OSs carregadas`);
         }
 
-        // Converter para formato OrdemServico e aplicar dados das skills
-        // Isso garante que valores, regulada e tempoExecucao venham das skills
-        const ordensConvertidas = await mapSupabaseOrdensServicoToOrdemServico(allData);
-        setOrdensServico(ordensConvertidas);
-        console.log(`[Roteirização] ✅ Carregamento completo: ${ordensConvertidas.length} OSs disponíveis para roteirização`);
+        if (isCancelled) return;
         
-        // Debug: Verificar coordenadas das OSs carregadas
-        const ossComCoordenadasValidas = ordensConvertidas.filter(os => 
-          typeof os.latitude === 'number' && !isNaN(os.latitude) && os.latitude >= -35 && os.latitude <= 5 &&
-          typeof os.longitude === 'number' && !isNaN(os.longitude) && os.longitude >= -75 && os.longitude <= -32
-        );
-        console.log(`[Roteirização] OSs com coordenadas válidas: ${ossComCoordenadasValidas.length} de ${ordensConvertidas.length}`);
+        const allData = Array.from(dataMap.values());
+        console.log(`[Roteirização] Dados carregados: ${allData.length} em ${(performance.now() - startTime).toFixed(0)}ms`);
+
+        // Passo 3: Converter usando skills já carregadas
+        const conversionStart = performance.now();
+        const ordensConvertidas = await mapSupabaseOrdensServicoToOrdemServico(allData as any);
+        console.log(`[Roteirização] Conversão em ${(performance.now() - conversionStart).toFixed(0)}ms`);
+        
+        if (isCancelled) return;
+        
+        setOrdensServico(ordensConvertidas);
+        setLoadingProgress({ loaded: ordensConvertidas.length, total: totalCount });
+        console.log(`[Roteirização] ✅ Completo: ${ordensConvertidas.length} OSs em ${(performance.now() - startTime).toFixed(0)}ms`);
         
       } catch (error: any) {
-        console.error("Erro ao carregar ordens de serviço:", error);
-        toast.error("Erro ao carregar ordens de serviço");
+        if (!isCancelled) {
+          console.error("Erro ao carregar ordens de serviço:", error);
+          toast.error("Erro ao carregar ordens de serviço");
+        }
       } finally {
-        setLoadingOrdens(false);
+        if (!isCancelled) {
+          setLoadingOrdens(false);
+        }
       }
     };
 
     fetchOrdensServico();
     
-    // Recarregar quando a página receber foco (para atualizar após editar skills)
-    const handleFocus = () => {
-      fetchOrdensServico();
-    };
-    window.addEventListener('focus', handleFocus);
-    
     return () => {
-      window.removeEventListener('focus', handleFocus);
+      isCancelled = true; // Cancelar operações pendentes ao desmontar/re-executar
     };
   }, []);
 
@@ -3366,7 +3407,13 @@ const Roteirizacao = () => {
           <div className="p-4 border-b border-border">
             <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold text-foreground">Backlog de Serviços</h3>
-            <Badge variant="secondary">{osPendentes.length}</Badge>
+            <Badge variant="secondary">
+              {loadingOrdens ? (
+                loadingProgress.total > 0 
+                  ? `${loadingProgress.loaded.toLocaleString()}/${loadingProgress.total.toLocaleString()}`
+                  : "..."
+              ) : osPendentes.length.toLocaleString()}
+            </Badge>
           </div>
           <div className="relative mb-3">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -3406,7 +3453,22 @@ const Roteirizacao = () => {
                 snapshot.isDraggingOver && "bg-primary/5"
               )}
             >
-              {filteredServicos.length === 0 ? (
+              {loadingOrdens ? (
+                <div className="text-center py-8 space-y-3">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                  <p className="text-sm text-muted-foreground">
+                    Carregando serviços...
+                  </p>
+                  {loadingProgress.total > 0 && (
+                    <div className="px-4">
+                      <Progress value={(loadingProgress.loaded / loadingProgress.total) * 100} className="h-2" />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {loadingProgress.loaded.toLocaleString()} de {loadingProgress.total.toLocaleString()} ({Math.round((loadingProgress.loaded / loadingProgress.total) * 100)}%)
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ) : filteredServicos.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground text-sm">
                   Nenhum serviço pendente
                 </div>
