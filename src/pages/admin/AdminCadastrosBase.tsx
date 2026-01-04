@@ -83,6 +83,7 @@ interface TipoServico {
   permite_avulso: boolean;
   icone: string | null;
   icone_url: string | null; // URL da imagem personalizada
+  sigla: string | null; // Sigla de até 3 caracteres exibida no mapa
   cor: string | null;
   ativo: boolean;
   created_at: string;
@@ -171,72 +172,10 @@ export default function AdminCadastrosBase() {
     permite_avulso: false,
     icone: "",
     icone_url: "", // URL da imagem personalizada
+    sigla: "", // Sigla de até 3 caracteres exibida no mapa
     cor: "#3b82f6",
     ativo: true,
   });
-  
-  // Estado para upload de imagem
-  const [uploadingImage, setUploadingImage] = useState(false);
-  const imageInputRef = useRef<HTMLInputElement>(null);
-  
-  // Função de upload de imagem para o Supabase Storage
-  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    // Validar tipo
-    const allowedTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/svg+xml', 'image/webp'];
-    if (!allowedTypes.includes(file.type)) {
-      toast.error("Tipo de arquivo não permitido. Use PNG, JPG, GIF, SVG ou WebP.");
-      return;
-    }
-
-    // Validar tamanho (max 1MB)
-    if (file.size > 1048576) {
-      toast.error("Arquivo muito grande. Máximo 1MB.");
-      return;
-    }
-
-    setUploadingImage(true);
-    try {
-      // Gerar nome único para o arquivo
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-      const filePath = `icons/${fileName}`;
-
-      // Upload para o Supabase Storage
-      const { error: uploadError } = await supabase.storage
-        .from('skill-icons')
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: false
-        });
-
-      if (uploadError) throw uploadError;
-
-      // Obter URL pública
-      const { data: { publicUrl } } = supabase.storage
-        .from('skill-icons')
-        .getPublicUrl(filePath);
-
-      // Atualizar form
-      setTipoServicoForm({ ...tipoServicoForm, icone_url: publicUrl });
-      toast.success("Imagem enviada com sucesso!");
-    } catch (error: any) {
-      console.error("Erro ao enviar imagem:", error);
-      toast.error("Erro ao enviar imagem: " + (error.message || "Tente novamente"));
-    } finally {
-      setUploadingImage(false);
-    }
-  };
-
-  // Remover imagem
-  const handleRemoveImage = () => {
-    setTipoServicoForm({ ...tipoServicoForm, icone_url: "" });
-    if (imageInputRef.current) {
-      imageInputRef.current.value = '';
-    }
-  };
 
   const [tipoIntervaloForm, setTipoIntervaloForm] = useState({
     codigo: "",
@@ -438,6 +377,7 @@ export default function AdminCadastrosBase() {
         permite_avulso: false,
         icone: "",
         icone_url: "",
+        sigla: "",
         cor: "#3b82f6",
         ativo: true,
       });
@@ -478,6 +418,7 @@ export default function AdminCadastrosBase() {
         permite_avulso: item.permite_avulso || false,
         icone: item.icone || "",
         icone_url: item.icone_url || "",
+        sigla: item.sigla || "",
         cor: item.cor || "#3b82f6",
         ativo: item.ativo,
       });
@@ -526,6 +467,7 @@ export default function AdminCadastrosBase() {
           permite_avulso: tipoServicoForm.permite_avulso,
           icone: tipoServicoForm.icone || null,
           icone_url: tipoServicoForm.icone_url || null,
+          sigla: tipoServicoForm.sigla ? tipoServicoForm.sigla.toUpperCase().slice(0, 3) : null,
           cor: tipoServicoForm.cor || "#3b82f6",
           ativo: tipoServicoForm.ativo,
         };
@@ -840,7 +782,7 @@ export default function AdminCadastrosBase() {
                   <SortableTableHead column="valor" label="Valor" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} className="text-center" />
                   <SortableTableHead column="regulada" label="Regulada" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} className="text-center" />
                   <TableHead className="text-center">Avulso</TableHead>
-                  <TableHead className="text-center">Ícone</TableHead>
+                  <TableHead className="text-center">Sigla/Mapa</TableHead>
                   <SortableTableHead column="ativo" label="Status" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} />
                   <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
@@ -917,19 +859,13 @@ export default function AdminCadastrosBase() {
                           )}
                         </TableCell>
                         <TableCell className="text-center">
-                          {item.icone_url ? (
-                            <div className="w-8 h-8 mx-auto rounded-full overflow-hidden border-2 bg-muted" style={{ borderColor: item.cor || '#e5e7eb' }}>
-                              <img 
-                                src={item.icone_url} 
-                                alt={item.nome}
-                                className="w-full h-full object-contain"
-                              />
-                            </div>
-                          ) : IconComponent ? (
-                            <IconComponent className="h-5 w-5 mx-auto" style={{ color: item.cor || undefined }} />
-                          ) : (
-                            <span className="text-muted-foreground text-xs">-</span>
-                          )}
+                          <div 
+                            className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs mx-auto shadow-sm border border-white/50"
+                            style={{ backgroundColor: item.cor || '#6b7280' }}
+                            title={`Sigla: ${item.sigla || '-'}`}
+                          >
+                            {item.sigla || '?'}
+                          </div>
                         </TableCell>
                         <TableCell>
                           <Badge variant={item.ativo ? "default" : "secondary"}>
@@ -1184,37 +1120,20 @@ export default function AdminCadastrosBase() {
                       <p className="text-xs text-muted-foreground">Valor de referência geral (configure valores por contrato na aba Valores)</p>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-3 gap-4">
                     <div className="space-y-2">
-                      <Label>Ícone</Label>
-                      <Select
-                        value={tipoServicoForm.icone || "none"}
-                        onValueChange={(v) => setTipoServicoForm({ ...tipoServicoForm, icone: v === "none" ? "" : v })}
-                      >
-                        <SelectTrigger><SelectValue placeholder="Nenhum" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">Nenhum</SelectItem>
-                          <SelectItem value="Zap">⚡ Zap (Raio)</SelectItem>
-                          <SelectItem value="Power">🔌 Power (Energia)</SelectItem>
-                          <SelectItem value="AlertCircle">⚠️ AlertCircle (Alerta)</SelectItem>
-                          <SelectItem value="CheckCircle">✅ CheckCircle (Concluído)</SelectItem>
-                          <SelectItem value="Wrench">🔧 Wrench (Ferramenta)</SelectItem>
-                          <SelectItem value="Settings">⚙️ Settings (Configurações)</SelectItem>
-                          <SelectItem value="Search">🔍 Search (Busca/Inspeção)</SelectItem>
-                          <SelectItem value="Clipboard">📋 Clipboard (Checklist)</SelectItem>
-                          <SelectItem value="FileText">📄 FileText (Documento)</SelectItem>
-                          <SelectItem value="MapPin">📍 MapPin (Localização)</SelectItem>
-                          <SelectItem value="Home">🏠 Home (Casa)</SelectItem>
-                          <SelectItem value="Building">🏢 Building (Prédio)</SelectItem>
-                          <SelectItem value="Tool">🛠️ Tool (Ferramenta)</SelectItem>
-                          <SelectItem value="Plug">🔌 Plug (Tomada)</SelectItem>
-                          <SelectItem value="Shield">🛡️ Shield (Proteção)</SelectItem>
-                          <SelectItem value="AlertTriangle">⚠️ AlertTriangle (Atenção)</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <Label>Sigla (Mapa) *</Label>
+                      <Input
+                        value={tipoServicoForm.sigla}
+                        onChange={(e) => setTipoServicoForm({ ...tipoServicoForm, sigla: e.target.value.toUpperCase().slice(0, 3) })}
+                        placeholder="Ex: COA"
+                        maxLength={3}
+                        className="font-mono font-bold text-center uppercase"
+                      />
+                      <p className="text-xs text-muted-foreground">Máx. 3 caracteres. Exibida no mapa.</p>
                     </div>
                     <div className="space-y-2">
-                      <Label>Cor</Label>
+                      <Label>Cor *</Label>
                       <div className="flex items-center gap-2">
                         <Input
                           type="color"
@@ -1230,79 +1149,50 @@ export default function AdminCadastrosBase() {
                         />
                       </div>
                     </div>
-                  </div>
-                  
-                  {/* Upload de Ícone Personalizado (Imagem) */}
-                  <div className="space-y-2 pt-2 border-t">
-                    <Label className="flex items-center gap-2">
-                      <ImageIcon className="h-4 w-4" />
-                      Ícone Personalizado (Imagem para o Mapa)
-                    </Label>
-                    <div className="flex items-center gap-4">
-                      {/* Preview */}
-                      {tipoServicoForm.icone_url ? (
-                        <div className="relative">
-                          <div className="w-16 h-16 rounded-lg border-2 border-dashed border-border bg-muted/50 flex items-center justify-center overflow-hidden">
-                            <img 
-                              src={tipoServicoForm.icone_url} 
-                              alt="Preview do ícone" 
-                              className="w-full h-full object-contain"
-                            />
-                          </div>
-                          <Button
-                            type="button"
-                            variant="destructive"
-                            size="icon"
-                            className="absolute -top-2 -right-2 h-5 w-5 rounded-full"
-                            onClick={handleRemoveImage}
-                          >
-                            <X className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      ) : (
+                    <div className="space-y-2">
+                      <Label>Preview</Label>
+                      <div className="flex items-center justify-center h-10">
                         <div 
-                          className="w-16 h-16 rounded-lg border-2 border-dashed border-border bg-muted/50 flex items-center justify-center cursor-pointer hover:bg-muted transition-colors"
-                          onClick={() => imageInputRef.current?.click()}
+                          className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-md border-2 border-white"
+                          style={{ backgroundColor: tipoServicoForm.cor || '#3b82f6' }}
                         >
-                          {uploadingImage ? (
-                            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                          ) : (
-                            <ImageIcon className="h-5 w-5 text-muted-foreground" />
-                          )}
+                          {tipoServicoForm.sigla || '?'}
                         </div>
-                      )}
-
-                      {/* Botão de upload */}
-                      <div className="flex-1 space-y-2">
-                        <input
-                          ref={imageInputRef}
-                          type="file"
-                          accept="image/png,image/jpeg,image/gif,image/svg+xml,image/webp"
-                          onChange={handleImageUpload}
-                          className="hidden"
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => imageInputRef.current?.click()}
-                          disabled={uploadingImage}
-                        >
-                          {uploadingImage ? (
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          ) : (
-                            <Upload className="h-4 w-4 mr-2" />
-                          )}
-                          {tipoServicoForm.icone_url ? "Alterar imagem" : "Enviar imagem"}
-                        </Button>
-                        <p className="text-xs text-muted-foreground">
-                          PNG, JPG, GIF, SVG ou WebP (máx 1MB). Esta imagem será exibida no mapa de roteirização.
-                        </p>
                       </div>
+                      <p className="text-xs text-muted-foreground text-center">Como aparece no mapa</p>
                     </div>
                   </div>
+                  <div className="space-y-2">
+                    <Label>Ícone (Referência)</Label>
+                    <Select
+                      value={tipoServicoForm.icone || "none"}
+                      onValueChange={(v) => setTipoServicoForm({ ...tipoServicoForm, icone: v === "none" ? "" : v })}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Nenhum" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Nenhum</SelectItem>
+                        <SelectItem value="Zap">⚡ Zap (Raio)</SelectItem>
+                        <SelectItem value="Power">🔌 Power (Energia)</SelectItem>
+                        <SelectItem value="AlertCircle">⚠️ AlertCircle (Alerta)</SelectItem>
+                        <SelectItem value="CheckCircle">✅ CheckCircle (Concluído)</SelectItem>
+                        <SelectItem value="Wrench">🔧 Wrench (Ferramenta)</SelectItem>
+                        <SelectItem value="Settings">⚙️ Settings (Configurações)</SelectItem>
+                        <SelectItem value="Search">🔍 Search (Busca/Inspeção)</SelectItem>
+                        <SelectItem value="Clipboard">📋 Clipboard (Checklist)</SelectItem>
+                        <SelectItem value="FileText">📄 FileText (Documento)</SelectItem>
+                        <SelectItem value="MapPin">📍 MapPin (Localização)</SelectItem>
+                        <SelectItem value="Home">🏠 Home (Casa)</SelectItem>
+                        <SelectItem value="Building">🏢 Building (Prédio)</SelectItem>
+                        <SelectItem value="Tool">🛠️ Tool (Ferramenta)</SelectItem>
+                        <SelectItem value="Plug">🔌 Plug (Tomada)</SelectItem>
+                        <SelectItem value="Shield">🛡️ Shield (Proteção)</SelectItem>
+                        <SelectItem value="AlertTriangle">⚠️ AlertTriangle (Atenção)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">Ícone de referência para listagens (não exibido no mapa)</p>
+                  </div>
                   
-                  <div className="grid grid-cols-3 gap-3 pt-2">
+                  <div className="grid grid-cols-3 gap-3 pt-2 border-t">
                     <div className="flex items-center justify-between rounded-lg border p-3">
                       <div className="space-y-0.5">
                         <Label>Regulada</Label>

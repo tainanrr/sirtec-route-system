@@ -123,8 +123,8 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
   const [erroMsg, setErroMsg] = useState("");
   const [routesGeometry, setRoutesGeometry] = useState<RouteGeometryData>({});
   const [calculandoRotas, setCalculandoRotas] = useState(false);
-  // Mapa de tipo -> { icone: string (lucide), icone_url: string (imagem personalizada), tempoExecucao: number }
-  const [skillsIcons, setSkillsIcons] = useState<Map<string, { icone?: string; icone_url?: string; tempoExecucao?: number }>>(new Map());
+  // Mapa de tipo -> dados das skills (sigla, cor, tempoExecucao, nome)
+  const [skillsIcons, setSkillsIcons] = useState<Map<string, { tempoExecucao?: number; sigla?: string; cor?: string; nome?: string }>>(new Map());
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [filtroTipo, setFiltroTipo] = useState<string>("todos");
   const [filtroEquipe, setFiltroEquipe] = useState<string>("todos");
@@ -633,6 +633,49 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
     return '#9ca3af'; // Cinza mais claro
   };
 
+  // Função para obter a letra do grupo de serviço
+  // Cada grupo tem uma letra distintiva para fácil identificação visual
+  const obterLetraGrupo = (tipo: string): string => {
+    const tipoUpper = tipo.toUpperCase();
+    
+    // Grupo Cobrança: Corte, Recorte
+    if (tipoUpper.includes('CORTE') || tipoUpper.includes('RECORTE')) {
+      return 'C'; // C - Cobrança (Corte/Recorte)
+    }
+    
+    // Grupo Religação: Religa, Reativação
+    if (tipoUpper.includes('RELIGA') || tipoUpper.includes('REATIVACAO')) {
+      return 'R'; // R - Religação
+    }
+    
+    // Grupo Ligação: Ligação Nova, Alteração, Modificação
+    if (tipoUpper.includes('LIGACAO') || tipoUpper.includes('ALTERACAO') || tipoUpper.includes('MODIF')) {
+      return 'L'; // L - Ligação
+    }
+    
+    // Grupo Baixa/Verificação
+    if (tipoUpper.includes('BAIXA') || tipoUpper.includes('VERIFICACAO')) {
+      return 'B'; // B - Baixa/Verificação
+    }
+    
+    // Grupo Enlace
+    if (tipoUpper.includes('ENLACE')) {
+      return 'E'; // E - Enlace
+    }
+    
+    // Grupo Varredura
+    if (tipoUpper.includes('VARREDURA')) {
+      return 'V'; // V - Varredura
+    }
+    
+    // Grupo Microgeração
+    if (tipoUpper.includes('MICROGER')) {
+      return 'M'; // M - Microgeração
+    }
+    
+    return '?'; // Outros
+  };
+
   // Função auxiliar para obter label formatado do tipo
   const obterLabelTipo = (tipo: string): string => {
     const tipoLabels: Record<string, string> = {
@@ -719,20 +762,20 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
         // Buscar dados das Skills usando códigos
         const dadosSkills = await getDadosSkills(codigosSkills);
         
-        // Criar mapa de tipo -> { icone, icone_url, tempoExecucao }
-        const iconsMap = new Map<string, { icone?: string; icone_url?: string; tempoExecucao?: number }>();
+        // Criar mapa de tipo -> { tempoExecucao, sigla, cor, nome }
+        const skillsMap = new Map<string, { tempoExecucao?: number; sigla?: string; cor?: string; nome?: string }>();
         tiposUnicos.forEach(tipo => {
           const codigoSkill = tipoParaSkillCodigo(tipo);
           const dados = dadosSkills.get(codigoSkill);
-          // Sempre adicionar os dados da skill, mesmo sem ícone, para ter o tempoExecucao
-          iconsMap.set(tipo, {
-            icone: dados?.icone,
-            icone_url: dados?.icone_url,
+          skillsMap.set(tipo, {
             tempoExecucao: dados?.tempoExecucao,
+            sigla: dados?.sigla,
+            cor: dados?.cor,
+            nome: dados?.nome,
           });
         });
         
-        setSkillsIcons(iconsMap);
+        setSkillsIcons(skillsMap);
       } catch (error) {
         console.error("[MAPA] Erro ao buscar ícones das Skills:", error);
       }
@@ -1003,12 +1046,23 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
         
         contadorOSsValidas++;
         
-        // Obter icone_url da skill correspondente
-        const skillIcon = skillsIcons.get(os.tipo);
-        
         // Verificar se é regulada urgente (campo regulada=true E vencida/vencendo até o final do dia)
         const classificacaoOS = classificarPrazo(os.prazo);
         const isReguladaUrgente = os.regulada === true && ['hoje', 'passado'].includes(classificacaoOS);
+        
+        // Obter sigla e cor do skill
+        const skillData = skillsIcons.get(os.tipo);
+        
+        // Formatar prazo para o tooltip (se regulada)
+        const prazoFormatado = os.prazo 
+          ? new Date(os.prazo).toLocaleString('pt-BR', { 
+              day: '2-digit', 
+              month: '2-digit', 
+              year: 'numeric', 
+              hour: '2-digit', 
+              minute: '2-digit' 
+            })
+          : undefined;
         
         canvasMarkers.push({
           id: os.id,
@@ -1016,10 +1070,13 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
           lng: os.longitude,
           numero: os.numero,
           tipo: os.tipo,
+          nomeServico: skillData?.nome || obterLabelTipo(os.tipo), // Nome do tipo de serviço (do cadastro)
+          prazo: os.regulada ? prazoFormatado : undefined, // Prazo apenas para reguladas
           cor: obterCorBordaPrioridade(os),
+          corMarcador: skillData?.cor, // Cor do preenchimento da skill
+          sigla: skillData?.sigla, // Sigla da skill
           selecionado: osSelecionada === os.id,
           regulada: isReguladaUrgente, // Borda vermelha apenas para reguladas vencidas/vencendo hoje
-          icone_url: skillIcon?.icone_url,
         });
       });
       
@@ -1235,24 +1292,21 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
           // Verificar se esta OS está selecionada no editor
           const isSelecionadaNoEditor = osSelecionadaNoEditor === servico.ordemServico.id;
           
-          // Obter ícone da Skill correspondente ao tipo da OS
-          const skillIcon = skillsIcons.get(servico.ordemServico.tipo);
-          const iconName = skillIcon?.icone;
-          const iconeUrl = skillIcon?.icone_url;
-          
           // Obter cor da borda baseada na prioridade
           const corBorda = obterCorBordaPrioridade(servico.ordemServico);
           
-          // Criar ícone SVG com a cor da equipe, ícone da skill e número da ordem
-          // Se equipe está sendo editada, destacar marcadores dela e reduzir um pouco os outros (mesmo tamanho das OSs não roteirizadas)
-          const tamanhoMarker = isEditando ? 40 : (equipeEditando ? 24 : 32);
-          const tamanhoIcone = isEditando ? 32 : (equipeEditando ? 20 : 20);
-          const opacidadeMarker = opacidadeReduzida < 1 ? opacidadeReduzida : 1;
+          // Obter sigla da skill ou fallback para letra do grupo
+          const skillData = skillsIcons.get(servico.ordemServico.tipo);
+          const sigla = skillData?.sigla || obterLetraGrupo(servico.ordemServico.tipo);
           
-          // Se tem imagem personalizada, usar ela; senão, usar ícone Lucide
-          const iconContent = iconeUrl 
-            ? `<img src="${iconeUrl}" style="width: ${tamanhoIcone}px; height: ${tamanhoIcone}px; object-fit: contain; border-radius: 50%;" />`
-            : (iconName ? getLucideIconSVG(iconName, "#000000", tamanhoIcone) : '');
+          // Criar ícone SVG com a cor da equipe e sigla
+          // Se equipe está sendo editada, destacar marcadores dela e reduzir um pouco os outros
+          const tamanhoMarker = isEditando ? 40 : (equipeEditando ? 24 : 32);
+          const opacidadeMarker = opacidadeReduzida < 1 ? opacidadeReduzida : 1;
+          // Ajustar tamanho da fonte baseado no tamanho da sigla
+          const siglaLen = sigla.length;
+          const baseFontSize = isEditando ? 18 : 14;
+          const fontSize = siglaLen > 2 ? baseFontSize - 4 : baseFontSize;
           
           const iconSVG = `
             <div style="
@@ -1270,7 +1324,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
               opacity: ${opacidadeMarker};
               ${isSelecionadaNoEditor ? 'animation: pulse-blue 1.5s infinite;' : (isEditando ? 'animation: pulse 2s infinite;' : '')}
             ">
-              ${iconContent}
+              <span style="font-size: ${fontSize}px; font-weight: bold; color: white;">${sigla}</span>
               <div style="
                 position: absolute;
                 bottom: -2px;

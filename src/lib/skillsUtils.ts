@@ -10,6 +10,9 @@ interface SkillCacheData {
   regulada: boolean;
   icone?: string;
   icone_url?: string; // URL da imagem personalizada para o mapa
+  sigla?: string; // Sigla de até 3 caracteres para o mapa
+  cor?: string; // Cor do marcador no mapa
+  nome?: string; // Nome do tipo de serviço (ex: "Corte A")
 }
 
 let skillsCache: Map<string, SkillCacheData> | null = null;
@@ -63,7 +66,7 @@ export async function getDadosSkill(codigoSkill: string): Promise<SkillCacheData
   // Se não encontrou no cache, buscar no banco
   const { data, error } = await supabase
     .from("skills")
-    .select("tempo_execucao_minutos, valor, regulada, icone, icone_url")
+    .select("nome, tempo_execucao_minutos, valor, regulada, icone, icone_url, sigla, cor")
     .eq("codigo", codigoSkill.toUpperCase())
     .eq("ativo", true)
     .single();
@@ -82,6 +85,9 @@ export async function getDadosSkill(codigoSkill: string): Promise<SkillCacheData
     regulada: data.regulada || false,
     icone: data.icone || undefined,
     icone_url: (data as any).icone_url || undefined,
+    sigla: (data as any).sigla || undefined,
+    cor: (data as any).cor || undefined,
+    nome: data.nome || undefined,
   };
 
   // Atualizar cache
@@ -107,6 +113,9 @@ export async function refreshSkillsCache(): Promise<void> {
         regulada: skill.regulada || false,
         icone: skill.icone || undefined,
         icone_url: (skill as any).icone_url || undefined,
+        sigla: (skill as any).sigla || undefined,
+        cor: (skill as any).cor || undefined,
+        nome: skill.nome || undefined,
       });
     });
 
@@ -161,7 +170,7 @@ export async function getDadosSkills(codigosSkills: string[]): Promise<Map<strin
   if (codigosNaoEncontrados.length > 0) {
     const { data, error } = await supabase
       .from("skills")
-      .select("codigo, tempo_execucao_minutos, valor, regulada, icone, icone_url")
+      .select("codigo, nome, tempo_execucao_minutos, valor, regulada, icone, icone_url, sigla, cor")
       .in("codigo", codigosNaoEncontrados)
       .eq("ativo", true);
 
@@ -174,6 +183,9 @@ export async function getDadosSkills(codigosSkills: string[]): Promise<Map<strin
           regulada: skill.regulada || false,
           icone: skill.icone || undefined,
           icone_url: (skill as any).icone_url || undefined,
+          sigla: (skill as any).sigla || undefined,
+          cor: (skill as any).cor || undefined,
+          nome: skill.nome || undefined,
         };
         dados.set(codigoUpper, skillData);
         // Atualizar cache

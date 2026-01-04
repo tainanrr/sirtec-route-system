@@ -34,10 +34,13 @@ export interface CanvasMarker {
   lng: number;
   numero: string;
   tipo: string;
-  cor: string; // Cor da borda/fundo baseada em prioridade
+  nomeServico?: string; // Nome do tipo de serviço (ex: "Corte A")
+  prazo?: string; // Prazo formatado (ex: "04/01/2026, 23:59")
+  cor: string; // Cor da borda baseada em prioridade (vermelho para regulada, etc)
+  corMarcador?: string; // Cor de preenchimento do marcador (da skill)
+  sigla?: string; // Sigla de até 3 caracteres (da skill)
   selecionado?: boolean;
   regulada?: boolean;
-  icone_url?: string; // URL da imagem personalizada
 }
 
 interface CanvasMarkersLayerOptions extends L.LayerOptions {
@@ -46,49 +49,84 @@ interface CanvasMarkersLayerOptions extends L.LayerOptions {
   onMarkerHover?: (marker: CanvasMarker | null) => void;
 }
 
-// Cores por tipo de serviço
-const CORES_TIPO: Record<string, string> = {
-  'corte': '#ef4444',      // vermelho
-  'religa': '#22c55e',     // verde
-  'ligacao': '#3b82f6',    // azul
-  'verificacao': '#f97316', // laranja
-  'baixa': '#8b5cf6',      // roxo
-  'enlace': '#06b6d4',     // ciano
-  'recorte': '#ec4899',    // rosa
-  'default': '#6b7280',    // cinza
+// Cores por GRUPO de serviço (baseado nos grupos cadastrados)
+// Cada grupo tem uma cor distinta para fácil identificação visual
+const CORES_GRUPO: Record<string, string> = {
+  'cobranca': '#ef4444',        // Vermelho - Corte, Recorte (cobrança)
+  'religacao': '#22c55e',       // Verde - Religa (reconexão)
+  'ligacao': '#3b82f6',         // Azul - Ligação Nova, Alteração, Modificação
+  'baixa_verificacao': '#f97316', // Laranja - Baixa, Verificação
+  'enlace': '#06b6d4',          // Ciano - Enlace
+  'varredura': '#8b5cf6',       // Roxo - Varredura
+  'microgeracao': '#10b981',    // Esmeralda - Microgeração
+  'default': '#6b7280',         // Cinza - Outros
 };
 
-// Obter cor baseada no tipo
-function getCorTipo(tipo: string): string {
-  const tipoLower = tipo.toLowerCase();
-  for (const [key, cor] of Object.entries(CORES_TIPO)) {
-    if (tipoLower.includes(key)) return cor;
-  }
-  return CORES_TIPO.default;
-}
-
-// Cache global de imagens para evitar recarregamento
-const imageCache = new Map<string, HTMLImageElement>();
-
-// Função para pré-carregar imagens
-async function preloadImage(url: string): Promise<HTMLImageElement | null> {
-  if (imageCache.has(url)) {
-    return imageCache.get(url)!;
+// Mapeamento de tipos de serviço para grupos
+function getGrupoServico(tipo: string): string {
+  const tipoUpper = tipo.toUpperCase();
+  
+  // Grupo Cobrança: Corte, Recorte
+  if (tipoUpper.includes('CORTE') || tipoUpper.includes('RECORTE')) {
+    return 'cobranca';
   }
   
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      imageCache.set(url, img);
-      resolve(img);
-    };
-    img.onerror = () => {
-      console.warn(`[CanvasMarkers] Erro ao carregar imagem: ${url}`);
-      resolve(null);
-    };
-    img.src = url;
-  });
+  // Grupo Religação: Religa, Reativação
+  if (tipoUpper.includes('RELIGA') || tipoUpper.includes('REATIVACAO')) {
+    return 'religacao';
+  }
+  
+  // Grupo Ligação: Ligação Nova, Alteração, Modificação
+  if (tipoUpper.includes('LIGACAO') || tipoUpper.includes('ALTERACAO') || tipoUpper.includes('MODIF')) {
+    return 'ligacao';
+  }
+  
+  // Grupo Baixa/Verificação
+  if (tipoUpper.includes('BAIXA') || tipoUpper.includes('VERIFICACAO')) {
+    return 'baixa_verificacao';
+  }
+  
+  // Grupo Enlace
+  if (tipoUpper.includes('ENLACE')) {
+    return 'enlace';
+  }
+  
+  // Grupo Varredura
+  if (tipoUpper.includes('VARREDURA')) {
+    return 'varredura';
+  }
+  
+  // Grupo Microgeração
+  if (tipoUpper.includes('MICROGER')) {
+    return 'microgeracao';
+  }
+  
+  return 'default';
+}
+
+// Obter cor baseada no tipo (usando grupo)
+function getCorTipo(tipo: string): string {
+  const grupo = getGrupoServico(tipo);
+  return CORES_GRUPO[grupo] || CORES_GRUPO.default;
+}
+
+// Letras/símbolos para cada grupo de serviço (desenhados no canvas)
+// Cada grupo tem uma letra distintiva além da cor para fácil identificação
+const LETRAS_GRUPO: Record<string, string> = {
+  'cobranca': 'C',        // C - Corte/Recorte (cobrança)
+  'religacao': 'R',       // R - Religação/Religa
+  'ligacao': 'L',         // L - Ligação
+  'baixa_verificacao': 'B', // B - Baixa/Verificação
+  'enlace': 'E',          // E - Enlace
+  'varredura': 'V',       // V - Varredura
+  'microgeracao': 'M',    // M - Microgeração
+  'default': '?',         // ? - Outros
+};
+
+// Obter letra do grupo
+function getLetraGrupo(tipo: string): string {
+  const grupo = getGrupoServico(tipo);
+  return LETRAS_GRUPO[grupo] || LETRAS_GRUPO.default;
 }
 
 // Classe da camada de canvas
@@ -108,27 +146,8 @@ export class CanvasMarkersLayer extends L.Layer {
     this._markers = options.markers || [];
     this._onMarkerClick = options.onMarkerClick;
     this._onMarkerHover = options.onMarkerHover;
-    
-    // Pré-carregar imagens únicas
-    this._preloadMarkerImages();
   }
   
-  // Pré-carregar todas as imagens dos marcadores
-  private async _preloadMarkerImages(): Promise<void> {
-    const uniqueUrls = new Set<string>();
-    this._markers.forEach(m => {
-      if (m.icone_url) uniqueUrls.add(m.icone_url);
-    });
-    
-    const loadPromises = Array.from(uniqueUrls).map(url => preloadImage(url));
-    await Promise.all(loadPromises);
-    
-    // Redesenhar após carregar imagens
-    if (this._map) {
-      this._draw();
-    }
-  }
-
   onAdd(map: L.Map): this {
     // Criar canvas
     this._canvas = L.DomUtil.create('canvas', 'leaflet-canvas-markers-layer') as HTMLCanvasElement;
@@ -191,9 +210,7 @@ export class CanvasMarkersLayer extends L.Layer {
   // Atualizar marcadores
   setMarkers(markers: CanvasMarker[]): void {
     this._markers = markers;
-    this._preloadMarkerImages().then(() => {
-      this._draw();
-    });
+    this._draw();
   }
 
   // Atualizar tamanho do canvas
@@ -349,104 +366,76 @@ export class CanvasMarkersLayer extends L.Layer {
 
   // Desenhar um marcador individual
   private _drawMarker(ctx: CanvasRenderingContext2D, x: number, y: number, marker: CanvasMarker): void {
-    const radius = marker.selecionado ? this._markerRadius + 4 : this._markerRadius;
-    const corTipo = getCorTipo(marker.tipo);
-    const corBorda = marker.cor || corTipo;
     const zoom = this._map?.getZoom() || 12;
+    // Usar cor e sigla do marcador se disponível, senão usar valores calculados
+    const corMarcador = marker.corMarcador || getCorTipo(marker.tipo);
+    const sigla = marker.sigla || getLetraGrupo(marker.tipo);
     
-    // Se tem imagem personalizada, desenhar ela
-    if (marker.icone_url && imageCache.has(marker.icone_url)) {
-      const img = imageCache.get(marker.icone_url)!;
-      // Tamanhos maiores para melhor visualização
-      const imgSize = marker.selecionado ? 40 : (zoom >= 15 ? 32 : zoom >= 13 ? 28 : 24);
-      const imgX = x - imgSize / 2;
-      const imgY = y - imgSize / 2;
-      
-      // Sombra suave
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-      ctx.shadowBlur = 4;
-      ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 2;
-      
-      // Desenhar fundo circular branco
-      ctx.beginPath();
-      ctx.arc(x, y, imgSize / 2 + 3, 0, Math.PI * 2);
-      ctx.fillStyle = marker.selecionado ? '#3b82f6' : '#ffffff';
-      ctx.fill();
-      
-      // Borda colorida
-      ctx.strokeStyle = marker.selecionado ? '#1e40af' : corBorda;
-      ctx.lineWidth = marker.selecionado ? 3 : 2;
-      ctx.stroke();
-      
-      // Resetar sombra
-      ctx.shadowColor = 'transparent';
-      ctx.shadowBlur = 0;
-      
-      // Criar clip circular para a imagem
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(x, y, imgSize / 2, 0, Math.PI * 2);
-      ctx.clip();
-      
-      // Desenhar imagem
-      ctx.drawImage(img, imgX, imgY, imgSize, imgSize);
-      ctx.restore();
-      
-      // Se for regulada urgente, redesenhar borda vermelha por cima
-      if (marker.regulada) {
-        ctx.beginPath();
-        ctx.arc(x, y, imgSize / 2 + 2, 0, Math.PI * 2);
-        ctx.strokeStyle = '#dc2626';
-        ctx.lineWidth = 3;
-        ctx.stroke();
-      }
+    // Raio baseado no zoom para melhor visualização
+    const baseRadius = marker.selecionado ? 16 : (zoom >= 15 ? 14 : zoom >= 13 ? 12 : 10);
+    
+    // Sombra suave
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
+    ctx.shadowBlur = 4;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 2;
+    
+    // Círculo principal preenchido com a cor do marcador
+    ctx.beginPath();
+    ctx.arc(x, y, baseRadius, 0, Math.PI * 2);
+    
+    if (marker.selecionado) {
+      // Selecionado: fundo azul brilhante
+      ctx.fillStyle = '#3b82f6';
     } else {
-      // Fallback: desenhar círculo colorido padrão (tamanhos maiores)
-      const fallbackRadius = marker.selecionado ? 16 : (zoom >= 15 ? 14 : zoom >= 13 ? 12 : 10);
-      
-      // Sombra suave
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
-      ctx.shadowBlur = 4;
-      ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 2;
-      
-      // Fundo branco
-      ctx.beginPath();
-      ctx.arc(x, y, fallbackRadius, 0, Math.PI * 2);
-      ctx.fillStyle = marker.selecionado ? '#3b82f6' : '#ffffff';
-      ctx.fill();
-      
-      // Borda colorida
-      ctx.strokeStyle = marker.selecionado ? '#1e40af' : corBorda;
-      ctx.lineWidth = marker.selecionado ? 3 : 2;
-      ctx.stroke();
-      
-      // Resetar sombra
-      ctx.shadowColor = 'transparent';
-      ctx.shadowBlur = 0;
-      
-      // Se for regulada urgente, redesenhar borda vermelha por cima
-      if (marker.regulada) {
-        ctx.beginPath();
-        ctx.arc(x, y, fallbackRadius, 0, Math.PI * 2);
-        ctx.strokeStyle = '#dc2626';
-        ctx.lineWidth = 3;
-        ctx.stroke();
-      }
+      // Normal: cor da skill
+      ctx.fillStyle = corMarcador;
     }
+    ctx.fill();
     
-    // Número da OS (apenas se zoom suficiente)
-    if (zoom >= 15) {
-      ctx.font = 'bold 9px Arial';
-      ctx.fillStyle = marker.selecionado ? '#ffffff' : '#374151';
+    // Borda externa
+    if (marker.regulada) {
+      // Regulada urgente: borda vermelha grossa
+      ctx.strokeStyle = '#dc2626';
+      ctx.lineWidth = 3;
+    } else if (marker.selecionado) {
+      // Selecionado: borda azul escura
+      ctx.strokeStyle = '#1e40af';
+      ctx.lineWidth = 3;
+    } else {
+      // Normal: borda branca para contraste
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+    }
+    ctx.stroke();
+    
+    // Resetar sombra
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    
+    // Sigla no centro (apenas se zoom suficiente para ver)
+    if (zoom >= 12) {
+      // Ajustar tamanho da fonte baseado no tamanho da sigla
+      const siglaLen = sigla.length;
+      const baseFontSize = marker.selecionado ? 12 : (zoom >= 15 ? 11 : zoom >= 13 ? 10 : 9);
+      const fontSize = siglaLen > 2 ? baseFontSize - 2 : baseFontSize;
+      ctx.font = `bold ${fontSize}px Arial`;
+      ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
+      ctx.fillText(sigla, x, y);
+    }
+    
+    // Número da OS abaixo do marcador (apenas se zoom alto)
+    if (zoom >= 16) {
+      ctx.font = 'bold 9px Arial';
+      ctx.fillStyle = '#374151';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
       
       // Mostrar últimos 4 dígitos do número
       const shortNum = marker.numero.slice(-4);
-      const imgSize = marker.icone_url && imageCache.has(marker.icone_url) ? (marker.selecionado ? 32 : 24) : radius * 2;
-      ctx.fillText(shortNum, x, y + imgSize / 2 + 10);
+      ctx.fillText(shortNum, x, y + baseRadius + 4);
     }
   }
 
@@ -454,10 +443,10 @@ export class CanvasMarkersLayer extends L.Layer {
   private _drawMarkerHover(ctx: CanvasRenderingContext2D, x: number, y: number, marker: CanvasMarker): void {
     const zoom = this._map?.getZoom() || 12;
     // Hover deve ser maior que o marcador normal
-    const radius = marker.icone_url && imageCache.has(marker.icone_url) 
-      ? (zoom >= 15 ? 20 : zoom >= 13 ? 18 : 16)
-      : (zoom >= 15 ? 18 : zoom >= 13 ? 16 : 14);
-    const corTipo = getCorTipo(marker.tipo);
+    const radius = zoom >= 15 ? 18 : zoom >= 13 ? 16 : 14;
+    // Usar cor e sigla do marcador se disponível
+    const corMarcador = marker.corMarcador || getCorTipo(marker.tipo);
+    const sigla = marker.sigla || getLetraGrupo(marker.tipo);
     
     // Sombra
     ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
@@ -468,7 +457,7 @@ export class CanvasMarkersLayer extends L.Layer {
     // Fundo
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.fillStyle = corTipo;
+    ctx.fillStyle = corMarcador;
     ctx.fill();
     
     // Borda branca
@@ -480,9 +469,23 @@ export class CanvasMarkersLayer extends L.Layer {
     ctx.shadowColor = 'transparent';
     ctx.shadowBlur = 0;
     
-    // Tooltip com número completo
+    // Sigla no centro (hover)
+    const siglaLen = sigla.length;
+    const fontSize = siglaLen > 2 ? 10 : 12;
+    ctx.font = `bold ${fontSize}px Arial`;
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(sigla, x, y);
+    
+    // Tooltip com número, nome do serviço e prazo (se regulada)
     const tooltipY = y - radius - 25;
-    const tooltipText = `${marker.numero} - ${marker.tipo}`;
+    const nomeServico = marker.nomeServico || marker.tipo;
+    // Formato: "Numero | Nome" ou "Numero | Nome | Prazo" para reguladas
+    let tooltipText = `${marker.numero} | ${nomeServico}`;
+    if (marker.regulada && marker.prazo) {
+      tooltipText += ` | ${marker.prazo}`;
+    }
     
     ctx.font = 'bold 11px Arial';
     const textWidth = ctx.measureText(tooltipText).width;
