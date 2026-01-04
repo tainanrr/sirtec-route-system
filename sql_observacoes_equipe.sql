@@ -20,3 +20,4 @@ COMMENT ON COLUMN public.ordens_servico.observacoes_equipe IS 'Observações da 
 
 
 
+

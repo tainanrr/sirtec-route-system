@@ -429,7 +429,9 @@ const Roteirizacao = () => {
           toast.error("Erro ao carregar ordens de serviço");
         }
       } finally {
+        console.log(`[Roteirização] Finally - isCancelled: ${isCancelled}`);
         if (!isCancelled) {
+          console.log(`[Roteirização] Setando loadingOrdens para false`);
           setLoadingOrdens(false);
         }
       }
@@ -828,6 +830,7 @@ const Roteirizacao = () => {
   ].filter(Boolean).length;
 
   // Usar osPendentesTodas para mostrar TODAS as OSs no Backlog (sem filtro de território)
+  console.log("[Roteirização] ordensServico:", ordensServico.length, "osAlocadas:", osAlocadas.size, "osPendentesTodas:", osPendentesTodas.length);
   const filteredServicos = osPendentesTodas.filter((s) => {
     // Busca textual
     const matchesSearch =
