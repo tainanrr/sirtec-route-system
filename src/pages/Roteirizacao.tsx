@@ -85,6 +85,20 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Checkbox } from "@/components/ui/checkbox";
 import ExpectativaEquipesDialog from "./components/ExpectativaEquipesDialog";
 import SelecaoTerritoriosDialog from "./components/SelecaoTerritoriosDialog";
 import SelecaoOpcoesRoteiroDialog from "./components/SelecaoOpcoesRoteiroDialog";
@@ -128,7 +142,8 @@ const Roteirizacao = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchTerm, setSearchTerm] = useState("");
-  const [tipoFilter, setTipoFilter] = useState<string>("all");
+  const [tiposFilter, setTiposFilter] = useState<string[]>([]); // Array para seleção múltipla
+  const [tiposFilterOpen, setTiposFilterOpen] = useState(false); // Controle do popover
   
   // Filtros avançados do Backlog
   const [showFiltersBacklog, setShowFiltersBacklog] = useState(false);
@@ -136,8 +151,6 @@ const Roteirizacao = () => {
   const [prazoFim, setPrazoFim] = useState("");
   const [coordenadasFilter, setCoordenadasFilter] = useState<string>("all");
   const [reguladaFilter, setReguladaFilter] = useState<string>("all");
-  const [valorMinimo, setValorMinimo] = useState("");
-  const [valorMaximo, setValorMaximo] = useState("");
   
   const [rotas, setRotas] = useState<RotaEquipe[]>([]);
   const [isOtimizando, setIsOtimizando] = useState(false);
@@ -798,24 +811,20 @@ const Roteirizacao = () => {
   // Limpar filtros do Backlog
   const clearFiltersBacklog = () => {
     setSearchTerm("");
-    setTipoFilter("all");
+    setTiposFilter([]);
     setPrazoInicio("");
     setPrazoFim("");
     setCoordenadasFilter("all");
     setReguladaFilter("all");
-    setValorMinimo("");
-    setValorMaximo("");
   };
 
   // Contar filtros ativos do Backlog
   const activeFiltersBacklogCount = [
-    tipoFilter !== "all",
+    tiposFilter.length > 0,
     prazoInicio !== "",
     prazoFim !== "",
     coordenadasFilter !== "all",
     reguladaFilter !== "all",
-    valorMinimo !== "",
-    valorMaximo !== "",
   ].filter(Boolean).length;
 
   const filteredServicos = osPendentes.filter((s) => {
@@ -824,31 +833,23 @@ const Roteirizacao = () => {
       s.numero.toLowerCase().includes(searchTerm.toLowerCase()) ||
       s.endereco.toLowerCase().includes(searchTerm.toLowerCase());
     
-    // Tipo de serviço
-    const matchesTipo = tipoFilter === "all" || s.tipo.toLowerCase() === tipoFilter.toLowerCase();
+    // Tipo de serviço - seleção múltipla
+    const matchesTipo = tiposFilter.length === 0 || tiposFilter.some(tipo => s.tipo.toLowerCase() === tipo.toLowerCase());
     
-    // Prazo - início
+    // Prazo - início (só filtra se tiver prazo definido na OS)
     let matchesPrazoInicio = true;
-    if (prazoInicio) {
-      if (s.prazo) {
-        const prazoOS = new Date(s.prazo);
-        const prazoInicioDate = new Date(prazoInicio);
-        matchesPrazoInicio = prazoOS >= prazoInicioDate;
-      } else {
-        matchesPrazoInicio = false; // Se filtro está ativo e OS não tem prazo, não passa
-      }
+    if (prazoInicio && s.prazo) {
+      const prazoOS = new Date(s.prazo);
+      const prazoInicioDate = new Date(prazoInicio);
+      matchesPrazoInicio = prazoOS >= prazoInicioDate;
     }
     
-    // Prazo - fim
+    // Prazo - fim (só filtra se tiver prazo definido na OS)
     let matchesPrazoFim = true;
-    if (prazoFim) {
-      if (s.prazo) {
-        const prazoOS = new Date(s.prazo);
-        const prazoFimDate = new Date(prazoFim + "T23:59:59");
-        matchesPrazoFim = prazoOS <= prazoFimDate;
-      } else {
-        matchesPrazoFim = false; // Se filtro está ativo e OS não tem prazo, não passa
-      }
+    if (prazoFim && s.prazo) {
+      const prazoOS = new Date(s.prazo);
+      const prazoFimDate = new Date(prazoFim + "T23:59:59");
+      matchesPrazoFim = prazoOS <= prazoFimDate;
     }
     
     // Coordenadas
@@ -867,26 +868,8 @@ const Roteirizacao = () => {
       matchesRegulada = s.regulada !== true;
     }
     
-    // Valor mínimo
-    let matchesValorMin = true;
-    if (valorMinimo) {
-      const min = parseFloat(valorMinimo);
-      if (!isNaN(min)) {
-        matchesValorMin = (s.valor || 0) >= min;
-      }
-    }
-    
-    // Valor máximo
-    let matchesValorMax = true;
-    if (valorMaximo) {
-      const max = parseFloat(valorMaximo);
-      if (!isNaN(max)) {
-        matchesValorMax = (s.valor || 0) <= max;
-      }
-    }
-    
     return matchesSearch && matchesTipo && matchesPrazoInicio && matchesPrazoFim && 
-           matchesCoordenadas && matchesRegulada && matchesValorMin && matchesValorMax;
+           matchesCoordenadas && matchesRegulada;
   });
 
   // Função auxiliar para validar hora
@@ -3558,23 +3541,71 @@ const Roteirizacao = () => {
             {/* Painel de filtros avançados */}
             {showFiltersBacklog && (
               <div className="pt-3 border-t border-border/50">
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                  {/* Tipo de Serviço */}
-                  <div className="space-y-1">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  {/* Tipo de Serviço - Multi-select com busca */}
+                  <div className="space-y-1 col-span-2 md:col-span-1">
                     <label className="text-xs font-medium text-muted-foreground">Tipo de Serviço</label>
-                    <Select value={tipoFilter} onValueChange={setTipoFilter}>
-                      <SelectTrigger className="h-9">
-                        <SelectValue placeholder="Todos" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">Todos Tipos</SelectItem>
-                        {tiposDisponiveis.map((tipo) => (
-                          <SelectItem key={tipo} value={tipo}>
-                            {obterLabelTipo(tipo)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Popover open={tiposFilterOpen} onOpenChange={setTiposFilterOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={tiposFilterOpen}
+                          className="w-full h-9 justify-between text-left font-normal"
+                        >
+                          {tiposFilter.length === 0 ? (
+                            <span className="text-muted-foreground">Todos os tipos</span>
+                          ) : tiposFilter.length === 1 ? (
+                            <span className="truncate">{obterLabelTipo(tiposFilter[0])}</span>
+                          ) : (
+                            <span className="truncate">{tiposFilter.length} tipos selecionados</span>
+                          )}
+                          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[280px] p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="Buscar tipo de serviço..." />
+                          <CommandList>
+                            <CommandEmpty>Nenhum tipo encontrado.</CommandEmpty>
+                            <CommandGroup>
+                              {/* Opção para limpar seleção */}
+                              {tiposFilter.length > 0 && (
+                                <CommandItem
+                                  onSelect={() => setTiposFilter([])}
+                                  className="text-muted-foreground"
+                                >
+                                  <X className="mr-2 h-4 w-4" />
+                                  Limpar seleção
+                                </CommandItem>
+                              )}
+                              {tiposDisponiveis.map((tipo) => {
+                                const isSelected = tiposFilter.includes(tipo);
+                                return (
+                                  <CommandItem
+                                    key={tipo}
+                                    value={obterLabelTipo(tipo)}
+                                    onSelect={() => {
+                                      if (isSelected) {
+                                        setTiposFilter(tiposFilter.filter(t => t !== tipo));
+                                      } else {
+                                        setTiposFilter([...tiposFilter, tipo]);
+                                      }
+                                    }}
+                                  >
+                                    <Checkbox
+                                      checked={isSelected}
+                                      className="mr-2"
+                                    />
+                                    {obterLabelTipo(tipo)}
+                                  </CommandItem>
+                                );
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
                   </div>
 
                   {/* Regulada */}
@@ -3611,31 +3642,6 @@ const Roteirizacao = () => {
                         <SelectItem value="sem">Sem Coordenadas</SelectItem>
                       </SelectContent>
                     </Select>
-                  </div>
-
-                  {/* Valor */}
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                      <DollarSign className="h-3 w-3" />
-                      Valor (R$)
-                    </label>
-                    <div className="flex items-center gap-1">
-                      <Input
-                        type="number"
-                        placeholder="Mín"
-                        value={valorMinimo}
-                        onChange={(e) => setValorMinimo(e.target.value)}
-                        className="h-9 w-16 text-xs"
-                      />
-                      <span className="text-muted-foreground text-xs">-</span>
-                      <Input
-                        type="number"
-                        placeholder="Máx"
-                        value={valorMaximo}
-                        onChange={(e) => setValorMaximo(e.target.value)}
-                        className="h-9 w-16 text-xs"
-                      />
-                    </div>
                   </div>
                 </div>
 
