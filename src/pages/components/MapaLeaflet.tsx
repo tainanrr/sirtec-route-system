@@ -1047,14 +1047,16 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
       }
       
       // Criar MarkerClusterGroup com configurações para spiderfy
+      // NOTA: maxClusterRadius=3 significa que só agrupa marcadores a ~3 pixels de distância
+      // Em zoom 18, isso equivale a aproximadamente 5-10 metros
       const markerCluster = L.markerClusterGroup({
-        // Configurações para spiderfy de marcadores sobrepostos
-        maxClusterRadius: 20, // Agrupa apenas marcadores muito próximos (20 pixels)
+        // Configurações para spiderfy apenas de marcadores MUITO próximos (~10 metros)
+        maxClusterRadius: 3, // Agrupa APENAS marcadores praticamente na mesma posição (3 pixels)
         spiderfyOnMaxZoom: true, // Ativa spiderfy no zoom máximo
         showCoverageOnHover: false, // Não mostra área de cobertura
         zoomToBoundsOnClick: false, // Não dá zoom ao clicar, apenas spiderfy
-        disableClusteringAtZoom: 19, // Desabilita clustering em zoom alto
-        spiderfyDistanceMultiplier: 1.5, // Distância entre os marcadores no spiderfy
+        disableClusteringAtZoom: 20, // Desabilita clustering em zoom muito alto
+        spiderfyDistanceMultiplier: 2, // Distância maior entre os marcadores no spiderfy para melhor visualização
         spiderLegPolylineOptions: { weight: 2, color: '#666', opacity: 0.7 }, // Linhas do spiderfy
         // Ícone customizado para o cluster
         iconCreateFunction: (cluster) => {
@@ -1245,7 +1247,29 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
         // Criar marcador
         const marker = L.marker([os.latitude, os.longitude], { icon: markerIcon });
         
-        // Adicionar popup
+        // Adicionar tooltip (aparece ao passar o mouse)
+        const nomeServico = skillData?.nome || obterLabelTipo(os.tipo);
+        const prazoTooltip = os.prazo 
+          ? new Date(os.prazo).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
+          : null;
+        
+        const tooltipContent = `
+          <div style="font-family: system-ui; font-size: 12px; min-width: 150px;">
+            <div style="font-weight: bold; margin-bottom: 2px;">${os.numero}</div>
+            <div style="color: #4b5563;">${nomeServico}</div>
+            ${prazoTooltip ? `<div style="color: #dc2626; font-size: 11px;">⏰ ${prazoTooltip}</div>` : ''}
+            ${isReguladaUrgente ? '<div style="color: #dc2626; font-weight: bold; font-size: 10px;">⚠️ REGULADA</div>' : ''}
+          </div>
+        `;
+        
+        marker.bindTooltip(tooltipContent, {
+          direction: 'top',
+          offset: [0, -14],
+          className: 'os-tooltip',
+          permanent: false,
+        });
+        
+        // Adicionar popup (aparece ao clicar)
         marker.bindPopup(criarPopupHTML(os), {
           maxWidth: 320,
           autoPan: true,
