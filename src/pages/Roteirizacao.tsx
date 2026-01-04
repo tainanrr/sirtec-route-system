@@ -44,6 +44,10 @@ import {
   Trash2,
   ArrowUpDown,
   AlertTriangle,
+  Filter,
+  ChevronUp,
+  ChevronDown,
+  Calendar,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { cn } from "@/lib/utils";
@@ -125,6 +129,16 @@ const Roteirizacao = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchTerm, setSearchTerm] = useState("");
   const [tipoFilter, setTipoFilter] = useState<string>("all");
+  
+  // Filtros avançados do Backlog
+  const [showFiltersBacklog, setShowFiltersBacklog] = useState(false);
+  const [prazoInicio, setPrazoInicio] = useState("");
+  const [prazoFim, setPrazoFim] = useState("");
+  const [coordenadasFilter, setCoordenadasFilter] = useState<string>("all");
+  const [reguladaFilter, setReguladaFilter] = useState<string>("all");
+  const [valorMinimo, setValorMinimo] = useState("");
+  const [valorMaximo, setValorMaximo] = useState("");
+  
   const [rotas, setRotas] = useState<RotaEquipe[]>([]);
   const [isOtimizando, setIsOtimizando] = useState(false);
   const [equipes, setEquipes] = useState<Equipe[]>([]);
@@ -781,12 +795,98 @@ const Roteirizacao = () => {
     }
   }, [todosTiposDisponiveis]);
 
+  // Limpar filtros do Backlog
+  const clearFiltersBacklog = () => {
+    setSearchTerm("");
+    setTipoFilter("all");
+    setPrazoInicio("");
+    setPrazoFim("");
+    setCoordenadasFilter("all");
+    setReguladaFilter("all");
+    setValorMinimo("");
+    setValorMaximo("");
+  };
+
+  // Contar filtros ativos do Backlog
+  const activeFiltersBacklogCount = [
+    tipoFilter !== "all",
+    prazoInicio !== "",
+    prazoFim !== "",
+    coordenadasFilter !== "all",
+    reguladaFilter !== "all",
+    valorMinimo !== "",
+    valorMaximo !== "",
+  ].filter(Boolean).length;
+
   const filteredServicos = osPendentes.filter((s) => {
+    // Busca textual
     const matchesSearch =
       s.numero.toLowerCase().includes(searchTerm.toLowerCase()) ||
       s.endereco.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    // Tipo de serviço
     const matchesTipo = tipoFilter === "all" || s.tipo.toLowerCase() === tipoFilter.toLowerCase();
-    return matchesSearch && matchesTipo;
+    
+    // Prazo - início
+    let matchesPrazoInicio = true;
+    if (prazoInicio) {
+      if (s.prazo) {
+        const prazoOS = new Date(s.prazo);
+        const prazoInicioDate = new Date(prazoInicio);
+        matchesPrazoInicio = prazoOS >= prazoInicioDate;
+      } else {
+        matchesPrazoInicio = false; // Se filtro está ativo e OS não tem prazo, não passa
+      }
+    }
+    
+    // Prazo - fim
+    let matchesPrazoFim = true;
+    if (prazoFim) {
+      if (s.prazo) {
+        const prazoOS = new Date(s.prazo);
+        const prazoFimDate = new Date(prazoFim + "T23:59:59");
+        matchesPrazoFim = prazoOS <= prazoFimDate;
+      } else {
+        matchesPrazoFim = false; // Se filtro está ativo e OS não tem prazo, não passa
+      }
+    }
+    
+    // Coordenadas
+    let matchesCoordenadas = true;
+    if (coordenadasFilter === "com") {
+      matchesCoordenadas = s.latitude !== 0 && s.longitude !== 0 && s.latitude !== null && s.longitude !== null;
+    } else if (coordenadasFilter === "sem") {
+      matchesCoordenadas = s.latitude === 0 || s.longitude === 0 || s.latitude === null || s.longitude === null;
+    }
+    
+    // Regulada
+    let matchesRegulada = true;
+    if (reguladaFilter === "sim") {
+      matchesRegulada = s.regulada === true;
+    } else if (reguladaFilter === "nao") {
+      matchesRegulada = s.regulada !== true;
+    }
+    
+    // Valor mínimo
+    let matchesValorMin = true;
+    if (valorMinimo) {
+      const min = parseFloat(valorMinimo);
+      if (!isNaN(min)) {
+        matchesValorMin = (s.valor || 0) >= min;
+      }
+    }
+    
+    // Valor máximo
+    let matchesValorMax = true;
+    if (valorMaximo) {
+      const max = parseFloat(valorMaximo);
+      if (!isNaN(max)) {
+        matchesValorMax = (s.valor || 0) <= max;
+      }
+    }
+    
+    return matchesSearch && matchesTipo && matchesPrazoInicio && matchesPrazoFim && 
+           matchesCoordenadas && matchesRegulada && matchesValorMin && matchesValorMax;
   });
 
   // Função auxiliar para validar hora
@@ -3407,41 +3507,181 @@ const Roteirizacao = () => {
         <div className="rounded-xl border border-border bg-card overflow-hidden">
           <div className="p-4 border-b border-border">
             <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold text-foreground">Backlog de Serviços</h3>
-            <Badge variant="secondary">
-              {loadingOrdens ? (
-                loadingProgress.total > 0 
-                  ? `${loadingProgress.loaded.toLocaleString()}/${loadingProgress.total.toLocaleString()}`
-                  : "..."
-              ) : osPendentes.length.toLocaleString()}
-            </Badge>
-          </div>
-          <div className="relative mb-3">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Buscar OS, endereço..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-          <div className="flex gap-2">
-            <Select value={tipoFilter} onValueChange={setTipoFilter}>
-              <SelectTrigger className="flex-1">
-                <SelectValue placeholder="Tipo" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos Tipos</SelectItem>
-                {tiposDisponiveis.map((tipo) => {
-                  return (
-                    <SelectItem key={tipo} value={tipo}>
-                      {obterLabelTipo(tipo)}
-                    </SelectItem>
-                  );
-                })}
-              </SelectContent>
-            </Select>
-          </div>
+              <h3 className="font-semibold text-foreground">Backlog de Serviços</h3>
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary">
+                  {loadingOrdens ? (
+                    loadingProgress.total > 0 
+                      ? `${loadingProgress.loaded.toLocaleString()}/${loadingProgress.total.toLocaleString()}`
+                      : "..."
+                  ) : (
+                    filteredServicos.length !== osPendentes.length 
+                      ? `${filteredServicos.length.toLocaleString()} de ${osPendentes.length.toLocaleString()}`
+                      : osPendentes.length.toLocaleString()
+                  )}
+                </Badge>
+              </div>
+            </div>
+            
+            {/* Linha de busca e botão de filtros */}
+            <div className="flex gap-2 mb-3">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar OS, endereço..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+              <Button 
+                variant={showFiltersBacklog ? "default" : "outline"} 
+                className="gap-2"
+                onClick={() => setShowFiltersBacklog(!showFiltersBacklog)}
+              >
+                <Filter className="h-4 w-4" />
+                Filtros
+                {activeFiltersBacklogCount > 0 && (
+                  <Badge variant="secondary" className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs">
+                    {activeFiltersBacklogCount}
+                  </Badge>
+                )}
+                {showFiltersBacklog ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </Button>
+              {activeFiltersBacklogCount > 0 && (
+                <Button variant="ghost" size="sm" onClick={clearFiltersBacklog} className="text-muted-foreground">
+                  <RotateCcw className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+            
+            {/* Painel de filtros avançados */}
+            {showFiltersBacklog && (
+              <div className="pt-3 border-t border-border/50">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                  {/* Tipo de Serviço */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Tipo de Serviço</label>
+                    <Select value={tipoFilter} onValueChange={setTipoFilter}>
+                      <SelectTrigger className="h-9">
+                        <SelectValue placeholder="Todos" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todos Tipos</SelectItem>
+                        {tiposDisponiveis.map((tipo) => (
+                          <SelectItem key={tipo} value={tipo}>
+                            {obterLabelTipo(tipo)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Regulada */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                      <Zap className="h-3 w-3" />
+                      Regulada
+                    </label>
+                    <Select value={reguladaFilter} onValueChange={setReguladaFilter}>
+                      <SelectTrigger className="h-9">
+                        <SelectValue placeholder="Todas" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todas</SelectItem>
+                        <SelectItem value="sim">Apenas Reguladas</SelectItem>
+                        <SelectItem value="nao">Apenas Não Reguladas</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Coordenadas */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                      <MapPin className="h-3 w-3" />
+                      Coordenadas
+                    </label>
+                    <Select value={coordenadasFilter} onValueChange={setCoordenadasFilter}>
+                      <SelectTrigger className="h-9">
+                        <SelectValue placeholder="Todas" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todas</SelectItem>
+                        <SelectItem value="com">Com Coordenadas</SelectItem>
+                        <SelectItem value="sem">Sem Coordenadas</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Valor */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                      <DollarSign className="h-3 w-3" />
+                      Valor (R$)
+                    </label>
+                    <div className="flex items-center gap-1">
+                      <Input
+                        type="number"
+                        placeholder="Mín"
+                        value={valorMinimo}
+                        onChange={(e) => setValorMinimo(e.target.value)}
+                        className="h-9 w-16 text-xs"
+                      />
+                      <span className="text-muted-foreground text-xs">-</span>
+                      <Input
+                        type="number"
+                        placeholder="Máx"
+                        value={valorMaximo}
+                        onChange={(e) => setValorMaximo(e.target.value)}
+                        className="h-9 w-16 text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Linha de filtros por data */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-3 border-t border-border/50">
+                  {/* Data de Prazo */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                      <Calendar className="h-3 w-3" />
+                      Data de Prazo
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="date"
+                        value={prazoInicio}
+                        onChange={(e) => setPrazoInicio(e.target.value)}
+                        className="h-9"
+                        placeholder="De"
+                      />
+                      <span className="text-muted-foreground text-sm">até</span>
+                      <Input
+                        type="date"
+                        value={prazoFim}
+                        onChange={(e) => setPrazoFim(e.target.value)}
+                        className="h-9"
+                        placeholder="Até"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Resumo dos filtros */}
+                  <div className="flex items-end justify-end gap-2">
+                    {activeFiltersBacklogCount > 0 && (
+                      <span className="text-xs text-muted-foreground">
+                        {activeFiltersBacklogCount} filtro{activeFiltersBacklogCount > 1 ? "s" : ""} ativo{activeFiltersBacklogCount > 1 ? "s" : ""}
+                        {filteredServicos.length !== osPendentes.length && (
+                          <span className="ml-1">
+                            • Exibindo {filteredServicos.length} de {osPendentes.length} OSs
+                          </span>
+                        )}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <Droppable droppableId="backlog">
