@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useLogSistema } from "@/hooks/useLogSistema";
 import { Button } from "@/components/ui/button";
@@ -48,6 +48,9 @@ import {
   Wrench,
   CheckCircle,
   XCircle,
+  Upload,
+  X,
+  ImageIcon,
 } from "lucide-react";
 import * as LucideIcons from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -65,6 +68,7 @@ import UnidadesGruposFeriados from "@/components/cadastros-base/UnidadesGruposFe
 import TipoServicoRetornosConfig from "@/components/cadastros-base/TipoServicoRetornosConfig";
 import RetornosCampoAtividades from "@/components/cadastros-base/RetornosCampoAtividades";
 import ValoresPorContratoTab from "@/components/cadastros-base/ValoresPorContratoTab";
+import { clearSkillsCache } from "@/lib/skillsUtils";
 
 // Usando tabela skills como Tipos de Serviço
 interface TipoServico {
@@ -78,6 +82,7 @@ interface TipoServico {
   regulada: boolean;
   permite_avulso: boolean;
   icone: string | null;
+  icone_url: string | null; // URL da imagem personalizada
   cor: string | null;
   ativo: boolean;
   created_at: string;
@@ -165,9 +170,73 @@ export default function AdminCadastrosBase() {
     regulada: false,
     permite_avulso: false,
     icone: "",
+    icone_url: "", // URL da imagem personalizada
     cor: "#3b82f6",
     ativo: true,
   });
+  
+  // Estado para upload de imagem
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  
+  // Função de upload de imagem para o Supabase Storage
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validar tipo
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/svg+xml', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      toast.error("Tipo de arquivo não permitido. Use PNG, JPG, GIF, SVG ou WebP.");
+      return;
+    }
+
+    // Validar tamanho (max 1MB)
+    if (file.size > 1048576) {
+      toast.error("Arquivo muito grande. Máximo 1MB.");
+      return;
+    }
+
+    setUploadingImage(true);
+    try {
+      // Gerar nome único para o arquivo
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const filePath = `icons/${fileName}`;
+
+      // Upload para o Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('skill-icons')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (uploadError) throw uploadError;
+
+      // Obter URL pública
+      const { data: { publicUrl } } = supabase.storage
+        .from('skill-icons')
+        .getPublicUrl(filePath);
+
+      // Atualizar form
+      setTipoServicoForm({ ...tipoServicoForm, icone_url: publicUrl });
+      toast.success("Imagem enviada com sucesso!");
+    } catch (error: any) {
+      console.error("Erro ao enviar imagem:", error);
+      toast.error("Erro ao enviar imagem: " + (error.message || "Tente novamente"));
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  // Remover imagem
+  const handleRemoveImage = () => {
+    setTipoServicoForm({ ...tipoServicoForm, icone_url: "" });
+    if (imageInputRef.current) {
+      imageInputRef.current.value = '';
+    }
+  };
 
   const [tipoIntervaloForm, setTipoIntervaloForm] = useState({
     codigo: "",
@@ -368,6 +437,7 @@ export default function AdminCadastrosBase() {
         regulada: false,
         permite_avulso: false,
         icone: "",
+        icone_url: "",
         cor: "#3b82f6",
         ativo: true,
       });
@@ -407,6 +477,7 @@ export default function AdminCadastrosBase() {
         regulada: item.regulada || false,
         permite_avulso: item.permite_avulso || false,
         icone: item.icone || "",
+        icone_url: item.icone_url || "",
         cor: item.cor || "#3b82f6",
         ativo: item.ativo,
       });
@@ -454,6 +525,7 @@ export default function AdminCadastrosBase() {
           regulada: tipoServicoForm.regulada,
           permite_avulso: tipoServicoForm.permite_avulso,
           icone: tipoServicoForm.icone || null,
+          icone_url: tipoServicoForm.icone_url || null,
           cor: tipoServicoForm.cor || "#3b82f6",
           ativo: tipoServicoForm.ativo,
         };
@@ -498,6 +570,11 @@ export default function AdminCadastrosBase() {
         logEditar("cadastros_base", table, editingItem.id, editingItem, payload,
           `Editou ${currentFormType} ${payload.codigo || payload.nome}`);
         
+        // Limpar cache de skills para forçar atualização no mapa
+        if (table === "skills") {
+          clearSkillsCache();
+        }
+        
         toast.success("Registro atualizado com sucesso");
       } else {
         const { data: newData, error } = await supabase
@@ -511,6 +588,11 @@ export default function AdminCadastrosBase() {
         // Log de criação
         logCriar("cadastros_base", table, newData?.id || "", payload,
           `Criou ${currentFormType} ${payload.codigo || payload.nome}`);
+        
+        // Limpar cache de skills para forçar atualização no mapa
+        if (table === "skills") {
+          clearSkillsCache();
+        }
         
         toast.success("Registro criado com sucesso");
       }
@@ -835,7 +917,15 @@ export default function AdminCadastrosBase() {
                           )}
                         </TableCell>
                         <TableCell className="text-center">
-                          {IconComponent ? (
+                          {item.icone_url ? (
+                            <div className="w-8 h-8 mx-auto rounded-full overflow-hidden border-2 bg-muted" style={{ borderColor: item.cor || '#e5e7eb' }}>
+                              <img 
+                                src={item.icone_url} 
+                                alt={item.nome}
+                                className="w-full h-full object-contain"
+                              />
+                            </div>
+                          ) : IconComponent ? (
                             <IconComponent className="h-5 w-5 mx-auto" style={{ color: item.cor || undefined }} />
                           ) : (
                             <span className="text-muted-foreground text-xs">-</span>
@@ -1141,6 +1231,77 @@ export default function AdminCadastrosBase() {
                       </div>
                     </div>
                   </div>
+                  
+                  {/* Upload de Ícone Personalizado (Imagem) */}
+                  <div className="space-y-2 pt-2 border-t">
+                    <Label className="flex items-center gap-2">
+                      <ImageIcon className="h-4 w-4" />
+                      Ícone Personalizado (Imagem para o Mapa)
+                    </Label>
+                    <div className="flex items-center gap-4">
+                      {/* Preview */}
+                      {tipoServicoForm.icone_url ? (
+                        <div className="relative">
+                          <div className="w-16 h-16 rounded-lg border-2 border-dashed border-border bg-muted/50 flex items-center justify-center overflow-hidden">
+                            <img 
+                              src={tipoServicoForm.icone_url} 
+                              alt="Preview do ícone" 
+                              className="w-full h-full object-contain"
+                            />
+                          </div>
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="icon"
+                            className="absolute -top-2 -right-2 h-5 w-5 rounded-full"
+                            onClick={handleRemoveImage}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div 
+                          className="w-16 h-16 rounded-lg border-2 border-dashed border-border bg-muted/50 flex items-center justify-center cursor-pointer hover:bg-muted transition-colors"
+                          onClick={() => imageInputRef.current?.click()}
+                        >
+                          {uploadingImage ? (
+                            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                          ) : (
+                            <ImageIcon className="h-5 w-5 text-muted-foreground" />
+                          )}
+                        </div>
+                      )}
+
+                      {/* Botão de upload */}
+                      <div className="flex-1 space-y-2">
+                        <input
+                          ref={imageInputRef}
+                          type="file"
+                          accept="image/png,image/jpeg,image/gif,image/svg+xml,image/webp"
+                          onChange={handleImageUpload}
+                          className="hidden"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => imageInputRef.current?.click()}
+                          disabled={uploadingImage}
+                        >
+                          {uploadingImage ? (
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          ) : (
+                            <Upload className="h-4 w-4 mr-2" />
+                          )}
+                          {tipoServicoForm.icone_url ? "Alterar imagem" : "Enviar imagem"}
+                        </Button>
+                        <p className="text-xs text-muted-foreground">
+                          PNG, JPG, GIF, SVG ou WebP (máx 1MB). Esta imagem será exibida no mapa de roteirização.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  
                   <div className="grid grid-cols-3 gap-3 pt-2">
                     <div className="flex items-center justify-between rounded-lg border p-3">
                       <div className="space-y-0.5">

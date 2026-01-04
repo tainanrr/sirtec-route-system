@@ -9,6 +9,7 @@ interface SkillCacheData {
   valor: number;
   regulada: boolean;
   icone?: string;
+  icone_url?: string; // URL da imagem personalizada para o mapa
 }
 
 let skillsCache: Map<string, SkillCacheData> | null = null;
@@ -62,13 +63,12 @@ export async function getDadosSkill(codigoSkill: string): Promise<SkillCacheData
   // Se não encontrou no cache, buscar no banco
   const { data, error } = await supabase
     .from("skills")
-    .select("tempo_execucao_minutos, valor, regulada, icone")
+    .select("tempo_execucao_minutos, valor, regulada, icone, icone_url")
     .eq("codigo", codigoSkill.toUpperCase())
     .eq("ativo", true)
     .single();
 
   if (error || !data) {
-    console.warn(`[SKILLS] Skill "${codigoSkill}" não encontrada, usando valores padrão`);
     return {
       tempoExecucao: 15,
       valor: 0,
@@ -81,6 +81,7 @@ export async function getDadosSkill(codigoSkill: string): Promise<SkillCacheData
     valor: Number(data.valor || 0),
     regulada: data.regulada || false,
     icone: data.icone || undefined,
+    icone_url: (data as any).icone_url || undefined,
   };
 
   // Atualizar cache
@@ -105,11 +106,11 @@ export async function refreshSkillsCache(): Promise<void> {
         valor: Number(skill.valor || 0),
         regulada: skill.regulada || false,
         icone: skill.icone || undefined,
+        icone_url: (skill as any).icone_url || undefined,
       });
     });
 
     lastCacheUpdate = Date.now();
-    console.log(`[SKILLS] Cache atualizado com ${skills.length} skills`);
   } catch (error) {
     console.error("[SKILLS] Erro ao atualizar cache:", error);
     // Manter cache anterior se houver erro
@@ -160,7 +161,7 @@ export async function getDadosSkills(codigosSkills: string[]): Promise<Map<strin
   if (codigosNaoEncontrados.length > 0) {
     const { data, error } = await supabase
       .from("skills")
-      .select("codigo, tempo_execucao_minutos, valor, regulada, icone")
+      .select("codigo, tempo_execucao_minutos, valor, regulada, icone, icone_url")
       .in("codigo", codigosNaoEncontrados)
       .eq("ativo", true);
 
@@ -172,6 +173,7 @@ export async function getDadosSkills(codigosSkills: string[]): Promise<Map<strin
           valor: Number(skill.valor || 0),
           regulada: skill.regulada || false,
           icone: skill.icone || undefined,
+          icone_url: (skill as any).icone_url || undefined,
         };
         dados.set(codigoUpper, skillData);
         // Atualizar cache
@@ -184,7 +186,6 @@ export async function getDadosSkills(codigosSkills: string[]): Promise<Map<strin
     // Para códigos não encontrados, usar valores padrão
     codigosNaoEncontrados.forEach((codigo) => {
       if (!dados.has(codigo)) {
-        console.warn(`[SKILLS] Skill "${codigo}" não encontrada, usando valores padrão`);
         dados.set(codigo, {
           tempoExecucao: 15,
           valor: 0,

@@ -181,6 +181,7 @@ const Roteirizacao = () => {
   const [carregandoPlanejamentos, setCarregandoPlanejamentos] = useState(false);
 
   // Buscar OSs em andamento para destacar na lista
+  // Polling otimizado: 60 segundos + staleTime para evitar refetch desnecessário
   const { data: osEmAndamento } = useQuery({
     queryKey: ["os-em-andamento-roteirizacao"],
     queryFn: async () => {
@@ -201,7 +202,9 @@ const Roteirizacao = () => {
       // Retornar um Set com os IDs das OSs em andamento
       return new Set((data || []).map((d: any) => d.ordem_servico_id).filter(Boolean));
     },
-    refetchInterval: 10000, // Atualizar a cada 10 segundos
+    staleTime: 60000, // Dados são considerados frescos por 60 segundos
+    refetchInterval: 60000, // Atualizar a cada 60 segundos (antes era 10)
+    refetchOnWindowFocus: false, // Evitar refetch ao voltar para a aba
   });
 
   // Carregar equipes do Supabase (apenas ativas)
@@ -607,9 +610,7 @@ const Roteirizacao = () => {
 
   // TODAS as OSs não alocadas (para exibição no mapa - SEM filtro de território)
   const osPendentesTodas = useMemo(() => {
-    const pendentes = ordensServico.filter((os) => !osAlocadas.has(os.id));
-    console.log(`[Roteirização] OSs para o mapa: ${pendentes.length} (total: ${ordensServico.length}, alocadas: ${osAlocadas.size})`);
-    return pendentes;
+    return ordensServico.filter((os) => !osAlocadas.has(os.id));
   }, [ordensServico, osAlocadas]);
 
   // Filtrar OSs pendentes considerando territórios selecionados e filtros de tipos (para lista e roteirização)

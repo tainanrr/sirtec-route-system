@@ -315,7 +315,15 @@ export default function Skills() {
                       )}
                     </TableCell>
                     <TableCell className="text-center">
-                      {skill.icone ? (
+                      {(skill as any).icone_url ? (
+                        <div className="w-8 h-8 mx-auto rounded-full overflow-hidden border-2 border-border bg-muted">
+                          <img 
+                            src={(skill as any).icone_url} 
+                            alt={skill.nome}
+                            className="w-full h-full object-contain"
+                          />
+                        </div>
+                      ) : skill.icone ? (
                         (() => {
                           const IconComponent = (LucideIcons as any)[skill.icone];
                           return IconComponent ? (

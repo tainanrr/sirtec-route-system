@@ -57,10 +57,6 @@ export function tecnicoParaEquipe(tecnico: Tables<"tecnicos">): Equipe {
     })
     .map((h) => h as TipoOS);
   
-  // Log para debug
-  if (habilidades.length > 0) {
-    console.log(`[EQUIPE] ${tecnico.codigo}: habilidades originais [${habilidades.join(', ')}] -> skills normalizadas [${skills.join(', ')}]`);
-  }
 
   // Obter configuração de almoço
   const almocoRaw = (tecnico as any).almoco;

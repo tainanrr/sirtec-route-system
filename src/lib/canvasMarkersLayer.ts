@@ -37,6 +37,7 @@ export interface CanvasMarker {
   cor: string; // Cor da borda/fundo baseada em prioridade
   selecionado?: boolean;
   regulada?: boolean;
+  icone_url?: string; // URL da imagem personalizada
 }
 
 interface CanvasMarkersLayerOptions extends L.LayerOptions {
@@ -66,6 +67,30 @@ function getCorTipo(tipo: string): string {
   return CORES_TIPO.default;
 }
 
+// Cache global de imagens para evitar recarregamento
+const imageCache = new Map<string, HTMLImageElement>();
+
+// Função para pré-carregar imagens
+async function preloadImage(url: string): Promise<HTMLImageElement | null> {
+  if (imageCache.has(url)) {
+    return imageCache.get(url)!;
+  }
+  
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      imageCache.set(url, img);
+      resolve(img);
+    };
+    img.onerror = () => {
+      console.warn(`[CanvasMarkers] Erro ao carregar imagem: ${url}`);
+      resolve(null);
+    };
+    img.src = url;
+  });
+}
+
 // Classe da camada de canvas
 export class CanvasMarkersLayer extends L.Layer {
   private _canvas: HTMLCanvasElement | null = null;
@@ -74,14 +99,34 @@ export class CanvasMarkersLayer extends L.Layer {
   private _onMarkerClick?: (marker: CanvasMarker) => void;
   private _onMarkerHover?: (marker: CanvasMarker | null) => void;
   private _hoveredMarker: CanvasMarker | null = null;
-  private _markerRadius = 8;
+  private _markerRadius = 12; // Raio base maior para melhor visualização
   private _bounds: L.LatLngBounds | null = null;
+  private _pendingImages = new Set<string>(); // URLs de imagens sendo carregadas
 
   constructor(options: CanvasMarkersLayerOptions) {
     super(options);
     this._markers = options.markers || [];
     this._onMarkerClick = options.onMarkerClick;
     this._onMarkerHover = options.onMarkerHover;
+    
+    // Pré-carregar imagens únicas
+    this._preloadMarkerImages();
+  }
+  
+  // Pré-carregar todas as imagens dos marcadores
+  private async _preloadMarkerImages(): Promise<void> {
+    const uniqueUrls = new Set<string>();
+    this._markers.forEach(m => {
+      if (m.icone_url) uniqueUrls.add(m.icone_url);
+    });
+    
+    const loadPromises = Array.from(uniqueUrls).map(url => preloadImage(url));
+    await Promise.all(loadPromises);
+    
+    // Redesenhar após carregar imagens
+    if (this._map) {
+      this._draw();
+    }
   }
 
   onAdd(map: L.Map): this {
@@ -90,11 +135,13 @@ export class CanvasMarkersLayer extends L.Layer {
     this._ctx = this._canvas.getContext('2d', { willReadFrequently: true });
     
     // Configurar estilo do canvas
+    // z-index: 450 para ficar abaixo do popup-pane (700) mas acima de outros layers
     this._canvas.style.position = 'absolute';
     this._canvas.style.top = '0';
     this._canvas.style.left = '0';
     this._canvas.style.pointerEvents = 'auto';
-    this._canvas.style.zIndex = '400';
+    this._canvas.style.zIndex = '450';
+    this._canvas.style.cursor = 'grab';
 
     // Adicionar ao pane de overlay
     const pane = map.getPane('overlayPane');
@@ -144,7 +191,9 @@ export class CanvasMarkersLayer extends L.Layer {
   // Atualizar marcadores
   setMarkers(markers: CanvasMarker[]): void {
     this._markers = markers;
-    this._draw();
+    this._preloadMarkerImages().then(() => {
+      this._draw();
+    });
   }
 
   // Atualizar tamanho do canvas
@@ -224,7 +273,10 @@ export class CanvasMarkersLayer extends L.Layer {
     const y = e.clientY - rect.top;
     
     const marker = this._findMarkerAtPoint(x, y);
+    
     if (marker && this._onMarkerClick) {
+      // Parar propagação para evitar que o mapa capture o evento
+      e.stopPropagation();
       this._onMarkerClick(marker);
     }
   }
@@ -300,31 +352,91 @@ export class CanvasMarkersLayer extends L.Layer {
     const radius = marker.selecionado ? this._markerRadius + 4 : this._markerRadius;
     const corTipo = getCorTipo(marker.tipo);
     const corBorda = marker.cor || corTipo;
+    const zoom = this._map?.getZoom() || 12;
     
-    // Fundo branco
-    ctx.beginPath();
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.fillStyle = marker.selecionado ? '#3b82f6' : '#ffffff';
-    ctx.fill();
-    
-    // Borda colorida
-    ctx.strokeStyle = marker.selecionado ? '#1e40af' : corBorda;
-    ctx.lineWidth = marker.selecionado ? 3 : 2;
-    ctx.stroke();
-    
-    // Indicador de regulada (pequeno círculo vermelho)
-    if (marker.regulada) {
+    // Se tem imagem personalizada, desenhar ela
+    if (marker.icone_url && imageCache.has(marker.icone_url)) {
+      const img = imageCache.get(marker.icone_url)!;
+      // Tamanhos maiores para melhor visualização
+      const imgSize = marker.selecionado ? 40 : (zoom >= 15 ? 32 : zoom >= 13 ? 28 : 24);
+      const imgX = x - imgSize / 2;
+      const imgY = y - imgSize / 2;
+      
+      // Sombra suave
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+      ctx.shadowBlur = 4;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 2;
+      
+      // Desenhar fundo circular branco
       ctx.beginPath();
-      ctx.arc(x + radius - 2, y - radius + 2, 4, 0, Math.PI * 2);
-      ctx.fillStyle = '#dc2626';
+      ctx.arc(x, y, imgSize / 2 + 3, 0, Math.PI * 2);
+      ctx.fillStyle = marker.selecionado ? '#3b82f6' : '#ffffff';
       ctx.fill();
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 1;
+      
+      // Borda colorida
+      ctx.strokeStyle = marker.selecionado ? '#1e40af' : corBorda;
+      ctx.lineWidth = marker.selecionado ? 3 : 2;
       ctx.stroke();
+      
+      // Resetar sombra
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
+      
+      // Criar clip circular para a imagem
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(x, y, imgSize / 2, 0, Math.PI * 2);
+      ctx.clip();
+      
+      // Desenhar imagem
+      ctx.drawImage(img, imgX, imgY, imgSize, imgSize);
+      ctx.restore();
+      
+      // Se for regulada urgente, redesenhar borda vermelha por cima
+      if (marker.regulada) {
+        ctx.beginPath();
+        ctx.arc(x, y, imgSize / 2 + 2, 0, Math.PI * 2);
+        ctx.strokeStyle = '#dc2626';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+    } else {
+      // Fallback: desenhar círculo colorido padrão (tamanhos maiores)
+      const fallbackRadius = marker.selecionado ? 16 : (zoom >= 15 ? 14 : zoom >= 13 ? 12 : 10);
+      
+      // Sombra suave
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
+      ctx.shadowBlur = 4;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 2;
+      
+      // Fundo branco
+      ctx.beginPath();
+      ctx.arc(x, y, fallbackRadius, 0, Math.PI * 2);
+      ctx.fillStyle = marker.selecionado ? '#3b82f6' : '#ffffff';
+      ctx.fill();
+      
+      // Borda colorida
+      ctx.strokeStyle = marker.selecionado ? '#1e40af' : corBorda;
+      ctx.lineWidth = marker.selecionado ? 3 : 2;
+      ctx.stroke();
+      
+      // Resetar sombra
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
+      
+      // Se for regulada urgente, redesenhar borda vermelha por cima
+      if (marker.regulada) {
+        ctx.beginPath();
+        ctx.arc(x, y, fallbackRadius, 0, Math.PI * 2);
+        ctx.strokeStyle = '#dc2626';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
     }
     
     // Número da OS (apenas se zoom suficiente)
-    const zoom = this._map?.getZoom() || 12;
     if (zoom >= 15) {
       ctx.font = 'bold 9px Arial';
       ctx.fillStyle = marker.selecionado ? '#ffffff' : '#374151';
@@ -333,13 +445,18 @@ export class CanvasMarkersLayer extends L.Layer {
       
       // Mostrar últimos 4 dígitos do número
       const shortNum = marker.numero.slice(-4);
-      ctx.fillText(shortNum, x, y + radius + 10);
+      const imgSize = marker.icone_url && imageCache.has(marker.icone_url) ? (marker.selecionado ? 32 : 24) : radius * 2;
+      ctx.fillText(shortNum, x, y + imgSize / 2 + 10);
     }
   }
 
   // Desenhar marcador com hover
   private _drawMarkerHover(ctx: CanvasRenderingContext2D, x: number, y: number, marker: CanvasMarker): void {
-    const radius = this._markerRadius + 6;
+    const zoom = this._map?.getZoom() || 12;
+    // Hover deve ser maior que o marcador normal
+    const radius = marker.icone_url && imageCache.has(marker.icone_url) 
+      ? (zoom >= 15 ? 20 : zoom >= 13 ? 18 : 16)
+      : (zoom >= 15 ? 18 : zoom >= 13 ? 16 : 14);
     const corTipo = getCorTipo(marker.tipo);
     
     // Sombra
@@ -399,6 +516,14 @@ export class CanvasMarkersLayer extends L.Layer {
   // Forçar redesenho
   redraw(): void {
     this._draw();
+  }
+  
+  // Simular clique em um marcador específico pelo ID
+  triggerMarkerClick(markerId: string): void {
+    const marker = this._markers.find(m => m.id === markerId);
+    if (marker && this._onMarkerClick) {
+      this._onMarkerClick(marker);
+    }
   }
 }
 

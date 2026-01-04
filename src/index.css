@@ -267,6 +267,20 @@
   @apply bg-card;
 }
 
+/* Garantir que popups fiquem acima do canvas de marcadores */
+.leaflet-popup-pane {
+  z-index: 700 !important;
+}
+
+.leaflet-popup {
+  z-index: 700 !important;
+}
+
+/* Canvas layer para marcadores de alta performance */
+.leaflet-canvas-markers-layer {
+  z-index: 500 !important;
+}
+
 /* V19.6: Animações para OS urgente fora do território */
 @keyframes bounce {
   0%, 100% {

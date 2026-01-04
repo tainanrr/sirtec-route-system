@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -33,6 +33,7 @@ import { toast } from "sonner";
 import type { Tables } from "@/integrations/supabase/types";
 import * as LucideIcons from "lucide-react";
 import { clearSkillsCache } from "@/lib/skillsUtils";
+import { Upload, X, ImageIcon, Loader2 } from "lucide-react";
 
 const skillSchema = z.object({
   codigo: z.string().min(1, "Código é obrigatório").max(50),
@@ -42,6 +43,7 @@ const skillSchema = z.object({
   valor: z.number().min(0, "Valor não pode ser negativo").default(0),
   regulada: z.boolean().default(false),
   icone: z.string().optional().nullable(),
+  icone_url: z.string().optional().nullable(),
   ativo: z.boolean().default(true),
   cor: z.string().regex(/^#[0-9A-Fa-f]{6}$/, "Cor inválida (use formato hexadecimal)").default("#3b82f6"),
 });
@@ -84,6 +86,9 @@ export function SkillFormDialog({
   onSuccess,
 }: SkillFormDialogProps) {
   const [isLoading, setIsLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const isEditing = !!skill;
 
   const form = useForm<SkillFormData>({
@@ -96,6 +101,7 @@ export function SkillFormDialog({
       valor: 0,
       regulada: false,
       icone: undefined,
+      icone_url: undefined,
       ativo: true,
       cor: "#3b82f6",
     },
@@ -103,6 +109,7 @@ export function SkillFormDialog({
 
   useEffect(() => {
     if (skill) {
+      const iconeUrl = (skill as any).icone_url;
       form.reset({
         codigo: skill.codigo,
         nome: skill.nome,
@@ -111,9 +118,11 @@ export function SkillFormDialog({
         valor: skill.valor || 0,
         regulada: skill.regulada || false,
         icone: skill.icone || undefined,
+        icone_url: iconeUrl || undefined,
         ativo: skill.ativo,
         cor: skill.cor || "#3b82f6",
       });
+      setPreviewUrl(iconeUrl || null);
     } else {
       form.reset({
         codigo: "",
@@ -123,28 +132,96 @@ export function SkillFormDialog({
         valor: 0,
         regulada: false,
         icone: undefined,
+        icone_url: undefined,
         ativo: true,
         cor: "#3b82f6",
       });
+      setPreviewUrl(null);
     }
   }, [skill, form, open]);
+
+  // Upload de imagem para o Supabase Storage
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validar tipo
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/svg+xml', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      toast.error("Tipo de arquivo não permitido. Use PNG, JPG, GIF, SVG ou WebP.");
+      return;
+    }
+
+    // Validar tamanho (max 1MB)
+    if (file.size > 1048576) {
+      toast.error("Arquivo muito grande. Máximo 1MB.");
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      // Gerar nome único para o arquivo
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const filePath = `icons/${fileName}`;
+
+      // Upload para o Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('skill-icons')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (uploadError) throw uploadError;
+
+      // Obter URL pública
+      const { data: { publicUrl } } = supabase.storage
+        .from('skill-icons')
+        .getPublicUrl(filePath);
+
+      // Atualizar form e preview
+      form.setValue('icone_url', publicUrl);
+      setPreviewUrl(publicUrl);
+      toast.success("Imagem enviada com sucesso!");
+    } catch (error: any) {
+      console.error("Erro ao enviar imagem:", error);
+      toast.error("Erro ao enviar imagem: " + (error.message || "Tente novamente"));
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // Remover imagem
+  const handleRemoveImage = () => {
+    form.setValue('icone_url', undefined);
+    setPreviewUrl(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
   const onSubmit = async (data: SkillFormData) => {
     setIsLoading(true);
     try {
+      const skillData = {
+        codigo: data.codigo,
+        nome: data.nome,
+        descricao: data.descricao || null,
+        tempo_execucao_minutos: data.tempo_execucao_minutos,
+        valor: data.valor,
+        regulada: data.regulada,
+        icone: data.icone || null,
+        icone_url: data.icone_url || null,
+        ativo: data.ativo,
+        cor: data.cor,
+      };
+
       if (isEditing && skill) {
         const { error } = await supabase
           .from("skills")
           .update({
-            codigo: data.codigo,
-            nome: data.nome,
-            descricao: data.descricao || null,
-            tempo_execucao_minutos: data.tempo_execucao_minutos,
-            valor: data.valor,
-            regulada: data.regulada,
-            icone: data.icone || null,
-            ativo: data.ativo,
-            cor: data.cor,
+            ...skillData,
             updated_at: new Date().toISOString(),
           })
           .eq("id", skill.id);
@@ -152,17 +229,7 @@ export function SkillFormDialog({
         if (error) throw error;
         toast.success("Skill atualizada com sucesso!");
       } else {
-        const { error } = await supabase.from("skills").insert({
-          codigo: data.codigo,
-          nome: data.nome,
-          descricao: data.descricao || null,
-          tempo_execucao_minutos: data.tempo_execucao_minutos,
-          valor: data.valor,
-          regulada: data.regulada,
-          icone: data.icone || null,
-          ativo: data.ativo,
-          cor: data.cor,
-        });
+        const { error } = await supabase.from("skills").insert(skillData);
 
         if (error) throw error;
         toast.success("Skill criada com sucesso!");
@@ -373,6 +440,83 @@ export function SkillFormDialog({
                     </div>
                   </FormControl>
                   <FormDescription>Cor para visualização no mapa/UI</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {/* Upload de Ícone Personalizado */}
+            <FormField
+              control={form.control}
+              name="icone_url"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Ícone Personalizado (Imagem)</FormLabel>
+                  <FormControl>
+                    <div className="space-y-3">
+                      {/* Preview */}
+                      {previewUrl ? (
+                        <div className="relative inline-block">
+                          <div className="w-20 h-20 rounded-lg border-2 border-dashed border-border bg-muted/50 flex items-center justify-center overflow-hidden">
+                            <img 
+                              src={previewUrl} 
+                              alt="Preview do ícone" 
+                              className="w-full h-full object-contain"
+                            />
+                          </div>
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="icon"
+                            className="absolute -top-2 -right-2 h-6 w-6 rounded-full"
+                            onClick={handleRemoveImage}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div 
+                          className="w-20 h-20 rounded-lg border-2 border-dashed border-border bg-muted/50 flex items-center justify-center cursor-pointer hover:bg-muted transition-colors"
+                          onClick={() => fileInputRef.current?.click()}
+                        >
+                          {isUploading ? (
+                            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                          ) : (
+                            <ImageIcon className="h-6 w-6 text-muted-foreground" />
+                          )}
+                        </div>
+                      )}
+
+                      {/* Botão de upload */}
+                      <div className="flex items-center gap-2">
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept="image/png,image/jpeg,image/gif,image/svg+xml,image/webp"
+                          onChange={handleImageUpload}
+                          className="hidden"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={isUploading}
+                        >
+                          {isUploading ? (
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          ) : (
+                            <Upload className="h-4 w-4 mr-2" />
+                          )}
+                          {previewUrl ? "Alterar imagem" : "Enviar imagem"}
+                        </Button>
+                      </div>
+                    </div>
+                  </FormControl>
+                  <FormDescription>
+                    Imagem personalizada para o ícone no mapa (PNG, JPG, GIF, SVG, WebP - máx 1MB). 
+                    Se não definida, será usado o ícone padrão.
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

@@ -108,17 +108,6 @@ function getLucideIconSVG(iconName: string | undefined, color: string, size: num
 }
 
 export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, onOSSelecionada, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear }: MapaLeafletProps) {
-  // Debug: log quando rotas mudarem
-  useEffect(() => {
-    console.log('[MAPA] Props recebidas - Rotas:', rotas.length, 'OSs Pendentes:', osPendentes.length);
-    if (rotas.length > 0) {
-      console.log('[MAPA] Primeira rota:', {
-        equipe: rotas[0].equipe.codigo,
-        servicos: rotas[0].servicos.length,
-        servicosValidos: rotas[0].servicos.filter(s => s.tipo === 'SERVICO' && s.ordemServico).length
-      });
-    }
-  }, [rotas, osPendentes]);
   
   const mapRef = useRef<HTMLDivElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -134,7 +123,8 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
   const [erroMsg, setErroMsg] = useState("");
   const [routesGeometry, setRoutesGeometry] = useState<RouteGeometryData>({});
   const [calculandoRotas, setCalculandoRotas] = useState(false);
-  const [skillsIcons, setSkillsIcons] = useState<Map<string, string>>(new Map());
+  // Mapa de tipo -> { icone: string (lucide), icone_url: string (imagem personalizada), tempoExecucao: number }
+  const [skillsIcons, setSkillsIcons] = useState<Map<string, { icone?: string; icone_url?: string; tempoExecucao?: number }>>(new Map());
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [filtroTipo, setFiltroTipo] = useState<string>("todos");
   const [filtroEquipe, setFiltroEquipe] = useState<string>("todos");
@@ -613,63 +603,33 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
     return 'futuro';
   };
 
-  // Função auxiliar para verificar se é regulada
+  // Função auxiliar para verificar se é regulada (usa apenas o campo regulada da OS)
   const ehOSRegulada = (os: OrdemServico): boolean => {
-    const tipoUpper = os.tipo.toUpperCase();
-    const tiposRegulados = ['CORTE', 'RELIGA', 'LIGACAO', 'LIGAÇÃO'];
-    return tiposRegulados.some(t => tipoUpper.includes(t)) || os.regulada === true;
-  };
-
-  // Função auxiliar para verificar se é emergência
-  const ehEmergencia = (os: OrdemServico): boolean => {
-    const tipoUpper = os.tipo.toUpperCase();
-    const tiposEmergencia = ['CORTE', 'RELIGA'];
-    return tiposEmergencia.some(t => tipoUpper.includes(t));
-  };
-
-  // Função auxiliar para verificar se é regulada urgente
-  const ehReguladaUrgente = (os: OrdemServico): boolean => {
-    const classificacao = classificarPrazo(os.prazo);
-    const regulada = ehOSRegulada(os);
-    return regulada && ['hoje', 'passado'].includes(classificacao);
+    return os.regulada === true;
   };
 
   // Função auxiliar para determinar a cor da borda baseada na prioridade
+  // REGRA: Borda vermelha APENAS para OSs com campo regulada=true E vencidas/vencendo hoje
   const obterCorBordaPrioridade = (os: OrdemServico): string => {
     const classificacao = classificarPrazo(os.prazo);
-    const regulada = ehOSRegulada(os);
-    const emergencia = ehEmergencia(os);
-    const urgente = ehReguladaUrgente(os);
+    const regulada = ehOSRegulada(os); // Usa apenas os.regulada === true
     
-    // Urgentes: vermelho - reguladas vencidas ou vencendo hoje, ou emergências vencidas/vencendo hoje
-    if (urgente) {
+    // Vermelho: APENAS reguladas (campo regulada=true) vencidas ou vencendo hoje
+    if (regulada && ['hoje', 'passado'].includes(classificacao)) {
       return '#dc2626'; // Vermelho
     }
     
-    // Emergências vencidas ou vencendo hoje também são urgentes
-    if (emergencia && ['hoje', 'passado'].includes(classificacao)) {
-      return '#dc2626'; // Vermelho
+    // Preto: OSs vencidas ou vencendo hoje (não reguladas) ou com prazo futuro
+    if (['hoje', 'passado'].includes(classificacao)) {
+      return '#000000'; // Preto para vencidas/vencendo hoje
     }
     
-    // Alta: preto - OSs com prazo de amanhã para frente (qualquer prazo futuro)
+    // Preto: OSs com prazo futuro
     if (os.prazo) {
-      const agora = new Date();
-      const hoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
-      const prazoDia = new Date(os.prazo.getFullYear(), os.prazo.getMonth(), os.prazo.getDate());
-      const diffDias = Math.floor((prazoDia.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24));
-      
-      // Se tem prazo futuro (amanhã ou qualquer dia no futuro)
-      if (diffDias >= 1) {
-        return '#000000'; // Preto para alta prioridade
-      }
+      return '#000000'; // Preto para alta prioridade (tem prazo)
     }
     
-    // Também incluir OSs não reguladas vencendo hoje/passado como alta
-    if (!regulada && ['hoje', 'passado'].includes(classificacao)) {
-      return '#000000'; // Preto
-    }
-    
-    // Normal: cinza claro - OSs sem prazo ou com prazo muito distante
+    // Cinza: OSs sem prazo
     return '#9ca3af'; // Cinza mais claro
   };
 
@@ -759,14 +719,17 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
         // Buscar dados das Skills usando códigos
         const dadosSkills = await getDadosSkills(codigosSkills);
         
-        // Criar mapa de tipo -> ícone
-        const iconsMap = new Map<string, string>();
+        // Criar mapa de tipo -> { icone, icone_url, tempoExecucao }
+        const iconsMap = new Map<string, { icone?: string; icone_url?: string; tempoExecucao?: number }>();
         tiposUnicos.forEach(tipo => {
           const codigoSkill = tipoParaSkillCodigo(tipo);
           const dados = dadosSkills.get(codigoSkill);
-          if (dados?.icone) {
-            iconsMap.set(tipo, dados.icone);
-          }
+          // Sempre adicionar os dados da skill, mesmo sem ícone, para ter o tempoExecucao
+          iconsMap.set(tipo, {
+            icone: dados?.icone,
+            icone_url: dados?.icone_url,
+            tempoExecucao: dados?.tempoExecucao,
+          });
         });
         
         setSkillsIcons(iconsMap);
@@ -1017,8 +980,6 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
       // Todos os marcadores são desenhados em um ÚNICO canvas
       // Isso é MUITO mais rápido que criar milhares de elementos DOM
       
-      console.log('[MAPA] Total de OSs pendentes para renderização canvas:', osPendentesDebounced.length);
-      
       // Remover camada de canvas anterior se existir
       if (canvasLayerRef.current) {
         map.removeLayer(canvasLayerRef.current);
@@ -1042,6 +1003,13 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
         
         contadorOSsValidas++;
         
+        // Obter icone_url da skill correspondente
+        const skillIcon = skillsIcons.get(os.tipo);
+        
+        // Verificar se é regulada urgente (campo regulada=true E vencida/vencendo até o final do dia)
+        const classificacaoOS = classificarPrazo(os.prazo);
+        const isReguladaUrgente = os.regulada === true && ['hoje', 'passado'].includes(classificacaoOS);
+        
         canvasMarkers.push({
           id: os.id,
           lat: os.latitude,
@@ -1050,12 +1018,10 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
           tipo: os.tipo,
           cor: obterCorBordaPrioridade(os),
           selecionado: osSelecionada === os.id,
-          regulada: os.regulada,
+          regulada: isReguladaUrgente, // Borda vermelha apenas para reguladas vencidas/vencendo hoje
+          icone_url: skillIcon?.icone_url,
         });
       });
-      
-      console.log('[MAPA] Canvas: OSs válidas para desenho:', contadorOSsValidas);
-      console.log('[MAPA] Canvas: OSs com coordenadas inválidas:', contadorOSsCoordenadasInvalidas);
       
       // Criar camada de canvas com todos os marcadores
       const canvasLayer = createCanvasMarkersLayer({
@@ -1065,26 +1031,152 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
           const os = osPendentesDebounced.find(o => o.id === marker.id);
           if (!os) return;
           
+          // Encontrar índice da OS atual no array filtrado
+          const currentIndex = osPendentesDebounced.findIndex(o => o.id === marker.id);
+          const temAnterior = currentIndex > 0;
+          const temProximo = currentIndex < osPendentesDebounced.length - 1;
+          
           // Criar popup na posição do marcador
           const prazoFormatado = os.prazo 
             ? new Date(os.prazo).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
             : "Sem prazo";
           
+          const valorFormatado = os.valor 
+            ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(os.valor)
+            : "-";
+          
+          // Buscar duração prevista do Tipo de Serviço cadastrado
+          const skillData = skillsIcons.get(os.tipo);
+          const duracaoPrevista = skillData?.tempoExecucao || os.tempoExecucao;
+          const duracaoFormatada = duracaoPrevista ? `${duracaoPrevista} min` : "-";
+          
           const popupHTML = `
-            <div style="min-width:180px;font-family:system-ui,sans-serif;">
-              <div style="margin-bottom:6px;"><b>Número:</b> ${os.numero}</div>
-              <div style="margin-bottom:6px;"><b>Tipo:</b> ${obterLabelTipo(os.tipo)}</div>
-              <div style="margin-bottom:6px;"><b>Prazo:</b> <span style="${os.prazo ? 'color:#dc2626;font-weight:600' : 'color:#6b7280'}">${prazoFormatado}</span></div>
-              <div style="margin-bottom:6px;"><b>Equipe:</b> <span style="color:#6b7280">Não alocada</span></div>
-              ${os.regulada ? '<div style="margin-top:6px;padding:3px 6px;background:#fee2e2;border-radius:4px;display:inline-block;color:#dc2626;font-weight:bold;font-size:11px">REGULADA</div>' : ''}
-              ${equipeEditando ? `<div style="margin-top:10px;text-align:center"><button onclick="window.selecionarOSParaIncluir('${os.id}')" style="padding:6px 12px;background:#3b82f6;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:600">+ Incluir na Rota</button></div>` : ''}
+            <div style="min-width: 260px; font-family: system-ui, -apple-system, sans-serif;">
+              <div style="margin-bottom: 8px;">
+                <strong style="font-size: 14px; color: #1f2937;">Número:</strong>
+                <span style="margin-left: 8px; font-weight: 600;">${os.numero}</span>
+              </div>
+              <div style="margin-bottom: 8px;">
+                <strong style="font-size: 14px; color: #1f2937;">Tipo:</strong>
+                <span style="margin-left: 8px; color: #4b5563;">${obterLabelTipo(os.tipo)}</span>
+              </div>
+              <div style="margin-bottom: 8px;">
+                <strong style="font-size: 14px; color: #1f2937;">Endereço:</strong>
+                <span style="margin-left: 8px; color: #4b5563; font-size: 13px;">${os.endereco || '-'}</span>
+              </div>
+              <div style="margin-bottom: 8px;">
+                <strong style="font-size: 14px; color: #1f2937;">Prazo:</strong>
+                <span style="margin-left: 8px; ${os.prazo ? 'color: #dc2626; font-weight: 600;' : 'color: #6b7280;'}">${prazoFormatado}</span>
+              </div>
+              <div style="margin-bottom: 8px; display: flex; gap: 16px;">
+                <div>
+                  <strong style="font-size: 14px; color: #1f2937;">Valor Prev.:</strong>
+                  <span style="margin-left: 8px; color: #059669; font-weight: 600;">${valorFormatado}</span>
+                </div>
+                <div>
+                  <strong style="font-size: 14px; color: #1f2937;">Duração Prev.:</strong>
+                  <span style="margin-left: 8px; color: #4b5563;">${duracaoFormatada}</span>
+                </div>
+              </div>
+              <div style="margin-bottom: 8px;">
+                <strong style="font-size: 14px; color: #1f2937;">Equipe:</strong>
+                <span style="margin-left: 8px; color: #6b7280;">Não alocada</span>
+              </div>
+              ${os.regulada ? '<div style="margin-top: 8px; padding: 4px 8px; background-color: #fee2e2; border-radius: 4px; display: inline-block;"><span style="color: #dc2626; font-weight: bold; font-size: 12px;">REGULADA</span></div>' : ''}
+              
+              <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e5e7eb; display: flex; gap: 8px; justify-content: center;">
+                <button 
+                  onclick="window.navegarOSPendente('anterior', '${os.id}')"
+                  style="
+                    padding: 6px 12px;
+                    background-color: ${temAnterior ? '#3b82f6' : '#9ca3af'};
+                    color: white;
+                    border: none;
+                    border-radius: 6px;
+                    cursor: ${temAnterior ? 'pointer' : 'not-allowed'};
+                    font-size: 12px;
+                    font-weight: 600;
+                    display: flex;
+                    align-items: center;
+                    gap: 4px;
+                    opacity: ${temAnterior ? '1' : '0.5'};
+                  "
+                  ${!temAnterior ? 'disabled' : ''}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M15 18l-6-6 6-6"/>
+                  </svg>
+                  Anterior
+                </button>
+                <button 
+                  onclick="window.navegarOSPendente('proximo', '${os.id}')"
+                  style="
+                    padding: 6px 12px;
+                    background-color: ${temProximo ? '#3b82f6' : '#9ca3af'};
+                    color: white;
+                    border: none;
+                    border-radius: 6px;
+                    cursor: ${temProximo ? 'pointer' : 'not-allowed'};
+                    font-size: 12px;
+                    font-weight: 600;
+                    display: flex;
+                    align-items: center;
+                    gap: 4px;
+                    opacity: ${temProximo ? '1' : '0.5'};
+                  "
+                  ${!temProximo ? 'disabled' : ''}
+                >
+                  Próximo
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M9 18l6-6-6-6"/>
+                  </svg>
+                </button>
+              </div>
+              
+              ${equipeEditando ? `<div style="margin-top: 10px; text-align: center;"><button onclick="window.selecionarOSParaIncluir('${os.id}')" style="padding: 8px 16px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; width: 100%;">+ Incluir na Rota</button></div>` : ''}
             </div>
           `;
           
-          L.popup()
+          // Abrir popup do Leaflet usando ref para garantir referência válida
+          const currentMap = mapInstanceRef.current;
+          if (!currentMap) return;
+          
+          // Fechar popup existente primeiro
+          currentMap.closePopup();
+          
+          L.popup({ 
+            maxWidth: 320,
+            autoPan: true,
+            autoClose: true,
+            closeOnClick: false
+          })
             .setLatLng([os.latitude, os.longitude])
             .setContent(popupHTML)
-            .openOn(map);
+            .openOn(currentMap);
+          
+          // Configurar função global para navegação entre OSs pendentes
+          (window as any).navegarOSPendente = (direcao: string, osAtualId: string) => {
+            const indexAtual = osPendentesDebounced.findIndex(o => o.id === osAtualId);
+            let novoIndex = indexAtual;
+            
+            if (direcao === 'anterior' && indexAtual > 0) {
+              novoIndex = indexAtual - 1;
+            } else if (direcao === 'proximo' && indexAtual < osPendentesDebounced.length - 1) {
+              novoIndex = indexAtual + 1;
+            }
+            
+            if (novoIndex !== indexAtual) {
+              const novaOS = osPendentesDebounced[novoIndex];
+              // Fechar popup atual
+              map.closePopup();
+              // Centralizar no novo marcador
+              map.panTo([novaOS.latitude, novaOS.longitude]);
+              // Simular clique no novo marcador
+              setTimeout(() => {
+                canvasLayer.triggerMarkerClick(novaOS.id);
+              }, 300);
+            }
+          };
           
           // Configurar função global para seleção
           (window as any).selecionarOSParaIncluir = (osId: string) => {
@@ -1113,23 +1205,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
         rotasParaMostrar = rotasFiltradas.length > 0 ? rotasFiltradas : rotas.filter(r => r.servicos.length > 0);
       }
       
-      console.log('[MAPA] Rotas para mostrar:', rotasParaMostrar.length, 'de', rotas.length, 'rotas totais');
-      console.log('[MAPA] Rotas filtradas:', rotasFiltradas.length);
-      console.log('[MAPA] Equipe editando:', equipeEditando);
-      console.log('[MAPA] OSs pendentes filtradas:', osPendentesFiltradas.length, 'de', osPendentes.length);
-      console.log('[MAPA] Primeira rota detalhes:', rotasParaMostrar[0] ? {
-        equipe: rotasParaMostrar[0].equipe.codigo,
-        servicos: rotasParaMostrar[0].servicos.length,
-        servicosValidos: rotasParaMostrar[0].servicos.filter(s => s.tipo === 'SERVICO' && s.ordemServico).length
-      } : 'Nenhuma rota');
-      
       if (rotasParaMostrar.length === 0 && rotas.length > 0) {
-        console.warn('[MAPA] AVISO: Há rotas mas nenhuma está sendo exibida!');
-        console.warn('[MAPA] Rotas originais:', rotas.map(r => ({
-          equipe: r.equipe.codigo,
-          servicos: r.servicos.length,
-          servicosValidos: r.servicos.filter(s => s.tipo === 'SERVICO' && s.ordemServico).length
-        })));
         // Se não há rotas para mostrar mas há rotas disponíveis, usar todas as rotas como fallback
         rotasParaMostrar = rotas.filter(r => r.servicos.length > 0);
       }
@@ -1160,7 +1236,9 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
           const isSelecionadaNoEditor = osSelecionadaNoEditor === servico.ordemServico.id;
           
           // Obter ícone da Skill correspondente ao tipo da OS
-          const iconName = skillsIcons.get(servico.ordemServico.tipo);
+          const skillIcon = skillsIcons.get(servico.ordemServico.tipo);
+          const iconName = skillIcon?.icone;
+          const iconeUrl = skillIcon?.icone_url;
           
           // Obter cor da borda baseada na prioridade
           const corBorda = obterCorBordaPrioridade(servico.ordemServico);
@@ -1171,7 +1249,11 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
           const tamanhoIcone = isEditando ? 32 : (equipeEditando ? 20 : 20);
           const opacidadeMarker = opacidadeReduzida < 1 ? opacidadeReduzida : 1;
           
-          const iconSVGContent = iconName ? getLucideIconSVG(iconName, "#000000", tamanhoIcone) : '';
+          // Se tem imagem personalizada, usar ela; senão, usar ícone Lucide
+          const iconContent = iconeUrl 
+            ? `<img src="${iconeUrl}" style="width: ${tamanhoIcone}px; height: ${tamanhoIcone}px; object-fit: contain; border-radius: 50%;" />`
+            : (iconName ? getLucideIconSVG(iconName, "#000000", tamanhoIcone) : '');
+          
           const iconSVG = `
             <div style="
               background-color: ${cor}; 
@@ -1188,7 +1270,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
               opacity: ${opacidadeMarker};
               ${isSelecionadaNoEditor ? 'animation: pulse-blue 1.5s infinite;' : (isEditando ? 'animation: pulse 2s infinite;' : '')}
             ">
-              ${iconSVGContent}
+              ${iconContent}
               <div style="
                 position: absolute;
                 bottom: -2px;

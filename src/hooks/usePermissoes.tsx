@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, createContext, useContext, ReactNode } from "react";
+import { useState, useEffect, useCallback, useMemo, createContext, useContext, ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 const STORAGE_KEY = "usuario_web_session";
@@ -148,25 +148,23 @@ export function usePermissoes() {
 }
 
 // Hook simplificado para usar em componentes
+// Memoizado para evitar re-renders desnecessários em componentes pesados
 export function useTelaPermissao(telaId: string) {
-  const { podeEditar, podeConsultar, isAdmin, loading, permissoes } = usePermissoes();
+  const { podeEditar, podeConsultar, isAdmin, loading } = usePermissoes();
   
-  const resultado = {
-    podeEditar: podeEditar(telaId),
-    podeConsultar: podeConsultar(telaId),
-    apenasLeitura: !podeEditar(telaId) && podeConsultar(telaId),
-    semAcesso: !podeConsultar(telaId) && !isAdmin,
+  // Calcular permissões uma única vez
+  const podeEditarTela = podeEditar(telaId);
+  const podeConsultarTela = podeConsultar(telaId);
+  
+  // Memoizar o resultado para evitar re-renders desnecessários
+  const resultado = useMemo(() => ({
+    podeEditar: podeEditarTela,
+    podeConsultar: podeConsultarTela,
+    apenasLeitura: !podeEditarTela && podeConsultarTela,
+    semAcesso: !podeConsultarTela && !isAdmin,
     isAdmin,
     loading,
-  };
-  
-  // Debug detalhado
-  console.log(`[useTelaPermissao] Tela: ${telaId}`, {
-    loading,
-    isAdmin,
-    permissaoTela: permissoes[telaId],
-    resultado: resultado.podeEditar ? "PODE EDITAR" : "NÃO PODE EDITAR"
-  });
+  }), [podeEditarTela, podeConsultarTela, isAdmin, loading]);
   
   return resultado;
 }
