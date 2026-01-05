@@ -150,6 +150,10 @@ const Roteirizacao = () => {
   const [contratosFilterOpen, setContratosFilterOpen] = useState(false);
   const [centrosCustoFilter, setCentrosCustoFilter] = useState<string[]>([]);
   const [centrosCustoFilterOpen, setCentrosCustoFilterOpen] = useState(false);
+  const [municipiosFilter, setMunicipiosFilter] = useState<string[]>([]);
+  const [municipiosFilterOpen, setMunicipiosFilterOpen] = useState(false);
+  const [bairrosFilter, setBairrosFilter] = useState<string[]>([]);
+  const [bairrosFilterOpen, setBairrosFilterOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [statusFilterOpen, setStatusFilterOpen] = useState(false);
   
@@ -386,7 +390,7 @@ const Roteirizacao = () => {
               supabase
                 .from("ordens_servico")
                 .select(`
-                  id, numero, tipo, endereco, latitude, longitude, prazo, valor, duracao_estimada, regulada, status,
+                  id, numero, tipo, endereco, municipio, bairro, latitude, longitude, prazo, valor, duracao_estimada, regulada, status,
                   contrato_id, centro_custo_id,
                   contratos:contrato_id (codigo, nome),
                   centros_custo:centro_custo_id (codigo, nome)
@@ -461,7 +465,7 @@ const Roteirizacao = () => {
   // Resetar limite do backlog quando filtros mudarem
   useEffect(() => {
     setBacklogLimit(50);
-  }, [searchTerm, tiposFilter, contratosFilter, centrosCustoFilter, statusFilter, prazoInicio, prazoFim, coordenadasFilter, reguladaFilter]);
+  }, [searchTerm, tiposFilter, contratosFilter, centrosCustoFilter, municipiosFilter, bairrosFilter, statusFilter, prazoInicio, prazoFim, coordenadasFilter, reguladaFilter]);
 
   // Carregar planejamento se houver ID nos parâmetros da URL
   useEffect(() => {
@@ -813,6 +817,26 @@ const Roteirizacao = () => {
       .sort((a, b) => a.codigo.localeCompare(b.codigo));
   }, [osPendentesTodas]);
 
+  const municipiosDisponiveis = useMemo(() => {
+    const municipios = new Set<string>();
+    osPendentesTodas.forEach(os => {
+      if (os.municipio) {
+        municipios.add(os.municipio);
+      }
+    });
+    return Array.from(municipios).sort();
+  }, [osPendentesTodas]);
+
+  const bairrosDisponiveis = useMemo(() => {
+    const bairros = new Set<string>();
+    osPendentesTodas.forEach(os => {
+      if (os.bairro) {
+        bairros.add(os.bairro);
+      }
+    });
+    return Array.from(bairros).sort();
+  }, [osPendentesTodas]);
+
   const statusDisponiveis = useMemo(() => {
     const statusSet = new Set<string>();
     osPendentesTodas.forEach(os => {
@@ -870,6 +894,8 @@ const Roteirizacao = () => {
     setTiposFilter([]);
     setContratosFilter([]);
     setCentrosCustoFilter([]);
+    setMunicipiosFilter([]);
+    setBairrosFilter([]);
     setStatusFilter([]);
     setPrazoInicio("");
     setPrazoFim("");
@@ -882,6 +908,8 @@ const Roteirizacao = () => {
     tiposFilter.length > 0,
     contratosFilter.length > 0,
     centrosCustoFilter.length > 0,
+    municipiosFilter.length > 0,
+    bairrosFilter.length > 0,
     statusFilter.length > 0,
     prazoInicio !== "",
     prazoFim !== "",
@@ -907,6 +935,14 @@ const Roteirizacao = () => {
     // Centro de Custo - seleção múltipla
     const matchesCentroCusto = centrosCustoFilter.length === 0 || 
       (s.centro_custo_codigo && centrosCustoFilter.includes(s.centro_custo_codigo));
+    
+    // Município - seleção múltipla
+    const matchesMunicipio = municipiosFilter.length === 0 || 
+      (s.municipio && municipiosFilter.includes(s.municipio));
+    
+    // Bairro - seleção múltipla
+    const matchesBairro = bairrosFilter.length === 0 || 
+      (s.bairro && bairrosFilter.includes(s.bairro));
     
     // Status - seleção múltipla
     const matchesStatus = statusFilter.length === 0 || 
@@ -945,8 +981,8 @@ const Roteirizacao = () => {
     }
     
     return matchesSearch && matchesTipo && matchesContrato && matchesCentroCusto && 
-           matchesStatus && matchesPrazoInicio && matchesPrazoFim && 
-           matchesCoordenadas && matchesRegulada;
+           matchesMunicipio && matchesBairro && matchesStatus && 
+           matchesPrazoInicio && matchesPrazoFim && matchesCoordenadas && matchesRegulada;
   });
 
   // Função auxiliar para validar hora
@@ -3795,6 +3831,124 @@ const Roteirizacao = () => {
                                     <Checkbox checked={isSelected} className="mr-2" />
                                     <span className="font-mono text-xs mr-2">{centro.codigo}</span>
                                     <span className="truncate">{centro.nome}</span>
+                                  </CommandItem>
+                                );
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+
+                  {/* Município - Multi-select com busca */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Município</label>
+                    <Popover open={municipiosFilterOpen} onOpenChange={setMunicipiosFilterOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={municipiosFilterOpen}
+                          className="w-full h-9 justify-between text-left font-normal"
+                        >
+                          {municipiosFilter.length === 0 ? (
+                            <span className="text-muted-foreground">Todos</span>
+                          ) : municipiosFilter.length === 1 ? (
+                            <span className="truncate">{municipiosFilter[0]}</span>
+                          ) : (
+                            <span className="truncate">{municipiosFilter.length} selecionados</span>
+                          )}
+                          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[250px] p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="Buscar município..." />
+                          <CommandList>
+                            <CommandEmpty>Nenhum município encontrado.</CommandEmpty>
+                            <CommandGroup>
+                              {municipiosFilter.length > 0 && (
+                                <CommandItem onSelect={() => setMunicipiosFilter([])} className="text-muted-foreground">
+                                  <X className="mr-2 h-4 w-4" />
+                                  Limpar seleção
+                                </CommandItem>
+                              )}
+                              {municipiosDisponiveis.map((municipio) => {
+                                const isSelected = municipiosFilter.includes(municipio);
+                                return (
+                                  <CommandItem
+                                    key={municipio}
+                                    value={municipio}
+                                    onSelect={() => {
+                                      if (isSelected) {
+                                        setMunicipiosFilter(municipiosFilter.filter(m => m !== municipio));
+                                      } else {
+                                        setMunicipiosFilter([...municipiosFilter, municipio]);
+                                      }
+                                    }}
+                                  >
+                                    <Checkbox checked={isSelected} className="mr-2" />
+                                    {municipio}
+                                  </CommandItem>
+                                );
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+
+                  {/* Bairro - Multi-select com busca */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Bairro</label>
+                    <Popover open={bairrosFilterOpen} onOpenChange={setBairrosFilterOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={bairrosFilterOpen}
+                          className="w-full h-9 justify-between text-left font-normal"
+                        >
+                          {bairrosFilter.length === 0 ? (
+                            <span className="text-muted-foreground">Todos</span>
+                          ) : bairrosFilter.length === 1 ? (
+                            <span className="truncate">{bairrosFilter[0]}</span>
+                          ) : (
+                            <span className="truncate">{bairrosFilter.length} selecionados</span>
+                          )}
+                          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[250px] p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="Buscar bairro..." />
+                          <CommandList>
+                            <CommandEmpty>Nenhum bairro encontrado.</CommandEmpty>
+                            <CommandGroup>
+                              {bairrosFilter.length > 0 && (
+                                <CommandItem onSelect={() => setBairrosFilter([])} className="text-muted-foreground">
+                                  <X className="mr-2 h-4 w-4" />
+                                  Limpar seleção
+                                </CommandItem>
+                              )}
+                              {bairrosDisponiveis.map((bairro) => {
+                                const isSelected = bairrosFilter.includes(bairro);
+                                return (
+                                  <CommandItem
+                                    key={bairro}
+                                    value={bairro}
+                                    onSelect={() => {
+                                      if (isSelected) {
+                                        setBairrosFilter(bairrosFilter.filter(b => b !== bairro));
+                                      } else {
+                                        setBairrosFilter([...bairrosFilter, bairro]);
+                                      }
+                                    }}
+                                  >
+                                    <Checkbox checked={isSelected} className="mr-2" />
+                                    {bairro}
                                   </CommandItem>
                                 );
                               })}

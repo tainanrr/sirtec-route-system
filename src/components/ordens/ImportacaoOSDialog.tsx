@@ -549,6 +549,8 @@ export function ImportacaoOSDialog({ open, onOpenChange, onSuccess }: Importacao
         tipo,
         status: "pendente",
         endereco: (row.endereco || "").toString().trim(),
+        municipio: row.municipio ? row.municipio.toString().trim() : null,
+        bairro: row.bairro ? row.bairro.toString().trim() : null,
         cliente_nome: row.cliente_nome ? row.cliente_nome.toString().trim() : null,
         cliente_cpf: row.cliente_cpf ? row.cliente_cpf.toString().trim() : null,
         instalacao: row.instalacao ? row.instalacao.toString().trim() : null,
