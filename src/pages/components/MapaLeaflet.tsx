@@ -1057,22 +1057,21 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
         disableClusteringAtZoom: 22, // Desabilita clustering apenas no zoom máximo
         spiderfyDistanceMultiplier: 2.5, // Distância maior entre os marcadores no spiderfy
         spiderLegPolylineOptions: { weight: 2, color: '#666', opacity: 0.7 }, // Linhas do spiderfy
-        // Ícone customizado para o cluster
+        // Ícone customizado para o cluster (cor preta)
         iconCreateFunction: (cluster) => {
           const count = cluster.getChildCount();
-          let size = 'small';
           let sizeNum = 30;
-          if (count >= 10) { size = 'medium'; sizeNum = 40; }
-          if (count >= 50) { size = 'large'; sizeNum = 50; }
+          if (count >= 10) { sizeNum = 36; }
+          if (count >= 50) { sizeNum = 42; }
           
           return L.divIcon({
             html: `<div style="
-              background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+              background: linear-gradient(135deg, #1f2937 0%, #000000 100%);
               width: ${sizeNum}px;
               height: ${sizeNum}px;
               border-radius: 50%;
               border: 3px solid white;
-              box-shadow: 0 3px 10px rgba(0,0,0,0.4);
+              box-shadow: 0 3px 10px rgba(0,0,0,0.5);
               display: flex;
               align-items: center;
               justify-content: center;
