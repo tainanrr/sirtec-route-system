@@ -151,6 +151,10 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
   // V19.7: Estado para controlar se o mapa foi inicializado
   const [mapaInicializado, setMapaInicializado] = useState(false);
   
+  // Controle para evitar reset de zoom quando dados são recarregados
+  // O fitBounds só deve ser executado na primeira renderização
+  const primeiraRenderizacaoRef = useRef(true);
+  
   // OTIMIZAÇÃO: Debounce nas OSs pendentes para evitar re-renderizações frequentes
   // Quando há 8000+ OSs, cada mudança pequena causaria re-renderização pesada
   const osPendentesDebounced = useDebounce(osPendentes, 300);
@@ -1565,44 +1569,48 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
       });
 
       // Ajustar zoom para mostrar todos os pontos (filtrados)
-      const bounds: [number, number][] = [];
-      if (equipeEditando) {
-        // Se uma equipe está sendo editada, focar nela mas incluir outras rotas
-        const equipeEditandoObj = equipesMock.find(e => e.id === equipeEditando);
-        if (equipeEditandoObj) {
-          bounds.push([equipeEditandoObj.latitude, equipeEditandoObj.longitude]);
-        }
-        rotasParaMostrar.forEach((rota) => {
-          if (rota.equipe.id === equipeEditando) {
+      // IMPORTANTE: Só executa fitBounds na PRIMEIRA renderização para não resetar o zoom do usuário
+      if (primeiraRenderizacaoRef.current && osPendentesDebounced.length > 0) {
+        const bounds: [number, number][] = [];
+        if (equipeEditando) {
+          // Se uma equipe está sendo editada, focar nela mas incluir outras rotas
+          const equipeEditandoObj = equipesMock.find(e => e.id === equipeEditando);
+          if (equipeEditandoObj) {
+            bounds.push([equipeEditandoObj.latitude, equipeEditandoObj.longitude]);
+          }
+          rotasParaMostrar.forEach((rota) => {
+            if (rota.equipe.id === equipeEditando) {
+              rota.servicos
+                .filter((s) => s.tipo === "SERVICO" && s.ordemServico)
+                .forEach((s) => bounds.push([s.ordemServico!.latitude, s.ordemServico!.longitude]));
+            }
+          });
+        } else if (filtroEquipe === "todos") {
+          equipesMock.forEach((e) => bounds.push([e.latitude, e.longitude]));
+          // IMPORTANTE: Usar osPendentes (todas) e não osPendentesFiltradas para incluir OSs fora dos territórios
+          osPendentes.forEach((os) => bounds.push([os.latitude, os.longitude]));
+          rotasParaMostrar.forEach((rota) => {
             rota.servicos
               .filter((s) => s.tipo === "SERVICO" && s.ordemServico)
               .forEach((s) => bounds.push([s.ordemServico!.latitude, s.ordemServico!.longitude]));
+          });
+        } else {
+          const equipeSelecionada = equipesMock.find(e => e.id === filtroEquipe);
+          if (equipeSelecionada) {
+            bounds.push([equipeSelecionada.latitude, equipeSelecionada.longitude]);
           }
-        });
-      } else if (filtroEquipe === "todos") {
-        equipesMock.forEach((e) => bounds.push([e.latitude, e.longitude]));
-        // IMPORTANTE: Usar osPendentes (todas) e não osPendentesFiltradas para incluir OSs fora dos territórios
-        osPendentes.forEach((os) => bounds.push([os.latitude, os.longitude]));
-        rotasParaMostrar.forEach((rota) => {
-          rota.servicos
-            .filter((s) => s.tipo === "SERVICO" && s.ordemServico)
-            .forEach((s) => bounds.push([s.ordemServico!.latitude, s.ordemServico!.longitude]));
-        });
-      } else {
-        const equipeSelecionada = equipesMock.find(e => e.id === filtroEquipe);
-        if (equipeSelecionada) {
-          bounds.push([equipeSelecionada.latitude, equipeSelecionada.longitude]);
+          // IMPORTANTE: Usar osPendentes (todas) e não osPendentesFiltradas para incluir OSs fora dos territórios
+          osPendentes.forEach((os) => bounds.push([os.latitude, os.longitude]));
+          rotasParaMostrar.forEach((rota) => {
+            rota.servicos
+              .filter((s) => s.tipo === "SERVICO" && s.ordemServico)
+              .forEach((s) => bounds.push([s.ordemServico!.latitude, s.ordemServico!.longitude]));
+          });
         }
-        // IMPORTANTE: Usar osPendentes (todas) e não osPendentesFiltradas para incluir OSs fora dos territórios
-        osPendentes.forEach((os) => bounds.push([os.latitude, os.longitude]));
-        rotasParaMostrar.forEach((rota) => {
-        rota.servicos
-          .filter((s) => s.tipo === "SERVICO" && s.ordemServico)
-          .forEach((s) => bounds.push([s.ordemServico!.latitude, s.ordemServico!.longitude]));
-      });
-      }
-      if (bounds.length > 0) {
-        map.fitBounds(bounds as L.LatLngBoundsExpression, { padding: [50, 50] });
+        if (bounds.length > 0) {
+          map.fitBounds(bounds as L.LatLngBoundsExpression, { padding: [50, 50] });
+          primeiraRenderizacaoRef.current = false; // Marcar que o fitBounds inicial já foi feito
+        }
       }
       
       // Configurar função global para navegação entre OSs
