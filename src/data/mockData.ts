@@ -21,6 +21,16 @@ export interface OrdemServico {
   tempoExecucao: number; // em minutos
   regulada: boolean;
   prioridade: "ALTA" | "NORMAL";
+  // Campos opcionais para filtros avançados
+  status?: string;
+  contrato_id?: string | null;
+  contrato_codigo?: string | null;
+  contrato_nome?: string | null;
+  centro_custo_id?: string | null;
+  centro_custo_codigo?: string | null;
+  centro_custo_nome?: string | null;
+  municipio?: string | null;
+  bairro?: string | null;
 }
 
 export interface Localizacao {

@@ -124,6 +124,11 @@ export async function mapSupabaseOrdemServicoToOrdemServico(
   //   console.warn(`[ORDEM_SERVICO] OS ${ordemSupabase.numero} tem coordenadas inválidas (lat: ${ordemSupabase.latitude}, lng: ${ordemSupabase.longitude}), usando fallback`);
   // }
 
+  // Extrair dados de joins (contratos e centros_custo) se existirem
+  const ordemAny = ordemSupabase as any;
+  const contrato = ordemAny.contratos;
+  const centroCusto = ordemAny.centros_custo;
+
   return {
     id: ordemSupabase.id,
     numero: ordemSupabase.numero,
@@ -136,6 +141,16 @@ export async function mapSupabaseOrdemServicoToOrdemServico(
     tempoExecucao: tempoExecucao,
     regulada: regulada,
     prioridade: prioridade,
+    // Campos para filtros avançados
+    status: (ordemSupabase as any).status || undefined,
+    contrato_id: ordemAny.contrato_id || null,
+    contrato_codigo: contrato?.codigo || null,
+    contrato_nome: contrato?.nome || null,
+    centro_custo_id: ordemAny.centro_custo_id || null,
+    centro_custo_codigo: centroCusto?.codigo || null,
+    centro_custo_nome: centroCusto?.nome || null,
+    municipio: ordemAny.municipio || null,
+    bairro: ordemAny.bairro || null,
   };
 }
 

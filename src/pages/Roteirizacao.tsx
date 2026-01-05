@@ -145,6 +145,18 @@ const Roteirizacao = () => {
   const [tiposFilter, setTiposFilter] = useState<string[]>([]); // Array para seleção múltipla
   const [tiposFilterOpen, setTiposFilterOpen] = useState(false); // Controle do popover
   
+  // Novos filtros multi-seleção
+  const [contratosFilter, setContratosFilter] = useState<string[]>([]);
+  const [contratosFilterOpen, setContratosFilterOpen] = useState(false);
+  const [centrosCustoFilter, setCentrosCustoFilter] = useState<string[]>([]);
+  const [centrosCustoFilterOpen, setCentrosCustoFilterOpen] = useState(false);
+  const [municipiosFilter, setMunicipiosFilter] = useState<string[]>([]);
+  const [municipiosFilterOpen, setMunicipiosFilterOpen] = useState(false);
+  const [bairrosFilter, setBairrosFilter] = useState<string[]>([]);
+  const [bairrosFilterOpen, setBairrosFilterOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [statusFilterOpen, setStatusFilterOpen] = useState(false);
+  
   // Filtros avançados do Backlog
   const [showFiltersBacklog, setShowFiltersBacklog] = useState(false);
   const [prazoInicio, setPrazoInicio] = useState("");
@@ -377,7 +389,12 @@ const Roteirizacao = () => {
             batchPromises.push(
               supabase
                 .from("ordens_servico")
-                .select("id, numero, tipo, endereco, latitude, longitude, prazo, valor, duracao_estimada, regulada, status")
+                .select(`
+                  id, numero, tipo, endereco, latitude, longitude, prazo, valor, duracao_estimada, regulada, status,
+                  contrato_id, centro_custo_id, municipio, bairro,
+                  contratos:contrato_id (codigo, nome),
+                  centros_custo:centro_custo_id (codigo, nome)
+                `)
                 .in("status", ["pendente", "atrasada"])
                 .order("created_at", { ascending: false })
                 .range(currentOffset, currentOffset + PAGE_SIZE - 1)
@@ -448,7 +465,7 @@ const Roteirizacao = () => {
   // Resetar limite do backlog quando filtros mudarem
   useEffect(() => {
     setBacklogLimit(50);
-  }, [searchTerm, tiposFilter, prazoInicio, prazoFim, coordenadasFilter, reguladaFilter]);
+  }, [searchTerm, tiposFilter, contratosFilter, centrosCustoFilter, municipiosFilter, bairrosFilter, statusFilter, prazoInicio, prazoFim, coordenadasFilter, reguladaFilter]);
 
   // Carregar planejamento se houver ID nos parâmetros da URL
   useEffect(() => {
@@ -775,6 +792,61 @@ const Roteirizacao = () => {
     return Array.from(tipos).sort();
   }, [osPendentes]);
 
+  // Opções disponíveis para novos filtros multi-seleção
+  const contratosDisponiveis = useMemo(() => {
+    const contratos = new Map<string, string>();
+    osPendentesTodas.forEach(os => {
+      if (os.contrato_codigo && os.contrato_nome) {
+        contratos.set(os.contrato_codigo, os.contrato_nome);
+      }
+    });
+    return Array.from(contratos.entries())
+      .map(([codigo, nome]) => ({ codigo, nome }))
+      .sort((a, b) => a.codigo.localeCompare(b.codigo));
+  }, [osPendentesTodas]);
+
+  const centrosCustoDisponiveis = useMemo(() => {
+    const centros = new Map<string, string>();
+    osPendentesTodas.forEach(os => {
+      if (os.centro_custo_codigo && os.centro_custo_nome) {
+        centros.set(os.centro_custo_codigo, os.centro_custo_nome);
+      }
+    });
+    return Array.from(centros.entries())
+      .map(([codigo, nome]) => ({ codigo, nome }))
+      .sort((a, b) => a.codigo.localeCompare(b.codigo));
+  }, [osPendentesTodas]);
+
+  const municipiosDisponiveis = useMemo(() => {
+    const municipios = new Set<string>();
+    osPendentesTodas.forEach(os => {
+      if (os.municipio) {
+        municipios.add(os.municipio);
+      }
+    });
+    return Array.from(municipios).sort();
+  }, [osPendentesTodas]);
+
+  const bairrosDisponiveis = useMemo(() => {
+    const bairros = new Set<string>();
+    osPendentesTodas.forEach(os => {
+      if (os.bairro) {
+        bairros.add(os.bairro);
+      }
+    });
+    return Array.from(bairros).sort();
+  }, [osPendentesTodas]);
+
+  const statusDisponiveis = useMemo(() => {
+    const statusSet = new Set<string>();
+    osPendentesTodas.forEach(os => {
+      if (os.status) {
+        statusSet.add(os.status);
+      }
+    });
+    return Array.from(statusSet).sort();
+  }, [osPendentesTodas]);
+
   // Inicializar e atualizar filtros de tipos de serviços com todos os tipos selecionados por padrão
   useEffect(() => {
     if (todosTiposDisponiveis.length > 0) {
@@ -820,6 +892,11 @@ const Roteirizacao = () => {
   const clearFiltersBacklog = () => {
     setSearchTerm("");
     setTiposFilter([]);
+    setContratosFilter([]);
+    setCentrosCustoFilter([]);
+    setMunicipiosFilter([]);
+    setBairrosFilter([]);
+    setStatusFilter([]);
     setPrazoInicio("");
     setPrazoFim("");
     setCoordenadasFilter("all");
@@ -829,6 +906,11 @@ const Roteirizacao = () => {
   // Contar filtros ativos do Backlog
   const activeFiltersBacklogCount = [
     tiposFilter.length > 0,
+    contratosFilter.length > 0,
+    centrosCustoFilter.length > 0,
+    municipiosFilter.length > 0,
+    bairrosFilter.length > 0,
+    statusFilter.length > 0,
     prazoInicio !== "",
     prazoFim !== "",
     coordenadasFilter !== "all",
@@ -845,6 +927,26 @@ const Roteirizacao = () => {
     
     // Tipo de serviço - seleção múltipla
     const matchesTipo = tiposFilter.length === 0 || tiposFilter.some(tipo => s.tipo.toLowerCase() === tipo.toLowerCase());
+    
+    // Contrato - seleção múltipla
+    const matchesContrato = contratosFilter.length === 0 || 
+      (s.contrato_codigo && contratosFilter.includes(s.contrato_codigo));
+    
+    // Centro de Custo - seleção múltipla
+    const matchesCentroCusto = centrosCustoFilter.length === 0 || 
+      (s.centro_custo_codigo && centrosCustoFilter.includes(s.centro_custo_codigo));
+    
+    // Município - seleção múltipla
+    const matchesMunicipio = municipiosFilter.length === 0 || 
+      (s.municipio && municipiosFilter.includes(s.municipio));
+    
+    // Bairro - seleção múltipla
+    const matchesBairro = bairrosFilter.length === 0 || 
+      (s.bairro && bairrosFilter.includes(s.bairro));
+    
+    // Status - seleção múltipla
+    const matchesStatus = statusFilter.length === 0 || 
+      (s.status && statusFilter.includes(s.status));
     
     // Prazo - início (só filtra se tiver prazo definido na OS)
     let matchesPrazoInicio = true;
@@ -878,8 +980,9 @@ const Roteirizacao = () => {
       matchesRegulada = s.regulada !== true;
     }
     
-    return matchesSearch && matchesTipo && matchesPrazoInicio && matchesPrazoFim && 
-           matchesCoordenadas && matchesRegulada;
+    return matchesSearch && matchesTipo && matchesContrato && matchesCentroCusto && 
+           matchesMunicipio && matchesBairro && matchesStatus &&
+           matchesPrazoInicio && matchesPrazoFim && matchesCoordenadas && matchesRegulada;
   });
 
   // Função auxiliar para validar hora
@@ -3608,6 +3711,303 @@ const Roteirizacao = () => {
                                       className="mr-2"
                                     />
                                     {obterLabelTipo(tipo)}
+                                  </CommandItem>
+                                );
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+
+                  {/* Contrato - Multi-select com busca */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Contrato</label>
+                    <Popover open={contratosFilterOpen} onOpenChange={setContratosFilterOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={contratosFilterOpen}
+                          className="w-full h-9 justify-between text-left font-normal"
+                        >
+                          {contratosFilter.length === 0 ? (
+                            <span className="text-muted-foreground">Todos</span>
+                          ) : contratosFilter.length === 1 ? (
+                            <span className="truncate">{contratosFilter[0]}</span>
+                          ) : (
+                            <span className="truncate">{contratosFilter.length} selecionados</span>
+                          )}
+                          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[250px] p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="Buscar contrato..." />
+                          <CommandList>
+                            <CommandEmpty>Nenhum contrato encontrado.</CommandEmpty>
+                            <CommandGroup>
+                              {contratosFilter.length > 0 && (
+                                <CommandItem onSelect={() => setContratosFilter([])} className="text-muted-foreground">
+                                  <X className="mr-2 h-4 w-4" />
+                                  Limpar seleção
+                                </CommandItem>
+                              )}
+                              {contratosDisponiveis.map((contrato) => {
+                                const isSelected = contratosFilter.includes(contrato.codigo);
+                                return (
+                                  <CommandItem
+                                    key={contrato.codigo}
+                                    value={`${contrato.codigo} ${contrato.nome}`}
+                                    onSelect={() => {
+                                      if (isSelected) {
+                                        setContratosFilter(contratosFilter.filter(c => c !== contrato.codigo));
+                                      } else {
+                                        setContratosFilter([...contratosFilter, contrato.codigo]);
+                                      }
+                                    }}
+                                  >
+                                    <Checkbox checked={isSelected} className="mr-2" />
+                                    <span className="font-mono text-xs mr-2">{contrato.codigo}</span>
+                                    <span className="truncate">{contrato.nome}</span>
+                                  </CommandItem>
+                                );
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+
+                  {/* Centro de Custo - Multi-select com busca */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Centro de Custo</label>
+                    <Popover open={centrosCustoFilterOpen} onOpenChange={setCentrosCustoFilterOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={centrosCustoFilterOpen}
+                          className="w-full h-9 justify-between text-left font-normal"
+                        >
+                          {centrosCustoFilter.length === 0 ? (
+                            <span className="text-muted-foreground">Todos</span>
+                          ) : centrosCustoFilter.length === 1 ? (
+                            <span className="truncate">{centrosCustoFilter[0]}</span>
+                          ) : (
+                            <span className="truncate">{centrosCustoFilter.length} selecionados</span>
+                          )}
+                          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[250px] p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="Buscar centro de custo..." />
+                          <CommandList>
+                            <CommandEmpty>Nenhum centro de custo encontrado.</CommandEmpty>
+                            <CommandGroup>
+                              {centrosCustoFilter.length > 0 && (
+                                <CommandItem onSelect={() => setCentrosCustoFilter([])} className="text-muted-foreground">
+                                  <X className="mr-2 h-4 w-4" />
+                                  Limpar seleção
+                                </CommandItem>
+                              )}
+                              {centrosCustoDisponiveis.map((centro) => {
+                                const isSelected = centrosCustoFilter.includes(centro.codigo);
+                                return (
+                                  <CommandItem
+                                    key={centro.codigo}
+                                    value={`${centro.codigo} ${centro.nome}`}
+                                    onSelect={() => {
+                                      if (isSelected) {
+                                        setCentrosCustoFilter(centrosCustoFilter.filter(c => c !== centro.codigo));
+                                      } else {
+                                        setCentrosCustoFilter([...centrosCustoFilter, centro.codigo]);
+                                      }
+                                    }}
+                                  >
+                                    <Checkbox checked={isSelected} className="mr-2" />
+                                    <span className="font-mono text-xs mr-2">{centro.codigo}</span>
+                                    <span className="truncate">{centro.nome}</span>
+                                  </CommandItem>
+                                );
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+
+                  {/* Município - Multi-select com busca */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Município</label>
+                    <Popover open={municipiosFilterOpen} onOpenChange={setMunicipiosFilterOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={municipiosFilterOpen}
+                          className="w-full h-9 justify-between text-left font-normal"
+                        >
+                          {municipiosFilter.length === 0 ? (
+                            <span className="text-muted-foreground">Todos</span>
+                          ) : municipiosFilter.length === 1 ? (
+                            <span className="truncate">{municipiosFilter[0]}</span>
+                          ) : (
+                            <span className="truncate">{municipiosFilter.length} selecionados</span>
+                          )}
+                          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[250px] p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="Buscar município..." />
+                          <CommandList>
+                            <CommandEmpty>Nenhum município encontrado.</CommandEmpty>
+                            <CommandGroup>
+                              {municipiosFilter.length > 0 && (
+                                <CommandItem onSelect={() => setMunicipiosFilter([])} className="text-muted-foreground">
+                                  <X className="mr-2 h-4 w-4" />
+                                  Limpar seleção
+                                </CommandItem>
+                              )}
+                              {municipiosDisponiveis.map((municipio) => {
+                                const isSelected = municipiosFilter.includes(municipio);
+                                return (
+                                  <CommandItem
+                                    key={municipio}
+                                    value={municipio}
+                                    onSelect={() => {
+                                      if (isSelected) {
+                                        setMunicipiosFilter(municipiosFilter.filter(m => m !== municipio));
+                                      } else {
+                                        setMunicipiosFilter([...municipiosFilter, municipio]);
+                                      }
+                                    }}
+                                  >
+                                    <Checkbox checked={isSelected} className="mr-2" />
+                                    {municipio}
+                                  </CommandItem>
+                                );
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+
+                  {/* Bairro - Multi-select com busca */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Bairro</label>
+                    <Popover open={bairrosFilterOpen} onOpenChange={setBairrosFilterOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={bairrosFilterOpen}
+                          className="w-full h-9 justify-between text-left font-normal"
+                        >
+                          {bairrosFilter.length === 0 ? (
+                            <span className="text-muted-foreground">Todos</span>
+                          ) : bairrosFilter.length === 1 ? (
+                            <span className="truncate">{bairrosFilter[0]}</span>
+                          ) : (
+                            <span className="truncate">{bairrosFilter.length} selecionados</span>
+                          )}
+                          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[250px] p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="Buscar bairro..." />
+                          <CommandList>
+                            <CommandEmpty>Nenhum bairro encontrado.</CommandEmpty>
+                            <CommandGroup>
+                              {bairrosFilter.length > 0 && (
+                                <CommandItem onSelect={() => setBairrosFilter([])} className="text-muted-foreground">
+                                  <X className="mr-2 h-4 w-4" />
+                                  Limpar seleção
+                                </CommandItem>
+                              )}
+                              {bairrosDisponiveis.map((bairro) => {
+                                const isSelected = bairrosFilter.includes(bairro);
+                                return (
+                                  <CommandItem
+                                    key={bairro}
+                                    value={bairro}
+                                    onSelect={() => {
+                                      if (isSelected) {
+                                        setBairrosFilter(bairrosFilter.filter(b => b !== bairro));
+                                      } else {
+                                        setBairrosFilter([...bairrosFilter, bairro]);
+                                      }
+                                    }}
+                                  >
+                                    <Checkbox checked={isSelected} className="mr-2" />
+                                    {bairro}
+                                  </CommandItem>
+                                );
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+
+                  {/* Status - Multi-select com busca */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Status</label>
+                    <Popover open={statusFilterOpen} onOpenChange={setStatusFilterOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={statusFilterOpen}
+                          className="w-full h-9 justify-between text-left font-normal"
+                        >
+                          {statusFilter.length === 0 ? (
+                            <span className="text-muted-foreground">Todos</span>
+                          ) : statusFilter.length === 1 ? (
+                            <span className="truncate">{statusFilter[0]}</span>
+                          ) : (
+                            <span className="truncate">{statusFilter.length} selecionados</span>
+                          )}
+                          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[200px] p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="Buscar status..." />
+                          <CommandList>
+                            <CommandEmpty>Nenhum status encontrado.</CommandEmpty>
+                            <CommandGroup>
+                              {statusFilter.length > 0 && (
+                                <CommandItem onSelect={() => setStatusFilter([])} className="text-muted-foreground">
+                                  <X className="mr-2 h-4 w-4" />
+                                  Limpar seleção
+                                </CommandItem>
+                              )}
+                              {statusDisponiveis.map((status) => {
+                                const isSelected = statusFilter.includes(status);
+                                return (
+                                  <CommandItem
+                                    key={status}
+                                    value={status}
+                                    onSelect={() => {
+                                      if (isSelected) {
+                                        setStatusFilter(statusFilter.filter(s => s !== status));
+                                      } else {
+                                        setStatusFilter([...statusFilter, status]);
+                                      }
+                                    }}
+                                  >
+                                    <Checkbox checked={isSelected} className="mr-2" />
+                                    {status}
                                   </CommandItem>
                                 );
                               })}
