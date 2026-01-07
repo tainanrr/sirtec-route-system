@@ -882,7 +882,7 @@ const Roteirizacao = () => {
     return 'Outros';
   };
 
-  // Grupos de serviço disponíveis
+  // Grupos de serviço disponíveis (considerando todos os outros filtros)
   const gruposDisponiveis = useMemo(() => {
     const grupos = new Set<string>();
     osPendentesTodas.forEach(os => {
@@ -891,12 +891,24 @@ const Roteirizacao = () => {
       }
     });
     return Array.from(grupos).sort();
-  }, [osPendentesTodas, tiposFilter, contratosFilter, centrosCustoFilter, municipiosFilter, bairrosFilter, statusFilter, territoriosFilter, reguladaFilter, coordenadasFilter, prazoInicio, prazoFim]);
+  }, [osPendentesTodas, tiposFilter, contratosFilter, centrosCustoFilter, municipiosFilter, bairrosFilter, statusFilter, territoriosFilter, reguladaFilter, coordenadasFilter, prazoInicio, prazoFim, gruposFilter]);
 
-  // Territórios disponíveis para filtro (apenas os ativos)
+  // Territórios disponíveis para filtro (apenas os que contêm OSs que passam nos demais filtros)
   const territoriosDisponiveis = useMemo(() => {
-    return territorios.filter(t => t.ativo && t.poligono.length >= 3);
-  }, [territorios]);
+    const territoriosAtivos = territorios.filter(t => t.ativo && t.poligono.length >= 3);
+    
+    // Filtrar apenas territórios que contêm pelo menos uma OS que passa nos filtros
+    return territoriosAtivos.filter(territorio => {
+      return osPendentesTodas.some(os => {
+        // Verificar se a OS passa nos demais filtros (exceto território)
+        if (!osPassaFiltros(os, 'territorio')) return false;
+        
+        // Verificar se a OS está dentro deste território
+        if (os.latitude === null || os.longitude === null) return false;
+        return pontoNoPoligono({ lat: os.latitude, lng: os.longitude }, territorio.poligono);
+      });
+    });
+  }, [territorios, osPendentesTodas, tiposFilter, contratosFilter, centrosCustoFilter, municipiosFilter, bairrosFilter, statusFilter, gruposFilter, reguladaFilter, coordenadasFilter, prazoInicio, prazoFim, territoriosFilter]);
 
   const tiposDisponiveis = useMemo(() => {
     const tipos = new Set<string>();
@@ -906,7 +918,7 @@ const Roteirizacao = () => {
       }
     });
     return Array.from(tipos).sort();
-  }, [osPendentesTodas, contratosFilter, centrosCustoFilter, municipiosFilter, bairrosFilter, statusFilter, reguladaFilter, coordenadasFilter, prazoInicio, prazoFim]);
+  }, [osPendentesTodas, contratosFilter, centrosCustoFilter, municipiosFilter, bairrosFilter, statusFilter, gruposFilter, territoriosFilter, reguladaFilter, coordenadasFilter, prazoInicio, prazoFim]);
 
   const contratosDisponiveis = useMemo(() => {
     const contratos = new Map<string, string>();
@@ -918,7 +930,7 @@ const Roteirizacao = () => {
     return Array.from(contratos.entries())
       .map(([codigo, nome]) => ({ codigo, nome }))
       .sort((a, b) => a.codigo.localeCompare(b.codigo));
-  }, [osPendentesTodas, tiposFilter, centrosCustoFilter, municipiosFilter, bairrosFilter, statusFilter, reguladaFilter, coordenadasFilter, prazoInicio, prazoFim]);
+  }, [osPendentesTodas, tiposFilter, centrosCustoFilter, municipiosFilter, bairrosFilter, statusFilter, gruposFilter, territoriosFilter, reguladaFilter, coordenadasFilter, prazoInicio, prazoFim]);
 
   const centrosCustoDisponiveis = useMemo(() => {
     const centros = new Map<string, string>();
@@ -930,7 +942,7 @@ const Roteirizacao = () => {
     return Array.from(centros.entries())
       .map(([codigo, nome]) => ({ codigo, nome }))
       .sort((a, b) => a.codigo.localeCompare(b.codigo));
-  }, [osPendentesTodas, tiposFilter, contratosFilter, municipiosFilter, bairrosFilter, statusFilter, reguladaFilter, coordenadasFilter, prazoInicio, prazoFim]);
+  }, [osPendentesTodas, tiposFilter, contratosFilter, municipiosFilter, bairrosFilter, statusFilter, gruposFilter, territoriosFilter, reguladaFilter, coordenadasFilter, prazoInicio, prazoFim]);
 
   const municipiosDisponiveis = useMemo(() => {
     const municipios = new Set<string>();
@@ -940,7 +952,7 @@ const Roteirizacao = () => {
       }
     });
     return Array.from(municipios).sort();
-  }, [osPendentesTodas, tiposFilter, contratosFilter, centrosCustoFilter, bairrosFilter, statusFilter, reguladaFilter, coordenadasFilter, prazoInicio, prazoFim]);
+  }, [osPendentesTodas, tiposFilter, contratosFilter, centrosCustoFilter, bairrosFilter, statusFilter, gruposFilter, territoriosFilter, reguladaFilter, coordenadasFilter, prazoInicio, prazoFim]);
 
   const bairrosDisponiveis = useMemo(() => {
     const bairros = new Set<string>();
@@ -950,7 +962,7 @@ const Roteirizacao = () => {
       }
     });
     return Array.from(bairros).sort();
-  }, [osPendentesTodas, tiposFilter, contratosFilter, centrosCustoFilter, municipiosFilter, statusFilter, reguladaFilter, coordenadasFilter, prazoInicio, prazoFim]);
+  }, [osPendentesTodas, tiposFilter, contratosFilter, centrosCustoFilter, municipiosFilter, statusFilter, gruposFilter, territoriosFilter, reguladaFilter, coordenadasFilter, prazoInicio, prazoFim]);
 
   const statusDisponiveis = useMemo(() => {
     const statusSet = new Set<string>();
@@ -960,7 +972,7 @@ const Roteirizacao = () => {
       }
     });
     return Array.from(statusSet).sort();
-  }, [osPendentesTodas, tiposFilter, contratosFilter, centrosCustoFilter, municipiosFilter, bairrosFilter, reguladaFilter, coordenadasFilter, prazoInicio, prazoFim]);
+  }, [osPendentesTodas, tiposFilter, contratosFilter, centrosCustoFilter, municipiosFilter, bairrosFilter, gruposFilter, territoriosFilter, reguladaFilter, coordenadasFilter, prazoInicio, prazoFim]);
 
   // Inicializar e atualizar filtros de tipos de serviços com todos os tipos selecionados por padrão
   useEffect(() => {
