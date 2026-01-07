@@ -1038,7 +1038,12 @@ const Roteirizacao = () => {
 
   // Usar osPendentesTodas para mostrar TODAS as OSs no Backlog (sem filtro de território)
   console.log("[Roteirização] ordensServico:", ordensServico.length, "osAlocadas:", osAlocadas.size, "osPendentesTodas:", osPendentesTodas.length, "loadingOrdens:", loadingOrdens);
-  const filteredServicos = osPendentesTodas.filter((s) => {
+  
+  // Verificar se há pelo menos um filtro ativo - SE NÃO, retorna array vazio
+  // Isso evita carregar todas as OSs de uma vez e travar a tela
+  const hasAnyFilter = activeFiltersBacklogCount > 0 || searchTerm.trim() !== "";
+  
+  const filteredServicos = hasAnyFilter ? osPendentesTodas.filter((s) => {
     // Busca textual
     const matchesSearch =
       s.numero.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1117,7 +1122,7 @@ const Roteirizacao = () => {
            matchesMunicipio && matchesBairro && matchesStatus && 
            matchesPrazoInicio && matchesPrazoFim && matchesCoordenadas && matchesRegulada &&
            matchesGrupo && matchesTerritorio;
-  });
+  }) : []; // Retorna array vazio se nenhum filtro ativo
 
   // Função auxiliar para validar hora
   const validarHora = (hora: string | null): string | null => {
@@ -4426,9 +4431,16 @@ const Roteirizacao = () => {
                     </div>
                   )}
                 </div>
+              ) : !hasAnyFilter ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <div className="text-sm font-medium mb-2">🔍 Aplique um filtro para visualizar as OSs</div>
+                  <div className="text-xs">
+                    São {osPendentesTodas.length.toLocaleString()} OSs pendentes. Use os filtros acima para selecionar quais deseja visualizar.
+                  </div>
+                </div>
               ) : filteredServicos.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground text-sm">
-                  Nenhum serviço pendente
+                  Nenhuma OS encontrada com os filtros aplicados
                 </div>
               ) : (
                 <>
