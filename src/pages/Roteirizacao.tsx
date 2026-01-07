@@ -41,6 +41,7 @@ import {
   ArrowUp,
   ArrowDown,
   RotateCcw,
+  Copy,
   Trash2,
   ArrowUpDown,
   AlertTriangle,
@@ -4148,8 +4149,8 @@ const Roteirizacao = () => {
                     </div>
                   </div>
 
-                  {/* Resumo dos filtros */}
-                  <div className="flex items-end justify-end gap-2">
+                  {/* Resumo dos filtros + Botão Copiar */}
+                  <div className="flex items-center justify-end gap-2">
                     {activeFiltersBacklogCount > 0 && (
                       <span className="text-xs text-muted-foreground">
                         {activeFiltersBacklogCount} filtro{activeFiltersBacklogCount > 1 ? "s" : ""} ativo{activeFiltersBacklogCount > 1 ? "s" : ""}
@@ -4160,6 +4161,42 @@ const Roteirizacao = () => {
                         )}
                       </span>
                     )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs gap-1"
+                      onClick={() => {
+                        // Copiar todos os dados das OSs filtradas
+                        const header = "Número\tTipo\tStatus\tEndereço\tBairro\tMunicípio\tPrazo\tTempo Exec.\tValor\tRegulada\tLatitude\tLongitude\tContrato\tCentro Custo";
+                        const rows = filteredServicos.map(os => {
+                          return [
+                            os.numero,
+                            obterLabelTipo(os.tipo),
+                            os.status || "",
+                            os.endereco,
+                            os.bairro || "",
+                            os.municipio || "",
+                            os.prazo ? new Date(os.prazo).toLocaleString("pt-BR") : "",
+                            os.tempoExecucao || "",
+                            os.valor || "",
+                            os.regulada ? "Sim" : "Não",
+                            os.latitude || "",
+                            os.longitude || "",
+                            os.contrato_codigo || "",
+                            os.centro_custo_codigo || ""
+                          ].join("\t");
+                        });
+                        const texto = header + "\n" + rows.join("\n");
+                        navigator.clipboard.writeText(texto).then(() => {
+                          toast.success(`${filteredServicos.length} OSs copiadas para a área de transferência!`);
+                        }).catch(() => {
+                          toast.error("Erro ao copiar");
+                        });
+                      }}
+                    >
+                      <Copy className="h-3 w-3" />
+                      Copiar {filteredServicos.length} OSs
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -4197,73 +4234,66 @@ const Roteirizacao = () => {
                 </div>
               ) : (
                 <>
-                {/* Grid de 5 colunas compacto */}
-                <div className="grid grid-cols-5 gap-1">
-                  {filteredServicos.slice(0, backlogLimit).map((servico, index) => {
+                {/* Grid de 5 colunas compacto - sem drag and drop */}
+                <div className="grid grid-cols-5 gap-1 select-text">
+                  {filteredServicos.slice(0, backlogLimit).map((servico) => {
                     const motivoNaoAlocada = naoAlocadas[servico.id];
                     return (
-                      <Draggable key={servico.id} draggableId={servico.id} index={index}>
-                        {(provided, snapshot) => (
-                          <div
-                            ref={provided.innerRef}
-                            {...provided.draggableProps}
-                            {...provided.dragHandleProps}
-                            onDoubleClick={() => {
-                              setDetalhesOSId(servico.id);
-                              setDetalhesOSOpen(true);
-                            }}
-                            className={cn(
-                              "p-1.5 rounded border cursor-grab active:cursor-grabbing transition-all hover:bg-muted/50",
-                              servico.regulada ? "border-danger/40 bg-danger/5" : "border-border/50 bg-card",
-                              snapshot.isDragging && "shadow-lg ring-2 ring-primary z-50"
-                            )}
-                            title="Duplo clique para detalhes | Arraste para alocar"
+                      <div
+                        key={servico.id}
+                        onDoubleClick={() => {
+                          setDetalhesOSId(servico.id);
+                          setDetalhesOSOpen(true);
+                        }}
+                        className={cn(
+                          "p-1.5 rounded border cursor-pointer transition-all hover:bg-muted/50 hover:shadow-sm",
+                          servico.regulada ? "border-danger/40 bg-danger/5" : "border-border/50 bg-card"
+                        )}
+                        title="Duplo clique para ver detalhes"
+                      >
+                        {/* Linha 1: Número + Indicadores */}
+                        <div className="flex items-center gap-0.5 mb-0.5">
+                          {servico.regulada && <Zap className="h-2.5 w-2.5 text-danger flex-shrink-0" />}
+                          <span className="font-semibold text-[10px] text-foreground truncate">{servico.numero}</span>
+                          {motivoNaoAlocada && (
+                            <span className="text-[7px] text-orange-500 truncate" title={motivoNaoAlocada}>⚠</span>
+                          )}
+                        </div>
+                        
+                        {/* Linha 2: Tipo */}
+                        <div className="mb-0.5">
+                          <Badge
+                            variant={servico.regulada ? "regulada" : "secondary"}
+                            className="text-[8px] px-1 py-0 h-3.5 truncate max-w-full"
                           >
-                            {/* Linha 1: Número + Indicadores */}
-                            <div className="flex items-center gap-0.5 mb-0.5">
-                              {servico.regulada && <Zap className="h-2.5 w-2.5 text-danger flex-shrink-0" />}
-                              <span className="font-semibold text-[10px] text-foreground select-all truncate">{servico.numero}</span>
-                              {motivoNaoAlocada && (
-                                <span className="text-[7px] text-orange-500 truncate" title={motivoNaoAlocada}>⚠</span>
-                              )}
-                            </div>
-                            
-                            {/* Linha 2: Tipo */}
-                            <div className="mb-0.5">
-                              <Badge
-                                variant={servico.regulada ? "regulada" : "secondary"}
-                                className="text-[8px] px-1 py-0 h-3.5 truncate max-w-full"
-                              >
-                                {obterLabelTipo(servico.tipo)}
-                              </Badge>
-                            </div>
-                            
-                            {/* Linha 3: Endereço */}
-                            <div className="flex items-center gap-0.5 text-[8px] text-muted-foreground mb-0.5">
-                              <MapPin className="h-2 w-2 flex-shrink-0" />
-                              <span className="truncate select-all" title={servico.endereco}>{servico.endereco}</span>
-                            </div>
-                            
-                            {/* Linha 4: Bairro/Município */}
-                            {(servico.bairro || servico.municipio) && (
-                              <div className="text-[7px] text-muted-foreground/70 truncate select-all mb-0.5">
-                                {servico.bairro}{servico.bairro && servico.municipio && " - "}{servico.municipio}
-                              </div>
-                            )}
-                            
-                            {/* Linha 5: Prazo + Valor */}
-                            <div className="flex items-center justify-between text-[8px]">
-                              <span className="text-muted-foreground select-all">
-                                {servico.prazo 
-                                  ? `${new Date(servico.prazo).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} ${new Date(servico.prazo).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`
-                                  : "-"
-                                }
-                              </span>
-                              <span className="text-success font-medium select-all">R${servico.valor}</span>
-                            </div>
+                            {obterLabelTipo(servico.tipo)}
+                          </Badge>
+                        </div>
+                        
+                        {/* Linha 3: Endereço */}
+                        <div className="flex items-center gap-0.5 text-[8px] text-muted-foreground mb-0.5">
+                          <MapPin className="h-2 w-2 flex-shrink-0" />
+                          <span className="truncate" title={servico.endereco}>{servico.endereco}</span>
+                        </div>
+                        
+                        {/* Linha 4: Bairro/Município */}
+                        {(servico.bairro || servico.municipio) && (
+                          <div className="text-[7px] text-muted-foreground/70 truncate mb-0.5">
+                            {servico.bairro}{servico.bairro && servico.municipio && " - "}{servico.municipio}
                           </div>
                         )}
-                      </Draggable>
+                        
+                        {/* Linha 5: Prazo + Valor */}
+                        <div className="flex items-center justify-between text-[8px]">
+                          <span className="text-muted-foreground">
+                            {servico.prazo 
+                              ? `${new Date(servico.prazo).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} ${new Date(servico.prazo).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`
+                              : "-"
+                            }
+                          </span>
+                          <span className="text-success font-medium">R${servico.valor}</span>
+                        </div>
+                      </div>
                     );
                   })}
                 </div>
