@@ -1313,11 +1313,13 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
           autoPan: true,
         });
         
-        // Evento de clique
-        marker.on('click', () => {
+        // Evento de clique - selecionar OS e garantir que popup abre
+        marker.on('click', (e) => {
           if (equipeEditando && onOSSelecionada) {
             onOSSelecionada(os.id);
           }
+          // Garantir que o popup abre
+          marker.openPopup();
         });
         
         // Adicionar ao cluster

@@ -1086,10 +1086,13 @@ const Roteirizacao = () => {
   const hasAnyFilter = activeFiltersBacklogCount > 0 || searchTerm.trim() !== "";
   
   const filteredServicos = hasAnyFilter ? osPendentesTodas.filter((s) => {
-    // Busca textual
+    // Busca textual - inclui número, endereço, bairro e município
+    const searchLower = searchTerm.toLowerCase();
     const matchesSearch =
-      s.numero.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.endereco.toLowerCase().includes(searchTerm.toLowerCase());
+      s.numero.toLowerCase().includes(searchLower) ||
+      s.endereco.toLowerCase().includes(searchLower) ||
+      (s.bairro && s.bairro.toLowerCase().includes(searchLower)) ||
+      (s.municipio && s.municipio.toLowerCase().includes(searchLower));
     
     // Tipo de serviço - seleção múltipla
     const matchesTipo = tiposFilter.length === 0 || tiposFilter.some(tipo => s.tipo.toLowerCase() === tipo.toLowerCase());
@@ -1177,9 +1180,12 @@ const Roteirizacao = () => {
       if (os.latitude !== null && os.longitude !== null) return false;
       
       // Aplicar os mesmos filtros do backlog (exceto coordenadas e territórios que dependem de coordenadas)
+      const searchLower = searchTerm.toLowerCase();
       const matchesSearch = searchTerm.trim() === "" ||
-        os.numero.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        os.endereco.toLowerCase().includes(searchTerm.toLowerCase());
+        os.numero.toLowerCase().includes(searchLower) ||
+        os.endereco.toLowerCase().includes(searchLower) ||
+        (os.bairro && os.bairro.toLowerCase().includes(searchLower)) ||
+        (os.municipio && os.municipio.toLowerCase().includes(searchLower));
       
       const matchesTipo = tiposFilter.length === 0 || tiposFilter.some(tipo => os.tipo.toLowerCase() === tipo.toLowerCase());
       const matchesContrato = contratosFilter.length === 0 || (os.contrato_codigo && contratosFilter.includes(os.contrato_codigo));
