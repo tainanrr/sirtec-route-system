@@ -4572,10 +4572,10 @@ const Roteirizacao = () => {
                           {os.prazo && (
                             <div className={cn(
                               "text-[9px] truncate",
-                              prazoInfo && (prazoInfo.includes("Vencid") || prazoInfo.includes("HOJE")) ? "text-red-500 font-medium" : "text-muted-foreground"
+                              os.regulada && prazoInfo && (prazoInfo.includes("Vencid") || prazoInfo.includes("HOJE")) ? "text-red-500 font-medium" : "text-muted-foreground"
                             )}>
                               ⏰ {new Date(os.prazo).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} {new Date(os.prazo).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-                              {prazoInfo && ` (${prazoInfo})`}
+                              {os.regulada && prazoInfo && ` (${prazoInfo})`}
                             </div>
                           )}
                           <div className="text-muted-foreground truncate text-[8px] mt-0.5" title={os.endereco}>
