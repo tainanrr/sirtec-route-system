@@ -545,14 +545,15 @@ export function OrdemServicoDetalhesDialog({
                             {ordem.latitude}, {ordem.longitude}
                           </p>
                         )}
-                        {territoriosNomes && territoriosNomes.length > 0 && (
-                          <div className="mt-2 pt-2 border-t border-border/50">
-                            <span className="text-xs text-muted-foreground">Territórios: </span>
-                            <span className="text-xs font-medium">
-                              {territoriosNomes.join(", ")}
-                            </span>
-                          </div>
-                        )}
+                        {/* Campo Territórios - sempre exibido */}
+                        <div className="mt-2 pt-2 border-t border-border/50">
+                          <span className="text-xs text-muted-foreground">Territórios: </span>
+                          <span className="text-xs font-medium">
+                            {territoriosNomes && territoriosNomes.length > 0 
+                              ? territoriosNomes.join(", ") 
+                              : <span className="text-muted-foreground italic">Nenhum território</span>}
+                          </span>
+                        </div>
                       </div>
                       <div>
                         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">

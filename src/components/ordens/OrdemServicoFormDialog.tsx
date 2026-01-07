@@ -649,11 +649,11 @@ export function OrdemServicoFormDialog({
             </div>
 
             {/* Campo de Territórios - somente leitura */}
-            {isEditing && territoriosNomes.length > 0 && (
+            {isEditing && (
               <div className="space-y-2">
                 <FormLabel className="text-sm font-medium">Territórios</FormLabel>
                 <Input 
-                  value={territoriosNomes.join(", ")} 
+                  value={territoriosNomes.length > 0 ? territoriosNomes.join(", ") : "Nenhum território"} 
                   disabled 
                   className="bg-muted cursor-not-allowed"
                 />

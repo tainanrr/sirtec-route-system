@@ -158,6 +158,10 @@ const Roteirizacao = () => {
   const [bairrosFilterOpen, setBairrosFilterOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [statusFilterOpen, setStatusFilterOpen] = useState(false);
+  const [gruposFilter, setGruposFilter] = useState<string[]>([]);
+  const [gruposFilterOpen, setGruposFilterOpen] = useState(false);
+  const [territoriosFilter, setTerritoriosFilter] = useState<string[]>([]);
+  const [territoriosFilterOpen, setTerritoriosFilterOpen] = useState(false);
   
   // Filtros avançados do Backlog
   const [showFiltersBacklog, setShowFiltersBacklog] = useState(false);
@@ -845,10 +849,54 @@ const Roteirizacao = () => {
       }
     }
     
+    // Filtro de Grupo de Serviço
+    const matchesGrupo = excluirFiltro === 'grupo' || gruposFilter.length === 0 || gruposFilter.includes(obterGrupoServico(os.tipo));
+    
+    // Filtro de Territórios (OSs dentro dos territórios ativos selecionados)
+    let matchesTerritorio = true;
+    if (excluirFiltro !== 'territorio' && territoriosFilter.length > 0) {
+      // Verificar se a OS está dentro de algum dos territórios selecionados
+      const territoriosFiltrados = territorios.filter(t => territoriosFilter.includes(t.id));
+      matchesTerritorio = territoriosFiltrados.some(t => 
+        t.ativo && t.poligono.length >= 3 && 
+        os.latitude !== null && os.longitude !== null &&
+        pontoNoPoligono({ lat: os.latitude, lng: os.longitude }, t.poligono)
+      );
+    }
+    
     return matchesTipo && matchesContrato && matchesCentroCusto && matchesMunicipio && 
            matchesBairro && matchesStatus && matchesRegulada && matchesCoordenadas && 
-           matchesPrazoInicio && matchesPrazoFim;
+           matchesPrazoInicio && matchesPrazoFim && matchesGrupo && matchesTerritorio;
   };
+
+  // Função para obter o grupo de um tipo de serviço
+  const obterGrupoServico = (tipo: string): string => {
+    const tipoUpper = tipo.toUpperCase();
+    if (tipoUpper.includes('CORTE') || tipoUpper.includes('RECORTE')) return 'Cobrança';
+    if (tipoUpper.includes('RELIGA') || tipoUpper.includes('REATIVACAO')) return 'Religação';
+    if (tipoUpper.includes('LIGACAO') || tipoUpper.includes('ALTERACAO') || tipoUpper.includes('MODIF')) return 'Ligação';
+    if (tipoUpper.includes('BAIXA') || tipoUpper.includes('VERIFICACAO')) return 'Baixa/Verificação';
+    if (tipoUpper.includes('ENLACE')) return 'Enlace';
+    if (tipoUpper.includes('VARREDURA')) return 'Varredura';
+    if (tipoUpper.includes('MICROGER')) return 'Microgeração';
+    return 'Outros';
+  };
+
+  // Grupos de serviço disponíveis
+  const gruposDisponiveis = useMemo(() => {
+    const grupos = new Set<string>();
+    osPendentesTodas.forEach(os => {
+      if (osPassaFiltros(os, 'grupo')) {
+        grupos.add(obterGrupoServico(os.tipo));
+      }
+    });
+    return Array.from(grupos).sort();
+  }, [osPendentesTodas, tiposFilter, contratosFilter, centrosCustoFilter, municipiosFilter, bairrosFilter, statusFilter, territoriosFilter, reguladaFilter, coordenadasFilter, prazoInicio, prazoFim]);
+
+  // Territórios disponíveis para filtro (apenas os ativos)
+  const territoriosDisponiveis = useMemo(() => {
+    return territorios.filter(t => t.ativo && t.poligono.length >= 3);
+  }, [territorios]);
 
   const tiposDisponiveis = useMemo(() => {
     const tipos = new Set<string>();
@@ -964,6 +1012,8 @@ const Roteirizacao = () => {
     setMunicipiosFilter([]);
     setBairrosFilter([]);
     setStatusFilter([]);
+    setGruposFilter([]);
+    setTerritoriosFilter([]);
     setPrazoInicio("");
     setPrazoFim("");
     setCoordenadasFilter("all");
@@ -978,6 +1028,8 @@ const Roteirizacao = () => {
     municipiosFilter.length > 0,
     bairrosFilter.length > 0,
     statusFilter.length > 0,
+    gruposFilter.length > 0,
+    territoriosFilter.length > 0,
     prazoInicio !== "",
     prazoFim !== "",
     coordenadasFilter !== "all",
@@ -4082,6 +4134,130 @@ const Roteirizacao = () => {
                                   >
                                     <Checkbox checked={isSelected} className="mr-2" />
                                     {status}
+                                  </CommandItem>
+                                );
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+
+                  {/* Grupo de Serviço - Multi-select */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium">Grupo de Serviço</label>
+                    <Popover open={gruposFilterOpen} onOpenChange={setGruposFilterOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          className="w-full justify-between h-9 text-left font-normal"
+                        >
+                          <span className="truncate">
+                            {gruposFilter.length === 0
+                              ? "Todos"
+                              : gruposFilter.length === 1
+                              ? gruposFilter[0]
+                              : `${gruposFilter.length} selecionados`}
+                          </span>
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[200px] p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="Buscar grupo..." />
+                          <CommandList>
+                            <CommandEmpty>Nenhum grupo encontrado.</CommandEmpty>
+                            <CommandGroup>
+                              {gruposFilter.length > 0 && (
+                                <CommandItem
+                                  onSelect={() => setGruposFilter([])}
+                                  className="text-muted-foreground"
+                                >
+                                  Limpar seleção
+                                </CommandItem>
+                              )}
+                              {gruposDisponiveis.map((grupo) => {
+                                const isSelected = gruposFilter.includes(grupo);
+                                return (
+                                  <CommandItem
+                                    key={grupo}
+                                    value={grupo}
+                                    onSelect={() => {
+                                      if (isSelected) {
+                                        setGruposFilter(gruposFilter.filter(g => g !== grupo));
+                                      } else {
+                                        setGruposFilter([...gruposFilter, grupo]);
+                                      }
+                                    }}
+                                  >
+                                    <Checkbox checked={isSelected} className="mr-2" />
+                                    {grupo}
+                                  </CommandItem>
+                                );
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+
+                  {/* Territórios - Multi-select */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium">Territórios</label>
+                    <Popover open={territoriosFilterOpen} onOpenChange={setTerritoriosFilterOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          className="w-full justify-between h-9 text-left font-normal"
+                        >
+                          <span className="truncate">
+                            {territoriosFilter.length === 0
+                              ? "Todos"
+                              : territoriosFilter.length === 1
+                              ? territoriosDisponiveis.find(t => t.id === territoriosFilter[0])?.nome || "1 selecionado"
+                              : `${territoriosFilter.length} selecionados`}
+                          </span>
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[220px] p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="Buscar território..." />
+                          <CommandList>
+                            <CommandEmpty>Nenhum território encontrado.</CommandEmpty>
+                            <CommandGroup>
+                              {territoriosFilter.length > 0 && (
+                                <CommandItem
+                                  onSelect={() => setTerritoriosFilter([])}
+                                  className="text-muted-foreground"
+                                >
+                                  Limpar seleção
+                                </CommandItem>
+                              )}
+                              {territoriosDisponiveis.map((territorio) => {
+                                const isSelected = territoriosFilter.includes(territorio.id);
+                                return (
+                                  <CommandItem
+                                    key={territorio.id}
+                                    value={territorio.nome}
+                                    onSelect={() => {
+                                      if (isSelected) {
+                                        setTerritoriosFilter(territoriosFilter.filter(t => t !== territorio.id));
+                                      } else {
+                                        setTerritoriosFilter([...territoriosFilter, territorio.id]);
+                                      }
+                                    }}
+                                  >
+                                    <Checkbox checked={isSelected} className="mr-2" />
+                                    <span 
+                                      className="w-3 h-3 rounded-full mr-2" 
+                                      style={{ backgroundColor: territorio.cor }}
+                                    />
+                                    {territorio.nome}
                                   </CommandItem>
                                 );
                               })}
