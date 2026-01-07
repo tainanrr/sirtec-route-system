@@ -1159,12 +1159,54 @@ const Roteirizacao = () => {
            matchesGrupo && matchesTerritorio;
   }) : []; // Retorna array vazio se nenhum filtro ativo
 
-  // OSs sem coordenadas (ordenadas: reguladas primeiro, depois não reguladas)
+  // OSs sem coordenadas (aplicando os mesmos filtros do backlog, exceto coordenadas)
+  // Ordenadas: reguladas primeiro, depois não reguladas
   const osSemCoordenadas = useMemo(() => {
-    // Filtrar OSs sem coordenadas válidas
-    const semCoord = osPendentesTodas.filter(os => 
-      os.latitude === null || os.longitude === null
-    );
+    if (!hasAnyFilter) return []; // Não mostrar se não há filtros ativos
+    
+    // Filtrar OSs sem coordenadas válidas que passam nos demais filtros
+    const semCoord = osPendentesTodas.filter(os => {
+      // Deve ser sem coordenadas
+      if (os.latitude !== null && os.longitude !== null) return false;
+      
+      // Aplicar os mesmos filtros do backlog (exceto coordenadas e territórios que dependem de coordenadas)
+      const matchesSearch = searchTerm.trim() === "" ||
+        os.numero.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        os.endereco.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      const matchesTipo = tiposFilter.length === 0 || tiposFilter.some(tipo => os.tipo.toLowerCase() === tipo.toLowerCase());
+      const matchesContrato = contratosFilter.length === 0 || (os.contrato_codigo && contratosFilter.includes(os.contrato_codigo));
+      const matchesCentroCusto = centrosCustoFilter.length === 0 || (os.centro_custo_codigo && centrosCustoFilter.includes(os.centro_custo_codigo));
+      const matchesMunicipio = municipiosFilter.length === 0 || (os.municipio && municipiosFilter.includes(os.municipio));
+      const matchesBairro = bairrosFilter.length === 0 || (os.bairro && bairrosFilter.includes(os.bairro));
+      const matchesStatus = statusFilter.length === 0 || (os.status && statusFilter.includes(os.status));
+      const matchesGrupo = gruposFilter.length === 0 || gruposFilter.includes(obterGrupoServico(os.tipo));
+      
+      let matchesPrazoInicio = true;
+      if (prazoInicio && os.prazo) {
+        const prazoOS = new Date(os.prazo);
+        const prazoInicioDate = new Date(prazoInicio);
+        matchesPrazoInicio = prazoOS >= prazoInicioDate;
+      }
+      
+      let matchesPrazoFim = true;
+      if (prazoFim && os.prazo) {
+        const prazoOS = new Date(os.prazo);
+        const prazoFimDate = new Date(prazoFim + "T23:59:59");
+        matchesPrazoFim = prazoOS <= prazoFimDate;
+      }
+      
+      let matchesRegulada = true;
+      if (reguladaFilter === "sim") {
+        matchesRegulada = os.regulada === true;
+      } else if (reguladaFilter === "nao") {
+        matchesRegulada = os.regulada !== true;
+      }
+      
+      return matchesSearch && matchesTipo && matchesContrato && matchesCentroCusto && 
+             matchesMunicipio && matchesBairro && matchesStatus && matchesGrupo &&
+             matchesPrazoInicio && matchesPrazoFim && matchesRegulada;
+    });
     
     // Ordenar: reguladas primeiro, depois por prazo (mais urgentes primeiro)
     return semCoord.sort((a, b) => {
@@ -1181,7 +1223,8 @@ const Roteirizacao = () => {
       
       return 0;
     });
-  }, [osPendentesTodas]);
+  }, [osPendentesTodas, hasAnyFilter, searchTerm, tiposFilter, contratosFilter, centrosCustoFilter, 
+      municipiosFilter, bairrosFilter, statusFilter, gruposFilter, prazoInicio, prazoFim, reguladaFilter]);
 
   // Função auxiliar para validar hora
   const validarHora = (hora: string | null): string | null => {
@@ -3819,78 +3862,7 @@ const Roteirizacao = () => {
         </div>
       </div>
 
-        {/* OSs Sem Coordenadas - Destaque especial */}
-        {osSemCoordenadas.length > 0 && (
-          <div className="rounded-xl border-2 border-amber-500/50 bg-amber-500/5 overflow-hidden">
-            <div className="p-3 border-b border-amber-500/30 bg-amber-500/10">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="h-5 w-5 text-amber-500" />
-                  <h3 className="font-semibold text-amber-700 dark:text-amber-400">OSs Sem Coordenadas</h3>
-                  <Badge variant="outline" className="border-amber-500 text-amber-600 dark:text-amber-400">
-                    {osSemCoordenadas.length}
-                  </Badge>
-                </div>
-                <span className="text-xs text-amber-600 dark:text-amber-400">
-                  ⚠️ Estas OSs não serão roteirizadas até terem coordenadas válidas
-                </span>
-              </div>
-            </div>
-            <div className="p-2 max-h-[200px] overflow-y-auto">
-              <div className="grid grid-cols-5 gap-1 text-xs">
-                {osSemCoordenadas.slice(0, 50).map((os) => {
-                  const nomeServico = obterLabelTipo(os.tipo);
-                  const prazoInfo = os.prazo ? formatarDataPrazo(new Date(os.prazo)) : null;
-                  
-                  return (
-                    <div
-                      key={os.id}
-                      className={cn(
-                        "p-2 rounded border cursor-pointer hover:bg-muted/50 transition-colors select-text",
-                        os.regulada 
-                          ? "border-red-400/50 bg-red-500/10" 
-                          : "border-border bg-card"
-                      )}
-                      onDoubleClick={() => {
-                        setDetalhesOSId(os.id);
-                        setDetalhesOSOpen(true);
-                      }}
-                      title="Duplo clique para ver detalhes"
-                    >
-                      <div className="flex items-center justify-between gap-1 mb-1">
-                        <span className="font-mono font-semibold truncate">{os.numero}</span>
-                        {os.regulada && (
-                          <Badge variant="destructive" className="h-4 px-1 text-[10px]">REG</Badge>
-                        )}
-                      </div>
-                      <div className="text-muted-foreground truncate text-[10px]" title={nomeServico}>
-                        {nomeServico}
-                      </div>
-                      {prazoInfo && (
-                        <div className={cn(
-                          "text-[10px] truncate",
-                          prazoInfo.includes("Vencid") || prazoInfo.includes("HOJE") ? "text-red-500 font-medium" : "text-muted-foreground"
-                        )}>
-                          ⏰ {prazoInfo}
-                        </div>
-                      )}
-                      <div className="text-muted-foreground truncate text-[10px] mt-1" title={os.endereco}>
-                        📍 {os.endereco.substring(0, 25)}...
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              {osSemCoordenadas.length > 50 && (
-                <div className="text-center py-2 text-xs text-amber-600">
-                  ... e mais {osSemCoordenadas.length - 50} OSs sem coordenadas
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Backlog de Serviços - Movido para o final */}
+        {/* Backlog de Serviços */}
         <div className="rounded-xl border border-border bg-card overflow-hidden">
           <div className="p-4 border-b border-border">
             <div className="flex items-center justify-between mb-3">
@@ -4546,6 +4518,77 @@ const Roteirizacao = () => {
                       Copiar {filteredServicos.length} OSs
                     </Button>
                   </div>
+                </div>
+              </div>
+            )}
+            
+            {/* OSs Sem Coordenadas - Entre filtros e tabela */}
+            {osSemCoordenadas.length > 0 && (
+              <div className="mt-3 rounded-lg border-2 border-amber-500/50 bg-amber-500/5 overflow-hidden">
+                <div className="p-2 border-b border-amber-500/30 bg-amber-500/10">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4 text-amber-500" />
+                      <span className="font-semibold text-sm text-amber-700 dark:text-amber-400">OSs Sem Coordenadas</span>
+                      <Badge variant="outline" className="border-amber-500 text-amber-600 dark:text-amber-400 h-5 text-xs">
+                        {osSemCoordenadas.length}
+                      </Badge>
+                    </div>
+                    <span className="text-xs text-amber-600 dark:text-amber-400">
+                      ⚠️ Não serão roteirizadas
+                    </span>
+                  </div>
+                </div>
+                <div className="p-2 max-h-[180px] overflow-y-auto">
+                  <div className="grid grid-cols-5 gap-1 text-xs">
+                    {osSemCoordenadas.slice(0, 50).map((os) => {
+                      const nomeServico = obterLabelTipo(os.tipo);
+                      const prazoInfo = os.prazo ? formatarDataPrazo(new Date(os.prazo)) : null;
+                      
+                      return (
+                        <div
+                          key={os.id}
+                          className={cn(
+                            "p-1.5 rounded border cursor-pointer hover:bg-muted/50 transition-colors select-text",
+                            os.regulada 
+                              ? "border-red-400/50 bg-red-500/10" 
+                              : "border-border bg-card"
+                          )}
+                          onDoubleClick={() => {
+                            setDetalhesOSId(os.id);
+                            setDetalhesOSOpen(true);
+                          }}
+                          title="Duplo clique para ver detalhes"
+                        >
+                          <div className="flex items-center justify-between gap-1 mb-0.5">
+                            <span className="font-mono font-semibold truncate text-[10px]">{os.numero}</span>
+                            {os.regulada && (
+                              <Badge variant="destructive" className="h-3.5 px-1 text-[8px]">REG</Badge>
+                            )}
+                          </div>
+                          <div className="text-muted-foreground truncate text-[9px]" title={nomeServico}>
+                            {nomeServico}
+                          </div>
+                          {prazoInfo && (
+                            <div className={cn(
+                              "text-[9px] truncate",
+                              prazoInfo.includes("Vencid") || prazoInfo.includes("HOJE") ? "text-red-500 font-medium" : "text-muted-foreground"
+                            )}>
+                              ⏰ {prazoInfo}
+                            </div>
+                          )}
+                          <div className="text-muted-foreground truncate text-[8px] mt-0.5" title={os.endereco}>
+                            📍 {os.endereco.substring(0, 20)}...
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {osSemCoordenadas.length > 50 && (
+                    <div className="text-center py-1 text-xs text-amber-600">
+                      ... e mais {osSemCoordenadas.length - 50} OSs sem coordenadas
+                    </div>
+                  )}
                 </div>
               </div>
             )}
