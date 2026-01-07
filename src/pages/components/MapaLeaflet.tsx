@@ -1267,11 +1267,11 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
           : null;
         
         const tooltipContent = `
-          <div style="font-family: system-ui; font-size: 12px; min-width: 150px;">
-            <div style="font-weight: bold; margin-bottom: 2px;">${os.numero}</div>
-            <div style="color: #4b5563;">${nomeServico}</div>
-            ${prazoTooltip ? `<div style="color: #dc2626; font-size: 11px;">⏰ ${prazoTooltip}</div>` : ''}
-            ${isReguladaUrgente ? '<div style="color: #dc2626; font-weight: bold; font-size: 10px;">⚠️ REGULADA</div>' : ''}
+          <div style="font-family: system-ui; font-size: 12px; min-width: 150px; color: white;">
+            <div style="font-weight: bold; margin-bottom: 2px; color: #ffffff;">${os.numero}</div>
+            <div style="color: #d1d5db;">${nomeServico}</div>
+            ${prazoTooltip ? `<div style="color: #fca5a5; font-size: 11px;">⏰ ${prazoTooltip}</div>` : ''}
+            ${isReguladaUrgente ? '<div style="color: #fca5a5; font-weight: bold; font-size: 10px;">⚠️ REGULADA</div>' : ''}
           </div>
         `;
         
