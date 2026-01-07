@@ -83,6 +83,8 @@ const ordemSchema = z.object({
   centro_custo_id: z.string().optional(),
   status: z.enum(["pendente", "planejada", "andamento", "concluida", "atrasada", "cancelada"]),
   endereco: z.string().min(5, "Endereço é obrigatório").max(255),
+  municipio: z.string().max(100).optional(),
+  bairro: z.string().max(100).optional(),
   cliente_nome: z.string().max(100).optional(),
   cliente_cpf: z.string().max(14).optional(),
   instalacao: z.string().max(50).optional(),
@@ -145,6 +147,8 @@ export function OrdemServicoFormDialog({
       centro_custo_id: "",
       status: "pendente",
       endereco: "",
+      municipio: "",
+      bairro: "",
       cliente_nome: "",
       cliente_cpf: "",
       instalacao: "",
@@ -271,6 +275,8 @@ export function OrdemServicoFormDialog({
         centro_custo_id: (ordem as any).centro_custo_id || "",
         status: ordem.status as OrdemFormData["status"],
         endereco: ordem.endereco,
+        municipio: (ordem as any).municipio || "",
+        bairro: (ordem as any).bairro || "",
         cliente_nome: ordem.cliente_nome || "",
         cliente_cpf: ordem.cliente_cpf || "",
         instalacao: ordem.instalacao || "",
@@ -334,6 +340,8 @@ export function OrdemServicoFormDialog({
         centro_custo_id: "",
         status: "pendente",
         endereco: "",
+        municipio: "",
+        bairro: "",
         cliente_nome: "",
         cliente_cpf: "",
         instalacao: "",
@@ -380,6 +388,8 @@ export function OrdemServicoFormDialog({
         centro_custo_id: centroCustoId,
         status: data.status,
         endereco: data.endereco,
+        municipio: data.municipio || null,
+        bairro: data.bairro || null,
         cliente_nome: data.cliente_nome || null,
         cliente_cpf: data.cliente_cpf || null,
         instalacao: data.instalacao || null,
@@ -597,6 +607,36 @@ export function OrdemServicoFormDialog({
                 </FormItem>
               )}
             />
+
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="municipio"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Município</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Ex: São Paulo" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="bairro"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Bairro</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Ex: Centro" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
 
             <div className="grid grid-cols-2 gap-4">
               <FormField

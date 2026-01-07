@@ -23,3 +23,4 @@ SELECT 'Conversas restantes:' as info, COUNT(*) as total FROM chat_conversas;
 
 
 
+

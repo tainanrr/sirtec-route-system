@@ -521,6 +521,13 @@ export function OrdemServicoDetalhesDialog({
                           Endereço
                         </div>
                         <p className="font-medium">{ordem.endereco}</p>
+                        {((ordem as any).bairro || (ordem as any).municipio) && (
+                          <p className="text-sm text-muted-foreground mt-1">
+                            {(ordem as any).bairro && <span>{(ordem as any).bairro}</span>}
+                            {(ordem as any).bairro && (ordem as any).municipio && <span> - </span>}
+                            {(ordem as any).municipio && <span>{(ordem as any).municipio}</span>}
+                          </p>
+                        )}
                         {ordem.latitude && ordem.longitude && (
                           <p className="text-xs text-muted-foreground mt-1">
                             {ordem.latitude}, {ordem.longitude}

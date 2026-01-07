@@ -52,3 +52,4 @@ UPDATE atividades SET valor_unitario = 250.00 WHERE codigo = 'SDCLU6032II'; -- P
 
 
 
+

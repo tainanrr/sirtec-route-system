@@ -1306,7 +1306,14 @@ const OrdensServico = () => {
                         }`} 
                         title={os.latitude && os.longitude ? "Com coordenadas" : "Sem coordenadas - clique em Geocodificar"}
                       />
-                      <span className="truncate max-w-[200px]">{os.endereco}</span>
+                      <div className="flex flex-col">
+                        <span className="truncate max-w-[200px]">{os.endereco}</span>
+                        {((os as any).bairro || (os as any).municipio) && (
+                          <span className="text-xs text-muted-foreground truncate max-w-[200px]">
+                            {(os as any).bairro}{(os as any).bairro && (os as any).municipio && " - "}{(os as any).municipio}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </TableCell>
                   <TableCell>
