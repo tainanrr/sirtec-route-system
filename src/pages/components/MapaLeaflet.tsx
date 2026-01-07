@@ -532,6 +532,17 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
           box-shadow: 0 8px 20px rgba(59, 130, 246, 1);
         }
       }
+      @keyframes pulse-red-urgente {
+        0%, 100% {
+          box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.9), 0 0 8px 2px rgba(220, 38, 38, 0.6);
+        }
+        50% {
+          box-shadow: 0 0 0 8px rgba(220, 38, 38, 0), 0 0 12px 4px rgba(220, 38, 38, 0.8);
+        }
+      }
+      .marker-regulada-urgente {
+        animation: pulse-red-urgente 1s ease-in-out infinite !important;
+      }
       /* Estilos otimizados para tooltips de OSs */
       .os-tooltip {
         background: rgba(0,0,0,0.85);
@@ -1226,13 +1237,13 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
         const markerIcon = L.divIcon({
           className: 'custom-marker-pendente-cluster',
           html: `
-            <div style="
+            <div class="${isReguladaUrgente ? 'marker-regulada-urgente' : ''}" style="
               background-color: ${corMarcador};
               width: 28px;
               height: 28px;
               border-radius: 50%;
-              border: 2px solid ${isReguladaUrgente ? '#dc2626' : corBorda};
-              box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+              border: ${isReguladaUrgente ? '3px solid #dc2626' : `2px solid ${corBorda}`};
+              box-shadow: ${isReguladaUrgente ? '0 0 8px 2px rgba(220, 38, 38, 0.6)' : '0 2px 6px rgba(0,0,0,0.3)'};
               display: flex;
               align-items: center;
               justify-content: center;
