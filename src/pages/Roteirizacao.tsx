@@ -2918,22 +2918,26 @@ const Roteirizacao = () => {
                       </div>
                       <div className="flex flex-col items-end gap-1">
                         <div className="text-xs text-muted-foreground">
-                          {os.latitude.toFixed(5)}, {os.longitude.toFixed(5)}
+                          {os.latitude !== null && os.longitude !== null 
+                            ? `${os.latitude.toFixed(5)}, ${os.longitude.toFixed(5)}`
+                            : "Sem coordenadas"}
                         </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="gap-1"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setOsUrgentesTodasNoMapa([]); // V19.7: Limpar visualização de todas
-                            setOsUrgenteSelecionadaNoMapa(os);
-                            setMostrarOsUrgentesForaDialog(false);
-                          }}
-                        >
-                          <MapIcon className="h-3 w-3" />
-                          Mapa
-                        </Button>
+                        {os.latitude !== null && os.longitude !== null && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOsUrgentesTodasNoMapa([]); // V19.7: Limpar visualização de todas
+                              setOsUrgenteSelecionadaNoMapa(os);
+                              setMostrarOsUrgentesForaDialog(false);
+                            }}
+                          >
+                            <MapIcon className="h-3 w-3" />
+                            Mapa
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </div>
