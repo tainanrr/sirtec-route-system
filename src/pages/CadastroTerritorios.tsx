@@ -148,6 +148,22 @@ export default function CadastroTerritorios() {
         }
       });
 
+      // Capturar edições no polígono
+      map.on(DrawEvents.EDITED, (e: any) => {
+        const layers = e.layers;
+        layers.eachLayer((layer: any) => {
+          if (layer instanceof L.Polygon) {
+            const latlngs = layer.getLatLngs()[0] as L.LatLng[];
+            const coordenadas: Coordenada[] = latlngs.map((ll: L.LatLng) => ({
+              lat: ll.lat,
+              lng: ll.lng,
+            }));
+            console.log(`Polígono editado com ${coordenadas.length} pontos`);
+            setCurrentPolygon(coordenadas);
+          }
+        });
+      });
+
       // Adicionar instrução visual quando começar a desenhar
       map.on(DrawEvents.DRAWSTART, () => {
         toast.info("💡 Dica: Continue clicando para adicionar mais pontos. Duplo clique ou clique no primeiro ponto para finalizar.", {
@@ -351,11 +367,34 @@ export default function CadastroTerritorios() {
     setCurrentPolygon(territorio.poligono);
     setShowForm(true);
 
-    // Destacar polígono no mapa
-    const polygon = polygonLayersRef.current.get(territorio.id);
-    if (polygon) {
-      polygon.setStyle({ weight: 4, fillOpacity: 0.5 });
-      mapInstanceRef.current?.fitBounds(polygon.getBounds());
+    // Limpar camadas de desenho anteriores
+    drawnLayersRef.current.clearLayers();
+    
+    // Remover o polígono da visualização estática
+    const polygonExistente = polygonLayersRef.current.get(territorio.id);
+    if (polygonExistente) {
+      drawnLayersRef.current.removeLayer(polygonExistente);
+    }
+    
+    // Criar o polígono e adicioná-lo ao grupo editável
+    if (territorio.poligono && territorio.poligono.length >= 3) {
+      const latlngs = territorio.poligono.map(
+        (coord) => [coord.lat, coord.lng] as [number, number]
+      );
+      
+      const editablePolygon = L.polygon(latlngs, {
+        color: territorio.cor,
+        fillColor: territorio.cor,
+        fillOpacity: 0.4,
+        weight: 3,
+      });
+      
+      editablePolygon.addTo(drawnLayersRef.current);
+      
+      // Centralizar no polígono
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.fitBounds(editablePolygon.getBounds());
+      }
     }
   };
 

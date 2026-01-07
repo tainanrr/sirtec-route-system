@@ -1099,9 +1099,24 @@ const Roteirizacao = () => {
       matchesRegulada = s.regulada !== true;
     }
     
+    // Grupo de Serviço - seleção múltipla
+    const matchesGrupo = gruposFilter.length === 0 || gruposFilter.includes(obterGrupoServico(s.tipo));
+    
+    // Territórios - verifica se a OS está dentro dos territórios selecionados
+    let matchesTerritorio = true;
+    if (territoriosFilter.length > 0) {
+      const territoriosFiltrados = territorios.filter(t => territoriosFilter.includes(t.id));
+      matchesTerritorio = territoriosFiltrados.some(t => 
+        t.ativo && t.poligono.length >= 3 && 
+        s.latitude !== null && s.longitude !== null &&
+        pontoNoPoligono({ lat: s.latitude, lng: s.longitude }, t.poligono)
+      );
+    }
+    
     return matchesSearch && matchesTipo && matchesContrato && matchesCentroCusto && 
            matchesMunicipio && matchesBairro && matchesStatus && 
-           matchesPrazoInicio && matchesPrazoFim && matchesCoordenadas && matchesRegulada;
+           matchesPrazoInicio && matchesPrazoFim && matchesCoordenadas && matchesRegulada &&
+           matchesGrupo && matchesTerritorio;
   });
 
   // Função auxiliar para validar hora
