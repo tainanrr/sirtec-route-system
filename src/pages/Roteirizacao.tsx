@@ -793,6 +793,7 @@ const Roteirizacao = () => {
 
   // Função auxiliar para verificar se uma OS passa nos filtros (exceto o filtro especificado)
   const osPassaFiltros = (os: OrdemServico, excluirFiltro: string) => {
+    // Filtros de seleção múltipla
     const matchesTipo = excluirFiltro === 'tipo' || tiposFilter.length === 0 || tiposFilter.some(tipo => os.tipo.toLowerCase() === tipo.toLowerCase());
     const matchesContrato = excluirFiltro === 'contrato' || contratosFilter.length === 0 || (os.contrato_codigo && contratosFilter.includes(os.contrato_codigo));
     const matchesCentroCusto = excluirFiltro === 'centroCusto' || centrosCustoFilter.length === 0 || (os.centro_custo_codigo && centrosCustoFilter.includes(os.centro_custo_codigo));
@@ -800,7 +801,47 @@ const Roteirizacao = () => {
     const matchesBairro = excluirFiltro === 'bairro' || bairrosFilter.length === 0 || (os.bairro && bairrosFilter.includes(os.bairro));
     const matchesStatus = excluirFiltro === 'status' || statusFilter.length === 0 || statusFilter.some(status => os.status.toLowerCase() === status.toLowerCase());
     
-    return matchesTipo && matchesContrato && matchesCentroCusto && matchesMunicipio && matchesBairro && matchesStatus;
+    // Filtro de Regulada
+    let matchesRegulada = true;
+    if (excluirFiltro !== 'regulada') {
+      if (reguladaFilter === "sim") {
+        matchesRegulada = os.regulada === true;
+      } else if (reguladaFilter === "nao") {
+        matchesRegulada = os.regulada === false;
+      }
+    }
+    
+    // Filtro de Coordenadas
+    let matchesCoordenadas = true;
+    if (excluirFiltro !== 'coordenadas') {
+      if (coordenadasFilter === "com") {
+        matchesCoordenadas = os.latitude !== null && os.longitude !== null;
+      } else if (coordenadasFilter === "sem") {
+        matchesCoordenadas = os.latitude === null || os.longitude === null;
+      }
+    }
+    
+    // Filtro de Data de Prazo
+    let matchesPrazoInicio = true;
+    let matchesPrazoFim = true;
+    if (excluirFiltro !== 'prazo') {
+      if (prazoInicio && os.prazo) {
+        const prazoDate = new Date(os.prazo);
+        const inicioDate = new Date(prazoInicio);
+        inicioDate.setHours(0, 0, 0, 0);
+        matchesPrazoInicio = prazoDate >= inicioDate;
+      }
+      if (prazoFim && os.prazo) {
+        const prazoDate = new Date(os.prazo);
+        const fimDate = new Date(prazoFim);
+        fimDate.setHours(23, 59, 59, 999);
+        matchesPrazoFim = prazoDate <= fimDate;
+      }
+    }
+    
+    return matchesTipo && matchesContrato && matchesCentroCusto && matchesMunicipio && 
+           matchesBairro && matchesStatus && matchesRegulada && matchesCoordenadas && 
+           matchesPrazoInicio && matchesPrazoFim;
   };
 
   const tiposDisponiveis = useMemo(() => {
@@ -811,7 +852,7 @@ const Roteirizacao = () => {
       }
     });
     return Array.from(tipos).sort();
-  }, [osPendentesTodas, contratosFilter, centrosCustoFilter, municipiosFilter, bairrosFilter, statusFilter]);
+  }, [osPendentesTodas, contratosFilter, centrosCustoFilter, municipiosFilter, bairrosFilter, statusFilter, reguladaFilter, coordenadasFilter, prazoInicio, prazoFim]);
 
   const contratosDisponiveis = useMemo(() => {
     const contratos = new Map<string, string>();
@@ -823,7 +864,7 @@ const Roteirizacao = () => {
     return Array.from(contratos.entries())
       .map(([codigo, nome]) => ({ codigo, nome }))
       .sort((a, b) => a.codigo.localeCompare(b.codigo));
-  }, [osPendentesTodas, tiposFilter, centrosCustoFilter, municipiosFilter, bairrosFilter, statusFilter]);
+  }, [osPendentesTodas, tiposFilter, centrosCustoFilter, municipiosFilter, bairrosFilter, statusFilter, reguladaFilter, coordenadasFilter, prazoInicio, prazoFim]);
 
   const centrosCustoDisponiveis = useMemo(() => {
     const centros = new Map<string, string>();
@@ -835,7 +876,7 @@ const Roteirizacao = () => {
     return Array.from(centros.entries())
       .map(([codigo, nome]) => ({ codigo, nome }))
       .sort((a, b) => a.codigo.localeCompare(b.codigo));
-  }, [osPendentesTodas, tiposFilter, contratosFilter, municipiosFilter, bairrosFilter, statusFilter]);
+  }, [osPendentesTodas, tiposFilter, contratosFilter, municipiosFilter, bairrosFilter, statusFilter, reguladaFilter, coordenadasFilter, prazoInicio, prazoFim]);
 
   const municipiosDisponiveis = useMemo(() => {
     const municipios = new Set<string>();
@@ -845,7 +886,7 @@ const Roteirizacao = () => {
       }
     });
     return Array.from(municipios).sort();
-  }, [osPendentesTodas, tiposFilter, contratosFilter, centrosCustoFilter, bairrosFilter, statusFilter]);
+  }, [osPendentesTodas, tiposFilter, contratosFilter, centrosCustoFilter, bairrosFilter, statusFilter, reguladaFilter, coordenadasFilter, prazoInicio, prazoFim]);
 
   const bairrosDisponiveis = useMemo(() => {
     const bairros = new Set<string>();
@@ -855,7 +896,7 @@ const Roteirizacao = () => {
       }
     });
     return Array.from(bairros).sort();
-  }, [osPendentesTodas, tiposFilter, contratosFilter, centrosCustoFilter, municipiosFilter, statusFilter]);
+  }, [osPendentesTodas, tiposFilter, contratosFilter, centrosCustoFilter, municipiosFilter, statusFilter, reguladaFilter, coordenadasFilter, prazoInicio, prazoFim]);
 
   const statusDisponiveis = useMemo(() => {
     const statusSet = new Set<string>();
@@ -865,7 +906,7 @@ const Roteirizacao = () => {
       }
     });
     return Array.from(statusSet).sort();
-  }, [osPendentesTodas, tiposFilter, contratosFilter, centrosCustoFilter, municipiosFilter, bairrosFilter]);
+  }, [osPendentesTodas, tiposFilter, contratosFilter, centrosCustoFilter, municipiosFilter, bairrosFilter, reguladaFilter, coordenadasFilter, prazoInicio, prazoFim]);
 
   // Inicializar e atualizar filtros de tipos de serviços com todos os tipos selecionados por padrão
   useEffect(() => {
