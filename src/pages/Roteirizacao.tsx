@@ -2237,13 +2237,15 @@ const Roteirizacao = () => {
   };
 
   // Função para incluir OS diretamente na rota (chamada do mapa)
+  // Usa osPendentesTodas para permitir inclusão manual de OSs fora do território
   const handleIncluirOSNaRota = (osId: string) => {
     if (!equipeEditando) {
       toast.error("Selecione uma equipe para editar primeiro");
       return;
     }
     
-    const os = osPendentes.find(o => o.id === osId);
+    // Buscar em osPendentesTodas para permitir inclusão manual de OSs fora do território
+    const os = osPendentesTodas.find(o => o.id === osId);
     if (!os) {
       toast.error("OS não encontrada");
       return;
@@ -3477,14 +3479,15 @@ const Roteirizacao = () => {
                             </span>
                           </div>
                           <Badge variant="outline" className="text-[10px]">
-                            {osPendentes.find(os => os.id === osSelecionadaNoMapa)?.numero || osSelecionadaNoMapa}
+                            {osPendentesTodas.find(os => os.id === osSelecionadaNoMapa)?.numero || osSelecionadaNoMapa}
                           </Badge>
                         </div>
                         <Button
                           className="w-full"
                           size="sm"
                           onClick={() => {
-                            const os = osPendentes.find(os => os.id === osSelecionadaNoMapa);
+                            // Buscar em osPendentesTodas para permitir inclusão manual de OSs fora do território
+                            const os = osPendentesTodas.find(os => os.id === osSelecionadaNoMapa);
                             if (!os) {
                               toast.error("OS não encontrada");
                               return;
