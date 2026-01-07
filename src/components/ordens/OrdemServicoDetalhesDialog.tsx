@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { obterNomesTerritorios } from "@/types/territorios";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
@@ -304,6 +305,17 @@ export function OrdemServicoDetalhesDialog({
     enabled: !!ordemId && open,
   });
 
+  // Buscar nomes dos territórios da OS
+  const { data: territoriosNomes } = useQuery({
+    queryKey: ["ordem-territorios-nomes", ordemId, (ordem as any)?.territorios],
+    queryFn: async () => {
+      const territorioIds = (ordem as any)?.territorios;
+      if (!territorioIds || territorioIds.length === 0) return [];
+      return await obterNomesTerritorios(territorioIds);
+    },
+    enabled: !!ordemId && open && !!(ordem as any)?.territorios?.length,
+  });
+
   const statusInfo = ordem ? statusConfig[ordem.status] || statusConfig.em_aberto : null;
   const StatusIcon = statusInfo?.icon || Clock;
 
@@ -532,6 +544,14 @@ export function OrdemServicoDetalhesDialog({
                           <p className="text-xs text-muted-foreground mt-1">
                             {ordem.latitude}, {ordem.longitude}
                           </p>
+                        )}
+                        {territoriosNomes && territoriosNomes.length > 0 && (
+                          <div className="mt-2 pt-2 border-t border-border/50">
+                            <span className="text-xs text-muted-foreground">Territórios: </span>
+                            <span className="text-xs font-medium">
+                              {territoriosNomes.join(", ")}
+                            </span>
+                          </div>
                         )}
                       </div>
                       <div>

@@ -13,7 +13,7 @@ import { Territorio } from "@/types/territorios";
 import { Equipe } from "@/data/mockData";
 import { MapPin, CheckCircle2, Edit, Users } from "lucide-react";
 import { useState, useEffect } from "react";
-import { salvarTerritorio } from "@/types/territorios";
+import { salvarTerritorio, atualizarTerritoriosOSs } from "@/types/territorios";
 
 interface SelecaoTerritoriosDialogProps {
   open: boolean;

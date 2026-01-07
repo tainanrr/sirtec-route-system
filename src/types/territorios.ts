@@ -149,5 +149,120 @@ export async function deletarTerritorio(id: string): Promise<boolean> {
   }
 }
 
+/**
+ * Atualiza o campo 'territorios' de todas as OSs pendentes/atrasadas
+ * verificando em quais territórios cada OS está localizada
+ */
+export async function atualizarTerritoriosOSs(): Promise<{ atualizadas: number; erros: number }> {
+  console.log("[Territórios] Iniciando atualização de territórios das OSs...");
+  
+  try {
+    // 1. Carregar todos os territórios ativos
+    const territorios = await carregarTerritorios();
+    const territoriosAtivos = territorios.filter(t => t.ativo && t.poligono.length >= 3);
+    console.log(`[Territórios] ${territoriosAtivos.length} territórios ativos encontrados`);
+    
+    if (territoriosAtivos.length === 0) {
+      console.log("[Territórios] Nenhum território ativo para processar");
+      return { atualizadas: 0, erros: 0 };
+    }
+    
+    // 2. Carregar todas as OSs pendentes/atrasadas com coordenadas válidas
+    const { data: ordensServico, error: osError } = await supabase
+      .from("ordens_servico")
+      .select("id, latitude, longitude, territorios")
+      .in("status", ["pendente", "atrasada"])
+      .not("latitude", "is", null)
+      .not("longitude", "is", null);
+    
+    if (osError) {
+      console.error("[Territórios] Erro ao carregar OSs:", osError);
+      return { atualizadas: 0, erros: 1 };
+    }
+    
+    console.log(`[Territórios] ${ordensServico?.length || 0} OSs pendentes/atrasadas com coordenadas encontradas`);
+    
+    if (!ordensServico || ordensServico.length === 0) {
+      return { atualizadas: 0, erros: 0 };
+    }
+    
+    // 3. Para cada OS, verificar em quais territórios ela está
+    let atualizadas = 0;
+    let erros = 0;
+    
+    // Processar em lotes de 100 para não sobrecarregar
+    const BATCH_SIZE = 100;
+    
+    for (let i = 0; i < ordensServico.length; i += BATCH_SIZE) {
+      const batch = ordensServico.slice(i, i + BATCH_SIZE);
+      
+      const updates = batch.map(os => {
+        const ponto: Coordenada = { lat: os.latitude, lng: os.longitude };
+        
+        // Encontrar todos os territórios que contêm esta OS
+        const territoriosOS = territoriosAtivos
+          .filter(t => pontoNoPoligono(ponto, t.poligono))
+          .map(t => t.id);
+        
+        return {
+          id: os.id,
+          territorios: territoriosOS,
+          territoriosAntigos: os.territorios || []
+        };
+      });
+      
+      // Atualizar apenas as OSs cujos territórios mudaram
+      for (const update of updates) {
+        const mudou = JSON.stringify(update.territorios.sort()) !== JSON.stringify((update.territoriosAntigos as string[]).sort());
+        
+        if (mudou) {
+          const { error: updateError } = await supabase
+            .from("ordens_servico")
+            .update({ territorios: update.territorios })
+            .eq("id", update.id);
+          
+          if (updateError) {
+            console.error(`[Territórios] Erro ao atualizar OS ${update.id}:`, updateError);
+            erros++;
+          } else {
+            atualizadas++;
+          }
+        }
+      }
+    }
+    
+    console.log(`[Territórios] Atualização concluída: ${atualizadas} OSs atualizadas, ${erros} erros`);
+    return { atualizadas, erros };
+    
+  } catch (e) {
+    console.error("[Territórios] Erro na atualização:", e);
+    return { atualizadas: 0, erros: 1 };
+  }
+}
+
+/**
+ * Obtém os nomes dos territórios a partir de seus IDs
+ */
+export async function obterNomesTerritorios(territorioIds: string[]): Promise<string[]> {
+  if (!territorioIds || territorioIds.length === 0) return [];
+  
+  try {
+    const { data, error } = await supabase
+      .from("territorios")
+      .select("id, nome")
+      .in("id", territorioIds);
+    
+    if (error || !data) return [];
+    
+    // Retornar na mesma ordem dos IDs
+    return territorioIds.map(id => {
+      const territorio = data.find(t => t.id === id);
+      return territorio?.nome || "";
+    }).filter(nome => nome !== "");
+  } catch (e) {
+    console.error("[Territórios] Erro ao obter nomes:", e);
+    return [];
+  }
+}
 
 

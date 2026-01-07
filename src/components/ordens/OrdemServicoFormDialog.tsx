@@ -33,6 +33,7 @@ import { toast } from "sonner";
 import type { Tables } from "@/integrations/supabase/types";
 import { getDadosSkill, fetchSkills } from "@/lib/skillsUtils";
 import { useLogSistema } from "@/hooks/useLogSistema";
+import { obterNomesTerritorios } from "@/types/territorios";
 
 /**
  * Converte código da skill (ex: "CORTE") para formato tipo usado no banco (ex: "corte")
@@ -135,6 +136,7 @@ export function OrdemServicoFormDialog({
   const [skills, setSkills] = useState<any[]>([]);
   const [contratos, setContratos] = useState<Contrato[]>([]);
   const [centrosCusto, setCentrosCusto] = useState<CentroCusto[]>([]);
+  const [territoriosNomes, setTerritoriosNomes] = useState<string[]>([]);
   const isEditing = !!ordem;
   const { logCriar, logEditar } = useLogSistema();
 
@@ -294,6 +296,14 @@ export function OrdemServicoFormDialog({
         longitude: ordem.longitude ? Number(ordem.longitude) : undefined,
         prioridade: ((ordem as any).prioridade as "ALTA" | "NORMAL") || "NORMAL",
       });
+      
+      // Carregar nomes dos territórios
+      const territorioIds = (ordem as any).territorios;
+      if (territorioIds && territorioIds.length > 0) {
+        obterNomesTerritorios(territorioIds).then(nomes => setTerritoriosNomes(nomes));
+      } else {
+        setTerritoriosNomes([]);
+      }
 
       // Carregar dados da skill após resetar o formulário
       // Atualizar apenas se os valores estão vazios ou são padrão
@@ -637,6 +647,21 @@ export function OrdemServicoFormDialog({
                 )}
               />
             </div>
+
+            {/* Campo de Territórios - somente leitura */}
+            {isEditing && territoriosNomes.length > 0 && (
+              <div className="space-y-2">
+                <FormLabel className="text-sm font-medium">Territórios</FormLabel>
+                <Input 
+                  value={territoriosNomes.join(", ")} 
+                  disabled 
+                  className="bg-muted cursor-not-allowed"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Calculado automaticamente com base na localização da OS
+                </p>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-4">
               <FormField

@@ -24,6 +24,7 @@ import {
   carregarTerritorios,
   salvarTerritorio,
   deletarTerritorio,
+  atualizarTerritoriosOSs,
 } from "@/types/territorios";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -305,6 +306,13 @@ export default function CadastroTerritorios() {
       const updated = await carregarTerritorios();
       setTerritorios(updated);
       toast.success(editingTerritorio ? "Território atualizado!" : "Território criado!");
+      
+      // Atualizar campo territorios das OSs pendentes/atrasadas
+      atualizarTerritoriosOSs().then(({ atualizadas }) => {
+        if (atualizadas > 0) {
+          toast.info(`${atualizadas} OSs tiveram seus territórios atualizados`);
+        }
+      });
 
       // Limpar formulário
       setFormData({ nome: "", cor: CORES_TERRITORIOS[0], equipeIds: [] });
@@ -406,6 +414,9 @@ export default function CadastroTerritorios() {
       const updated = await carregarTerritorios();
       setTerritorios(updated);
       atualizarPoligonosNoMapa(updated);
+      
+      // Atualizar campo territorios das OSs pendentes/atrasadas
+      atualizarTerritoriosOSs();
     } catch (error) {
       console.error("Erro ao atualizar território:", error);
       toast.error("Erro ao atualizar território");
@@ -459,6 +470,13 @@ export default function CadastroTerritorios() {
           setTerritorios(updated);
           atualizarPoligonosNoMapa(updated);
           toast.success(`${territoriosImportados.length} territórios importados!`);
+          
+          // Atualizar campo territorios das OSs pendentes/atrasadas
+          atualizarTerritoriosOSs().then(({ atualizadas }) => {
+            if (atualizadas > 0) {
+              toast.info(`${atualizadas} OSs tiveram seus territórios atualizados`);
+            }
+          });
         } catch (error) {
           toast.error("Erro ao importar arquivo JSON");
           console.error(error);

@@ -75,7 +75,7 @@ import { tecnicosParaEquipes } from "@/lib/equipeUtils";
 import { mapSupabaseOrdensServicoToOrdemServico } from "@/lib/ordemServicoUtils";
 import type { Tables } from "@/integrations/supabase/types";
 import MapaLeaflet from "./components/MapaLeaflet";
-import { carregarTerritorios, salvarTerritorios, Territorio, pontoNoPoligono } from "@/types/territorios";
+import { carregarTerritorios, salvarTerritorios, Territorio, pontoNoPoligono, atualizarTerritoriosOSs } from "@/types/territorios";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import {
@@ -3032,6 +3032,13 @@ const Roteirizacao = () => {
                       const updated = await carregarTerritorios();
                       setTerritorios(updated);
                       toast.success("Polígono atualizado com sucesso!");
+                      
+                      // Atualizar campo territorios das OSs pendentes/atrasadas
+                      atualizarTerritoriosOSs().then(({ atualizadas }) => {
+                        if (atualizadas > 0) {
+                          toast.info(`${atualizadas} OSs tiveram seus territórios atualizados`);
+                        }
+                      });
                     }
                   }
                 }}
