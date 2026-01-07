@@ -817,25 +817,48 @@ const Roteirizacao = () => {
       .sort((a, b) => a.codigo.localeCompare(b.codigo));
   }, [osPendentesTodas]);
 
+  // Filtros dependentes: cada filtro considera os outros filtros ativos
+  // Isso garante que só apareçam opções válidas baseadas nos filtros já aplicados
+  
   const municipiosDisponiveis = useMemo(() => {
     const municipios = new Set<string>();
+    // Filtra considerando todos os filtros EXCETO município
     osPendentesTodas.forEach(os => {
-      if (os.municipio) {
+      if (!os.municipio) return;
+      
+      // Aplicar outros filtros
+      const matchesTipo = tiposFilter.length === 0 || tiposFilter.some(tipo => os.tipo.toLowerCase() === tipo.toLowerCase());
+      const matchesContrato = contratosFilter.length === 0 || (os.contrato_codigo && contratosFilter.includes(os.contrato_codigo));
+      const matchesCentroCusto = centrosCustoFilter.length === 0 || (os.centro_custo_codigo && centrosCustoFilter.includes(os.centro_custo_codigo));
+      const matchesBairro = bairrosFilter.length === 0 || (os.bairro && bairrosFilter.includes(os.bairro));
+      const matchesStatus = statusFilter.length === 0 || statusFilter.some(status => os.status.toLowerCase() === status.toLowerCase());
+      
+      if (matchesTipo && matchesContrato && matchesCentroCusto && matchesBairro && matchesStatus) {
         municipios.add(os.municipio);
       }
     });
     return Array.from(municipios).sort();
-  }, [osPendentesTodas]);
+  }, [osPendentesTodas, tiposFilter, contratosFilter, centrosCustoFilter, bairrosFilter, statusFilter]);
 
   const bairrosDisponiveis = useMemo(() => {
     const bairros = new Set<string>();
+    // Filtra considerando todos os filtros EXCETO bairro
     osPendentesTodas.forEach(os => {
-      if (os.bairro) {
+      if (!os.bairro) return;
+      
+      // Aplicar outros filtros
+      const matchesTipo = tiposFilter.length === 0 || tiposFilter.some(tipo => os.tipo.toLowerCase() === tipo.toLowerCase());
+      const matchesContrato = contratosFilter.length === 0 || (os.contrato_codigo && contratosFilter.includes(os.contrato_codigo));
+      const matchesCentroCusto = centrosCustoFilter.length === 0 || (os.centro_custo_codigo && centrosCustoFilter.includes(os.centro_custo_codigo));
+      const matchesMunicipio = municipiosFilter.length === 0 || (os.municipio && municipiosFilter.includes(os.municipio));
+      const matchesStatus = statusFilter.length === 0 || statusFilter.some(status => os.status.toLowerCase() === status.toLowerCase());
+      
+      if (matchesTipo && matchesContrato && matchesCentroCusto && matchesMunicipio && matchesStatus) {
         bairros.add(os.bairro);
       }
     });
     return Array.from(bairros).sort();
-  }, [osPendentesTodas]);
+  }, [osPendentesTodas, tiposFilter, contratosFilter, centrosCustoFilter, municipiosFilter, statusFilter]);
 
   const statusDisponiveis = useMemo(() => {
     const statusSet = new Set<string>();
@@ -3657,7 +3680,7 @@ const Roteirizacao = () => {
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                   {/* Tipo de Serviço - Multi-select com busca */}
                   <div className="space-y-1 col-span-2 md:col-span-1">
-                    <label className="text-xs font-medium text-muted-foreground">Tipo de Serviço</label>
+                    <label className="text-xs font-medium">Tipo de Serviço</label>
                     <Popover open={tiposFilterOpen} onOpenChange={setTiposFilterOpen}>
                       <PopoverTrigger asChild>
                         <Button
@@ -3723,7 +3746,7 @@ const Roteirizacao = () => {
 
                   {/* Contrato - Multi-select com busca */}
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-muted-foreground">Contrato</label>
+                    <label className="text-xs font-medium">Contrato</label>
                     <Popover open={contratosFilterOpen} onOpenChange={setContratosFilterOpen}>
                       <PopoverTrigger asChild>
                         <Button
@@ -3783,7 +3806,7 @@ const Roteirizacao = () => {
 
                   {/* Centro de Custo - Multi-select com busca */}
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-muted-foreground">Centro de Custo</label>
+                    <label className="text-xs font-medium">Centro de Custo</label>
                     <Popover open={centrosCustoFilterOpen} onOpenChange={setCentrosCustoFilterOpen}>
                       <PopoverTrigger asChild>
                         <Button
@@ -3843,7 +3866,7 @@ const Roteirizacao = () => {
 
                   {/* Município - Multi-select com busca */}
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-muted-foreground">Município</label>
+                    <label className="text-xs font-medium">Município</label>
                     <Popover open={municipiosFilterOpen} onOpenChange={setMunicipiosFilterOpen}>
                       <PopoverTrigger asChild>
                         <Button
@@ -3902,7 +3925,7 @@ const Roteirizacao = () => {
 
                   {/* Bairro - Multi-select com busca */}
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-muted-foreground">Bairro</label>
+                    <label className="text-xs font-medium">Bairro</label>
                     <Popover open={bairrosFilterOpen} onOpenChange={setBairrosFilterOpen}>
                       <PopoverTrigger asChild>
                         <Button
@@ -3961,7 +3984,7 @@ const Roteirizacao = () => {
 
                   {/* Status - Multi-select com busca */}
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-muted-foreground">Status</label>
+                    <label className="text-xs font-medium">Status</label>
                     <Popover open={statusFilterOpen} onOpenChange={setStatusFilterOpen}>
                       <PopoverTrigger asChild>
                         <Button
@@ -4020,7 +4043,7 @@ const Roteirizacao = () => {
 
                   {/* Regulada */}
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                    <label className="text-xs font-medium flex items-center gap-1">
                       <Zap className="h-3 w-3" />
                       Regulada
                     </label>
@@ -4038,7 +4061,7 @@ const Roteirizacao = () => {
 
                   {/* Coordenadas */}
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                    <label className="text-xs font-medium flex items-center gap-1">
                       <MapPin className="h-3 w-3" />
                       Coordenadas
                     </label>
@@ -4059,7 +4082,7 @@ const Roteirizacao = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-3 border-t border-border/50">
                   {/* Data de Prazo */}
                   <div className="space-y-2">
-                    <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                    <label className="text-xs font-medium flex items-center gap-1">
                       <Calendar className="h-3 w-3" />
                       Data de Prazo
                     </label>
