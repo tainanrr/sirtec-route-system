@@ -1585,9 +1585,19 @@ const Roteirizacao = () => {
         return;
       }
 
-      console.log('[ROTEIRIZAÇÃO] Iniciando otimização com tempos reais de trânsito...');
+      // Usar OSs filtradas do backlog (respeitando todos os filtros ativos)
+      // Se não houver filtros, filteredServicos será vazio
+      const osParaRoteirizar = hasAnyFilter ? filteredServicos : osPendentes;
+      
+      if (osParaRoteirizar.length === 0) {
+        toast.warning("Nenhuma OS disponível para roteirização. Aplique filtros ou verifique os dados.");
+        setIsOtimizando(false);
+        return;
+      }
+
+      console.log(`[ROTEIRIZAÇÃO] Iniciando otimização com ${osParaRoteirizar.length} OSs filtradas...`);
       const resultado: ResultadoOtimizacao = await otimizarRotas(
-        osPendentes, 
+        osParaRoteirizar, 
         equipesAtivas, 
         usarTerritorios,
         usarTerritorios ? territoriosSelecionados : undefined
@@ -1668,7 +1678,8 @@ const Roteirizacao = () => {
       // Em caso de erro, a função otimizarRotas já faz fallback para Haversine
       // Mas vamos tentar novamente para garantir
       try {
-        const resultadoFallback = await otimizarRotas(osPendentes, equipesAtivas, usarTerritorios);
+        const osParaFallback = hasAnyFilter ? filteredServicos : osPendentes;
+        const resultadoFallback = await otimizarRotas(osParaFallback, equipesAtivas, usarTerritorios);
         setRotas(resultadoFallback.rotas);
         const mapaNaoAlocadas = resultadoFallback.naoAlocadas.reduce((acc, item) => {
           acc[item.os.id] = item.motivo;
@@ -2505,7 +2516,7 @@ const Roteirizacao = () => {
             </Button>
             <Button
               onClick={handleOtimizarRotas}
-              disabled={isOtimizando || osPendentes.length === 0 || !podeEditar}
+              disabled={isOtimizando || filteredServicos.length === 0 || !podeEditar}
               className="gap-2"
               title={!podeEditar ? "Você não tem permissão para otimizar rotas" : undefined}
             >
