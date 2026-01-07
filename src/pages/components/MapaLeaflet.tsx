@@ -76,6 +76,8 @@ interface MapaLeafletProps {
   osUrgenteDestaque?: OrdemServico | null; // V19.6: OS urgente fora do território para destacar (única)
   osUrgentesDestaque?: OrdemServico[]; // V19.7: Array de OSs urgentes fora do território para destacar (múltiplas)
   onOsUrgenteDestaqueClear?: () => void; // V19.6: Callback para limpar destaque
+  selecionandoCoordNoMapa?: boolean; // Modo de seleção de coordenada no mapa
+  onMapClick?: (lat: number, lng: number) => void; // Callback quando o mapa é clicado (para seleção de coordenada)
 }
 
 interface RouteGeometryData {
@@ -113,7 +115,7 @@ function getLucideIconSVG(iconName: string | undefined, color: string, size: num
   `;
 }
 
-export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear }: MapaLeafletProps) {
+export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear, selecionandoCoordNoMapa, onMapClick }: MapaLeafletProps) {
   
   const mapRef = useRef<HTMLDivElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -625,6 +627,32 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
       }
     };
   }, []);
+
+  // Efeito para gerenciar clique no mapa quando está selecionando coordenada
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    
+    const handleMapClick = (e: L.LeafletMouseEvent) => {
+      if (selecionandoCoordNoMapa && onMapClick) {
+        onMapClick(e.latlng.lat, e.latlng.lng);
+      }
+    };
+    
+    if (selecionandoCoordNoMapa) {
+      // Adicionar cursor de crosshair quando está selecionando
+      map.getContainer().style.cursor = 'crosshair';
+      map.on('click', handleMapClick);
+    } else {
+      // Restaurar cursor padrão
+      map.getContainer().style.cursor = '';
+    }
+    
+    return () => {
+      map.off('click', handleMapClick);
+      map.getContainer().style.cursor = '';
+    };
+  }, [selecionandoCoordNoMapa, onMapClick]);
 
   // Função auxiliar para classificar prazo
   const classificarPrazo = (prazo: Date | null | undefined): 'sem_prazo' | 'futuro' | 'amanha' | 'hoje' | 'passado' => {

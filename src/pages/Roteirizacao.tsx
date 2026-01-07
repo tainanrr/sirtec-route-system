@@ -204,6 +204,7 @@ const Roteirizacao = () => {
   const [editarCoordsLat, setEditarCoordsLat] = useState("");
   const [editarCoordsLng, setEditarCoordsLng] = useState("");
   const [salvandoCoords, setSalvandoCoords] = useState(false);
+  const [selecionandoCoordNoMapa, setSelecionandoCoordNoMapa] = useState(false);
   
   const [rotas, setRotas] = useState<RotaEquipe[]>([]);
   const [isOtimizando, setIsOtimizando] = useState(false);
@@ -3299,6 +3300,29 @@ const Roteirizacao = () => {
               <h3 className="font-semibold text-foreground">Mapa Interativo</h3>
             </div>
             <div className="relative h-[700px]">
+              {/* Banner de seleção de coordenadas */}
+              {selecionandoCoordNoMapa && (
+                <div className="absolute top-0 left-0 right-0 z-[1000] bg-blue-600 text-white px-4 py-3 flex items-center justify-between shadow-lg">
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-5 w-5 animate-pulse" />
+                    <span className="font-medium">
+                      Clique no mapa para definir a coordenada da OS: <strong>{editarCoordsOS?.numero}</strong>
+                    </span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-white hover:bg-blue-700"
+                    onClick={() => {
+                      setSelecionandoCoordNoMapa(false);
+                      setEditarCoordsOpen(true);
+                    }}
+                  >
+                    <X className="h-4 w-4 mr-1" />
+                    Cancelar
+                  </Button>
+                </div>
+              )}
               <MapaLeaflet
                 rotas={rotas}
                 osPendentes={filteredServicos}
@@ -3309,6 +3333,16 @@ const Roteirizacao = () => {
                 osSelecionadaNoEditor={osSelecionadaNoEditor}
                 onOSSelecionada={setOsSelecionadaNoMapa}
                 onIncluirOSNaRota={handleIncluirOSNaRota}
+                selecionandoCoordNoMapa={selecionandoCoordNoMapa}
+                onMapClick={(lat, lng) => {
+                  if (selecionandoCoordNoMapa && editarCoordsOS) {
+                    setEditarCoordsLat(lat.toFixed(6));
+                    setEditarCoordsLng(lng.toFixed(6));
+                    setSelecionandoCoordNoMapa(false);
+                    setEditarCoordsOpen(true);
+                    toast.success(`Coordenadas selecionadas: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+                  }
+                }}
                 osUrgenteDestaque={osUrgenteSelecionadaNoMapa}
                 osUrgentesDestaque={osUrgentesTodasNoMapa}
                 onOsUrgenteDestaqueClear={() => {
@@ -5340,6 +5374,20 @@ const Roteirizacao = () => {
                   ? `${editarCoordsOS.latitude}, ${editarCoordsOS.longitude}`
                   : 'Sem coordenadas'}
               </div>
+              
+              {/* Botão Posicionar no Mapa */}
+              <Button
+                variant="outline"
+                className="w-full gap-2 border-blue-500 text-blue-600 hover:bg-blue-50"
+                onClick={() => {
+                  setEditarCoordsOpen(false);
+                  setSelecionandoCoordNoMapa(true);
+                  toast.info("Clique no mapa para definir a coordenada da OS", { duration: 5000 });
+                }}
+              >
+                <MapPin className="h-4 w-4" />
+                Posicionar no Mapa
+              </Button>
               
               {/* Botões */}
               <div className="flex gap-2 justify-end">
