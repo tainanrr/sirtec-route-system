@@ -105,7 +105,7 @@ export async function mapSupabaseOrdemServicoToOrdemServico(
 
   // Validar e processar coordenadas
   // Coordenadas válidas para Brasil: lat entre -35 e 5, lng entre -75 e -32
-  // Se inválidas, usar fallback de Vitória da Conquista, BA
+  // Se inválidas, retornar null (OSs sem coordenadas)
   const latValida = typeof ordemSupabase.latitude === 'number' && 
                     !isNaN(ordemSupabase.latitude) && 
                     ordemSupabase.latitude >= -35 && 
@@ -115,14 +115,10 @@ export async function mapSupabaseOrdemServicoToOrdemServico(
                     ordemSupabase.longitude >= -75 && 
                     ordemSupabase.longitude <= -32;
   
-  const latitude = latValida ? ordemSupabase.latitude! : -14.8661;
-  const longitude = lngValida ? ordemSupabase.longitude! : -40.8394;
-  
-  // Log de coordenadas inválidas removido para não poluir o console
-  // Se necessário debug, descomentar:
-  // if (!latValida || !lngValida) {
-  //   console.warn(`[ORDEM_SERVICO] OS ${ordemSupabase.numero} tem coordenadas inválidas (lat: ${ordemSupabase.latitude}, lng: ${ordemSupabase.longitude}), usando fallback`);
-  // }
+  // Só retorna coordenadas se AMBAS forem válidas, senão null
+  const coordenadasValidas = latValida && lngValida;
+  const latitude = coordenadasValidas ? ordemSupabase.latitude! : null;
+  const longitude = coordenadasValidas ? ordemSupabase.longitude! : null;
 
   // Extrair dados de joins (contratos e centros_custo) se existirem
   const ordemAny = ordemSupabase as any;

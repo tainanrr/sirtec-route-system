@@ -137,6 +137,29 @@ function obterLabelTipo(tipo: string): string {
     .join(" ");
 }
 
+/**
+ * Formata a data do prazo para exibição
+ */
+function formatarDataPrazo(prazo: Date): string {
+  const agora = new Date();
+  const hoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
+  const dataPrazo = new Date(prazo.getFullYear(), prazo.getMonth(), prazo.getDate());
+  
+  const diffDias = Math.floor((dataPrazo.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24));
+  
+  if (diffDias < 0) {
+    return `Vencido há ${Math.abs(diffDias)} dia${Math.abs(diffDias) > 1 ? 's' : ''}`;
+  } else if (diffDias === 0) {
+    return "HOJE";
+  } else if (diffDias === 1) {
+    return "Amanhã";
+  } else if (diffDias <= 7) {
+    return `Em ${diffDias} dias`;
+  } else {
+    return prazo.toLocaleDateString('pt-BR');
+  }
+}
+
 const Roteirizacao = () => {
   // Permissões da tela
   const { podeEditar } = useTelaPermissao("roteirizacao");
@@ -1135,6 +1158,30 @@ const Roteirizacao = () => {
            matchesPrazoInicio && matchesPrazoFim && matchesCoordenadas && matchesRegulada &&
            matchesGrupo && matchesTerritorio;
   }) : []; // Retorna array vazio se nenhum filtro ativo
+
+  // OSs sem coordenadas (ordenadas: reguladas primeiro, depois não reguladas)
+  const osSemCoordenadas = useMemo(() => {
+    // Filtrar OSs sem coordenadas válidas
+    const semCoord = osPendentesTodas.filter(os => 
+      os.latitude === null || os.longitude === null
+    );
+    
+    // Ordenar: reguladas primeiro, depois por prazo (mais urgentes primeiro)
+    return semCoord.sort((a, b) => {
+      // Reguladas primeiro
+      if (a.regulada && !b.regulada) return -1;
+      if (!a.regulada && b.regulada) return 1;
+      
+      // Dentro do mesmo grupo, ordenar por prazo (mais urgentes primeiro)
+      if (a.prazo && b.prazo) {
+        return new Date(a.prazo).getTime() - new Date(b.prazo).getTime();
+      }
+      if (a.prazo && !b.prazo) return -1;
+      if (!a.prazo && b.prazo) return 1;
+      
+      return 0;
+    });
+  }, [osPendentesTodas]);
 
   // Função auxiliar para validar hora
   const validarHora = (hora: string | null): string | null => {
@@ -3767,6 +3814,78 @@ const Roteirizacao = () => {
           </div>
         </div>
       </div>
+
+        {/* OSs Sem Coordenadas - Destaque especial */}
+        {osSemCoordenadas.length > 0 && (
+          <div className="rounded-xl border-2 border-amber-500/50 bg-amber-500/5 overflow-hidden">
+            <div className="p-3 border-b border-amber-500/30 bg-amber-500/10">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5 text-amber-500" />
+                  <h3 className="font-semibold text-amber-700 dark:text-amber-400">OSs Sem Coordenadas</h3>
+                  <Badge variant="outline" className="border-amber-500 text-amber-600 dark:text-amber-400">
+                    {osSemCoordenadas.length}
+                  </Badge>
+                </div>
+                <span className="text-xs text-amber-600 dark:text-amber-400">
+                  ⚠️ Estas OSs não serão roteirizadas até terem coordenadas válidas
+                </span>
+              </div>
+            </div>
+            <div className="p-2 max-h-[200px] overflow-y-auto">
+              <div className="grid grid-cols-5 gap-1 text-xs">
+                {osSemCoordenadas.slice(0, 50).map((os) => {
+                  const skillData = skillsIcons.get(os.tipo);
+                  const nomeServico = skillData?.nome || obterLabelTipo(os.tipo);
+                  const prazoInfo = os.prazo ? formatarDataPrazo(new Date(os.prazo)) : null;
+                  
+                  return (
+                    <div
+                      key={os.id}
+                      className={cn(
+                        "p-2 rounded border cursor-pointer hover:bg-muted/50 transition-colors select-text",
+                        os.regulada 
+                          ? "border-red-400/50 bg-red-500/10" 
+                          : "border-border bg-card"
+                      )}
+                      onDoubleClick={() => {
+                        setDetalhesOSId(os.id);
+                        setDetalhesOSOpen(true);
+                      }}
+                      title="Duplo clique para ver detalhes"
+                    >
+                      <div className="flex items-center justify-between gap-1 mb-1">
+                        <span className="font-mono font-semibold truncate">{os.numero}</span>
+                        {os.regulada && (
+                          <Badge variant="destructive" className="h-4 px-1 text-[10px]">REG</Badge>
+                        )}
+                      </div>
+                      <div className="text-muted-foreground truncate text-[10px]" title={nomeServico}>
+                        {nomeServico}
+                      </div>
+                      {prazoInfo && (
+                        <div className={cn(
+                          "text-[10px] truncate",
+                          prazoInfo.includes("Vencid") || prazoInfo.includes("HOJE") ? "text-red-500 font-medium" : "text-muted-foreground"
+                        )}>
+                          ⏰ {prazoInfo}
+                        </div>
+                      )}
+                      <div className="text-muted-foreground truncate text-[10px] mt-1" title={os.endereco}>
+                        📍 {os.endereco.substring(0, 25)}...
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {osSemCoordenadas.length > 50 && (
+                <div className="text-center py-2 text-xs text-amber-600">
+                  ... e mais {osSemCoordenadas.length - 50} OSs sem coordenadas
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Backlog de Serviços - Movido para o final */}
         <div className="rounded-xl border border-border bg-card overflow-hidden">
