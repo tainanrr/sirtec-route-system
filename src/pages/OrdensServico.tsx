@@ -122,11 +122,13 @@ const OrdensServico = () => {
   const [retornoFilter, setRetornoFilter] = useState<string>("all");
   const [coordenadasFilter, setCoordenadasFilter] = useState<string>("all");
   const [producaoFilter, setProducaoFilter] = useState<string>("all");
+  const [territorioFilter, setTerritorioFilter] = useState<string>("all");
   
   // Dados para filtros
   const [equipes, setEquipes] = useState<{ id: string; codigo: string; nome: string }[]>([]);
   const [retornos, setRetornos] = useState<{ id: string; codigo: string; descricao: string; tipo: string }[]>([]);
   const [skills, setSkills] = useState<{ codigo: string; nome: string }[]>([]);
+  const [territorios, setTerritorios] = useState<{ id: string; nome: string; cor: string }[]>([]);
   
   // Paginação e contagem
   const [totalCount, setTotalCount] = useState(0);
@@ -251,6 +253,11 @@ const OrdensServico = () => {
     if (debouncedSearchTerm) {
       const term = `%${debouncedSearchTerm}%`;
       query = query.or(`numero.ilike.${term},endereco.ilike.${term},cliente_nome.ilike.${term},cliente_cpf.ilike.${term},instalacao.ilike.${term}`);
+    }
+    
+    // Território (filtra OSs que contém o território selecionado no array)
+    if (territorioFilter !== "all") {
+      query = query.contains("territorios", [territorioFilter]);
     }
     
     return query;
@@ -430,15 +437,17 @@ const OrdensServico = () => {
 
   // Buscar dados para os filtros
   const fetchFilterData = async () => {
-    const [equipesRes, retornosRes, skillsRes] = await Promise.all([
+    const [equipesRes, retornosRes, skillsRes, territoriosRes] = await Promise.all([
       supabase.from("tecnicos").select("id, codigo, nome").neq("status", "offline").order("codigo"),
       supabase.from("retornos_campo").select("id, codigo, descricao, tipo").eq("ativo", true).order("descricao"),
       supabase.from("skills").select("codigo, nome").eq("ativo", true).order("nome"),
+      supabase.from("territorios").select("id, nome, cor").eq("ativo", true).order("nome"),
     ]);
     
     if (equipesRes.data) setEquipes(equipesRes.data);
     if (retornosRes.data) setRetornos(retornosRes.data);
     if (skillsRes.data) setSkills(skillsRes.data);
+    if (territoriosRes.data) setTerritorios(territoriosRes.data);
   };
 
   // Estado para controlar debounce do searchTerm
@@ -472,7 +481,8 @@ const OrdensServico = () => {
     equipeFilter,
     retornoFilter,
     coordenadasFilter,
-    producaoFilter
+    producaoFilter,
+    territorioFilter
   ]);
   
   // Limpar filtros
@@ -488,6 +498,7 @@ const OrdensServico = () => {
     setRetornoFilter("all");
     setCoordenadasFilter("all");
     setProducaoFilter("all");
+    setTerritorioFilter("all");
   };
   
   // Contar filtros ativos
@@ -502,6 +513,7 @@ const OrdensServico = () => {
     retornoFilter !== "all",
     coordenadasFilter !== "all",
     producaoFilter !== "all",
+    territorioFilter !== "all",
   ].filter(Boolean).length;
 
   const handleEdit = (ordem: Tables<"ordens_servico">) => {
@@ -1130,6 +1142,30 @@ const OrdensServico = () => {
                     <SelectItem value="all">Todas</SelectItem>
                     <SelectItem value="com">Com Produção</SelectItem>
                     <SelectItem value="sem">Sem Produção</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Território */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Território</label>
+                <Select value={territorioFilter} onValueChange={setTerritorioFilter}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Todos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos Territórios</SelectItem>
+                    {territorios.map((territorio) => (
+                      <SelectItem key={territorio.id} value={territorio.id}>
+                        <div className="flex items-center gap-2">
+                          <span 
+                            className="w-3 h-3 rounded-full" 
+                            style={{ backgroundColor: territorio.cor }}
+                          />
+                          {territorio.nome}
+                        </div>
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

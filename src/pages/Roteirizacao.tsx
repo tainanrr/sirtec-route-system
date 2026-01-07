@@ -4161,7 +4161,7 @@ const Roteirizacao = () => {
                               ? gruposFilter[0]
                               : `${gruposFilter.length} selecionados`}
                           </span>
-                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-[200px] p-0" align="start">
@@ -4221,7 +4221,7 @@ const Roteirizacao = () => {
                               ? territoriosDisponiveis.find(t => t.id === territoriosFilter[0])?.nome || "1 selecionado"
                               : `${territoriosFilter.length} selecionados`}
                           </span>
-                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-[220px] p-0" align="start">
