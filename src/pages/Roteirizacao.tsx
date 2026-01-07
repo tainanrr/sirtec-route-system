@@ -787,53 +787,60 @@ const Roteirizacao = () => {
   const [osUrgentesTodasNoMapa, setOsUrgentesTodasNoMapa] = useState<OrdemServico[]>([]); // V19.7: Para destacar todas as OSs urgentes de uma vez
 
   // Obter tipos únicos das OSs pendentes para o filtro
-  const tiposDisponiveis = useMemo(() => {
-    const tipos = new Set(osPendentes.map(os => os.tipo.toLowerCase()));
-    return Array.from(tipos).sort();
-  }, [osPendentes]);
+  // ============================================
+  // FILTROS DEPENDENTES - cada filtro considera os outros filtros ativos
+  // ============================================
 
-  // Opções disponíveis para novos filtros multi-seleção
+  // Função auxiliar para verificar se uma OS passa nos filtros (exceto o filtro especificado)
+  const osPassaFiltros = (os: OrdemServico, excluirFiltro: string) => {
+    const matchesTipo = excluirFiltro === 'tipo' || tiposFilter.length === 0 || tiposFilter.some(tipo => os.tipo.toLowerCase() === tipo.toLowerCase());
+    const matchesContrato = excluirFiltro === 'contrato' || contratosFilter.length === 0 || (os.contrato_codigo && contratosFilter.includes(os.contrato_codigo));
+    const matchesCentroCusto = excluirFiltro === 'centroCusto' || centrosCustoFilter.length === 0 || (os.centro_custo_codigo && centrosCustoFilter.includes(os.centro_custo_codigo));
+    const matchesMunicipio = excluirFiltro === 'municipio' || municipiosFilter.length === 0 || (os.municipio && municipiosFilter.includes(os.municipio));
+    const matchesBairro = excluirFiltro === 'bairro' || bairrosFilter.length === 0 || (os.bairro && bairrosFilter.includes(os.bairro));
+    const matchesStatus = excluirFiltro === 'status' || statusFilter.length === 0 || statusFilter.some(status => os.status.toLowerCase() === status.toLowerCase());
+    
+    return matchesTipo && matchesContrato && matchesCentroCusto && matchesMunicipio && matchesBairro && matchesStatus;
+  };
+
+  const tiposDisponiveis = useMemo(() => {
+    const tipos = new Set<string>();
+    osPendentesTodas.forEach(os => {
+      if (osPassaFiltros(os, 'tipo')) {
+        tipos.add(os.tipo.toLowerCase());
+      }
+    });
+    return Array.from(tipos).sort();
+  }, [osPendentesTodas, contratosFilter, centrosCustoFilter, municipiosFilter, bairrosFilter, statusFilter]);
+
   const contratosDisponiveis = useMemo(() => {
     const contratos = new Map<string, string>();
     osPendentesTodas.forEach(os => {
-      if (os.contrato_codigo && os.contrato_nome) {
+      if (os.contrato_codigo && os.contrato_nome && osPassaFiltros(os, 'contrato')) {
         contratos.set(os.contrato_codigo, os.contrato_nome);
       }
     });
     return Array.from(contratos.entries())
       .map(([codigo, nome]) => ({ codigo, nome }))
       .sort((a, b) => a.codigo.localeCompare(b.codigo));
-  }, [osPendentesTodas]);
+  }, [osPendentesTodas, tiposFilter, centrosCustoFilter, municipiosFilter, bairrosFilter, statusFilter]);
 
   const centrosCustoDisponiveis = useMemo(() => {
     const centros = new Map<string, string>();
     osPendentesTodas.forEach(os => {
-      if (os.centro_custo_codigo && os.centro_custo_nome) {
+      if (os.centro_custo_codigo && os.centro_custo_nome && osPassaFiltros(os, 'centroCusto')) {
         centros.set(os.centro_custo_codigo, os.centro_custo_nome);
       }
     });
     return Array.from(centros.entries())
       .map(([codigo, nome]) => ({ codigo, nome }))
       .sort((a, b) => a.codigo.localeCompare(b.codigo));
-  }, [osPendentesTodas]);
+  }, [osPendentesTodas, tiposFilter, contratosFilter, municipiosFilter, bairrosFilter, statusFilter]);
 
-  // Filtros dependentes: cada filtro considera os outros filtros ativos
-  // Isso garante que só apareçam opções válidas baseadas nos filtros já aplicados
-  
   const municipiosDisponiveis = useMemo(() => {
     const municipios = new Set<string>();
-    // Filtra considerando todos os filtros EXCETO município
     osPendentesTodas.forEach(os => {
-      if (!os.municipio) return;
-      
-      // Aplicar outros filtros
-      const matchesTipo = tiposFilter.length === 0 || tiposFilter.some(tipo => os.tipo.toLowerCase() === tipo.toLowerCase());
-      const matchesContrato = contratosFilter.length === 0 || (os.contrato_codigo && contratosFilter.includes(os.contrato_codigo));
-      const matchesCentroCusto = centrosCustoFilter.length === 0 || (os.centro_custo_codigo && centrosCustoFilter.includes(os.centro_custo_codigo));
-      const matchesBairro = bairrosFilter.length === 0 || (os.bairro && bairrosFilter.includes(os.bairro));
-      const matchesStatus = statusFilter.length === 0 || statusFilter.some(status => os.status.toLowerCase() === status.toLowerCase());
-      
-      if (matchesTipo && matchesContrato && matchesCentroCusto && matchesBairro && matchesStatus) {
+      if (os.municipio && osPassaFiltros(os, 'municipio')) {
         municipios.add(os.municipio);
       }
     });
@@ -842,18 +849,8 @@ const Roteirizacao = () => {
 
   const bairrosDisponiveis = useMemo(() => {
     const bairros = new Set<string>();
-    // Filtra considerando todos os filtros EXCETO bairro
     osPendentesTodas.forEach(os => {
-      if (!os.bairro) return;
-      
-      // Aplicar outros filtros
-      const matchesTipo = tiposFilter.length === 0 || tiposFilter.some(tipo => os.tipo.toLowerCase() === tipo.toLowerCase());
-      const matchesContrato = contratosFilter.length === 0 || (os.contrato_codigo && contratosFilter.includes(os.contrato_codigo));
-      const matchesCentroCusto = centrosCustoFilter.length === 0 || (os.centro_custo_codigo && centrosCustoFilter.includes(os.centro_custo_codigo));
-      const matchesMunicipio = municipiosFilter.length === 0 || (os.municipio && municipiosFilter.includes(os.municipio));
-      const matchesStatus = statusFilter.length === 0 || statusFilter.some(status => os.status.toLowerCase() === status.toLowerCase());
-      
-      if (matchesTipo && matchesContrato && matchesCentroCusto && matchesMunicipio && matchesStatus) {
+      if (os.bairro && osPassaFiltros(os, 'bairro')) {
         bairros.add(os.bairro);
       }
     });
@@ -863,12 +860,12 @@ const Roteirizacao = () => {
   const statusDisponiveis = useMemo(() => {
     const statusSet = new Set<string>();
     osPendentesTodas.forEach(os => {
-      if (os.status) {
+      if (os.status && osPassaFiltros(os, 'status')) {
         statusSet.add(os.status);
       }
     });
     return Array.from(statusSet).sort();
-  }, [osPendentesTodas]);
+  }, [osPendentesTodas, tiposFilter, contratosFilter, centrosCustoFilter, municipiosFilter, bairrosFilter]);
 
   // Inicializar e atualizar filtros de tipos de serviços com todos os tipos selecionados por padrão
   useEffect(() => {
@@ -3690,7 +3687,7 @@ const Roteirizacao = () => {
                           className="w-full h-9 justify-between text-left font-normal"
                         >
                           {tiposFilter.length === 0 ? (
-                            <span className="text-muted-foreground">Todos os tipos</span>
+                            <span>Todos os tipos</span>
                           ) : tiposFilter.length === 1 ? (
                             <span className="truncate">{obterLabelTipo(tiposFilter[0])}</span>
                           ) : (
@@ -3756,7 +3753,7 @@ const Roteirizacao = () => {
                           className="w-full h-9 justify-between text-left font-normal"
                         >
                           {contratosFilter.length === 0 ? (
-                            <span className="text-muted-foreground">Todos</span>
+                            <span>Todos</span>
                           ) : contratosFilter.length === 1 ? (
                             <span className="truncate">{contratosFilter[0]}</span>
                           ) : (
@@ -3816,7 +3813,7 @@ const Roteirizacao = () => {
                           className="w-full h-9 justify-between text-left font-normal"
                         >
                           {centrosCustoFilter.length === 0 ? (
-                            <span className="text-muted-foreground">Todos</span>
+                            <span>Todos</span>
                           ) : centrosCustoFilter.length === 1 ? (
                             <span className="truncate">{centrosCustoFilter[0]}</span>
                           ) : (
@@ -3876,7 +3873,7 @@ const Roteirizacao = () => {
                           className="w-full h-9 justify-between text-left font-normal"
                         >
                           {municipiosFilter.length === 0 ? (
-                            <span className="text-muted-foreground">Todos</span>
+                            <span>Todos</span>
                           ) : municipiosFilter.length === 1 ? (
                             <span className="truncate">{municipiosFilter[0]}</span>
                           ) : (
@@ -3935,7 +3932,7 @@ const Roteirizacao = () => {
                           className="w-full h-9 justify-between text-left font-normal"
                         >
                           {bairrosFilter.length === 0 ? (
-                            <span className="text-muted-foreground">Todos</span>
+                            <span>Todos</span>
                           ) : bairrosFilter.length === 1 ? (
                             <span className="truncate">{bairrosFilter[0]}</span>
                           ) : (
@@ -3994,7 +3991,7 @@ const Roteirizacao = () => {
                           className="w-full h-9 justify-between text-left font-normal"
                         >
                           {statusFilter.length === 0 ? (
-                            <span className="text-muted-foreground">Todos</span>
+                            <span>Todos</span>
                           ) : statusFilter.length === 1 ? (
                             <span className="truncate">{statusFilter[0]}</span>
                           ) : (
