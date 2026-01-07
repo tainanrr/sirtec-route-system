@@ -543,6 +543,17 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
       .marker-regulada-urgente {
         animation: pulse-red-urgente 1s ease-in-out infinite !important;
       }
+      @keyframes pulse-black-vencida {
+        0%, 100% {
+          box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.9), 0 0 8px 2px rgba(0, 0, 0, 0.6);
+        }
+        50% {
+          box-shadow: 0 0 0 8px rgba(0, 0, 0, 0), 0 0 12px 4px rgba(0, 0, 0, 0.8);
+        }
+      }
+      .marker-vencida {
+        animation: pulse-black-vencida 1s ease-in-out infinite !important;
+      }
       /* Estilos otimizados para tooltips de OSs */
       .os-tooltip {
         background: rgba(0,0,0,0.85);
@@ -1223,9 +1234,10 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
         
         contadorOSsValidas++;
         
-        // Verificar se é regulada urgente
+        // Verificar se é regulada urgente ou vencida
         const classificacaoOS = classificarPrazo(os.prazo);
         const isReguladaUrgente = os.regulada === true && ['hoje', 'passado'].includes(classificacaoOS);
+        const isVencida = !isReguladaUrgente && classificacaoOS === 'passado'; // Vencida mas não regulada
         
         // Obter dados do skill
         const skillData = skillsIcons.get(os.tipo);
@@ -1233,17 +1245,20 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
         const corMarcador = skillData?.cor || '#6b7280';
         const corBorda = obterCorBordaPrioridade(os);
         
+        // Determinar classe de animação
+        const animationClass = isReguladaUrgente ? 'marker-regulada-urgente' : isVencida ? 'marker-vencida' : '';
+        
         // Criar ícone do marcador
         const markerIcon = L.divIcon({
           className: 'custom-marker-pendente-cluster',
           html: `
-            <div class="${isReguladaUrgente ? 'marker-regulada-urgente' : ''}" style="
+            <div class="${animationClass}" style="
               background-color: ${corMarcador};
               width: 28px;
               height: 28px;
               border-radius: 50%;
-              border: ${isReguladaUrgente ? '3px solid #dc2626' : `2px solid ${corBorda}`};
-              box-shadow: ${isReguladaUrgente ? '0 0 8px 2px rgba(220, 38, 38, 0.6)' : '0 2px 6px rgba(0,0,0,0.3)'};
+              border: ${isReguladaUrgente ? '3px solid #dc2626' : isVencida ? '3px solid #000000' : `2px solid ${corBorda}`};
+              box-shadow: ${isReguladaUrgente ? '0 0 8px 2px rgba(220, 38, 38, 0.6)' : isVencida ? '0 0 8px 2px rgba(0, 0, 0, 0.6)' : '0 2px 6px rgba(0,0,0,0.3)'};
               display: flex;
               align-items: center;
               justify-content: center;
@@ -1272,6 +1287,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
             <div style="color: #d1d5db;">${nomeServico}</div>
             ${prazoTooltip ? `<div style="color: #fca5a5; font-size: 11px;">⏰ ${prazoTooltip}</div>` : ''}
             ${isReguladaUrgente ? '<div style="color: #fca5a5; font-weight: bold; font-size: 10px;">⚠️ REGULADA</div>' : ''}
+            ${isVencida ? '<div style="color: #a1a1aa; font-weight: bold; font-size: 10px;">⚠️ VENCIDA</div>' : ''}
           </div>
         `;
         
