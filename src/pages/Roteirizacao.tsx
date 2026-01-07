@@ -3839,8 +3839,7 @@ const Roteirizacao = () => {
             <div className="p-2 max-h-[200px] overflow-y-auto">
               <div className="grid grid-cols-5 gap-1 text-xs">
                 {osSemCoordenadas.slice(0, 50).map((os) => {
-                  const skillData = skillsIcons.get(os.tipo);
-                  const nomeServico = skillData?.nome || obterLabelTipo(os.tipo);
+                  const nomeServico = obterLabelTipo(os.tipo);
                   const prazoInfo = os.prazo ? formatarDataPrazo(new Date(os.prazo)) : null;
                   
                   return (
