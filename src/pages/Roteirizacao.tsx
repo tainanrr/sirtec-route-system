@@ -198,6 +198,13 @@ const Roteirizacao = () => {
   const [detalhesOSOpen, setDetalhesOSOpen] = useState(false);
   const [detalhesOSId, setDetalhesOSId] = useState<string | null>(null);
   
+  // Dialog de edição rápida de coordenadas
+  const [editarCoordsOpen, setEditarCoordsOpen] = useState(false);
+  const [editarCoordsOS, setEditarCoordsOS] = useState<OrdemServico | null>(null);
+  const [editarCoordsLat, setEditarCoordsLat] = useState("");
+  const [editarCoordsLng, setEditarCoordsLng] = useState("");
+  const [salvandoCoords, setSalvandoCoords] = useState(false);
+  
   const [rotas, setRotas] = useState<RotaEquipe[]>([]);
   const [isOtimizando, setIsOtimizando] = useState(false);
   const [equipes, setEquipes] = useState<Equipe[]>([]);
@@ -2169,6 +2176,104 @@ const Roteirizacao = () => {
       .trim();
   };
 
+  // Função para abrir edição de coordenadas
+  const handleAbrirEditarCoords = (os: OrdemServico) => {
+    setEditarCoordsOS(os);
+    setEditarCoordsLat(os.latitude !== null ? String(os.latitude) : "");
+    setEditarCoordsLng(os.longitude !== null ? String(os.longitude) : "");
+    setEditarCoordsOpen(true);
+  };
+
+  // Função para salvar coordenadas editadas
+  const handleSalvarCoords = async () => {
+    if (!editarCoordsOS) return;
+    
+    setSalvandoCoords(true);
+    try {
+      const lat = editarCoordsLat.trim() ? parseFloat(editarCoordsLat.replace(',', '.')) : null;
+      const lng = editarCoordsLng.trim() ? parseFloat(editarCoordsLng.replace(',', '.')) : null;
+      
+      // Validar coordenadas se fornecidas
+      if (lat !== null && (isNaN(lat) || lat < -35 || lat > 5)) {
+        toast.error("Latitude inválida. Deve estar entre -35 e 5.");
+        setSalvandoCoords(false);
+        return;
+      }
+      if (lng !== null && (isNaN(lng) || lng < -75 || lng > -32)) {
+        toast.error("Longitude inválida. Deve estar entre -75 e -32.");
+        setSalvandoCoords(false);
+        return;
+      }
+      
+      const { error } = await supabase
+        .from("ordens_servico")
+        .update({ latitude: lat, longitude: lng })
+        .eq("id", editarCoordsOS.id);
+      
+      if (error) throw error;
+      
+      // Atualizar estado local
+      setOrdensServico(prev => prev.map(os => 
+        os.id === editarCoordsOS.id 
+          ? { ...os, latitude: lat, longitude: lng }
+          : os
+      ));
+      
+      toast.success("Coordenadas atualizadas com sucesso!");
+      setEditarCoordsOpen(false);
+      setEditarCoordsOS(null);
+    } catch (error) {
+      console.error("Erro ao salvar coordenadas:", error);
+      toast.error("Erro ao salvar coordenadas");
+    } finally {
+      setSalvandoCoords(false);
+    }
+  };
+
+  // Função para incluir OS diretamente na rota (chamada do mapa)
+  const handleIncluirOSNaRota = (osId: string) => {
+    if (!equipeEditando) {
+      toast.error("Selecione uma equipe para editar primeiro");
+      return;
+    }
+    
+    const os = osPendentes.find(o => o.id === osId);
+    if (!os) {
+      toast.error("OS não encontrada");
+      return;
+    }
+    
+    const equipe = equipes.find(e => e.id === equipeEditando);
+    if (equipe && !(equipe.skills || equipe.habilidades).includes(os.tipo)) {
+      toast.error(`A equipe ${equipe.codigo} não possui a habilidade necessária para ${obterLabelTipo(os.tipo)}`);
+      return;
+    }
+    
+    const novasRotas = rotas.map(r => {
+      if (r.equipe.id === equipeEditando) {
+        const novoServico: RotaServico = {
+          tipo: "SERVICO",
+          ordemServico: os,
+          ordemNaRota: r.servicos.length + 1,
+          tempoDeslocamento: 0,
+          distancia: 0,
+          tempoTotal: 0,
+          horaInicio: "",
+          horaFim: "",
+          eta: "",
+        };
+        const novosServicos = [...r.servicos, novoServico];
+        const rotaAtualizada = { ...r, servicos: novosServicos };
+        return recalcularRota(rotaAtualizada).rota;
+      }
+      return r;
+    });
+    
+    setRotas(novasRotas);
+    setOsSelecionadaNoMapa(null);
+    toast.success(`OS ${os.numero} adicionada à rota`);
+  };
+
   // Função para calcular e exibir expectativa de equipes
   const handleCalcularExpectativa = () => {
     // Filtrar apenas territórios selecionados se usar territórios
@@ -3195,6 +3300,7 @@ const Roteirizacao = () => {
                 osSelecionada={osSelecionadaNoMapa}
                 osSelecionadaNoEditor={osSelecionadaNoEditor}
                 onOSSelecionada={setOsSelecionadaNoMapa}
+                onIncluirOSNaRota={handleIncluirOSNaRota}
                 osUrgenteDestaque={osUrgenteSelecionadaNoMapa}
                 osUrgentesDestaque={osUrgentesTodasNoMapa}
                 onOsUrgenteDestaqueClear={() => {
@@ -4486,9 +4592,10 @@ const Roteirizacao = () => {
                       size="sm"
                       className="h-7 text-xs gap-1"
                       onClick={() => {
-                        // Copiar todos os dados das OSs filtradas
+                        // Copiar todos os dados das OSs filtradas (com e sem coordenadas)
+                        const todasOSsFiltradas = [...filteredServicos, ...osSemCoordenadas];
                         const header = "Número\tTipo\tStatus\tEndereço\tBairro\tMunicípio\tPrazo\tTempo Exec.\tValor\tRegulada\tLatitude\tLongitude\tContrato\tCentro Custo";
-                        const rows = filteredServicos.map(os => {
+                        const rows = todasOSsFiltradas.map(os => {
                           return [
                             os.numero,
                             obterLabelTipo(os.tipo),
@@ -4500,22 +4607,22 @@ const Roteirizacao = () => {
                             os.tempoExecucao || "",
                             os.valor || "",
                             os.regulada ? "Sim" : "Não",
-                            os.latitude || "",
-                            os.longitude || "",
+                            os.latitude !== null ? os.latitude : "",
+                            os.longitude !== null ? os.longitude : "",
                             os.contrato_codigo || "",
                             os.centro_custo_codigo || ""
                           ].join("\t");
                         });
                         const texto = header + "\n" + rows.join("\n");
                         navigator.clipboard.writeText(texto).then(() => {
-                          toast.success(`${filteredServicos.length} OSs copiadas para a área de transferência!`);
+                          toast.success(`${todasOSsFiltradas.length} OSs copiadas para a área de transferência! (${filteredServicos.length} com coords + ${osSemCoordenadas.length} sem coords)`);
                         }).catch(() => {
                           toast.error("Erro ao copiar");
                         });
                       }}
                     >
                       <Copy className="h-3 w-3" />
-                      Copiar {filteredServicos.length} OSs
+                      Copiar {filteredServicos.length + osSemCoordenadas.length} OSs
                     </Button>
                   </div>
                 </div>
@@ -4554,11 +4661,8 @@ const Roteirizacao = () => {
                               ? "border-red-400/50 bg-red-500/10" 
                               : "border-border bg-card"
                           )}
-                          onDoubleClick={() => {
-                            setDetalhesOSId(os.id);
-                            setDetalhesOSOpen(true);
-                          }}
-                          title="Duplo clique para ver detalhes"
+                          onDoubleClick={() => handleAbrirEditarCoords(os)}
+                          title="Duplo clique para editar coordenadas"
                         >
                           <div className="flex items-center justify-between gap-1 mb-0.5">
                             <span className="font-mono font-semibold truncate text-[10px]">{os.numero}</span>
@@ -4581,6 +4685,11 @@ const Roteirizacao = () => {
                           <div className="text-muted-foreground truncate text-[8px] mt-0.5" title={os.endereco}>
                             📍 {os.endereco.substring(0, 20)}...
                           </div>
+                          {(os.bairro || os.municipio) && (
+                            <div className="text-muted-foreground/70 truncate text-[7px]">
+                              {os.bairro}{os.bairro && os.municipio && ' - '}{os.municipio}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -4640,15 +4749,12 @@ const Roteirizacao = () => {
                     return (
                       <div
                         key={servico.id}
-                        onDoubleClick={() => {
-                          setDetalhesOSId(servico.id);
-                          setDetalhesOSOpen(true);
-                        }}
+                        onDoubleClick={() => handleAbrirEditarCoords(servico)}
                         className={cn(
                           "p-1.5 rounded border cursor-pointer transition-all hover:bg-muted/50 hover:shadow-sm",
                           servico.regulada ? "border-danger/40 bg-danger/5" : "border-border/50 bg-card"
                         )}
-                        title="Duplo clique para ver detalhes"
+                        title="Duplo clique para editar coordenadas"
                       >
                         {/* Linha 1: Número + Indicadores */}
                         <div className="flex items-center gap-0.5 mb-0.5">
@@ -5167,6 +5273,90 @@ const Roteirizacao = () => {
         onOpenChange={setDetalhesOSOpen}
         ordemId={detalhesOSId}
       />
+      
+      {/* Modal de Edição de Coordenadas */}
+      <Dialog open={editarCoordsOpen} onOpenChange={setEditarCoordsOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MapPin className="h-5 w-5" />
+              Editar Coordenadas - {editarCoordsOS?.numero}
+            </DialogTitle>
+          </DialogHeader>
+          
+          {editarCoordsOS && (
+            <div className="space-y-4">
+              {/* Informações da OS */}
+              <div className="p-3 bg-muted/50 rounded-lg space-y-1 text-sm">
+                <div><strong>Tipo:</strong> {obterLabelTipo(editarCoordsOS.tipo)}</div>
+                <div><strong>Endereço:</strong> {editarCoordsOS.endereco}</div>
+                {(editarCoordsOS.bairro || editarCoordsOS.municipio) && (
+                  <div><strong>Local:</strong> {editarCoordsOS.bairro}{editarCoordsOS.bairro && editarCoordsOS.municipio && ' - '}{editarCoordsOS.municipio}</div>
+                )}
+                {editarCoordsOS.regulada && (
+                  <Badge variant="destructive" className="mt-2">REGULADA</Badge>
+                )}
+              </div>
+              
+              {/* Campos de Coordenadas */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Latitude</label>
+                  <Input
+                    type="text"
+                    placeholder="-14.86610"
+                    value={editarCoordsLat}
+                    onChange={(e) => setEditarCoordsLat(e.target.value)}
+                    className="font-mono"
+                  />
+                  <p className="text-xs text-muted-foreground">Entre -35 e 5</p>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Longitude</label>
+                  <Input
+                    type="text"
+                    placeholder="-40.83940"
+                    value={editarCoordsLng}
+                    onChange={(e) => setEditarCoordsLng(e.target.value)}
+                    className="font-mono"
+                  />
+                  <p className="text-xs text-muted-foreground">Entre -75 e -32</p>
+                </div>
+              </div>
+              
+              {/* Coordenadas atuais */}
+              <div className="text-xs text-muted-foreground">
+                <strong>Coordenadas atuais:</strong>{' '}
+                {editarCoordsOS.latitude !== null && editarCoordsOS.longitude !== null
+                  ? `${editarCoordsOS.latitude}, ${editarCoordsOS.longitude}`
+                  : 'Sem coordenadas'}
+              </div>
+              
+              {/* Botões */}
+              <div className="flex gap-2 justify-end">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setEditarCoordsOpen(false);
+                    // Abrir detalhes completos
+                    setDetalhesOSId(editarCoordsOS.id);
+                    setDetalhesOSOpen(true);
+                  }}
+                >
+                  <Eye className="h-4 w-4 mr-2" />
+                  Ver Detalhes
+                </Button>
+                <Button
+                  onClick={handleSalvarCoords}
+                  disabled={salvandoCoords}
+                >
+                  {salvandoCoords ? "Salvando..." : "Salvar Coordenadas"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </MainLayout>
   );
 };

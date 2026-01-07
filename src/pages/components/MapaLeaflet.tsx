@@ -70,6 +70,7 @@ interface MapaLeafletProps {
   osSelecionada?: string | null; // ID da OS selecionada no mapa
   osSelecionadaNoEditor?: string | null; // ID da OS selecionada no editor de rotas
   onOSSelecionada?: (osId: string | null) => void; // Callback quando OS é selecionada no mapa
+  onIncluirOSNaRota?: (osId: string) => void; // Callback para incluir OS diretamente na rota
   territorios?: Territorio[]; // Territórios para mostrar no mapa
   onTerritorioEditado?: (territorioId: string, novoPoligono: { lat: number; lng: number }[]) => void; // Callback para salvar território editado
   osUrgenteDestaque?: OrdemServico | null; // V19.6: OS urgente fora do território para destacar (única)
@@ -112,7 +113,7 @@ function getLucideIconSVG(iconName: string | undefined, color: string, size: num
   `;
 }
 
-export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, onOSSelecionada, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear }: MapaLeafletProps) {
+export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear }: MapaLeafletProps) {
   
   const mapRef = useRef<HTMLDivElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -1133,6 +1134,9 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
         const duracaoPrevista = skillData?.tempoExecucao || os.tempoExecucao;
         const duracaoFormatada = duracaoPrevista ? `${duracaoPrevista} min` : "-";
         
+        // Montar localização: Bairro - Município
+        const localizacao = [os.bairro, os.municipio].filter(Boolean).join(' - ') || '-';
+        
         return `
           <div style="min-width: 260px; font-family: system-ui, -apple-system, sans-serif;">
             <div style="margin-bottom: 8px;">
@@ -1146,6 +1150,10 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
             <div style="margin-bottom: 8px;">
               <strong style="font-size: 14px; color: #1f2937;">Endereço:</strong>
               <span style="margin-left: 8px; color: #4b5563; font-size: 13px;">${os.endereco || '-'}</span>
+            </div>
+            <div style="margin-bottom: 8px;">
+              <strong style="font-size: 14px; color: #1f2937;">Bairro/Município:</strong>
+              <span style="margin-left: 8px; color: #4b5563; font-size: 13px;">${localizacao}</span>
             </div>
             <div style="margin-bottom: 8px;">
               <strong style="font-size: 14px; color: #1f2937;">Prazo:</strong>
@@ -1216,7 +1224,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
               </button>
             </div>
             
-            ${equipeEditando ? `<div style="margin-top: 10px; text-align: center;"><button onclick="window.selecionarOSParaIncluir('${os.id}')" style="padding: 8px 16px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; width: 100%;">+ Incluir na Rota</button></div>` : ''}
+            ${equipeEditando ? `<div style="margin-top: 10px; text-align: center;"><button onclick="window.incluirOSNaRota('${os.id}')" style="padding: 8px 16px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; width: 100%;">+ Incluir na Rota</button></div>` : ''}
           </div>
         `;
       };
@@ -1348,6 +1356,14 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
       // Configurar função global para seleção
       (window as any).selecionarOSParaIncluir = (osId: string) => {
         if (onOSSelecionada) onOSSelecionada(osId);
+      };
+      
+      // Configurar função global para inclusão direta na rota
+      (window as any).incluirOSNaRota = (osId: string) => {
+        if (onIncluirOSNaRota) {
+          onIncluirOSNaRota(osId);
+          map.closePopup(); // Fechar o popup após incluir
+        }
       };
 
       // Adicionar marcadores e rotas das OS alocadas (filtradas)
