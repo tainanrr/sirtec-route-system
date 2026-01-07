@@ -709,8 +709,10 @@ export default function AppOrdemDetalhe() {
                     setSkillId(foundSkillId);
                     setRetornoCampoOpen(true);
                   } else {
-                    toast.error("Nenhum retorno configurado");
+                    toast.error(`Tipo de serviço "${ordem.tipo}" não possui retornos configurados. Configure em Administração > Cadastros Base > Tipos de Serviços.`);
                   }
+                } else {
+                  toast.error("OS sem tipo de serviço definido");
                 }
               }}
               className="flex-1 flex flex-col items-center justify-center py-3 bg-white rounded-xl border shadow-sm"

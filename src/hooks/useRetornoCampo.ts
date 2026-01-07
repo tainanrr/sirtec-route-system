@@ -37,6 +37,7 @@ export function useRetornoCampo() {
 
   /**
    * Busca o skill_id baseado no código do tipo de serviço
+   * Verifica também se há retornos de campo configurados
    */
   const buscarSkillId = useCallback(async (tipoServico: string): Promise<string | null> => {
     try {
@@ -48,16 +49,35 @@ export function useRetornoCampo() {
         .replace(/\s+/g, "_")
         .trim();
 
-      // Tentar buscar pelo código exato primeiro
-      let { data, error } = await supabase
-        .from("skills")
-        .select("id")
-        .eq("codigo", tipoNormalizado)
-        .eq("ativo", true)
-        .maybeSingle();
+      // Variações do código para busca
+      const variacoes = [
+        tipoNormalizado,
+        tipoServico.toUpperCase().trim(),
+        tipoServico.trim(),
+        tipoNormalizado.replace(/_/g, " "),
+        tipoNormalizado.replace(/_/g, ""),
+      ];
 
-      if (!data) {
-        // Tentar buscar pelo nome
+      let skillId: string | null = null;
+
+      // Tentar buscar pelo código com diferentes variações
+      for (const variacao of variacoes) {
+        if (skillId) break;
+        
+        const { data } = await supabase
+          .from("skills")
+          .select("id")
+          .eq("codigo", variacao)
+          .eq("ativo", true)
+          .maybeSingle();
+        
+        if (data?.id) {
+          skillId = data.id;
+        }
+      }
+
+      // Se não encontrou pelo código, tentar pelo nome
+      if (!skillId) {
         const { data: dataByNome } = await supabase
           .from("skills")
           .select("id")
@@ -65,10 +85,48 @@ export function useRetornoCampo() {
           .eq("ativo", true)
           .maybeSingle();
 
-        data = dataByNome;
+        skillId = dataByNome?.id || null;
       }
 
-      return data?.id || null;
+      // Se não encontrou por nome exato, tentar busca parcial
+      if (!skillId) {
+        const palavras = tipoServico.split(/\s+/);
+        for (const palavra of palavras) {
+          if (skillId || palavra.length < 3) continue;
+          
+          const { data: dataByPalavra } = await supabase
+            .from("skills")
+            .select("id")
+            .ilike("nome", `%${palavra}%`)
+            .eq("ativo", true)
+            .limit(1)
+            .maybeSingle();
+
+          skillId = dataByPalavra?.id || null;
+        }
+      }
+
+      // Se encontrou a skill, verificar se tem retornos de campo configurados
+      if (skillId) {
+        const { data: retornos, error: retornosError } = await supabase
+          .from("tipo_servico_retornos")
+          .select("id")
+          .eq("skill_id", skillId)
+          .eq("ativo", true)
+          .limit(1);
+
+        if (retornosError || !retornos || retornos.length === 0) {
+          console.warn(`[useRetornoCampo] Skill ${skillId} encontrada mas sem retornos configurados para tipo: ${tipoServico}`);
+          // Ainda retorna o skillId para permitir configuração futura
+          // mas o componente mostrará "Nenhum retorno configurado"
+        }
+      }
+
+      if (!skillId) {
+        console.warn(`[useRetornoCampo] Nenhuma skill encontrada para tipo: ${tipoServico} (normalizado: ${tipoNormalizado})`);
+      }
+
+      return skillId;
     } catch (error) {
       console.error("Erro ao buscar skill:", error);
       return null;
