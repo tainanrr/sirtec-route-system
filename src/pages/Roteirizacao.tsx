@@ -102,6 +102,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import ExpectativaEquipesDialog from "./components/ExpectativaEquipesDialog";
 import SelecaoTerritoriosDialog from "./components/SelecaoTerritoriosDialog";
 import SelecaoOpcoesRoteiroDialog from "./components/SelecaoOpcoesRoteiroDialog";
+import { OrdemServicoDetalhesDialog } from "@/components/ordens/OrdemServicoDetalhesDialog";
 
 // Mapa dinâmico de tipo -> nome (preenchido com dados do banco)
 let skillsNomesMap: Map<string, string> = new Map();
@@ -164,6 +165,10 @@ const Roteirizacao = () => {
   const [coordenadasFilter, setCoordenadasFilter] = useState<string>("all");
   const [reguladaFilter, setReguladaFilter] = useState<string>("all");
   const [backlogLimit, setBacklogLimit] = useState(50); // Limite de itens exibidos no backlog
+  
+  // Dialog de detalhes da OS
+  const [detalhesOSOpen, setDetalhesOSOpen] = useState(false);
+  const [detalhesOSId, setDetalhesOSId] = useState<string | null>(null);
   
   const [rotas, setRotas] = useState<RotaEquipe[]>([]);
   const [isOtimizando, setIsOtimizando] = useState(false);
@@ -4192,6 +4197,15 @@ const Roteirizacao = () => {
                 </div>
               ) : (
                 <>
+                {/* Tabela compacta do Backlog */}
+                <div className="grid grid-cols-[auto_1fr_120px_80px_60px_60px] gap-x-2 gap-y-0.5 text-[10px] font-medium text-muted-foreground mb-1 px-1 border-b pb-1">
+                  <div></div>
+                  <div>OS / Endereço</div>
+                  <div>Tipo</div>
+                  <div>Prazo</div>
+                  <div className="text-right">Tempo</div>
+                  <div className="text-right">Valor</div>
+                </div>
                 {filteredServicos.slice(0, backlogLimit).map((servico, index) => {
                   const motivoNaoAlocada = naoAlocadas[servico.id];
                   return (
@@ -4200,54 +4214,74 @@ const Roteirizacao = () => {
                         <div
                           ref={provided.innerRef}
                           {...provided.draggableProps}
+                          onDoubleClick={() => {
+                            setDetalhesOSId(servico.id);
+                            setDetalhesOSOpen(true);
+                          }}
                           className={cn(
-                            "rounded-lg border p-3 cursor-pointer transition-all hover:shadow-md",
-                            servico.regulada
-                              ? "border-danger/30 bg-danger/5"
-                              : "border-border bg-card",
-                            snapshot.isDragging && "shadow-lg ring-2 ring-primary"
+                            "grid grid-cols-[auto_1fr_120px_80px_60px_60px] gap-x-2 items-center py-1 px-1 rounded cursor-pointer transition-all hover:bg-muted/50 border-b border-border/30",
+                            servico.regulada && "bg-danger/5",
+                            snapshot.isDragging && "shadow-lg ring-2 ring-primary bg-card"
                           )}
+                          title="Duplo clique para ver detalhes"
                         >
-                          <div className="flex items-start justify-between mb-2">
-                            <div className="flex items-center gap-2 flex-1">
-                              <div {...provided.dragHandleProps} className="cursor-grab active:cursor-grabbing">
-                                <GripVertical className="h-4 w-4 text-muted-foreground" />
-                              </div>
-                              {servico.regulada && <Zap className="h-4 w-4 text-danger" />}
-                              <span className="font-medium text-foreground">{servico.numero}</span>
-                              <Badge
-                                variant={servico.regulada ? "regulada" : "secondary"}
-                                className="text-[10px]"
-                              >
-                                {obterLabelTipo(servico.tipo)}
-                              </Badge>
-                            </div>
-                            {servico.regulada && (
-                              <Badge variant="regulada" className="text-[10px]">
-                                REGULADA
-                              </Badge>
-                            )}
-                            {motivoNaoAlocada && (
-                              <Badge variant="outline" className="text-[10px] border-orange-500 text-orange-500">
-                                {motivoNaoAlocada}
-                              </Badge>
-                            )}
+                          {/* Drag Handle */}
+                          <div {...provided.dragHandleProps} className="cursor-grab active:cursor-grabbing flex items-center">
+                            <GripVertical className="h-3 w-3 text-muted-foreground" />
                           </div>
-                          <div className="flex items-center gap-1 text-sm text-muted-foreground mb-2">
-                            <MapPin className="h-3 w-3 flex-shrink-0" />
-                            <span className="truncate">{servico.endereco}</span>
-                          </div>
-                          <div className="flex items-center justify-between text-xs">
-                            <div className="flex items-center gap-3 text-muted-foreground">
-                              {servico.prazo && (
-                                <span className="flex items-center gap-1">
-                                  <Clock className="h-3 w-3" />
-                                  {new Date(servico.prazo).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-                                </span>
+                          
+                          {/* OS Número + Endereço */}
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1">
+                              {servico.regulada && <Zap className="h-3 w-3 text-danger flex-shrink-0" />}
+                              <span className="font-semibold text-[11px] text-foreground select-all">{servico.numero}</span>
+                              {motivoNaoAlocada && (
+                                <Badge variant="outline" className="text-[8px] px-1 py-0 border-orange-500 text-orange-500 h-4">
+                                  {motivoNaoAlocada}
+                                </Badge>
                               )}
-                              <span>{servico.tempoExecucao} min</span>
                             </div>
-                            <span className="text-success font-medium">R$ {servico.valor}</span>
+                            <div className="flex items-center gap-1 text-[9px] text-muted-foreground">
+                              <MapPin className="h-2.5 w-2.5 flex-shrink-0" />
+                              <span className="truncate select-all" title={servico.endereco}>{servico.endereco}</span>
+                            </div>
+                            {(servico.bairro || servico.municipio) && (
+                              <div className="text-[8px] text-muted-foreground/70 truncate select-all">
+                                {servico.bairro}{servico.bairro && servico.municipio && " - "}{servico.municipio}
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* Tipo */}
+                          <div className="min-w-0">
+                            <Badge
+                              variant={servico.regulada ? "regulada" : "secondary"}
+                              className="text-[9px] px-1.5 py-0 h-4 truncate max-w-full"
+                            >
+                              {obterLabelTipo(servico.tipo)}
+                            </Badge>
+                          </div>
+                          
+                          {/* Prazo */}
+                          <div className="text-[10px] text-muted-foreground select-all">
+                            {servico.prazo ? (
+                              <div>
+                                <div>{new Date(servico.prazo).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}</div>
+                                <div className="text-[9px]">{new Date(servico.prazo).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</div>
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground/50">-</span>
+                            )}
+                          </div>
+                          
+                          {/* Tempo */}
+                          <div className="text-[10px] text-muted-foreground text-right">
+                            {servico.tempoExecucao}min
+                          </div>
+                          
+                          {/* Valor */}
+                          <div className="text-[10px] text-success font-medium text-right select-all">
+                            R$ {servico.valor}
                           </div>
                         </div>
                       )}
@@ -4718,6 +4752,13 @@ const Roteirizacao = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Dialog de Detalhes da OS */}
+      <OrdemServicoDetalhesDialog
+        open={detalhesOSOpen}
+        onOpenChange={setDetalhesOSOpen}
+        ordemId={detalhesOSId}
+      />
     </MainLayout>
   );
 };
