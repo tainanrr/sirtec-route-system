@@ -536,9 +536,13 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
     const map = mapInstanceRef.current;
     if (!map) return;
 
-    // Remover draw control se existir
+    // Desabilitar o handler de desenho se existir
     if (drawControlRef.current) {
-      map.removeControl(drawControlRef.current);
+      try {
+        drawControlRef.current.disable();
+      } catch (e) {
+        // Ignorar erro se já estiver desabilitado
+      }
       drawControlRef.current = null;
     }
 
@@ -556,48 +560,17 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
     if (!map || !mapaInicializado) return;
 
     if (criandoPoligono) {
+      console.log('[MapaLeaflet] Iniciando modo de criação de polígono');
+      
       // Inicializar drawn items se não existir
       if (!drawnItemsRef.current) {
         drawnItemsRef.current = new L.FeatureGroup();
         map.addLayer(drawnItemsRef.current);
       }
 
-      // Criar draw control para polígonos
-      // @ts-ignore
-      const drawControl = new L.Control.Draw({
-        position: 'topright',
-        draw: {
-          polygon: {
-            allowIntersection: false,
-            drawError: {
-              color: '#e1e1e1',
-              message: '<strong>Erro:</strong> polígono inválido!'
-            },
-            shapeOptions: {
-              color: '#3b82f6',
-              fillColor: '#3b82f6',
-              fillOpacity: 0.3,
-              weight: 2
-            }
-          },
-          polyline: false,
-          circle: false,
-          rectangle: false,
-          marker: false,
-          circlemarker: false
-        },
-        edit: {
-          featureGroup: drawnItemsRef.current,
-          remove: false,
-          edit: false
-        }
-      });
-
-      map.addControl(drawControl);
-      drawControlRef.current = drawControl;
-
       // Event listener para quando o polígono for criado
       const handleCreated = (e: any) => {
+        console.log('[MapaLeaflet] Polígono criado!', e);
         const layer = e.layer as L.Polygon;
         drawnItemsRef.current?.addLayer(layer);
         novoPoligonoRef.current = layer;
@@ -608,6 +581,8 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
           lat: ll.lat,
           lng: ll.lng
         }));
+
+        console.log('[MapaLeaflet] Coordenadas do polígono:', poligono);
 
         if (onPoligonoCriado) {
           onPoligonoCriado(poligono);
@@ -620,7 +595,31 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
       // @ts-ignore
       map.on(L.Draw.Event.CREATED, handleCreated);
 
+      // Criar o handler de desenho de polígono e iniciar automaticamente
+      // @ts-ignore
+      const polygonDrawer = new L.Draw.Polygon(map, {
+        allowIntersection: false,
+        showArea: true,
+        drawError: {
+          color: '#e1e1e1',
+          message: '<strong>Erro:</strong> polígono inválido!'
+        },
+        shapeOptions: {
+          color: '#3b82f6',
+          fillColor: '#3b82f6',
+          fillOpacity: 0.3,
+          weight: 3
+        }
+      });
+
+      // Habilitar o desenho automaticamente
+      polygonDrawer.enable();
+      drawControlRef.current = polygonDrawer;
+      
+      console.log('[MapaLeaflet] Drawer de polígono habilitado');
+
       return () => {
+        console.log('[MapaLeaflet] Limpando modo de criação');
         // @ts-ignore
         map.off(L.Draw.Event.CREATED, handleCreated);
         limparCriacao();
