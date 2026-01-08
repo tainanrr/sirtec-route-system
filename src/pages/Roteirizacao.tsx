@@ -79,7 +79,7 @@ import { tecnicosParaEquipes } from "@/lib/equipeUtils";
 import { mapSupabaseOrdensServicoToOrdemServico } from "@/lib/ordemServicoUtils";
 import type { Tables } from "@/integrations/supabase/types";
 import MapaLeaflet from "./components/MapaLeaflet";
-import { notificarAlteracaoRota, detectarAlteracoesRota } from "@/lib/chatNotificacaoUtils";
+import { notificarMultiplasEquipes, detectarAlteracoesRota } from "@/lib/chatNotificacaoUtils";
 import { carregarTerritorios, salvarTerritorios, salvarTerritorio, Territorio, pontoNoPoligono, atualizarTerritoriosOSs, CORES_TERRITORIOS } from "@/types/territorios";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -223,6 +223,7 @@ const Roteirizacao = () => {
   const [salvandoTerritorio, setSalvandoTerritorio] = useState(false);
   
   const [rotas, setRotas] = useState<RotaEquipe[]>([]);
+  const [rotasOriginais, setRotasOriginais] = useState<Map<string, { numero: string; tipo: string }[]>>(new Map());
   const [isOtimizando, setIsOtimizando] = useState(false);
   
   // Estado para parâmetros de roteirização
@@ -1779,6 +1780,51 @@ const Roteirizacao = () => {
       const dataExibicao = new Date(dataPlanejamentoFormatada + 'T12:00:00');
       toast.success(`Planejamento salvo com sucesso! ${totalOrdens} OSs planejadas para ${dataExibicao.toLocaleDateString('pt-BR')}`);
       
+      // V21: Enviar notificação consolidada para equipes com turno em andamento
+      // Só notifica se a data do planejamento for HOJE
+      const hoje = new Date().toISOString().split('T')[0];
+      if (dataPlanejamentoFormatada === hoje) {
+        console.log("[PLANEJAMENTO] Data é hoje, verificando alterações para notificação...");
+        
+        // Comparar rotas originais com rotas finais para detectar alterações
+        const alteracoesPorEquipe = new Map<string, { codigo: string; alteracoes: { osIncluidas: { numero: string; tipo: string }[]; osRemovidas: { numero: string; tipo: string }[] } }>();
+        
+        for (const rota of rotas) {
+          const rotaOriginal = rotasOriginais.get(rota.equipe.id) || [];
+          const rotaAtual = rota.servicos
+            .filter(s => s.tipo === 'SERVICO' && s.ordemServico)
+            .map(s => ({
+              numero: s.ordemServico!.numero,
+              tipo: s.ordemServico!.tipo
+            }));
+          
+          // Detectar alterações
+          const alteracoes = detectarAlteracoesRota(rotaOriginal, rotaAtual);
+          
+          // Se houver alterações, adicionar à lista
+          if (alteracoes.osIncluidas.length > 0 || alteracoes.osRemovidas.length > 0) {
+            alteracoesPorEquipe.set(rota.equipe.id, {
+              codigo: rota.equipe.codigo,
+              alteracoes
+            });
+          }
+        }
+        
+        // Enviar notificações consolidadas para todas as equipes afetadas
+        if (alteracoesPorEquipe.size > 0) {
+          console.log(`[PLANEJAMENTO] Notificando ${alteracoesPorEquipe.size} equipe(s) sobre alterações nas rotas`);
+          const resultado = await notificarMultiplasEquipes(alteracoesPorEquipe);
+          console.log(`[PLANEJAMENTO] Notificações enviadas: ${resultado.sucesso} sucesso, ${resultado.falhas} falhas`);
+        } else {
+          console.log("[PLANEJAMENTO] Nenhuma alteração detectada para notificar");
+        }
+      } else {
+        console.log("[PLANEJAMENTO] Data não é hoje, notificação não enviada");
+      }
+      
+      // Limpar snapshot das rotas originais
+      setRotasOriginais(new Map());
+      
       // Fechar dialog e limpar
       setConfirmarPlanejamentoDialogOpen(false);
       setDataPlanejamento("");
@@ -2676,24 +2722,14 @@ const Roteirizacao = () => {
     setRotas(novasRotas);
     setOsSelecionadaNoMapa(null);
     toast.success(`OS ${os.numero} adicionada à rota`);
-    
-    // Notificar equipe via chat se tiver turno em andamento
-    if (equipe) {
-      notificarAlteracaoRota(equipe.id, equipe.codigo, {
-        osIncluidas: [{ numero: os.numero, tipo: os.tipo }],
-        osRemovidas: []
-      });
-    }
   };
 
-  // Função para remover OS da rota com notificação
-  const handleRemoverOSDaRota = async (
+  // Função para remover OS da rota
+  const handleRemoverOSDaRota = (
     equipeId: string,
-    equipeCodigo: string,
     servicos: RotaServico[],
     indiceRemover: number,
-    osNumero: string,
-    osTipo: string
+    osNumero: string
   ) => {
     const novosServicos = servicos.filter((_, i) => i !== indiceRemover);
     
@@ -2707,12 +2743,6 @@ const Roteirizacao = () => {
     
     setRotas(novasRotas);
     toast.success(`OS ${osNumero} removida`);
-    
-    // Notificar equipe via chat se tiver turno em andamento
-    notificarAlteracaoRota(equipeId, equipeCodigo, {
-      osIncluidas: [],
-      osRemovidas: [{ numero: osNumero, tipo: osTipo }]
-    });
   };
 
   // Função para calcular e exibir expectativa de equipes
@@ -4400,11 +4430,9 @@ const Roteirizacao = () => {
                                             onClick={() => {
                                               handleRemoverOSDaRota(
                                                 rotaEditando.equipe.id,
-                                                rotaEditando.equipe.codigo,
                                                 rotaEditando.servicos,
                                                 index,
-                                                os.numero,
-                                                os.tipo
+                                                os.numero
                                               );
                                             }}
                                           >
@@ -4482,6 +4510,20 @@ const Roteirizacao = () => {
                 // Definir data padrão como hoje
                 const hoje = new Date().toISOString().split('T')[0];
                 setDataPlanejamento(hoje);
+                
+                // Guardar snapshot das rotas atuais para comparação posterior
+                const snapshotRotas = new Map<string, { numero: string; tipo: string }[]>();
+                rotas.forEach(rota => {
+                  const ossDaRota = rota.servicos
+                    .filter(s => s.tipo === 'SERVICO' && s.ordemServico)
+                    .map(s => ({
+                      numero: s.ordemServico!.numero,
+                      tipo: s.ordemServico!.tipo
+                    }));
+                  snapshotRotas.set(rota.equipe.id, ossDaRota);
+                });
+                setRotasOriginais(snapshotRotas);
+                
                 setConfirmarPlanejamentoDialogOpen(true);
               }}
               title={!podeEditar ? "Você não tem permissão para confirmar rotas" : undefined}
