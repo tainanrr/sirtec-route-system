@@ -108,43 +108,146 @@ interface ZonaTerritorial {
 }
 
 // ============================================================================
-// CONSTANTES
+// PARÂMETROS DE ROTEIRIZAÇÃO (CONFIGURÁVEIS)
 // ============================================================================
-const VELOCIDADE_MEDIA_KMH = 30;
+
+export interface ParametrosRoteirizacao {
+  // Velocidade e tempo
+  velocidadeMediaKmh: number;
+  tempoMedioDeslocamentoMin: number;
+  
+  // Distâncias máximas (km)
+  distanciaMaximaEmergenciaKm: number;
+  distanciaMaximaZonaKm: number;
+  distanciaMaximaNormalKm: number;
+  distanciaMaximaBalanceamentoKm: number;
+  distanciaMaximaSaturacaoKm: number;
+  distanciaConsolidacaoKm: number;
+  distanciaMaximaReguladaUrgenteKm: number;
+  distanciaMaximaReguladaGlobalKm: number;
+  distanciaMaximaTerritorioKm: number;
+  
+  // Raios rurais (km)
+  raioRuralKm: number;
+  raioRuralReguladaKm: number;
+  
+  // Limiares
+  thresholdSaturacao: number;
+  atrasoMaximoReguladaHojeMin: number;
+  
+  // Otimização genética
+  populacaoGenetica: number;
+  geracoesGenetica: number;
+  taxaMutacao: number;
+  
+  // Limites de iteração
+  maxIteracoes2opt: number;
+  maxIteracoes3opt: number;
+  maxIteracoesLK: number;
+  maxTentativasRemocao: number;
+}
+
+// Valores padrão (referência)
+export const PARAMETROS_PADRAO: ParametrosRoteirizacao = {
+  // Velocidade e tempo
+  velocidadeMediaKmh: 30,
+  tempoMedioDeslocamentoMin: 10,
+  
+  // Distâncias máximas (km)
+  distanciaMaximaEmergenciaKm: 25,
+  distanciaMaximaZonaKm: 12,
+  distanciaMaximaNormalKm: 8,
+  distanciaMaximaBalanceamentoKm: 6,
+  distanciaMaximaSaturacaoKm: 15,
+  distanciaConsolidacaoKm: 0.5,
+  distanciaMaximaReguladaUrgenteKm: 35,
+  distanciaMaximaReguladaGlobalKm: 20,
+  distanciaMaximaTerritorioKm: 20,
+  
+  // Raios rurais (km)
+  raioRuralKm: 20,
+  raioRuralReguladaKm: 35,
+  
+  // Limiares
+  thresholdSaturacao: 85,
+  atrasoMaximoReguladaHojeMin: 120,
+  
+  // Otimização genética
+  populacaoGenetica: 20,
+  geracoesGenetica: 30,
+  taxaMutacao: 0.3,
+  
+  // Limites de iteração
+  maxIteracoes2opt: 15,
+  maxIteracoes3opt: 5,
+  maxIteracoesLK: 15,
+  maxTentativasRemocao: 5,
+};
+
+// Descrições dos parâmetros para a UI
+export const PARAMETROS_DESCRICOES: Record<keyof ParametrosRoteirizacao, { nome: string; descricao: string; unidade: string }> = {
+  velocidadeMediaKmh: { nome: "Velocidade Média", descricao: "Velocidade média de deslocamento entre OSs", unidade: "km/h" },
+  tempoMedioDeslocamentoMin: { nome: "Tempo Médio Deslocamento", descricao: "Tempo médio estimado entre OSs para cálculo de sugestão", unidade: "min" },
+  distanciaMaximaEmergenciaKm: { nome: "Dist. Máx. Emergência", descricao: "Distância máxima para alocar uma emergência (RELIGA)", unidade: "km" },
+  distanciaMaximaZonaKm: { nome: "Dist. Máx. Zona", descricao: "Distância máxima para OSs na mesma zona geográfica", unidade: "km" },
+  distanciaMaximaNormalKm: { nome: "Dist. Máx. Normal", descricao: "Distância máxima para OSs normais", unidade: "km" },
+  distanciaMaximaBalanceamentoKm: { nome: "Dist. Máx. Balanceamento", descricao: "Distância máxima na fase de balanceamento", unidade: "km" },
+  distanciaMaximaSaturacaoKm: { nome: "Dist. Máx. Saturação", descricao: "Distância máxima na fase de saturação", unidade: "km" },
+  distanciaConsolidacaoKm: { nome: "Dist. Consolidação", descricao: "Raio para consolidar OSs vizinhas", unidade: "km" },
+  distanciaMaximaReguladaUrgenteKm: { nome: "Dist. Máx. Regulada Urgente", descricao: "Distância máxima para reguladas urgentes (vencendo hoje)", unidade: "km" },
+  distanciaMaximaReguladaGlobalKm: { nome: "Dist. Máx. Regulada Global", descricao: "Distância máxima global para reguladas", unidade: "km" },
+  distanciaMaximaTerritorioKm: { nome: "Dist. Máx. Território", descricao: "Distância máxima dentro do território", unidade: "km" },
+  raioRuralKm: { nome: "Raio Rural", descricao: "Raio para considerar OS como rural", unidade: "km" },
+  raioRuralReguladaKm: { nome: "Raio Rural Regulada", descricao: "Raio rural ampliado para reguladas", unidade: "km" },
+  thresholdSaturacao: { nome: "Threshold Saturação", descricao: "% mínimo de progresso para iniciar saturação", unidade: "%" },
+  atrasoMaximoReguladaHojeMin: { nome: "Atraso Máx. Regulada Hoje", descricao: "Atraso máximo permitido para reguladas do dia", unidade: "min" },
+  populacaoGenetica: { nome: "População Genética", descricao: "Tamanho da população no algoritmo genético", unidade: "indivíduos" },
+  geracoesGenetica: { nome: "Gerações Genética", descricao: "Número de gerações no algoritmo genético", unidade: "gerações" },
+  taxaMutacao: { nome: "Taxa de Mutação", descricao: "Taxa de mutação no algoritmo genético (0 a 1)", unidade: "" },
+  maxIteracoes2opt: { nome: "Max Iterações 2-opt", descricao: "Máximo de iterações na otimização 2-opt", unidade: "iterações" },
+  maxIteracoes3opt: { nome: "Max Iterações 3-opt", descricao: "Máximo de iterações na otimização 3-opt", unidade: "iterações" },
+  maxIteracoesLK: { nome: "Max Iterações LK", descricao: "Máximo de iterações no algoritmo Lin-Kernighan", unidade: "iterações" },
+  maxTentativasRemocao: { nome: "Max Tentativas Remoção", descricao: "Máximo de tentativas de remoção para encaixar emergências", unidade: "tentativas" },
+};
+
+// ============================================================================
+// CONSTANTES INTERNAS (não configuráveis)
+// ============================================================================
 const RAIO_TERRA_KM = 6371;
 
 // V10: TIPOS SEPARADOS
 const TIPOS_EMERGENCIA: string[] = ['RELIGA'];
 const TIPOS_REGULADOS: string[] = ['RELIGA', 'LIGAÇÃO', 'LIGACAO'];
 
-// V13: LIMITES DE DISTÂNCIA
-const DISTANCIA_MAXIMA_EMERGENCIA_KM = 25;
-const DISTANCIA_MAXIMA_ZONA_KM = 12;
-const DISTANCIA_MAXIMA_NORMAL_KM = 8;
-const DISTANCIA_MAXIMA_BALANCEAMENTO_KM = 6;
-const DISTANCIA_MAXIMA_SATURACAO_KM = 15;
-const DISTANCIA_CONSOLIDACAO_KM = 0.5;
-const DISTANCIA_MAXIMA_REGULADA_URGENTE_KM = 35;
-const DISTANCIA_MAXIMA_REGULADA_GLOBAL_KM = 20;
-
-// V16: Limite de distância dentro do território
-const DISTANCIA_MAXIMA_TERRITORIO_KM = 20;
-
 // Centro de Vitória da Conquista
 const CENTRO_VDC = { lat: -14.8661, lng: -40.8394 };
 
-// V13: Raio rural
-const RAIO_RURAL_KM = 20;
-const RAIO_RURAL_REGULADA_KM = 35;
+// Variáveis de parâmetros ativos (serão substituídas durante a execução)
+let PARAMS: ParametrosRoteirizacao = { ...PARAMETROS_PADRAO };
 
-// V11: Threshold de progresso para saturação
-const THRESHOLD_SATURACAO = 85;
-
-// V13: Atraso máximo permitido para reguladas HOJE
-const ATRASO_MAXIMO_REGULADA_HOJE_MIN = 120;
-
-// V17: Tempo médio de deslocamento entre OSs (para cálculo de sugestão)
-const TEMPO_MEDIO_DESLOCAMENTO_MIN = 10;
+// Funções de acesso aos parâmetros
+const getVelocidadeMedia = () => PARAMS.velocidadeMediaKmh;
+const getTempoMedioDeslocamento = () => PARAMS.tempoMedioDeslocamentoMin;
+const getDistanciaMaximaEmergencia = () => PARAMS.distanciaMaximaEmergenciaKm;
+const getDistanciaMaximaZona = () => PARAMS.distanciaMaximaZonaKm;
+const getDistanciaMaximaNormal = () => PARAMS.distanciaMaximaNormalKm;
+const getDistanciaMaximaBalanceamento = () => PARAMS.distanciaMaximaBalanceamentoKm;
+const getDistanciaMaximaSaturacao = () => PARAMS.distanciaMaximaSaturacaoKm;
+const getDistanciaConsolidacao = () => PARAMS.distanciaConsolidacaoKm;
+const getDistanciaMaximaReguladaUrgente = () => PARAMS.distanciaMaximaReguladaUrgenteKm;
+const getDistanciaMaximaReguladaGlobal = () => PARAMS.distanciaMaximaReguladaGlobalKm;
+const getDistanciaMaximaTerritorio = () => PARAMS.distanciaMaximaTerritorioKm;
+const getRaioRural = () => PARAMS.raioRuralKm;
+const getRaioRuralRegulada = () => PARAMS.raioRuralReguladaKm;
+const getThresholdSaturacao = () => PARAMS.thresholdSaturacao;
+const getAtrasoMaximoReguladaHoje = () => PARAMS.atrasoMaximoReguladaHojeMin;
+const getPopulacaoGenetica = () => PARAMS.populacaoGenetica;
+const getGeracoesGenetica = () => PARAMS.geracoesGenetica;
+const getTaxaMutacao = () => PARAMS.taxaMutacao;
+const getMaxIteracoes2opt = () => PARAMS.maxIteracoes2opt;
+const getMaxIteracoes3opt = () => PARAMS.maxIteracoes3opt;
+const getMaxIteracoesLK = () => PARAMS.maxIteracoesLK;
+const getMaxTentativasRemocao = () => PARAMS.maxTentativasRemocao;
 
 // ============================================================================
 // FUNÇÕES UTILITÁRIAS
@@ -201,7 +304,7 @@ export function calcularDistancia(lat1: number, lon1: number, lat2: number, lon2
 }
 
 export function calcularTempoDeslocamento(distanciaKm: number): number {
-  return (distanciaKm / VELOCIDADE_MEDIA_KMH) * 60;
+  return (distanciaKm / getVelocidadeMedia()) * 60;
 }
 
 function obterLocalPartida(equipe: Equipe): { lat: number; lng: number } {
@@ -338,12 +441,12 @@ export function calcularSugestaoEquipes(
   
   // Calcular tempo total para reguladas
   const tempoTotalReguladasMin = reguladasHoje.reduce((acc, os) => {
-    return acc + os.tempoExecucao + TEMPO_MEDIO_DESLOCAMENTO_MIN;
+    return acc + os.tempoExecucao + getTempoMedioDeslocamento();
   }, 0);
   
   // Calcular tempo total para todas OSs
   const tempoTotalOSsMin = todasOSs.reduce((acc, os) => {
-    return acc + os.tempoExecucao + TEMPO_MEDIO_DESLOCAMENTO_MIN;
+    return acc + os.tempoExecucao + getTempoMedioDeslocamento();
   }, 0);
   
   // Calcular tempo médio
@@ -423,12 +526,12 @@ export function calcularExpectativaEquipesPorTerritorio(
 
     // Calcular tempo total para urgentes
     const tempoTotalUrgentesMin = ossUrgentes.reduce((acc, os) => {
-      return acc + os.tempoExecucao + TEMPO_MEDIO_DESLOCAMENTO_MIN;
+      return acc + os.tempoExecucao + getTempoMedioDeslocamento();
     }, 0);
 
     // Calcular tempo total para toda a demanda
     const tempoTotalDemandaMin = ossNoTerritorio.reduce((acc, os) => {
-      return acc + os.tempoExecucao + TEMPO_MEDIO_DESLOCAMENTO_MIN;
+      return acc + os.tempoExecucao + getTempoMedioDeslocamento();
     }, 0);
 
     // Calcular quantidade de equipes necessárias (com uma casa decimal)
@@ -888,11 +991,18 @@ export async function otimizarRotas(
   equipes: Equipe[],
   usarTerritorios: boolean = false,
   territoriosSelecionadosIds?: string[],
-  estrategia?: 'financeiro' | 'quantidade' | 'distancia'
+  estrategia?: 'financeiro' | 'quantidade' | 'distancia',
+  parametrosCustomizados?: Partial<ParametrosRoteirizacao>
 ): Promise<ResultadoOtimizacao> {
+  // Aplicar parâmetros customizados (se fornecidos) sobre os padrões
+  PARAMS = { ...PARAMETROS_PADRAO, ...parametrosCustomizados };
+  
   console.log(`[ROUTING] ════════════════════════════════════════════════════════`);
   console.log(`[ROUTING] ═══ V17 - REGULADAS COM PRIORIDADE ABSOLUTA ═══`);
   console.log(`[ROUTING] ════════════════════════════════════════════════════════`);
+  if (parametrosCustomizados && Object.keys(parametrosCustomizados).length > 0) {
+    console.log(`[ROUTING] ⚙️ Parâmetros customizados:`, parametrosCustomizados);
+  }
   console.log(`[ROUTING] ${ordensServico.length} OSs, ${equipes.length} equipes`);
   console.log(`[ROUTING] 🗺️ USAR TERRITÓRIOS: ${usarTerritorios ? 'SIM ✓' : 'NÃO ✗'}`);
   console.log(`[ROUTING] ⚡ V18: Emergências e Reguladas hoje têm PRIORIDADE ABSOLUTA`);
@@ -1160,7 +1270,7 @@ export async function otimizarRotas(
     const regulada = ehOSRegulada(os);
     
     const ehReguladaUrgenteOS = regulada && ['hoje', 'passado'].includes(classificacao);
-    const limiteRural = ehReguladaUrgenteOS ? RAIO_RURAL_REGULADA_KM : RAIO_RURAL_KM;
+    const limiteRural = ehReguladaUrgenteOS ? getRaioRuralRegulada() : getRaioRural();
     
     // V17: Não aplicar filtro rural quando usando territórios
     if (!usarTerritorios && distCentro > limiteRural && !ehReguladaUrgenteOS) {
@@ -1570,7 +1680,7 @@ export async function otimizarRotas(
     rota: RotaEquipe,
     os: OrdemServico,
     permitirAtraso: boolean = false,
-    distanciaMaximaKm: number = DISTANCIA_MAXIMA_NORMAL_KM,
+    distanciaMaximaKm: number = getDistanciaMaximaNormal(),
     ignorarRestricoes: boolean = false, // V17: Só para emergências absolutas
     atrasoMaximoMin: number = 60
   ): { 
@@ -1896,7 +2006,7 @@ export async function otimizarRotas(
   const calcularInsercaoNoInicio = (
     rota: RotaEquipe,
     os: OrdemServico,
-    distanciaMaximaKm: number = DISTANCIA_MAXIMA_NORMAL_KM,
+    distanciaMaximaKm: number = getDistanciaMaximaNormal(),
     permitirForaDoPrazo: boolean = false
   ): { 
     valido: boolean; 
@@ -2295,7 +2405,7 @@ export async function otimizarRotas(
       
       const distancia = getDistanciaKm(osLocIdx, vizinhaIdx);
       
-      return distancia <= DISTANCIA_CONSOLIDACAO_KM;
+      return distancia <= getDistanciaConsolidacao();
     });
     
     vizinhas.sort((a, b) => {
@@ -2305,7 +2415,7 @@ export async function otimizarRotas(
     });
     
     for (const vizinha of vizinhas.slice(0, 5)) {
-      const calc = calcularInsercao(rota, vizinha, true, DISTANCIA_CONSOLIDACAO_KM * 2, false, ATRASO_MAXIMO_REGULADA_HOJE_MIN);
+      const calc = calcularInsercao(rota, vizinha, true, getDistanciaConsolidacao() * 2, false, getAtrasoMaximoReguladaHoje());
       
       if (calc.valido) {
         inserirOS(rota, vizinha, calc);
@@ -2371,7 +2481,7 @@ export async function otimizarRotas(
     // PASSADA 1: Tentar na equipe do território/zona, sem atraso
     // ═══════════════════════════════════════════════════════════════════════
     if (rotaResponsavel) {
-      const calc = calcularInsercao(rotaResponsavel, os, false, DISTANCIA_MAXIMA_EMERGENCIA_KM, false, 0);
+      const calc = calcularInsercao(rotaResponsavel, os, false, getDistanciaMaximaEmergencia(), false, 0);
       if (calc.valido) {
         melhorRota = rotaResponsavel;
         melhorCalc = calc;
@@ -2383,7 +2493,7 @@ export async function otimizarRotas(
     // PASSADA 2: Tentar na equipe do território/zona, permitindo atraso
     // ═══════════════════════════════════════════════════════════════════════
     if (!melhorRota && rotaResponsavel) {
-      const calc = calcularInsercao(rotaResponsavel, os, true, DISTANCIA_MAXIMA_EMERGENCIA_KM, false, 120);
+      const calc = calcularInsercao(rotaResponsavel, os, true, getDistanciaMaximaEmergencia(), false, 120);
       if (calc.valido) {
         melhorRota = rotaResponsavel;
         melhorCalc = calc;
@@ -2397,9 +2507,9 @@ export async function otimizarRotas(
     if (!melhorRota && rotaResponsavel) {
       // Tentar remover OSs normais até conseguir alocar
       let tentativasRemocao = 0;
-      const MAX_TENTATIVAS_REMOCAO = 5;
+      const maxTentativas = getMaxTentativasRemocao();
       
-      while (!melhorRota && tentativasRemocao < MAX_TENTATIVAS_REMOCAO) {
+      while (!melhorRota && tentativasRemocao < maxTentativas) {
         tentativasRemocao++;
         
         // Remover uma OS normal
@@ -2409,7 +2519,7 @@ export async function otimizarRotas(
         ossNormaisRemovidasEmergencia.push(osRemovida);
         
         // Tentar inserir a emergência
-        const calc = calcularInsercao(rotaResponsavel, os, true, DISTANCIA_MAXIMA_EMERGENCIA_KM, false, 120);
+        const calc = calcularInsercao(rotaResponsavel, os, true, getDistanciaMaximaEmergencia(), false, 120);
         if (calc.valido) {
           melhorRota = rotaResponsavel;
           melhorCalc = calc;
@@ -2436,7 +2546,7 @@ export async function otimizarRotas(
       if (prazoMin < inicioJornada + 120) { // Prazo é nas primeiras 2 horas
         console.log(`[ROUTING]     P4: Prazo crítico ${minutosParaHora(prazoMin)}, tentando inserir no INÍCIO da rota...`);
         
-        const calcInicio = calcularInsercaoNoInicio(rotaResponsavel, os, DISTANCIA_MAXIMA_EMERGENCIA_KM);
+        const calcInicio = calcularInsercaoNoInicio(rotaResponsavel, os, getDistanciaMaximaEmergencia());
         if (calcInicio.valido) {
           // Aplicar inserção no início
           aplicarInsercaoNoInicio(rotaResponsavel, os, calcInicio);
@@ -2457,7 +2567,7 @@ export async function otimizarRotas(
       console.log(`[ROUTING]     P5: Tentando alocar FORA DO PRAZO mas no dia (alerta)...`);
       
       // Tentar inserir no início mesmo que fora do prazo
-      const calcInicio = calcularInsercaoNoInicio(rotaResponsavel, os, DISTANCIA_MAXIMA_EMERGENCIA_KM, true);
+      const calcInicio = calcularInsercaoNoInicio(rotaResponsavel, os, getDistanciaMaximaEmergencia(), true);
       if (calcInicio.valido) {
         aplicarInsercaoNoInicio(rotaResponsavel, os, calcInicio);
         melhorRota = rotaResponsavel;
@@ -2560,7 +2670,7 @@ export async function otimizarRotas(
       console.log(`[ROUTING]   Tentando ${os.numero} na ${rotaResponsavel.equipe.codigo} (progresso: ${rotaResponsavel.progresso.toFixed(0)}%)`);
       
       // PASSADA 1: Tentar sem atraso
-      let calc = calcularInsercao(rotaResponsavel, os, false, DISTANCIA_MAXIMA_TERRITORIO_KM, false, 0);
+      let calc = calcularInsercao(rotaResponsavel, os, false, getDistanciaMaximaTerritorio(), false, 0);
       if (calc.valido) {
         melhorRota = rotaResponsavel;
         melhorCalc = calc;
@@ -2571,7 +2681,7 @@ export async function otimizarRotas(
       
       // PASSADA 2: Com atraso até 60min
       if (!melhorRota) {
-        calc = calcularInsercao(rotaResponsavel, os, true, DISTANCIA_MAXIMA_TERRITORIO_KM, false, 60);
+        calc = calcularInsercao(rotaResponsavel, os, true, getDistanciaMaximaTerritorio(), false, 60);
         if (calc.valido) {
           melhorRota = rotaResponsavel;
           melhorCalc = calc;
@@ -2583,7 +2693,7 @@ export async function otimizarRotas(
       
       // PASSADA 3: Com atraso até 120min
       if (!melhorRota) {
-        calc = calcularInsercao(rotaResponsavel, os, true, DISTANCIA_MAXIMA_REGULADA_URGENTE_KM, false, ATRASO_MAXIMO_REGULADA_HOJE_MIN);
+        calc = calcularInsercao(rotaResponsavel, os, true, getDistanciaMaximaReguladaUrgente(), false, getAtrasoMaximoReguladaHoje());
         if (calc.valido) {
           melhorRota = rotaResponsavel;
           melhorCalc = calc;
@@ -2621,7 +2731,7 @@ export async function otimizarRotas(
           tentativas++;
           
           // Tentar novamente com limites mais generosos
-          calc = calcularInsercao(rotaResponsavel, os, true, DISTANCIA_MAXIMA_REGULADA_URGENTE_KM, false, ATRASO_MAXIMO_REGULADA_HOJE_MIN);
+          calc = calcularInsercao(rotaResponsavel, os, true, getDistanciaMaximaReguladaUrgente(), false, getAtrasoMaximoReguladaHoje());
           if (calc.valido) {
             melhorRota = rotaResponsavel;
             melhorCalc = calc;
@@ -2642,7 +2752,7 @@ export async function otimizarRotas(
         
         for (const rotaAlt of rotasAlternativas) {
           // Primeiro tentar inserir normalmente
-          let calcAlt = calcularInsercao(rotaAlt, os, true, DISTANCIA_MAXIMA_REGULADA_URGENTE_KM, false, ATRASO_MAXIMO_REGULADA_HOJE_MIN);
+          let calcAlt = calcularInsercao(rotaAlt, os, true, getDistanciaMaximaReguladaUrgente(), false, getAtrasoMaximoReguladaHoje());
           
           if (calcAlt.valido) {
             melhorRota = rotaAlt;
@@ -2669,7 +2779,7 @@ export async function otimizarRotas(
               ossNormaisRemovidas.push(osRemovida);
               tentAlt++;
               
-              calcAlt = calcularInsercao(rotaAlt, os, true, DISTANCIA_MAXIMA_REGULADA_URGENTE_KM, false, ATRASO_MAXIMO_REGULADA_HOJE_MIN);
+              calcAlt = calcularInsercao(rotaAlt, os, true, getDistanciaMaximaReguladaUrgente(), false, getAtrasoMaximoReguladaHoje());
               if (calcAlt.valido) {
                 melhorRota = rotaAlt;
                 melhorCalc = calcAlt;
@@ -2695,7 +2805,7 @@ export async function otimizarRotas(
         if (prazoMin < inicioJornada + 180) {
           console.log(`[ROUTING]     P6: Prazo crítico ${minutosParaHora(prazoMin)}, tentando inserir no INÍCIO da rota...`);
           
-          const calcInicio = calcularInsercaoNoInicio(rotaResponsavel, os, DISTANCIA_MAXIMA_REGULADA_URGENTE_KM);
+          const calcInicio = calcularInsercaoNoInicio(rotaResponsavel, os, getDistanciaMaximaReguladaUrgente());
           if (calcInicio.valido) {
             aplicarInsercaoNoInicio(rotaResponsavel, os, calcInicio);
             melhorRota = rotaResponsavel;
@@ -2714,7 +2824,7 @@ export async function otimizarRotas(
       if (!melhorRota && os.prazo) {
         console.log(`[ROUTING]     P7: Tentando alocar FORA DO PRAZO mas no dia (alerta)...`);
         
-        const calcInicio = calcularInsercaoNoInicio(rotaResponsavel, os, DISTANCIA_MAXIMA_REGULADA_URGENTE_KM, true);
+        const calcInicio = calcularInsercaoNoInicio(rotaResponsavel, os, getDistanciaMaximaReguladaUrgente(), true);
         if (calcInicio.valido) {
           aplicarInsercaoNoInicio(rotaResponsavel, os, calcInicio);
           melhorRota = rotaResponsavel;
@@ -2819,7 +2929,7 @@ export async function otimizarRotas(
         }
         
         for (const rotaTerritorio of rotasDoTerritorio) {
-          const calc = calcularInsercao(rotaTerritorio, os, true, DISTANCIA_MAXIMA_TERRITORIO_KM, false, 120);
+          const calc = calcularInsercao(rotaTerritorio, os, true, getDistanciaMaximaTerritorio(), false, 120);
       if (calc.valido) {
             melhorRota = rotaTerritorio;
             melhorCalc = calc;
@@ -2830,7 +2940,7 @@ export async function otimizarRotas(
       const zonaOS = zonasPorOS.get(os.id);
       const rotaZona = rotas.find(r => r.zonaId === zonaOS);
       if (rotaZona) {
-        const calc = calcularInsercao(rotaZona, os, true, DISTANCIA_MAXIMA_ZONA_KM, false, 120);
+        const calc = calcularInsercao(rotaZona, os, true, getDistanciaMaximaZona(), false, 120);
         if (calc.valido) {
           melhorRota = rotaZona;
           melhorCalc = calc;
@@ -3035,7 +3145,7 @@ export async function otimizarRotas(
         if (osLocIdx === undefined) continue;
         
         const distancia = getDistanciaKm(ultimaLocIdx, osLocIdx);
-        const limiteDistancia = usarTerritorios ? DISTANCIA_MAXIMA_TERRITORIO_KM : DISTANCIA_MAXIMA_NORMAL_KM;
+        const limiteDistancia = usarTerritorios ? getDistanciaMaximaTerritorio() : getDistanciaMaximaNormal();
         
         if (distancia <= limiteDistancia) {
           const calc = calcularInsercao(rota, os, true, limiteDistancia, false, 120);
@@ -3975,9 +4085,9 @@ export async function otimizarRotas(
   ): ItemOtimizacao[] => {
     let melhorou = true;
     let iteracoes = 0;
-    const MAX_ITERACOES = 15;
+    const maxIter = getMaxIteracoes2opt();
     
-    while (melhorou && iteracoes < MAX_ITERACOES && rota.length >= 4) {
+    while (melhorou && iteracoes < maxIter && rota.length >= 4) {
       melhorou = false;
       iteracoes++;
       
@@ -4026,9 +4136,9 @@ export async function otimizarRotas(
   ): ItemOtimizacao[] => {
     let melhorou = true;
     let iteracoes = 0;
-    const MAX_ITERACOES = 5;
+    const maxIter = getMaxIteracoes3opt();
     
-    while (melhorou && iteracoes < MAX_ITERACOES && rota.length >= 6) {
+    while (melhorou && iteracoes < maxIter && rota.length >= 6) {
       melhorou = false;
       iteracoes++;
       
@@ -4356,16 +4466,16 @@ export async function otimizarRotas(
     inicioJornada: number,
     fimJornada: number
   ): ItemOtimizacao[] => {
-    const POPULACAO_SIZE = 20;
-    const GERACOES = 30;
-    const TAXA_MUTACAO = 0.3;
+    const popSize = getPopulacaoGenetica();
+    const numGeracoes = getGeracoesGenetica();
+    const taxaMut = getTaxaMutacao();
     
     const criticas = servicos.filter(s => s.temPrazoCritico);
     const naoCriticas = servicos.filter(s => !s.temPrazoCritico);
     
     // Criar população inicial
     let populacao: ItemOtimizacao[][] = [];
-    for (let i = 0; i < POPULACAO_SIZE; i++) {
+    for (let i = 0; i < popSize; i++) {
       const individuo = [...naoCriticas];
       // Embaralhar aleatoriamente
       for (let j = individuo.length - 1; j > 0; j--) {
@@ -4375,7 +4485,7 @@ export async function otimizarRotas(
       populacao.push([...criticas, ...individuo]);
     }
     
-    for (let geracao = 0; geracao < GERACOES; geracao++) {
+    for (let geracao = 0; geracao < numGeracoes; geracao++) {
       // Avaliar população
       const avaliacoes = populacao.map(ind => ({
         individuo: ind,
@@ -4386,12 +4496,12 @@ export async function otimizarRotas(
       avaliacoes.sort((a, b) => b.score - a.score);
       
       // Selecionar top 50% para reprodução
-      const elite = avaliacoes.slice(0, Math.floor(POPULACAO_SIZE / 2)).map(a => a.individuo);
+      const elite = avaliacoes.slice(0, Math.floor(popSize / 2)).map(a => a.individuo);
       
       // Criar nova geração
       const novaGeracao: ItemOtimizacao[][] = [...elite];
       
-      while (novaGeracao.length < POPULACAO_SIZE) {
+      while (novaGeracao.length < popSize) {
         // Selecionar dois pais aleatórios da elite
         const pai1 = elite[Math.floor(Math.random() * elite.length)];
         const pai2 = elite[Math.floor(Math.random() * elite.length)];
@@ -4403,7 +4513,7 @@ export async function otimizarRotas(
         filho.push(...genesPai2);
         
         // Mutação: trocar duas posições aleatórias
-        if (Math.random() < TAXA_MUTACAO && filho.length >= 2) {
+        if (Math.random() < taxaMut && filho.length >= 2) {
           const idx1 = Math.floor(Math.random() * filho.length);
           const idx2 = Math.floor(Math.random() * filho.length);
           if (idx1 !== idx2) {
@@ -4440,12 +4550,12 @@ export async function otimizarRotas(
     let melhorScore = avaliarCenario(melhorRota, baseIdx, inicioJornada, fimJornada).score;
     let melhorou = true;
     let iteracoes = 0;
-    const MAX_ITERACOES = 15;
+    const maxIter = getMaxIteracoesLK();
     
     const criticas = melhorRota.filter(r => r.temPrazoCritico);
     const naoCriticas = melhorRota.filter(r => !r.temPrazoCritico);
     
-    while (melhorou && iteracoes < MAX_ITERACOES && naoCriticas.length >= 3) {
+    while (melhorou && iteracoes < maxIter && naoCriticas.length >= 3) {
       melhorou = false;
       iteracoes++;
       

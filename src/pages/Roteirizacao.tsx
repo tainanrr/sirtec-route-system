@@ -69,6 +69,9 @@ import {
   ExpectativaTerritorio,
   type ResultadoRecalculo,
   type InconformidadeRota,
+  ParametrosRoteirizacao,
+  PARAMETROS_PADRAO,
+  PARAMETROS_DESCRICOES,
 } from "@/lib/routingUtils";
 import { getDadosSkills } from "@/lib/skillsUtils";
 import { tecnicosParaEquipes } from "@/lib/equipeUtils";
@@ -210,6 +213,10 @@ const Roteirizacao = () => {
   
   const [rotas, setRotas] = useState<RotaEquipe[]>([]);
   const [isOtimizando, setIsOtimizando] = useState(false);
+  
+  // Estado para parâmetros de roteirização
+  const [parametrosModalOpen, setParametrosModalOpen] = useState(false);
+  const [parametros, setParametros] = useState<ParametrosRoteirizacao>({ ...PARAMETROS_PADRAO });
   const [equipes, setEquipes] = useState<Equipe[]>([]);
   const [loadingEquipes, setLoadingEquipes] = useState(true);
   const [ordensServico, setOrdensServico] = useState<OrdemServico[]>([]);
@@ -1723,11 +1730,23 @@ const Roteirizacao = () => {
       }
 
       console.log(`[ROTEIRIZAÇÃO] Iniciando otimização com ${osParaRoteirizar.length} OSs filtradas...`);
+      
+      // Verificar se há parâmetros customizados (diferentes dos padrão)
+      const parametrosCustomizados: Partial<ParametrosRoteirizacao> = {};
+      Object.keys(parametros).forEach((key) => {
+        const k = key as keyof ParametrosRoteirizacao;
+        if (parametros[k] !== PARAMETROS_PADRAO[k]) {
+          (parametrosCustomizados as any)[k] = parametros[k];
+        }
+      });
+      
       const resultado: ResultadoOtimizacao = await otimizarRotas(
         osParaRoteirizar, 
         equipesAtivas, 
         usarTerritorios,
-        usarTerritorios ? territoriosSelecionados : undefined
+        usarTerritorios ? territoriosSelecionados : undefined,
+        undefined, // estrategia
+        Object.keys(parametrosCustomizados).length > 0 ? parametrosCustomizados : undefined
       );
 
       // V20: Se há múltiplas opções de roteiros, mostrar dialog de seleção
@@ -2771,6 +2790,15 @@ const Roteirizacao = () => {
             >
               <Zap className="h-4 w-4" />
               Expectativa de Equipes
+            </Button>
+            <Button
+              onClick={() => setParametrosModalOpen(true)}
+              variant="outline"
+              className="gap-2"
+              title="Ajustar parâmetros de roteirização"
+            >
+              <Settings className="h-4 w-4" />
+              Parâmetros
             </Button>
             <Button
               onClick={handleOtimizarRotas}
@@ -5466,6 +5494,247 @@ const Roteirizacao = () => {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+      
+      {/* Modal de Parâmetros de Roteirização */}
+      <Dialog open={parametrosModalOpen} onOpenChange={setParametrosModalOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Settings className="h-5 w-5" />
+              Parâmetros de Roteirização
+            </DialogTitle>
+            <DialogDescription>
+              Ajuste os parâmetros para simular diferentes cenários de roteirização.
+              Os valores de referência (padrão) são exibidos ao lado de cada campo.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6 py-4">
+            {/* Seção: Velocidade e Tempo */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide border-b pb-2">
+                Velocidade e Tempo
+              </h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-sm">{PARAMETROS_DESCRICOES.velocidadeMediaKmh.nome}</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      value={parametros.velocidadeMediaKmh}
+                      onChange={(e) => setParametros({ ...parametros, velocidadeMediaKmh: Number(e.target.value) })}
+                      className="flex-1"
+                    />
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">
+                      Ref: {PARAMETROS_PADRAO.velocidadeMediaKmh} {PARAMETROS_DESCRICOES.velocidadeMediaKmh.unidade}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{PARAMETROS_DESCRICOES.velocidadeMediaKmh.descricao}</p>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm">{PARAMETROS_DESCRICOES.tempoMedioDeslocamentoMin.nome}</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      value={parametros.tempoMedioDeslocamentoMin}
+                      onChange={(e) => setParametros({ ...parametros, tempoMedioDeslocamentoMin: Number(e.target.value) })}
+                      className="flex-1"
+                    />
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">
+                      Ref: {PARAMETROS_PADRAO.tempoMedioDeslocamentoMin} {PARAMETROS_DESCRICOES.tempoMedioDeslocamentoMin.unidade}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{PARAMETROS_DESCRICOES.tempoMedioDeslocamentoMin.descricao}</p>
+                </div>
+              </div>
+            </div>
+            
+            {/* Seção: Distâncias Máximas */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide border-b pb-2">
+                Distâncias Máximas (km)
+              </h3>
+              <div className="grid grid-cols-2 gap-4">
+                {[
+                  'distanciaMaximaEmergenciaKm',
+                  'distanciaMaximaZonaKm',
+                  'distanciaMaximaNormalKm',
+                  'distanciaMaximaBalanceamentoKm',
+                  'distanciaMaximaSaturacaoKm',
+                  'distanciaConsolidacaoKm',
+                  'distanciaMaximaReguladaUrgenteKm',
+                  'distanciaMaximaReguladaGlobalKm',
+                  'distanciaMaximaTerritorioKm',
+                ].map((key) => {
+                  const k = key as keyof ParametrosRoteirizacao;
+                  return (
+                    <div key={key} className="space-y-2">
+                      <Label className="text-sm">{PARAMETROS_DESCRICOES[k].nome}</Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          step="0.1"
+                          value={parametros[k]}
+                          onChange={(e) => setParametros({ ...parametros, [k]: Number(e.target.value) })}
+                          className="flex-1"
+                        />
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                          Ref: {PARAMETROS_PADRAO[k]} {PARAMETROS_DESCRICOES[k].unidade}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{PARAMETROS_DESCRICOES[k].descricao}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            
+            {/* Seção: Raios Rurais */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide border-b pb-2">
+                Raios Rurais
+              </h3>
+              <div className="grid grid-cols-2 gap-4">
+                {['raioRuralKm', 'raioRuralReguladaKm'].map((key) => {
+                  const k = key as keyof ParametrosRoteirizacao;
+                  return (
+                    <div key={key} className="space-y-2">
+                      <Label className="text-sm">{PARAMETROS_DESCRICOES[k].nome}</Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          value={parametros[k]}
+                          onChange={(e) => setParametros({ ...parametros, [k]: Number(e.target.value) })}
+                          className="flex-1"
+                        />
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                          Ref: {PARAMETROS_PADRAO[k]} {PARAMETROS_DESCRICOES[k].unidade}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{PARAMETROS_DESCRICOES[k].descricao}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            
+            {/* Seção: Limiares */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide border-b pb-2">
+                Limiares e Limites
+              </h3>
+              <div className="grid grid-cols-2 gap-4">
+                {['thresholdSaturacao', 'atrasoMaximoReguladaHojeMin'].map((key) => {
+                  const k = key as keyof ParametrosRoteirizacao;
+                  return (
+                    <div key={key} className="space-y-2">
+                      <Label className="text-sm">{PARAMETROS_DESCRICOES[k].nome}</Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          value={parametros[k]}
+                          onChange={(e) => setParametros({ ...parametros, [k]: Number(e.target.value) })}
+                          className="flex-1"
+                        />
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                          Ref: {PARAMETROS_PADRAO[k]} {PARAMETROS_DESCRICOES[k].unidade}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{PARAMETROS_DESCRICOES[k].descricao}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            
+            {/* Seção: Otimização Genética */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide border-b pb-2">
+                Algoritmo Genético
+              </h3>
+              <div className="grid grid-cols-3 gap-4">
+                {['populacaoGenetica', 'geracoesGenetica', 'taxaMutacao'].map((key) => {
+                  const k = key as keyof ParametrosRoteirizacao;
+                  return (
+                    <div key={key} className="space-y-2">
+                      <Label className="text-sm">{PARAMETROS_DESCRICOES[k].nome}</Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          step={k === 'taxaMutacao' ? '0.1' : '1'}
+                          value={parametros[k]}
+                          onChange={(e) => setParametros({ ...parametros, [k]: Number(e.target.value) })}
+                          className="flex-1"
+                        />
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                          Ref: {PARAMETROS_PADRAO[k]} {PARAMETROS_DESCRICOES[k].unidade}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{PARAMETROS_DESCRICOES[k].descricao}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            
+            {/* Seção: Iterações */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide border-b pb-2">
+                Limites de Iteração
+              </h3>
+              <div className="grid grid-cols-4 gap-4">
+                {['maxIteracoes2opt', 'maxIteracoes3opt', 'maxIteracoesLK', 'maxTentativasRemocao'].map((key) => {
+                  const k = key as keyof ParametrosRoteirizacao;
+                  return (
+                    <div key={key} className="space-y-2">
+                      <Label className="text-sm">{PARAMETROS_DESCRICOES[k].nome}</Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          value={parametros[k]}
+                          onChange={(e) => setParametros({ ...parametros, [k]: Number(e.target.value) })}
+                          className="flex-1"
+                        />
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                          Ref: {PARAMETROS_PADRAO[k]}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{PARAMETROS_DESCRICOES[k].descricao}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+          
+          <DialogFooter className="flex items-center justify-between">
+            <Button
+              variant="outline"
+              onClick={() => setParametros({ ...PARAMETROS_PADRAO })}
+              className="gap-2"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Restaurar Padrão
+            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setParametrosModalOpen(false)}
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={() => {
+                  setParametrosModalOpen(false);
+                  toast.success("Parâmetros atualizados! Clique em 'Otimizar Rotas' para aplicar.");
+                }}
+              >
+                Aplicar
+              </Button>
+            </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </MainLayout>
