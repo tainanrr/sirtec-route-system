@@ -71,9 +71,10 @@ export interface OpcaoRoteiro {
     osUrgentesAlocadas: number;
     osUrgentesTotal: number;
     equipesUtilizadas: number;
+    produtividade: number; // R$/hora - Faturamento / Tempo Total em horas
   };
   destacado?: boolean; // Indica se é a melhor opção em algum critério
-  criterioDestaque?: 'financeiro' | 'quantidade' | 'distancia';
+  criterioDestaque?: 'financeiro' | 'quantidade' | 'distancia' | 'produtividade';
 }
 
 export interface ResultadoOtimizacao {
@@ -3806,17 +3807,22 @@ export async function otimizarRotas(
       }
     }
     
-    // Escolher melhor cenário baseado em score (priorizando distância)
+    // Escolher melhor cenário baseado em score (priorizando PRODUTIVIDADE e distância)
     cenarios.sort((a, b) => {
-      // Priorizar: sem violações de prazo > melhor score (que prioriza distância)
+      // Priorizar: sem violações de prazo > melhor score (que agora considera produtividade)
       if (a.violacoesPrazo !== b.violacoesPrazo) {
         return a.violacoesPrazo - b.violacoesPrazo;
       }
       // Se mesmo número de violações, escolher melhor score (maior = melhor)
+      // Score agora inclui: Produtividade (R$/h) - Penalidade de distância
       if (Math.abs(a.score - b.score) > 0.1) {
         return b.score - a.score;
       }
-      // Se scores muito próximos, priorizar menor distância
+      // Se scores muito próximos, priorizar maior produtividade
+      if (Math.abs(a.produtividade - b.produtividade) > 1) {
+        return b.produtividade - a.produtividade;
+      }
+      // Por último, menor distância
       return a.distanciaTotal - b.distanciaTotal;
     });
     
@@ -3824,7 +3830,10 @@ export async function otimizarRotas(
     let melhorRota = melhorCenario.rota;
     
     console.log(`[ROUTING]   📊 ${cenarios.length} cenários gerados para ${identificadorZona}`);
-    console.log(`[ROUTING]   🏆 Melhor: ${melhorCenario.estrategia} (${melhorCenario.distanciaTotal.toFixed(2)}km, ${melhorCenario.tempoTotal.toFixed(0)}min)`);
+    console.log(`[ROUTING]   🏆 Melhor: ${melhorCenario.estrategia}`);
+    console.log(`[ROUTING]      💰 Faturamento: R$ ${melhorCenario.faturamento.toFixed(2)} | Tempo: ${melhorCenario.tempoTotal.toFixed(0)}min`);
+    console.log(`[ROUTING]      📈 PRODUTIVIDADE: R$ ${melhorCenario.produtividade.toFixed(2)}/hora`);
+    console.log(`[ROUTING]      🚗 Distância: ${melhorCenario.distanciaTotal.toFixed(2)}km | Score: ${melhorCenario.score.toFixed(2)}`);
     
     // Aplicar melhorias incrementais no melhor cenário (múltiplas passadas)
     if (melhorRota.length > 3) {
@@ -4186,16 +4195,18 @@ export async function otimizarRotas(
   };
   
   /**
-   * Avalia um cenário completo considerando tempo, distância e prazos
+   * Avalia um cenário completo considerando tempo, distância, prazos e PRODUTIVIDADE
+   * PRODUTIVIDADE = Valor Total / Tempo Total (em horas)
+   * Quanto maior o valor em menor tempo, maior a produtividade = melhor rota
    */
   const avaliarCenario = (
     rota: ItemOtimizacao[],
     baseIdx: number,
     inicioJornada: number,
     fimJornada: number
-  ): { tempoTotal: number; distanciaTotal: number; score: number; violacoesPrazo: number } => {
+  ): { tempoTotal: number; distanciaTotal: number; score: number; violacoesPrazo: number; faturamento: number; produtividade: number } => {
     if (rota.length === 0) {
-      return { tempoTotal: 0, distanciaTotal: 0, score: 0, violacoesPrazo: 0 };
+      return { tempoTotal: 0, distanciaTotal: 0, score: 0, violacoesPrazo: 0, faturamento: 0, produtividade: 0 };
     }
     
     let tempoAtual = inicioJornada;
@@ -4204,6 +4215,7 @@ export async function otimizarRotas(
     let violacoesPrazo = 0;
     let tempoDeslocamentoTotal = 0;
     let tempoExecucaoTotal = 0;
+    let faturamentoTotal = 0; // NOVO: Soma dos valores das OSs
     
     for (const item of rota) {
       const tempoDesloc = getTempo(ultimaIdx, item.osIdx);
@@ -4216,6 +4228,7 @@ export async function otimizarRotas(
       const os = item.servico.ordemServico!;
       tempoExecucaoTotal += os.tempoExecucao;
       tempoAtual += os.tempoExecucao;
+      faturamentoTotal += os.valor || 0; // NOVO: Acumular valor
       
       // Verificar prazo
       if (os.prazo) {
@@ -4238,16 +4251,43 @@ export async function otimizarRotas(
       violacoesPrazo += (tempoAtual - fimJornada) * 10;
     }
     
-    // Calcular score: maior é melhor
-    // Score prioriza DISTÂNCIA (cada km vale muito) + tempo + violações
-    // Peso maior na distância para maximizar economia de deslocamento
-    const score = -distanciaTotal * 10 - (tempoAtual - inicioJornada) * 0.5 - violacoesPrazo * 1000;
+    // Calcular tempo total efetivo (em horas)
+    const tempoTotalMin = tempoAtual - inicioJornada;
+    const tempoTotalHoras = Math.max(tempoTotalMin / 60, 0.1); // Mínimo 0.1h para evitar divisão por zero
+    
+    // PRODUTIVIDADE = Valor / Tempo (R$/hora)
+    // Quanto maior o faturamento em menos tempo, maior a produtividade
+    const produtividade = faturamentoTotal / tempoTotalHoras;
+    
+    // ============================================================================
+    // CÁLCULO DO SCORE - Balanceado entre produtividade, distância e prazos
+    // ============================================================================
+    // Score = Produtividade (peso positivo) - Distância (penalidade) - Violações (penalidade severa)
+    // 
+    // Pesos:
+    // - Produtividade: peso 1 (valor direto em R$/h)
+    // - Distância: -5 por km (penaliza deslocamento, mas não tanto quanto antes)
+    // - Tempo deslocamento/execução: não penaliza diretamente, já está na produtividade
+    // - Violações: -1000 por violação (muito severo para manter prazos)
+    // 
+    // Exemplo:
+    // - Rota A: R$500 em 5h, 20km → Produtividade=100, Score = 100 - 100 = 0
+    // - Rota B: R$400 em 4h, 15km → Produtividade=100, Score = 100 - 75 = 25 (melhor!)
+    // - Rota C: R$600 em 6h, 30km → Produtividade=100, Score = 100 - 150 = -50 (pior)
+    
+    const scoreBase = produtividade * 1.0;           // Maior produtividade = melhor
+    const penDistancia = distanciaTotal * 5;         // Menos km = melhor
+    const penViolacoes = violacoesPrazo * 1000;      // Sem violações = muito melhor
+    
+    const score = scoreBase - penDistancia - penViolacoes;
     
     return {
-      tempoTotal: tempoAtual - inicioJornada,
+      tempoTotal: tempoTotalMin,
       distanciaTotal,
       score,
-      violacoesPrazo
+      violacoesPrazo,
+      faturamento: faturamentoTotal,
+      produtividade
     };
   };
   
@@ -5040,6 +5080,10 @@ function calcularMetricasRoteiro(
   const equipesUtilizadas = rotas.filter(r => 
     r.servicos.filter(s => s.tipo === 'SERVICO').length > 0
   ).length;
+  
+  // Calcular PRODUTIVIDADE = Faturamento / Tempo (em horas)
+  const tempoTotalHoras = Math.max(totalTempoMin / 60, 0.1); // Mínimo 0.1h para evitar divisão por zero
+  const produtividade = totalFaturamento / tempoTotalHoras;
 
   return {
     totalOSs,
@@ -5048,7 +5092,8 @@ function calcularMetricasRoteiro(
     totalTempoMin,
     osUrgentesAlocadas,
     osUrgentesTotal: osUrgentesTotal,
-    equipesUtilizadas
+    equipesUtilizadas,
+    produtividade
   };
 }
 
@@ -5190,13 +5235,33 @@ async function gerarOpcoesRoteiros(
     melhorDistancia.criterioDestaque = 'distancia';
   }
   
+  // Identificar melhor produtividade
+  const melhorProdutividade = opcoes.reduce((melhor, atual) => 
+    atual.metricas.produtividade > melhor.metricas.produtividade ? atual : melhor
+  );
+  
+  if (melhorProdutividade.id !== melhorFinanceiro.id && 
+      melhorProdutividade.id !== melhorQuantidade.id &&
+      melhorProdutividade.id !== melhorDistancia.id) {
+    melhorProdutividade.destacado = true;
+    melhorProdutividade.criterioDestaque = 'produtividade';
+  }
+  
   console.log(`[ROUTING] ✅ ${opcoes.length} opções geradas`);
-  console.log(`[ROUTING]   Opção 'financeiro': R$ ${opcoes.find(o => o.id === 'financeiro')?.metricas.totalFaturamento.toFixed(2)}, ${opcoes.find(o => o.id === 'financeiro')?.metricas.totalOSs} OSs, ${opcoes.find(o => o.id === 'financeiro')?.metricas.totalDistanciaKm.toFixed(1)}km`);
-  console.log(`[ROUTING]   Opção 'quantidade': R$ ${opcoes.find(o => o.id === 'quantidade')?.metricas.totalFaturamento.toFixed(2)}, ${opcoes.find(o => o.id === 'quantidade')?.metricas.totalOSs} OSs, ${opcoes.find(o => o.id === 'quantidade')?.metricas.totalDistanciaKm.toFixed(1)}km`);
-  console.log(`[ROUTING]   Opção 'distancia': R$ ${opcoes.find(o => o.id === 'distancia')?.metricas.totalFaturamento.toFixed(2)}, ${opcoes.find(o => o.id === 'distancia')?.metricas.totalOSs} OSs, ${opcoes.find(o => o.id === 'distancia')?.metricas.totalDistanciaKm.toFixed(1)}km`);
-  console.log(`[ROUTING]   🏆 Melhor Faturamento: ${melhorFinanceiro.id} (R$ ${melhorFinanceiro.metricas.totalFaturamento.toFixed(2)})`);
-  console.log(`[ROUTING]   🏆 Mais OSs: ${melhorQuantidade.id} (${melhorQuantidade.metricas.totalOSs} OSs)`);
-  console.log(`[ROUTING]   🏆 Menor Distância: ${melhorDistancia.id} (${melhorDistancia.metricas.totalDistanciaKm.toFixed(1)}km)`);
+  console.log(`[ROUTING]   ┌────────────────────────────────────────────────────────────────────────────────────────────┐`);
+  console.log(`[ROUTING]   │ COMPARATIVO DE OPÇÕES (com PRODUTIVIDADE = Faturamento / Tempo)                           │`);
+  console.log(`[ROUTING]   ├────────────────────────────────────────────────────────────────────────────────────────────┤`);
+  
+  for (const opcao of opcoes) {
+    const m = opcao.metricas;
+    console.log(`[ROUTING]   │ ${opcao.id.padEnd(12)} │ R$ ${m.totalFaturamento.toFixed(2).padStart(10)} │ ${String(m.totalOSs).padStart(3)} OSs │ ${m.totalDistanciaKm.toFixed(1).padStart(6)}km │ 📈 R$ ${m.produtividade.toFixed(2).padStart(7)}/h │`);
+  }
+  
+  console.log(`[ROUTING]   └────────────────────────────────────────────────────────────────────────────────────────────┘`);
+  console.log(`[ROUTING]   🏆 Melhor Faturamento:   ${melhorFinanceiro.id} (R$ ${melhorFinanceiro.metricas.totalFaturamento.toFixed(2)})`);
+  console.log(`[ROUTING]   🏆 Mais OSs:             ${melhorQuantidade.id} (${melhorQuantidade.metricas.totalOSs} OSs)`);
+  console.log(`[ROUTING]   🏆 Menor Distância:      ${melhorDistancia.id} (${melhorDistancia.metricas.totalDistanciaKm.toFixed(1)}km)`);
+  console.log(`[ROUTING]   🏆 Maior PRODUTIVIDADE:  ${melhorProdutividade.id} (R$ ${melhorProdutividade.metricas.produtividade.toFixed(2)}/hora)`);
   
   return opcoes;
 }
