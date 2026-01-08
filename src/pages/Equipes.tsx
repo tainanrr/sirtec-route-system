@@ -38,6 +38,9 @@ import {
   Check,
   CheckCircle,
   XCircle,
+  CheckSquare,
+  Square,
+  Settings2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
@@ -54,6 +57,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { ExportButton } from "@/components/ui/export-button";
 
 // Interface para colaborador
@@ -123,6 +136,13 @@ const Equipes = () => {
   // Estados para edição inline
   const [editingJornada, setEditingJornada] = useState<string | null>(null);
   const [jornadaValue, setJornadaValue] = useState("");
+  
+  // Estados para seleção e edição em massa
+  const [equipesSelecionadas, setEquipesSelecionadas] = useState<Set<string>>(new Set());
+  const [editarMassaDialogOpen, setEditarMassaDialogOpen] = useState(false);
+  const [tipoEdicaoMassa, setTipoEdicaoMassa] = useState<"tipos" | "jornada" | "status" | "supervisor" | "centroCusto" | null>(null);
+  const [valorEdicaoMassa, setValorEdicaoMassa] = useState<string>("");
+  const [salvandoMassa, setSalvandoMassa] = useState(false);
 
   // Buscar todos os colaboradores disponíveis
   const fetchTodosColaboradores = async () => {
@@ -509,6 +529,94 @@ const Equipes = () => {
     } else {
       toast.success("Função atualizada");
       fetchTecnicos();
+    }
+  };
+
+  // Funções para seleção em massa
+  const toggleSelecionarEquipe = (equipeId: string) => {
+    const novaSelecao = new Set(equipesSelecionadas);
+    if (novaSelecao.has(equipeId)) {
+      novaSelecao.delete(equipeId);
+    } else {
+      novaSelecao.add(equipeId);
+    }
+    setEquipesSelecionadas(novaSelecao);
+  };
+
+  const selecionarTodasVisiveis = () => {
+    const idsVisiveis = filteredEquipes.map(e => e.id);
+    setEquipesSelecionadas(new Set(idsVisiveis));
+  };
+
+  const limparSelecao = () => {
+    setEquipesSelecionadas(new Set());
+  };
+
+  const todasSelecionadas = filteredEquipes.length > 0 && 
+    filteredEquipes.every(e => equipesSelecionadas.has(e.id));
+
+  // Função para abrir diálogo de edição em massa
+  const abrirEdicaoMassa = (tipo: "tipos" | "jornada" | "status" | "supervisor" | "centroCusto") => {
+    setTipoEdicaoMassa(tipo);
+    setValorEdicaoMassa("");
+    setEditarMassaDialogOpen(true);
+  };
+
+  // Função para aplicar edição em massa
+  const aplicarEdicaoMassa = async () => {
+    if (equipesSelecionadas.size === 0 || !tipoEdicaoMassa) return;
+    
+    setSalvandoMassa(true);
+    const idsParaAtualizar = Array.from(equipesSelecionadas);
+    
+    try {
+      let updateData: any = {};
+      let mensagemSucesso = "";
+      
+      switch (tipoEdicaoMassa) {
+        case "tipos":
+          // Para tipos, esperamos uma string de habilidades separadas por vírgula
+          const habilidades = valorEdicaoMassa.split(",").map(h => h.trim()).filter(h => h);
+          updateData = { habilidades };
+          mensagemSucesso = `Habilidades atualizadas em ${idsParaAtualizar.length} equipe(s)`;
+          break;
+        case "jornada":
+          updateData = { hora_inicio: valorEdicaoMassa };
+          mensagemSucesso = `Jornada atualizada em ${idsParaAtualizar.length} equipe(s)`;
+          break;
+        case "status":
+          updateData = { status: valorEdicaoMassa };
+          mensagemSucesso = `Status atualizado em ${idsParaAtualizar.length} equipe(s)`;
+          break;
+        case "supervisor":
+          updateData = { supervisor_id: valorEdicaoMassa };
+          mensagemSucesso = `Supervisor atualizado em ${idsParaAtualizar.length} equipe(s)`;
+          break;
+        case "centroCusto":
+          updateData = { centro_custo_id: valorEdicaoMassa === "_none_" ? null : valorEdicaoMassa };
+          mensagemSucesso = `Centro de Custo atualizado em ${idsParaAtualizar.length} equipe(s)`;
+          break;
+      }
+      
+      // Atualizar todas as equipes selecionadas
+      const { error } = await supabase
+        .from("tecnicos")
+        .update(updateData)
+        .in("id", idsParaAtualizar);
+      
+      if (error) throw error;
+      
+      toast.success(mensagemSucesso);
+      setEditarMassaDialogOpen(false);
+      setEquipesSelecionadas(new Set());
+      fetchTecnicos();
+    } catch (error: any) {
+      console.error("Erro na edição em massa:", error);
+      toast.error("Erro ao aplicar alterações em massa", {
+        description: error.message || "Erro desconhecido"
+      });
+    } finally {
+      setSalvandoMassa(false);
     }
   };
 
@@ -989,6 +1097,89 @@ const Equipes = () => {
         </div>
       </div>
 
+      {/* Barra de Ações em Massa */}
+      {equipesSelecionadas.size > 0 && (
+        <div className="rounded-xl border border-primary/50 bg-primary/5 p-4 mb-6">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <CheckSquare className="h-5 w-5 text-primary" />
+                <span className="font-semibold text-primary">
+                  {equipesSelecionadas.size} equipe(s) selecionada(s)
+                </span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={limparSelecao}
+                className="text-muted-foreground"
+              >
+                <X className="h-4 w-4 mr-1" />
+                Limpar seleção
+              </Button>
+            </div>
+            
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm text-muted-foreground mr-2">Alterar em massa:</span>
+              
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => abrirEdicaoMassa("tipos")}
+                disabled={!podeEditar}
+                title="Alterar habilidades/tipos de serviço"
+              >
+                <Settings2 className="h-4 w-4 mr-1" />
+                Tipos
+              </Button>
+              
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => abrirEdicaoMassa("jornada")}
+                disabled={!podeEditar}
+                title="Alterar horário de início da jornada"
+              >
+                <Clock className="h-4 w-4 mr-1" />
+                Jornada
+              </Button>
+              
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => abrirEdicaoMassa("status")}
+                disabled={!podeEditar}
+                title="Alterar status (ativa/inativa)"
+              >
+                <CheckCircle className="h-4 w-4 mr-1" />
+                Status
+              </Button>
+              
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => abrirEdicaoMassa("supervisor")}
+                disabled={!podeEditar}
+                title="Alterar supervisor"
+              >
+                <User className="h-4 w-4 mr-1" />
+                Supervisor
+              </Button>
+              
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => abrirEdicaoMassa("centroCusto")}
+                disabled={!podeEditar}
+                title="Alterar centro de custo"
+              >
+                Centro de Custo
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Teams Table */}
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         {loading ? (
@@ -1002,6 +1193,21 @@ const Equipes = () => {
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
+                  <TableHead className="w-[50px]">
+                    <div className="flex items-center justify-center">
+                      <Checkbox
+                        checked={todasSelecionadas}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            selecionarTodasVisiveis();
+                          } else {
+                            limparSelecao();
+                          }
+                        }}
+                        title="Selecionar todas as equipes visíveis"
+                      />
+                    </div>
+                  </TableHead>
                   <TableHead className="w-[100px]">Código</TableHead>
                   <TableHead className="w-[100px]">Tipo</TableHead>
                   <TableHead className="w-[100px]">Jornada</TableHead>
@@ -1024,7 +1230,18 @@ const Equipes = () => {
                   const isAtivo = normalizedStatus === "disponivel";
 
                   return (
-                    <TableRow key={tecnico.id} className="group">
+                    <TableRow 
+                      key={tecnico.id} 
+                      className={cn("group", equipesSelecionadas.has(tecnico.id) && "bg-primary/5")}
+                    >
+                      <TableCell>
+                        <div className="flex items-center justify-center">
+                          <Checkbox
+                            checked={equipesSelecionadas.has(tecnico.id)}
+                            onCheckedChange={() => toggleSelecionarEquipe(tecnico.id)}
+                          />
+                        </div>
+                      </TableCell>
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-2">
                           <div className="relative">
@@ -1208,6 +1425,149 @@ const Equipes = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Dialog de Edição em Massa */}
+      <Dialog open={editarMassaDialogOpen} onOpenChange={setEditarMassaDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              Edição em Massa - {
+                tipoEdicaoMassa === "tipos" ? "Habilidades/Tipos" :
+                tipoEdicaoMassa === "jornada" ? "Jornada" :
+                tipoEdicaoMassa === "status" ? "Status" :
+                tipoEdicaoMassa === "supervisor" ? "Supervisor" :
+                tipoEdicaoMassa === "centroCusto" ? "Centro de Custo" : ""
+              }
+            </DialogTitle>
+            <DialogDescription>
+              Aplicar alteração em {equipesSelecionadas.size} equipe(s) selecionada(s)
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-4 space-y-4">
+            {/* Campo de acordo com o tipo de edição */}
+            {tipoEdicaoMassa === "tipos" && (
+              <div className="space-y-2">
+                <Label htmlFor="habilidades-massa">Habilidades (separadas por vírgula)</Label>
+                <Input
+                  id="habilidades-massa"
+                  placeholder="Ex: INSTALACAO, MANUTENCAO, REPARO"
+                  value={valorEdicaoMassa}
+                  onChange={(e) => setValorEdicaoMassa(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Digite as habilidades separadas por vírgula. Isso substituirá as habilidades existentes.
+                </p>
+              </div>
+            )}
+            
+            {tipoEdicaoMassa === "jornada" && (
+              <div className="space-y-2">
+                <Label htmlFor="jornada-massa">Horário de Início</Label>
+                <Input
+                  id="jornada-massa"
+                  type="time"
+                  value={valorEdicaoMassa}
+                  onChange={(e) => setValorEdicaoMassa(e.target.value)}
+                />
+              </div>
+            )}
+            
+            {tipoEdicaoMassa === "status" && (
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select value={valorEdicaoMassa} onValueChange={setValorEdicaoMassa}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="disponivel">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle className="h-4 w-4 text-success" />
+                        Ativa
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="offline">
+                      <div className="flex items-center gap-2">
+                        <XCircle className="h-4 w-4 text-muted-foreground" />
+                        Inativa
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            
+            {tipoEdicaoMassa === "supervisor" && (
+              <div className="space-y-2">
+                <Label>Supervisor</Label>
+                <Select value={valorEdicaoMassa} onValueChange={setValorEdicaoMassa}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o supervisor" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {supervisores.map((sup) => (
+                      <SelectItem key={sup.id} value={sup.id}>
+                        {sup.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            
+            {tipoEdicaoMassa === "centroCusto" && (
+              <div className="space-y-2">
+                <Label>Centro de Custo</Label>
+                <Select value={valorEdicaoMassa} onValueChange={setValorEdicaoMassa}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o centro de custo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_none_">
+                      <span className="text-muted-foreground">Nenhum</span>
+                    </SelectItem>
+                    {centrosCusto.map((cc) => (
+                      <SelectItem key={cc.id} value={cc.id}>
+                        {cc.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            
+            {/* Lista das equipes que serão afetadas */}
+            <div className="rounded-lg border border-border bg-muted/50 p-3">
+              <p className="text-xs font-medium text-muted-foreground mb-2">
+                Equipes que serão alteradas:
+              </p>
+              <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                {Array.from(equipesSelecionadas).map(id => {
+                  const eq = tecnicos.find(t => t.id === id);
+                  return eq ? (
+                    <Badge key={id} variant="secondary" className="text-xs">
+                      {eq.codigo}
+                    </Badge>
+                  ) : null;
+                })}
+              </div>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditarMassaDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button 
+              onClick={aplicarEdicaoMassa}
+              disabled={!valorEdicaoMassa || salvandoMassa}
+            >
+              {salvandoMassa ? "Aplicando..." : `Aplicar em ${equipesSelecionadas.size} equipe(s)`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </MainLayout>
   );
 };
