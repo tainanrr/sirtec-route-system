@@ -2792,27 +2792,43 @@ export async function otimizarRotas(
       // V20: Verificar se há tempo livre antes do almoço para encaixar OS curta
       const jaAlmocouRota = jaAlmocou(rota);
       if (!jaAlmocouRota) {
-        const verificacaoEncaixe = podeEncaixarOSCurtaAntesDoAlmoco(tempoAtual, rota.equipe);
-        if (verificacaoEncaixe.podeEncaixar && verificacaoEncaixe.tempoLivre > 15) {
-          // Há tempo livre antes do almoço - tentar encaixar uma OS curta (≤30 min)
+        const configAlmocoEquipe = obterConfigAlmoco(rota.equipe);
+        const tempoLivreAteAlmoco = configAlmocoEquipe.inicio - tempoAtual;
+        const ultimoInicioAlmoco = configAlmocoEquipe.fim - configAlmocoEquipe.duracao;
+        
+        // Se há mais de 15 min de tempo livre antes do início da janela de almoço
+        if (tempoLivreAteAlmoco > 15 && tempoAtual < ultimoInicioAlmoco) {
+          console.log(`[ROUTING] ${rota.equipe.codigo}: Tempo livre antes do almoço: ${tempoLivreAteAlmoco.toFixed(0)}min (atual: ${minutosParaHora(tempoAtual)}, janela: ${minutosParaHora(configAlmocoEquipe.inicio)}-${minutosParaHora(configAlmocoEquipe.fim)})`);
+          
+          // Buscar OSs curtas (≤30 min) disponíveis
           const ossCurtas = [...osProximoDia, ...osNormais, ...ossNormaisRemovidas].filter(os => {
             if (osAlocadas.has(os.id)) return false;
             if (!equipeTemSkill(rota.equipe, os.tipo)) return false;
             if (os.tempoExecucao > 30) return false; // Apenas OSs curtas
             if (os.latitude === null || os.longitude === null) return false;
             
-            // Verificar território
+            // Verificar território/zona
             if (usarTerritorios && territoriosAtivos.length > 0) {
               if (!equipeEstaNoTerritorioDaOS(os.id, rota.equipe.id)) return false;
+              // Verificar zona se aplicável
+              const territorioIdDaOS = osParaTerritorio.get(os.id);
+              if (territorioIdDaOS && zonas.length > 0) {
+                const equipesDoTerritorio = equipesPorTerritorio.get(territorioIdDaOS) || [];
+                if (equipesDoTerritorio.length > 1 && rota.zonaId !== undefined && rota.zonaId >= 0) {
+                  const zonaOS = zonasPorOS.get(os.id);
+                  if (zonaOS === undefined || zonaOS !== rota.zonaId) return false;
+                }
+              }
+            } else if (!usarTerritorios) {
+              // Se usando zonas, verificar zona
+              const zonaOS = zonasPorOS.get(os.id);
+              if (zonaOS !== rota.zonaId) return false;
             }
             
             return true;
           });
           
-          // Ordenar por proximidade e verificar se cabe antes do limite do almoço
-          const configAlmocoEquipe = obterConfigAlmoco(rota.equipe);
-          const ultimoInicioAlmoco = configAlmocoEquipe.fim - configAlmocoEquipe.duracao;
-          
+          // Obter última localização da rota
           let ultimaLat = rota.equipe.latitude;
           let ultimaLng = rota.equipe.longitude;
           if (rota.servicos.length > 0) {
@@ -2823,32 +2839,61 @@ export async function otimizarRotas(
             }
           }
           
+          // Encontrar a melhor OS curta (mais próxima que cabe antes do limite)
+          let melhorOSCurta: OrdemServico | null = null;
+          let menorDistCurta = Infinity;
+          let tempoFimMelhor = 0;
+          
           for (const osCurta of ossCurtas) {
             const distCurta = calcularDistancia(ultimaLat, ultimaLng, osCurta.latitude!, osCurta.longitude!);
             const tempoDesloc = calcularTempoDeslocamento(distCurta);
-            const tempoTotalOS = tempoDesloc + osCurta.tempoExecucao;
+            const tempoFimOS = tempoAtual + tempoDesloc + osCurta.tempoExecucao;
             
-            // Verificar se a OS curta cabe antes do limite do almoço
-            if (tempoAtual + tempoTotalOS <= ultimoInicioAlmoco) {
-              const calcCurta = calcularInsercao(rota, osCurta, true, DISTANCIA_MAXIMA_TERRITORIO_KM, false, 120);
-              if (calcCurta.valido) {
-                // Encontrou uma OS curta que cabe - usar ela
-                if (osProxima === null || distCurta < menorDistancia) {
-                  osProxima = osCurta;
-                  calcProxima = calcCurta;
-                  menorDistancia = distCurta;
-                  console.log(`[ROUTING] ${rota.equipe.codigo}: Encaixando OS curta ${osCurta.numero} (${osCurta.tempoExecucao}min) antes do almoço`);
-                }
-              }
+            // Verificar se a OS curta TERMINA antes do último momento para iniciar o almoço
+            if (tempoFimOS <= ultimoInicioAlmoco && distCurta < menorDistCurta) {
+              melhorOSCurta = osCurta;
+              menorDistCurta = distCurta;
+              tempoFimMelhor = tempoFimOS;
             }
           }
           
-          // Se encontrou OS curta, usar ela e continuar
-          if (osProxima && calcProxima) {
-            inserirOS(rota, osProxima, calcProxima);
+          // Se encontrou OS curta, inserir DIRETAMENTE (sem verificar almoço)
+          if (melhorOSCurta) {
+            const distCurta = menorDistCurta;
+            const tempoDesloc = calcularTempoDeslocamento(distCurta);
+            const eta = tempoAtual + tempoDesloc;
+            const fimServico = eta + melhorOSCurta.tempoExecucao;
+            
+            console.log(`[ROUTING] ${rota.equipe.codigo}: ✓ Encaixando OS curta ${melhorOSCurta.numero} (${melhorOSCurta.tempoExecucao}min) antes do almoço - termina ${minutosParaHora(fimServico)}`);
+            
+            // Inserir diretamente SEM passar por calcularInsercao (para não inserir almoço)
+            const ordemNaRota = rota.servicos.filter(s => s.tipo === "SERVICO").length + 1;
+            rota.servicos.push({
+              tipo: "SERVICO",
+              ordemServico: melhorOSCurta,
+              ordemNaRota,
+              tempoDeslocamento: tempoDesloc,
+              distancia: distCurta,
+              tempoTotal: fimServico,
+              horaInicio: minutosParaHora(eta),
+              horaFim: minutosParaHora(fimServico),
+              eta: minutosParaHora(eta)
+            });
+            
+            osAlocadas.add(melhorOSCurta.id);
+            rota.distanciaTotal += distCurta;
+            rota.faturamentoTotal += melhorOSCurta.valor || 0;
+            
+            const inicioJornada = horaParaMinutos(rota.equipe.horaInicio);
+            const duracaoJornada = (rota.equipe.maxHorasTrabalho || 10) * 60;
+            rota.tempoTotal = fimServico - inicioJornada;
+            rota.progresso = (rota.tempoTotal / duracaoJornada) * 100;
+            
             alocadasNestaRota++;
             continuarAlocando = true;
             continue; // Voltar ao início do while para tentar outra OS curta
+          } else {
+            console.log(`[ROUTING] ${rota.equipe.codigo}: Nenhuma OS curta disponível para encaixar antes do almoço (${ossCurtas.length} OSs curtas verificadas)`);
           }
         }
       }
