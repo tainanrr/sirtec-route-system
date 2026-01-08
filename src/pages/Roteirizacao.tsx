@@ -189,7 +189,7 @@ const Roteirizacao = () => {
   const [territoriosFilterOpen, setTerritoriosFilterOpen] = useState(false);
   
   // Filtros avançados do Backlog
-  const [showFiltersBacklog, setShowFiltersBacklog] = useState(false);
+  const [showFiltersBacklog, setShowFiltersBacklog] = useState(true);
   const [prazoInicio, setPrazoInicio] = useState("");
   const [prazoFim, setPrazoFim] = useState("");
   const [coordenadasFilter, setCoordenadasFilter] = useState<string>("all");
