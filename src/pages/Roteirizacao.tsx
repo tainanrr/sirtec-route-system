@@ -49,6 +49,7 @@ import {
   ChevronUp,
   ChevronDown,
   Calendar,
+  PlusCircle,
 } from "lucide-react";
 import * as XLSX from "xlsx-js-style";
 import { cn } from "@/lib/utils";
@@ -78,7 +79,7 @@ import { tecnicosParaEquipes } from "@/lib/equipeUtils";
 import { mapSupabaseOrdensServicoToOrdemServico } from "@/lib/ordemServicoUtils";
 import type { Tables } from "@/integrations/supabase/types";
 import MapaLeaflet from "./components/MapaLeaflet";
-import { carregarTerritorios, salvarTerritorios, Territorio, pontoNoPoligono, atualizarTerritoriosOSs } from "@/types/territorios";
+import { carregarTerritorios, salvarTerritorios, salvarTerritorio, Territorio, pontoNoPoligono, atualizarTerritoriosOSs, CORES_TERRITORIOS } from "@/types/territorios";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import {
@@ -210,6 +211,15 @@ const Roteirizacao = () => {
   const [editarCoordsLng, setEditarCoordsLng] = useState("");
   const [salvandoCoords, setSalvandoCoords] = useState(false);
   const [selecionandoCoordNoMapa, setSelecionandoCoordNoMapa] = useState(false);
+  
+  // Dialog de criação de polígono/território
+  const [criandoPoligono, setCriandoPoligono] = useState(false);
+  const [novoPoligono, setNovoPoligono] = useState<{ lat: number; lng: number }[] | null>(null);
+  const [criarTerritorioOpen, setCriarTerritorioOpen] = useState(false);
+  const [novoTerritorioNome, setNovoTerritorioNome] = useState("");
+  const [novoTerritorioCor, setNovoTerritorioCor] = useState("#3b82f6");
+  const [novoTerritorioEquipes, setNovoTerritorioEquipes] = useState<string[]>([]);
+  const [salvandoTerritorio, setSalvandoTerritorio] = useState(false);
   
   const [rotas, setRotas] = useState<RotaEquipe[]>([]);
   const [isOtimizando, setIsOtimizando] = useState(false);
@@ -2403,6 +2413,65 @@ const Roteirizacao = () => {
     }
   };
 
+  // Função para salvar novo território criado no mapa
+  const handleSalvarNovoTerritorio = async () => {
+    if (!novoPoligono || novoPoligono.length < 3) {
+      toast.error("Polígono inválido");
+      return;
+    }
+    
+    if (!novoTerritorioNome.trim()) {
+      toast.error("Informe o nome do território");
+      return;
+    }
+    
+    setSalvandoTerritorio(true);
+    try {
+      const novoTerritorio: Territorio = {
+        id: `territorio-${Date.now()}`,
+        nome: novoTerritorioNome.trim(),
+        cor: novoTerritorioCor,
+        poligono: novoPoligono,
+        equipeIds: novoTerritorioEquipes,
+        bairros: [],
+        ativo: true,
+        criadoEm: new Date(),
+        atualizadoEm: new Date(),
+      };
+      
+      const saved = await salvarTerritorio(novoTerritorio);
+      if (!saved) {
+        toast.error("Erro ao salvar território");
+        return;
+      }
+      
+      // Recarregar territórios
+      const updated = await carregarTerritorios();
+      setTerritorios(updated);
+      
+      // Atualizar territórios das OSs
+      atualizarTerritoriosOSs().then(({ atualizadas }) => {
+        if (atualizadas > 0) {
+          toast.info(`${atualizadas} OSs tiveram seus territórios atualizados`);
+        }
+      });
+      
+      toast.success(`Território "${novoTerritorioNome}" criado com sucesso!`);
+      
+      // Limpar estados
+      setCriarTerritorioOpen(false);
+      setNovoPoligono(null);
+      setNovoTerritorioNome("");
+      setNovoTerritorioCor("#3b82f6");
+      setNovoTerritorioEquipes([]);
+    } catch (error) {
+      console.error("Erro ao criar território:", error);
+      toast.error("Erro ao criar território");
+    } finally {
+      setSalvandoTerritorio(false);
+    }
+  };
+
   // Função para incluir OS diretamente na rota (chamada do mapa)
   // Usa osPendentesTodas para permitir inclusão manual de OSs fora do território
   const handleIncluirOSNaRota = (osId: string) => {
@@ -3594,7 +3663,43 @@ const Roteirizacao = () => {
                   }
                 }}
                 osCoordenadasSuspeitas={osCoordenadasSuspeitas}
+                criandoPoligono={criandoPoligono}
+                onPoligonoCriado={(poligono) => {
+                  setNovoPoligono(poligono);
+                  setCriandoPoligono(false);
+                  setCriarTerritorioOpen(true);
+                }}
+                onCriacaoCancelada={() => {
+                  setCriandoPoligono(false);
+                  setNovoPoligono(null);
+                }}
               />
+
+              {/* Botão Criar Polígono no mapa */}
+              {!criandoPoligono && (
+                <div className="absolute top-4 left-4 z-[1000]">
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => setCriandoPoligono(true)}
+                    className="bg-green-600 hover:bg-green-700 shadow-lg gap-2"
+                  >
+                    <PlusCircle className="h-4 w-4" />
+                    Criar Polígono
+                  </Button>
+                </div>
+              )}
+              
+              {criandoPoligono && (
+                <div className="absolute top-4 left-4 z-[1000] bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg">
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-4 w-4 animate-pulse" />
+                    <span className="text-sm font-medium">
+                      Clique no mapa para desenhar o polígono. Duplo clique para finalizar.
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {/* Legenda */}
               <div className="absolute bottom-4 left-4 bg-card/90 backdrop-blur-sm rounded-lg p-3 border border-border z-[1000]">
@@ -5874,6 +5979,135 @@ const Roteirizacao = () => {
                 Aplicar
               </Button>
             </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Modal de Criação de Território */}
+      <Dialog open={criarTerritorioOpen} onOpenChange={(open) => {
+        if (!open && !salvandoTerritorio) {
+          setCriarTerritorioOpen(false);
+          setNovoPoligono(null);
+          setNovoTerritorioNome("");
+          setNovoTerritorioCor("#3b82f6");
+          setNovoTerritorioEquipes([]);
+        }
+      }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MapPin className="h-5 w-5 text-green-500" />
+              Novo Território
+            </DialogTitle>
+            <DialogDescription>
+              Configure os dados do novo território criado no mapa.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            {/* Preview do polígono */}
+            {novoPoligono && (
+              <div className="bg-green-50 dark:bg-green-950 p-3 rounded-lg border border-green-200 dark:border-green-800">
+                <div className="text-sm text-green-700 dark:text-green-300">
+                  ✓ Polígono criado com {novoPoligono.length} vértices
+                </div>
+              </div>
+            )}
+            
+            {/* Nome do território */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Nome do Território *</label>
+              <Input
+                placeholder="Ex: Zona Norte, Região Central..."
+                value={novoTerritorioNome}
+                onChange={(e) => setNovoTerritorioNome(e.target.value)}
+              />
+            </div>
+            
+            {/* Cor do território */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Cor</label>
+              <div className="flex flex-wrap gap-2">
+                {CORES_TERRITORIOS.map((cor) => (
+                  <button
+                    key={cor}
+                    type="button"
+                    onClick={() => setNovoTerritorioCor(cor)}
+                    className={cn(
+                      "w-8 h-8 rounded-lg border-2 transition-all",
+                      novoTerritorioCor === cor 
+                        ? "border-foreground scale-110 ring-2 ring-offset-2 ring-blue-500" 
+                        : "border-transparent hover:scale-105"
+                    )}
+                    style={{ backgroundColor: cor }}
+                  />
+                ))}
+              </div>
+            </div>
+            
+            {/* Equipes vinculadas */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Equipes Vinculadas</label>
+              <div className="max-h-40 overflow-y-auto border rounded-lg p-2 space-y-1">
+                {equipes.length === 0 ? (
+                  <p className="text-muted-foreground text-sm text-center py-2">
+                    Nenhuma equipe disponível
+                  </p>
+                ) : (
+                  equipes.map((equipe) => {
+                    const estaSelecionada = novoTerritorioEquipes.includes(equipe.id);
+                    return (
+                      <label
+                        key={equipe.id}
+                        className="flex items-center gap-2 p-1.5 rounded hover:bg-muted cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={estaSelecionada}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setNovoTerritorioEquipes([...novoTerritorioEquipes, equipe.id]);
+                            } else {
+                              setNovoTerritorioEquipes(novoTerritorioEquipes.filter(id => id !== equipe.id));
+                            }
+                          }}
+                          className="rounded"
+                        />
+                        <span className="text-sm">{equipe.codigo} - {equipe.tecnico}</span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+              {novoTerritorioEquipes.length > 0 && (
+                <p className="text-muted-foreground text-xs">
+                  {novoTerritorioEquipes.length} equipe(s) selecionada(s)
+                </p>
+              )}
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setCriarTerritorioOpen(false);
+                setNovoPoligono(null);
+                setNovoTerritorioNome("");
+                setNovoTerritorioCor("#3b82f6");
+                setNovoTerritorioEquipes([]);
+              }}
+              disabled={salvandoTerritorio}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleSalvarNovoTerritorio}
+              disabled={salvandoTerritorio || !novoTerritorioNome.trim()}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {salvandoTerritorio ? "Salvando..." : "Criar Território"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

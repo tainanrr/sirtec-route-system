@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
-import { MapPin, Loader2, Maximize2, Minimize2, Filter, X, Edit, Save, XCircle } from "lucide-react";
+import { MapPin, Loader2, Maximize2, Minimize2, Filter, X, Edit, Save, XCircle, PlusCircle, Pentagon } from "lucide-react";
 
 // Função de debounce para otimização de performance
 function useDebounce<T>(value: T, delay: number): T {
@@ -36,6 +36,12 @@ import { pontoNoPoligono } from "@/types/territorios";
 // Importar Leaflet diretamente (não dinâmico)
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+
+// Importar leaflet-draw para criação de polígonos
+// @ts-ignore - leaflet-draw não tem tipos completos
+import "leaflet-draw/dist/leaflet.draw.css";
+// @ts-ignore - leaflet-draw não tem tipos completos
+import "leaflet-draw";
 
 // Importar MarkerCluster para spiderfy de marcadores sobrepostos
 import "leaflet.markercluster";
@@ -85,6 +91,9 @@ interface MapaLeafletProps {
   selecionandoCoordNoMapa?: boolean; // Modo de seleção de coordenada no mapa
   onMapClick?: (lat: number, lng: number) => void; // Callback quando o mapa é clicado (para seleção de coordenada)
   osCoordenadasSuspeitas?: OSSuspeita[]; // OSs com coordenadas que não correspondem ao bairro
+  criandoPoligono?: boolean; // Modo de criação de novo polígono
+  onPoligonoCriado?: (poligono: { lat: number; lng: number }[]) => void; // Callback quando polígono é criado
+  onCriacaoCancelada?: () => void; // Callback quando criação é cancelada
 }
 
 interface RouteGeometryData {
@@ -122,7 +131,7 @@ function getLucideIconSVG(iconName: string | undefined, color: string, size: num
   `;
 }
 
-export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, focarOSNoMapa, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear, selecionandoCoordNoMapa, onMapClick, osCoordenadasSuspeitas = [] }: MapaLeafletProps) {
+export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, focarOSNoMapa, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear, selecionandoCoordNoMapa, onMapClick, osCoordenadasSuspeitas = [], criandoPoligono, onPoligonoCriado, onCriacaoCancelada }: MapaLeafletProps) {
   
   const mapRef = useRef<HTMLDivElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -157,6 +166,11 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
   const verticesEditaveisRef = useRef<L.Marker[]>([]);
   const polygonEditandoRef = useRef<L.Polygon | null>(null);
   const territorioOriginalRef = useRef<Territorio | null>(null);
+  
+  // Estados para criação de polígonos
+  const drawnItemsRef = useRef<L.FeatureGroup | null>(null);
+  const drawControlRef = useRef<any>(null);
+  const novoPoligonoRef = useRef<L.Polygon | null>(null);
   
   // V19.7: Estado para controlar se o mapa foi inicializado
   const [mapaInicializado, setMapaInicializado] = useState(false);
@@ -516,6 +530,105 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
     limparEdicao();
     setModoEdicao(false);
   };
+
+  // Função para limpar modo de criação de polígono
+  const limparCriacao = () => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    // Remover draw control se existir
+    if (drawControlRef.current) {
+      map.removeControl(drawControlRef.current);
+      drawControlRef.current = null;
+    }
+
+    // Limpar drawn items
+    if (drawnItemsRef.current) {
+      drawnItemsRef.current.clearLayers();
+    }
+
+    novoPoligonoRef.current = null;
+  };
+
+  // useEffect para controlar modo de criação de polígono
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapaInicializado) return;
+
+    if (criandoPoligono) {
+      // Inicializar drawn items se não existir
+      if (!drawnItemsRef.current) {
+        drawnItemsRef.current = new L.FeatureGroup();
+        map.addLayer(drawnItemsRef.current);
+      }
+
+      // Criar draw control para polígonos
+      // @ts-ignore
+      const drawControl = new L.Control.Draw({
+        position: 'topright',
+        draw: {
+          polygon: {
+            allowIntersection: false,
+            drawError: {
+              color: '#e1e1e1',
+              message: '<strong>Erro:</strong> polígono inválido!'
+            },
+            shapeOptions: {
+              color: '#3b82f6',
+              fillColor: '#3b82f6',
+              fillOpacity: 0.3,
+              weight: 2
+            }
+          },
+          polyline: false,
+          circle: false,
+          rectangle: false,
+          marker: false,
+          circlemarker: false
+        },
+        edit: {
+          featureGroup: drawnItemsRef.current,
+          remove: false,
+          edit: false
+        }
+      });
+
+      map.addControl(drawControl);
+      drawControlRef.current = drawControl;
+
+      // Event listener para quando o polígono for criado
+      const handleCreated = (e: any) => {
+        const layer = e.layer as L.Polygon;
+        drawnItemsRef.current?.addLayer(layer);
+        novoPoligonoRef.current = layer;
+
+        // Extrair coordenadas e chamar callback
+        const latlngs = layer.getLatLngs()[0] as L.LatLng[];
+        const poligono = latlngs.map((ll: L.LatLng) => ({
+          lat: ll.lat,
+          lng: ll.lng
+        }));
+
+        if (onPoligonoCriado) {
+          onPoligonoCriado(poligono);
+        }
+
+        // Limpar após criar
+        limparCriacao();
+      };
+
+      // @ts-ignore
+      map.on(L.Draw.Event.CREATED, handleCreated);
+
+      return () => {
+        // @ts-ignore
+        map.off(L.Draw.Event.CREATED, handleCreated);
+        limparCriacao();
+      };
+    } else {
+      limparCriacao();
+    }
+  }, [criandoPoligono, mapaInicializado, onPoligonoCriado]);
 
   // Adicionar animações CSS e estilos para tooltips otimizados
   useEffect(() => {
@@ -2036,8 +2149,38 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
           pointerEvents: 'auto'
         }}
       >
+        {/* Botão de criação de polígono */}
+        {criandoPoligono ? (
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => {
+              limparCriacao();
+              if (onCriacaoCancelada) onCriacaoCancelada();
+            }}
+            className="shadow-lg"
+          >
+            <XCircle className="h-4 w-4 mr-2" />
+            Cancelar Criação
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              // Este botão é apenas visual - a funcionalidade é controlada pela prop criandoPoligono
+              // que vem do componente pai (Roteirizacao)
+            }}
+            className="bg-card/90 backdrop-blur-sm shadow-lg hidden"
+            disabled
+          >
+            <PlusCircle className="h-4 w-4 mr-2" />
+            Criar Polígono
+          </Button>
+        )}
+        
         {/* Botão de edição de polígonos */}
-        {!modoEdicao ? (
+        {!modoEdicao && !criandoPoligono ? (
           <Button
             variant="outline"
             size="sm"
@@ -2047,7 +2190,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
             <Edit className="h-4 w-4 mr-2" />
             Editar Polígonos
           </Button>
-        ) : (
+        ) : modoEdicao ? (
           <>
             {territorioEditando ? (
               <>
@@ -2082,7 +2225,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
               </Button>
             )}
           </>
-        )}
+        ) : null}
 
         {/* Botão de filtros */}
         <Button
