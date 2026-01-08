@@ -1919,13 +1919,23 @@ const Roteirizacao = () => {
         console.log("[PLANEJAMENTO] Data não é hoje, notificação não enviada");
       }
       
-      // Limpar snapshot das rotas originais e estado de edição
-      setRotasOriginais(new Map());
-      setPlanejamentoEditandoId(null);
+      // Atualizar snapshot das rotas originais com as rotas atuais (para próximas comparações)
+      // NÃO limpar o estado de edição - continuar no modo de edição do mesmo planejamento
+      const novoSnapshot = new Map<string, { numero: string; tipo: string }[]>();
+      rotas.forEach(rota => {
+        const ossDaRota = rota.servicos
+          .filter(s => s.tipo === 'SERVICO' && s.ordemServico)
+          .map(s => ({
+            numero: s.ordemServico!.numero,
+            tipo: s.ordemServico!.tipo
+          }));
+        novoSnapshot.set(rota.equipe.id, ossDaRota);
+      });
+      setRotasOriginais(novoSnapshot);
       
-      // Fechar dialog e limpar
+      // Fechar dialog mas manter o modo de edição
       setConfirmarPlanejamentoDialogOpen(false);
-      setDataPlanejamento("");
+      // NÃO limpar: setPlanejamentoEditandoId(null) e setDataPlanejamento("")
       
       // Recarregar OSs para refletir mudanças (apenas pendentes, não planejadas)
       // Usar paginação para carregar todas as OSs
