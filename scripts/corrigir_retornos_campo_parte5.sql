@@ -1,101 +1,85 @@
 -- ==============================================================
 -- SCRIPT DE CORREÇÃO DOS RETORNOS DE CAMPO - PARTE 5
--- Tipos: REATIVACAO, RECORTE A, RECORTE B, RECORTE C
+-- Tipos: RELIGACAO TOP25, RELIGA URGENTE, SUSPENSAO TEMPORARIA
 -- ==============================================================
 
 -- ==============================================================
--- REATIVACAO
+-- RELIGACAO TOP25 -
 -- ==============================================================
-SELECT atualizar_retorno_atividade('REATIVACAO', '95012', 'SDCLU6013II', 'obrigatorio', 1, false, 1);
-SELECT atualizar_retorno_atividade('REATIVACAO', '95012', 'SDCLU6016II', 'obrigatorio', 1, false, 1);
-SELECT atualizar_retorno_atividade('REATIVACAO', '95019', 'SDCLU6012II', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('REATIVACAO', '95019', 'SDCLU6017II', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('REATIVACAO', '95027', 'SDCLU6020SC', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('REATIVACAO', '95028', 'SDCLU6012II', 'opcional_nao_selecionado', 1, true, 1);
-SELECT atualizar_retorno_atividade('REATIVACAO', '95028', 'SDCLU6016II', 'obrigatorio', 1, false, 1);
-SELECT atualizar_retorno_atividade('REATIVACAO', '95029', 'SDCLU6012II', 'opcional_nao_selecionado', 1, true, 1);
-SELECT atualizar_retorno_atividade('REATIVACAO', '95029', 'SDCLU6017II', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('REATIVACAO', '96004', 'SDCLU6019SC', 'obrigatorio', 1, false, 3);
-SELECT atualizar_retorno_atividade('REATIVACAO', '96007', 'SDCLU6020SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('REATIVACAO', '96017', 'SDCLU6020SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('REATIVACAO', '96021', 'SDCLU6020SC', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('REATIVACAO', '96028', 'SDCLU6020SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('REATIVACAO', '96029', 'SDCLU6020SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('REATIVACAO', '96031', 'SDCLU6020SC', 'obrigatorio', 1, true, 2);
+SELECT atualizar_retorno_atividade('RELIGACAO TOP25 -', '9803', 'SDCCU6433SC', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('RELIGACAO TOP25 -', '95002', 'SDCCU6418SC', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('RELIGACAO TOP25 -', '95003', 'NDCCU0018SC', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('RELIGACAO TOP25 -', '95007', 'SDCCU6408SC', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('RELIGACAO TOP25 -', '95013', 'SDCCU6408SC', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('RELIGACAO TOP25 -', '95013', 'SDCLU6013II', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('RELIGACAO TOP25 -', '95013', 'SDCLU6016II', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('RELIGACAO TOP25 -', '95020', 'SDCCU6408SC', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('RELIGACAO TOP25 -', '95020', 'SDCLU6012II', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('RELIGACAO TOP25 -', '95020', 'SDCLU6017II', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('RELIGACAO TOP25 -', '96001', 'SDCCU6407SC', 'obrigatorio', 1, true, 3);
+SELECT atualizar_retorno_atividade('RELIGACAO TOP25 -', '96002', 'SDCCU6410SC', 'obrigatorio', 1, true, 3);
+SELECT atualizar_retorno_atividade('RELIGACAO TOP25 -', '96003', 'SDCCU6425SC', 'obrigatorio', 1, true, 3);
+SELECT atualizar_retorno_atividade('RELIGACAO TOP25 -', '96004', 'SDCCU6419SC', 'obrigatorio', 1, true, 3);
+SELECT atualizar_retorno_atividade('RELIGACAO TOP25 -', '96005', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
+SELECT atualizar_retorno_atividade('RELIGACAO TOP25 -', '96008', 'SDCCU6420SC', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('RELIGACAO TOP25 -', '96009', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
+SELECT atualizar_retorno_atividade('RELIGACAO TOP25 -', '96012', 'SDCCU6420SC', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('RELIGACAO TOP25 -', '96014', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
+SELECT atualizar_retorno_atividade('RELIGACAO TOP25 -', '96017', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
+SELECT atualizar_retorno_atividade('RELIGACAO TOP25 -', '96019', 'SDCCU6427SC', 'obrigatorio', 1, true, 2);
+SELECT atualizar_retorno_atividade('RELIGACAO TOP25 -', '96025', 'SDCCU6427SC', 'obrigatorio', 1, true, 2);
+SELECT atualizar_retorno_atividade('RELIGACAO TOP25 -', '96033', 'SDCCU6427SC', 'obrigatorio', 1, true, 3);
+SELECT atualizar_retorno_atividade('RELIGACAO TOP25 -', '96034', 'SDCCU6427SC', 'obrigatorio', 1, true, 3);
+SELECT atualizar_retorno_atividade('RELIGACAO TOP25 -', '96035', 'SDCCU6427SC', 'obrigatorio', 1, true, 2);
 
 -- ==============================================================
--- RECORTE A
+-- RELIGA URGENTE -
 -- ==============================================================
-SELECT atualizar_retorno_atividade('RECORTE_A', '9801', 'SDCCU6432SC', 'obrigatorio', 1, false, 0);
-SELECT atualizar_retorno_atividade('RECORTE_A', '9801', 'SDCCU6431SC', 'obrigatorio', 1, false, 0);
-SELECT atualizar_retorno_atividade('RECORTE_A', '95004', 'SDCCU6409SC', 'obrigatorio', 1, false, 1);
-SELECT atualizar_retorno_atividade('RECORTE_A', '95006', 'SDCCU6408SC', 'obrigatorio', 1, false, 1);
-SELECT atualizar_retorno_atividade('RECORTE_A', '95012', 'SDCLU6013RD', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('RECORTE_A', '95019', 'SDCLU6012RD', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('RECORTE_A', '95023', 'NDCCU0028SC', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('RECORTE_A', '95024', 'NDCCU0029SC', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('RECORTE_A', '95043', 'SDCCU6420SC', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('RECORTE_A', '96004', 'SDCCU6419SC', 'obrigatorio', 1, true, 3);
-SELECT atualizar_retorno_atividade('RECORTE_A', '96005', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('RECORTE_A', '96008', 'SDCCU6420SC', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('RECORTE_A', '96009', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('RECORTE_A', '96010', 'SDCCU6420SC', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('RECORTE_A', '96011', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('RECORTE_A', '96012', 'SDCCU6420SC', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('RECORTE_A', '96013', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('RECORTE_A', '96014', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('RECORTE_A', '96017', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('RECORTE_A', '96024', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
+SELECT atualizar_retorno_atividade('RELIGA URGENTE -', '9803', 'SDCCU6433SC', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('RELIGA URGENTE -', '95002', 'SDCCU6418SC', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('RELIGA URGENTE -', '95003', 'NDCCU0018SC', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('RELIGA URGENTE -', '95007', 'SDCCU6408SC', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('RELIGA URGENTE -', '95013', 'SDCCU6408SC', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('RELIGA URGENTE -', '95013', 'SDCLU6013II', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('RELIGA URGENTE -', '95013', 'SDCLU6016II', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('RELIGA URGENTE -', '95020', 'SDCCU6408SC', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('RELIGA URGENTE -', '95020', 'SDCLU6012II', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('RELIGA URGENTE -', '95020', 'SDCLU6017II', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('RELIGA URGENTE -', '96001', 'SDCCU6407SC', 'obrigatorio', 1, true, 3);
+SELECT atualizar_retorno_atividade('RELIGA URGENTE -', '96002', 'SDCCU6410SC', 'obrigatorio', 1, true, 3);
+SELECT atualizar_retorno_atividade('RELIGA URGENTE -', '96003', 'SDCCU6425SC', 'obrigatorio', 1, true, 3);
+SELECT atualizar_retorno_atividade('RELIGA URGENTE -', '96004', 'SDCCU6419SC', 'obrigatorio', 1, true, 3);
+SELECT atualizar_retorno_atividade('RELIGA URGENTE -', '96005', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
+SELECT atualizar_retorno_atividade('RELIGA URGENTE -', '96008', 'SDCCU6420SC', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('RELIGA URGENTE -', '96009', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
+SELECT atualizar_retorno_atividade('RELIGA URGENTE -', '96012', 'SDCCU6420SC', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('RELIGA URGENTE -', '96014', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
+SELECT atualizar_retorno_atividade('RELIGA URGENTE -', '96017', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
+SELECT atualizar_retorno_atividade('RELIGA URGENTE -', '96019', 'SDCCU6427SC', 'obrigatorio', 1, true, 2);
+SELECT atualizar_retorno_atividade('RELIGA URGENTE -', '96025', 'SDCCU6427SC', 'obrigatorio', 1, true, 2);
+SELECT atualizar_retorno_atividade('RELIGA URGENTE -', '96033', 'SDCCU6427SC', 'obrigatorio', 1, true, 3);
+SELECT atualizar_retorno_atividade('RELIGA URGENTE -', '96034', 'SDCCU6427SC', 'obrigatorio', 1, true, 3);
+SELECT atualizar_retorno_atividade('RELIGA URGENTE -', '96035', 'SDCCU6427SC', 'obrigatorio', 1, true, 2);
 
 -- ==============================================================
--- RECORTE B
+-- SUSPENSAO TEMPORARIA -
 -- ==============================================================
-SELECT atualizar_retorno_atividade('RECORTE_B', '9801', 'SDCCU6432SC', 'obrigatorio', 1, false, 0);
-SELECT atualizar_retorno_atividade('RECORTE_B', '9801', 'SDCCU6431SC', 'obrigatorio', 1, false, 0);
-SELECT atualizar_retorno_atividade('RECORTE_B', '95004', 'SDCCU6409SC', 'obrigatorio', 1, false, 1);
-SELECT atualizar_retorno_atividade('RECORTE_B', '95006', 'SDCCU6408SC', 'obrigatorio', 1, false, 1);
-SELECT atualizar_retorno_atividade('RECORTE_B', '95012', 'SDCLU6013RD', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('RECORTE_B', '95019', 'SDCLU6012RD', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('RECORTE_B', '95023', 'NDCCU0028SC', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('RECORTE_B', '95024', 'NDCCU0029SC', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('RECORTE_B', '95043', 'SDCCU6420SC', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('RECORTE_B', '96004', 'SDCCU6419SC', 'obrigatorio', 1, true, 3);
-SELECT atualizar_retorno_atividade('RECORTE_B', '96005', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('RECORTE_B', '96008', 'SDCCU6420SC', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('RECORTE_B', '96009', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('RECORTE_B', '96010', 'SDCCU6420SC', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('RECORTE_B', '96011', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('RECORTE_B', '96012', 'SDCCU6420SC', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('RECORTE_B', '96013', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('RECORTE_B', '96014', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('RECORTE_B', '96017', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('RECORTE_B', '96024', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
+SELECT atualizar_retorno_atividade('SUSPENSAO TEMPORARIA -', '95008', 'SDCLU6016RD', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('SUSPENSAO TEMPORARIA -', '95012', 'SDCLU6013RD', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('SUSPENSAO TEMPORARIA -', '95013', 'SDCLU6013RD', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('SUSPENSAO TEMPORARIA -', '95013', 'SDCLU6016RD', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('SUSPENSAO TEMPORARIA -', '95016', 'SDCLU6017RD', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('SUSPENSAO TEMPORARIA -', '95019', 'SDCLU6012RD', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('SUSPENSAO TEMPORARIA -', '95020', 'SDCLU6012RD', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('SUSPENSAO TEMPORARIA -', '95020', 'SDCLU6017RD', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('SUSPENSAO TEMPORARIA -', '96004', 'SDCCU6419SC', 'obrigatorio', 1, true, 3);
+SELECT atualizar_retorno_atividade('SUSPENSAO TEMPORARIA -', '96005', 'SDCCU6420SC', 'obrigatorio', 1, false, 2);
+SELECT atualizar_retorno_atividade('SUSPENSAO TEMPORARIA -', '96007', 'SDCCU6420SC', 'obrigatorio', 1, false, 2);
+SELECT atualizar_retorno_atividade('SUSPENSAO TEMPORARIA -', '96009', 'SDCCU6420SC', 'obrigatorio', 1, false, 2);
+SELECT atualizar_retorno_atividade('SUSPENSAO TEMPORARIA -', '96011', 'SDCCU6420SC', 'obrigatorio', 1, false, 2);
+SELECT atualizar_retorno_atividade('SUSPENSAO TEMPORARIA -', '96012', 'SDCCU6420SC', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('SUSPENSAO TEMPORARIA -', '96013', 'SDCCU6420SC', 'obrigatorio', 1, false, 2);
+SELECT atualizar_retorno_atividade('SUSPENSAO TEMPORARIA -', '96014', 'SDCCU6420SC', 'obrigatorio', 1, false, 2);
+SELECT atualizar_retorno_atividade('SUSPENSAO TEMPORARIA -', '96017', 'SDCCU6420SC', 'obrigatorio', 1, false, 2);
 
--- ==============================================================
--- RECORTE C
--- ==============================================================
-SELECT atualizar_retorno_atividade('RECORTE_C', '9801', 'SDCCU6432SC', 'obrigatorio', 1, false, 0);
-SELECT atualizar_retorno_atividade('RECORTE_C', '9801', 'SDCCU6431SC', 'obrigatorio', 1, false, 0);
-SELECT atualizar_retorno_atividade('RECORTE_C', '95004', 'SDCCU6409SC', 'obrigatorio', 1, false, 1);
-SELECT atualizar_retorno_atividade('RECORTE_C', '95006', 'SDCCU6408SC', 'obrigatorio', 1, false, 1);
-SELECT atualizar_retorno_atividade('RECORTE_C', '95012', 'SDCLU6013RD', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('RECORTE_C', '95019', 'SDCLU6012RD', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('RECORTE_C', '95023', 'NDCCU0028SC', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('RECORTE_C', '95024', 'NDCCU0029SC', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('RECORTE_C', '95043', 'SDCCU6420SC', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('RECORTE_C', '96004', 'SDCCU6419SC', 'obrigatorio', 1, true, 3);
-SELECT atualizar_retorno_atividade('RECORTE_C', '96005', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('RECORTE_C', '96008', 'SDCCU6420SC', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('RECORTE_C', '96009', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('RECORTE_C', '96010', 'SDCCU6420SC', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('RECORTE_C', '96011', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('RECORTE_C', '96012', 'SDCCU6420SC', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('RECORTE_C', '96013', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('RECORTE_C', '96014', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('RECORTE_C', '96017', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('RECORTE_C', '96024', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-
--- Verificação
 SELECT 'Parte 5 executada com sucesso' as resultado;
-
-
