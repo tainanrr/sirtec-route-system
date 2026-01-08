@@ -3651,18 +3651,18 @@ const Roteirizacao = () => {
                       <div className="text-xs font-semibold text-muted-foreground mb-2">
                         Sequência de OSs (arraste para reordenar):
                       </div>
-                      <Droppable droppableId={`equipe-${rotaEditando.equipe.id}`} direction="horizontal">
+                      <Droppable droppableId={`equipe-${rotaEditando.equipe.id}`}>
                         {(provided, snapshot) => (
                           <div
                             ref={provided.innerRef}
                             {...provided.droppableProps}
                             className={cn(
-                              "flex flex-wrap gap-1 min-h-[200px]",
+                              "flex flex-col gap-1 min-h-[200px] max-h-[400px] overflow-y-auto pr-1",
                               snapshot.isDraggingOver && "bg-primary/5 rounded-lg p-2"
                             )}
                           >
                             {servicosComAlmoco.length === 0 ? (
-                              <div className="w-full text-center py-8 text-muted-foreground text-sm border-2 border-dashed rounded-lg">
+                              <div className="text-center py-8 text-muted-foreground text-sm border-2 border-dashed rounded-lg">
                                 <p>Nenhuma OS nesta rota</p>
                                 <p className="text-xs mt-1">Arraste OSs do backlog ou clique em uma OS no mapa</p>
                               </div>
@@ -3682,24 +3682,21 @@ const Roteirizacao = () => {
                                           ref={provided.innerRef}
                                           {...provided.draggableProps}
                                           className={cn(
-                                            "group flex items-center gap-1 p-1 rounded border bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800 transition-all",
-                                            "w-[calc(25%-3px)]", // ~4 itens por linha com gap de 4px
+                                            "flex items-center gap-2 p-2 rounded border bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800 transition-all",
                                             snapshot.isDragging && "shadow-lg ring-2 ring-primary z-50"
                                           )}
                                         >
                                           {/* Ícone de Almoço */}
-                                          <div
-                                            className="flex-shrink-0 h-4 w-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white bg-amber-500"
-                                          >
+                                          <div className="flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-sm bg-amber-500">
                                             🍽️
                                           </div>
 
                                           {/* Informações do Almoço */}
                                           <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-0.5">
-                                              <span className="font-medium text-[9px] text-foreground">Almoço</span>
+                                            <div className="flex items-center gap-2">
+                                              <span className="font-medium text-sm text-foreground">ALMOÇO</span>
                                               {servico.horaInicio && servico.horaFim && (
-                                                <span className="text-[8px] text-muted-foreground">
+                                                <span className="text-xs text-muted-foreground">
                                                   {servico.horaInicio} - {servico.horaFim}
                                                 </span>
                                               )}
@@ -3734,8 +3731,7 @@ const Roteirizacao = () => {
                                                 }
                                               }}
                                               className={cn(
-                                                "group flex flex-col gap-0.5 p-1 rounded border bg-card transition-all",
-                                                "w-[calc(25%-3px)]", // ~4 itens por linha com gap de 4px
+                                                "group flex items-center gap-2 p-2 rounded border bg-card transition-all",
                                                 snapshot.isDragging && "shadow-lg ring-2 ring-primary z-50 cursor-grabbing",
                                                 !snapshot.isDragging && "hover:bg-muted/50 cursor-grab",
                                                 foraDoPrazo && "border-danger/50 bg-danger/5",
@@ -3743,169 +3739,127 @@ const Roteirizacao = () => {
                                                 estaEmAndamento && "ring-2 ring-green-500 bg-green-50 dark:bg-green-950 border-green-300 dark:border-green-700"
                                               )}
                                             >
-                                              {/* Linha superior: Número da ordem */}
-                                              <div className="flex items-center gap-0.5">
-                                                {/* Número da ordem - Clicável para editar posição */}
-                                                {osEditandoPosicao === os.id ? (
-                                                  <Input
-                                                    type="number"
-                                                    min={1}
-                                                    max={servicosComAlmoco.filter(s => s.tipo === 'SERVICO').length}
-                                                    value={novaPosicaoInput}
-                                                    onChange={(e) => setNovaPosicaoInput(e.target.value)}
-                                                    onBlur={() => {
-                                                      const novaPos = parseInt(novaPosicaoInput);
-                                                      const totalOSs = servicosComAlmoco.filter(s => s.tipo === 'SERVICO').length;
-                                                      if (!isNaN(novaPos) && novaPos >= 1 && novaPos <= totalOSs) {
-                                                        // Encontrar índice atual da OS na lista completa
-                                                        const servicosComAlmocoAtual = rotaEditando.servicos.filter(s => (s.tipo === 'SERVICO' && s.ordemServico) || s.tipo === 'ALMOCO');
-                                                        const indiceAtual = servicosComAlmocoAtual.findIndex(s => s.tipo === 'SERVICO' && s.ordemServico?.id === os.id);
-                                                        
-                                                        // Calcular posição atual (considerando apenas OSs)
-                                                        const osIndexAtual = servicosComAlmocoAtual.slice(0, indiceAtual).filter(s => s.tipo === 'SERVICO').length + 1;
-                                                        
-                                                        if (osIndexAtual !== novaPos) {
-                                                          // Encontrar índice real no array completo
-                                                          const indiceRealAtual = rotaEditando.servicos.findIndex(s => s.tipo === 'SERVICO' && s.ordemServico?.id === os.id);
-                                                          
-                                                          // Encontrar onde colocar a OS para que ela fique na posição novaPos (considerando apenas OSs)
-                                                          // novaPos é 1-indexed: posição 1, 2, 3, 4, 5...
-                                                          // Estratégia: contar quantas OSs devem vir ANTES da posição novaPos
-                                                          // Se queremos posição 5, precisamos que 4 OSs venham antes (posições 1-4)
-                                                          
-                                                          const servicosValidos = servicosComAlmocoAtual.filter(s => s.tipo === 'SERVICO');
-                                                          
-                                                          let indiceRealDestino: number;
-                                                          
-                                                          if (novaPos === 1) {
-                                                            // Colocar na primeira posição: antes da primeira OS
-                                                            const primeiraOS = servicosValidos[0];
-                                                            if (primeiraOS && primeiraOS.ordemServico?.id !== os.id) {
-                                                              indiceRealDestino = rotaEditando.servicos.findIndex(s => 
-                                                                s.tipo === 'SERVICO' && s.ordemServico?.id === primeiraOS.ordemServico?.id
-                                                              );
-                                                            } else {
-                                                              // Se a primeira OS é a atual ou não existe, colocar no início
-                                                              indiceRealDestino = 0;
-                                                            }
-                                                          } else if (novaPos > servicosValidos.length) {
-                                                            // Colocar após a última OS: no final do array
+                                              {/* Número da ordem */}
+                                              {osEditandoPosicao === os.id ? (
+                                                <Input
+                                                  type="number"
+                                                  min={1}
+                                                  max={servicosComAlmoco.filter(s => s.tipo === 'SERVICO').length}
+                                                  value={novaPosicaoInput}
+                                                  onChange={(e) => setNovaPosicaoInput(e.target.value)}
+                                                  onBlur={() => {
+                                                    const novaPos = parseInt(novaPosicaoInput);
+                                                    const totalOSs = servicosComAlmoco.filter(s => s.tipo === 'SERVICO').length;
+                                                    if (!isNaN(novaPos) && novaPos >= 1 && novaPos <= totalOSs) {
+                                                      const servicosComAlmocoAtual = rotaEditando.servicos.filter(s => (s.tipo === 'SERVICO' && s.ordemServico) || s.tipo === 'ALMOCO');
+                                                      const indiceAtual = servicosComAlmocoAtual.findIndex(s => s.tipo === 'SERVICO' && s.ordemServico?.id === os.id);
+                                                      const osIndexAtual = servicosComAlmocoAtual.slice(0, indiceAtual).filter(s => s.tipo === 'SERVICO').length + 1;
+                                                      if (osIndexAtual !== novaPos) {
+                                                        const indiceRealAtual = rotaEditando.servicos.findIndex(s => s.tipo === 'SERVICO' && s.ordemServico?.id === os.id);
+                                                        const servicosValidos = servicosComAlmocoAtual.filter(s => s.tipo === 'SERVICO');
+                                                        let indiceRealDestino: number;
+                                                        if (novaPos === 1) {
+                                                          const primeiraOS = servicosValidos[0];
+                                                          indiceRealDestino = primeiraOS && primeiraOS.ordemServico?.id !== os.id
+                                                            ? rotaEditando.servicos.findIndex(s => s.tipo === 'SERVICO' && s.ordemServico?.id === primeiraOS.ordemServico?.id)
+                                                            : 0;
+                                                        } else if (novaPos > servicosValidos.length) {
+                                                          indiceRealDestino = rotaEditando.servicos.length;
+                                                        } else {
+                                                          const servicosValidosSemAtual = servicosComAlmocoAtual.filter(s => s.tipo === 'SERVICO' && s.ordemServico?.id !== os.id);
+                                                          if (novaPos - 1 >= servicosValidosSemAtual.length) {
                                                             indiceRealDestino = rotaEditando.servicos.length;
                                                           } else {
-                                                            // Para colocar na posição novaPos (1-indexed), precisamos que (novaPos - 1) OSs venham antes
-                                                            // Exemplo: para posição 5, precisamos que 4 OSs venham antes
-                                                            // Estratégia: encontrar onde colocar no array completo para que, após a inserção,
-                                                            // exatamente (novaPos - 1) OSs venham antes da nossa OS
-                                                            const servicosValidos = servicosComAlmocoAtual.filter(s => s.tipo === 'SERVICO' && s.ordemServico?.id !== os.id);
-                                                            
-                                                            if (novaPos - 1 >= servicosValidos.length) {
-                                                              // Colocar no final: após todas as outras OSs
-                                                              indiceRealDestino = rotaEditando.servicos.length;
-                                                            } else {
-                                                              // Encontrar a OS que deve ficar na posição novaPos após a inserção
-                                                              // Isso é a OS que está atualmente na posição novaPos (considerando apenas outras OSs)
-                                                              const servicoNaPosicaoDesejada = servicosValidos[novaPos - 1];
-                                                              
-                                                              if (servicoNaPosicaoDesejada) {
-                                                                // Encontrar o índice dessa OS no array completo
-                                                                indiceRealDestino = rotaEditando.servicos.findIndex(s => 
-                                                                  s.tipo === 'SERVICO' && s.ordemServico?.id === servicoNaPosicaoDesejada.ordemServico?.id
-                                                                );
-                                                                
-                                                                if (indiceRealDestino === -1) {
-                                                                  indiceRealDestino = rotaEditando.servicos.length;
-                                                                }
-                                                              } else {
-                                                                indiceRealDestino = rotaEditando.servicos.length;
-                                                              }
-                                                            }
-                                                          }
-                                                            
-                                                          if (indiceRealAtual !== -1 && indiceRealDestino !== -1) {
-                                                            const novasRotas = rotas.map(r => {
-                                                              if (r.equipe.id === equipeEditando) {
-                                                                const novosServicos = [...r.servicos];
-                                                                const [removido] = novosServicos.splice(indiceRealAtual, 1);
-                                                                // Ajustar índice de destino se necessário
-                                                                // Se estamos movendo para frente (índice atual < destino), 
-                                                                // o destino diminui em 1 porque removemos um elemento antes dele
-                                                                const indiceDestinoAjustado = indiceRealAtual < indiceRealDestino 
-                                                                  ? indiceRealDestino - 1 
-                                                                  : indiceRealDestino;
-                                                                novosServicos.splice(indiceDestinoAjustado, 0, removido);
-                                                                const rotaAtualizada = { ...r, servicos: novosServicos };
-                                                                return recalcularRota(rotaAtualizada).rota;
-                                                              }
-                                                              return r;
-                                                            });
-                                                            setRotas(novasRotas);
-                                                            toast.success(`OS ${os.numero} movida para posição ${novaPos}`);
+                                                            const servicoNaPosicaoDesejada = servicosValidosSemAtual[novaPos - 1];
+                                                            indiceRealDestino = servicoNaPosicaoDesejada
+                                                              ? rotaEditando.servicos.findIndex(s => s.tipo === 'SERVICO' && s.ordemServico?.id === servicoNaPosicaoDesejada.ordemServico?.id)
+                                                              : rotaEditando.servicos.length;
+                                                            if (indiceRealDestino === -1) indiceRealDestino = rotaEditando.servicos.length;
                                                           }
                                                         }
+                                                        if (indiceRealAtual !== -1 && indiceRealDestino !== -1) {
+                                                          const novasRotas = rotas.map(r => {
+                                                            if (r.equipe.id === equipeEditando) {
+                                                              const novosServicos = [...r.servicos];
+                                                              const [removido] = novosServicos.splice(indiceRealAtual, 1);
+                                                              const indiceDestinoAjustado = indiceRealAtual < indiceRealDestino ? indiceRealDestino - 1 : indiceRealDestino;
+                                                              novosServicos.splice(indiceDestinoAjustado, 0, removido);
+                                                              return recalcularRota({ ...r, servicos: novosServicos }).rota;
+                                                            }
+                                                            return r;
+                                                          });
+                                                          setRotas(novasRotas);
+                                                          toast.success(`OS ${os.numero} movida para posição ${novaPos}`);
+                                                        }
                                                       }
-                                                      setOsEditandoPosicao(null);
-                                                      setNovaPosicaoInput("");
-                                                    }}
-                                                    onKeyDown={(e) => {
-                                                      if (e.key === 'Enter') {
-                                                        e.currentTarget.blur();
-                                                      } else if (e.key === 'Escape') {
-                                                        setOsEditandoPosicao(null);
-                                                        setNovaPosicaoInput("");
-                                                      }
-                                                    }}
-                                                    onClick={(e) => e.stopPropagation()}
-                                                    className="h-4 w-8 text-[8px] p-0 text-center"
-                                                    autoFocus
-                                                  />
-                                                ) : (
-                                                  <div
-                                                    onDoubleClick={(e) => {
-                                                      e.stopPropagation();
-                                                      setOsEditandoPosicao(os.id);
-                                                      const posicaoAtual = servicosComAlmoco.slice(0, index).filter(s => s.tipo === 'SERVICO').length + 1;
-                                                      setNovaPosicaoInput(posicaoAtual.toString());
-                                                    }}
-                                                    className="flex-shrink-0 h-4 w-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white cursor-grab active:cursor-grabbing hover:opacity-80 transition-opacity"
-                                                    style={{ backgroundColor: cor }}
-                                                    title="Arraste para mover ou duplo clique para editar posição"
-                                                  >
-                                                    {servicosComAlmoco.slice(0, index).filter(s => s.tipo === 'SERVICO').length + 1}
-                                                  </div>
-                                                )}
-
-                                                {/* Informações da OS */}
-                                                <div className="flex-1 min-w-0">
-                                                  <div className="flex items-center gap-0.5">
-                                                    <span className="font-medium text-[9px] text-foreground truncate">{os.numero}</span>
-                                                    {os.regulada && <Zap className="h-2 w-2 text-danger flex-shrink-0" />}
-                                                    {estaEmAndamento && (
-                                                      <Badge className="bg-green-500 hover:bg-green-600 text-[7px] px-0.5 py-0">
-                                                        EM ANDAMENTO
-                                                      </Badge>
-                                                    )}
-                                                    {foraDoPrazo && (
-                                                      <Badge variant="destructive" className="text-[7px] px-0.5 py-0">
-                                                        FORA
-                                                      </Badge>
-                                                    )}
-                                                  </div>
-                                                  {servico.horaInicio && (
-                                                    <div className="text-[8px] text-muted-foreground">
-                                                      {servico.horaInicio} - {servico.horaFim}
-                                                    </div>
-                                                  )}
+                                                    }
+                                                    setOsEditandoPosicao(null);
+                                                    setNovaPosicaoInput("");
+                                                  }}
+                                                  onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') e.currentTarget.blur();
+                                                    else if (e.key === 'Escape') { setOsEditandoPosicao(null); setNovaPosicaoInput(""); }
+                                                  }}
+                                                  onClick={(e) => e.stopPropagation()}
+                                                  className="h-6 w-10 text-xs p-0 text-center flex-shrink-0"
+                                                  autoFocus
+                                                />
+                                              ) : (
+                                                <div
+                                                  onDoubleClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setOsEditandoPosicao(os.id);
+                                                    setNovaPosicaoInput((servicosComAlmoco.slice(0, index).filter(s => s.tipo === 'SERVICO').length + 1).toString());
+                                                  }}
+                                                  className="flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                                                  style={{ backgroundColor: cor }}
+                                                  title="Duplo clique para editar posição"
+                                                >
+                                                  {servicosComAlmoco.slice(0, index).filter(s => s.tipo === 'SERVICO').length + 1}
                                                 </div>
+                                              )}
+
+                                              {/* Número OS e Tipo */}
+                                              <div className="flex-shrink-0 min-w-[100px]">
+                                                <div className="flex items-center gap-1">
+                                                  <span className="font-mono font-semibold text-xs">{os.numero}</span>
+                                                  {os.regulada && <Zap className="h-3 w-3 text-danger flex-shrink-0" />}
+                                                </div>
+                                                <div className="text-[10px] text-muted-foreground truncate">{os.tipo}</div>
                                               </div>
 
-                                              {/* Linha inferior: Endereço */}
-                                              <div className="flex items-center gap-0.5 text-[8px] text-muted-foreground">
-                                                <MapPin className="h-1.5 w-1.5 flex-shrink-0" />
-                                                <span className="truncate">{os.endereco}</span>
+                                              {/* Horário */}
+                                              <div className="flex-shrink-0 text-xs text-center min-w-[70px]">
+                                                {servico.horaInicio && (
+                                                  <div className="font-medium">{servico.horaInicio}</div>
+                                                )}
+                                                {servico.horaFim && (
+                                                  <div className="text-[10px] text-muted-foreground">até {servico.horaFim}</div>
+                                                )}
+                                              </div>
+
+                                              {/* Endereço */}
+                                              <div className="flex-1 min-w-0 flex items-center gap-1">
+                                                <MapPin className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+                                                <span className="text-xs truncate">{os.endereco}</span>
+                                              </div>
+
+                                              {/* Badges */}
+                                              <div className="flex items-center gap-1 flex-shrink-0">
+                                                {estaEmAndamento && (
+                                                  <Badge className="bg-green-500 hover:bg-green-600 text-[10px] px-1">
+                                                    EM ANDAMENTO
+                                                  </Badge>
+                                                )}
+                                                {foraDoPrazo && (
+                                                  <Badge variant="destructive" className="text-[10px] px-1">
+                                                    FORA DO PRAZO
+                                                  </Badge>
+                                                )}
                                               </div>
 
                                               {/* Botões de Ação */}
-                                              <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity mt-1">
+                                              <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                                           {index > 0 && servico.tipo === 'SERVICO' && (
                                             <Button
                                               variant="ghost"
