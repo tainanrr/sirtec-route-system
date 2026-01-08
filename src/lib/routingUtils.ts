@@ -1998,8 +1998,10 @@ export async function otimizarRotas(
             if (srv.tipo === "ALMOCO") {
               srv.tempoDeslocamento = 0;
               srv.distancia = 0;
-              srv.horaInicio = minutosParaHora(tempoAtual);
-              tempoAtual += configAlmoco.duracao; // usar duração configurada da equipe
+              // O almoço deve começar no mínimo às config.inicio (ex: 12:00)
+              const inicioAlmoco = Math.max(tempoAtual, configAlmoco.inicio);
+              srv.horaInicio = minutosParaHora(inicioAlmoco);
+              tempoAtual = inicioAlmoco + configAlmoco.duracao; // usar duração configurada da equipe
               srv.tempoTotal = tempoAtual;
               srv.horaFim = minutosParaHora(tempoAtual);
               srv.eta = srv.horaInicio;
@@ -2840,8 +2842,10 @@ export async function otimizarRotas(
       if (srv.tipo === "ALMOCO") {
         srv.tempoDeslocamento = 0;
         srv.distancia = 0;
-        srv.horaInicio = minutosParaHora(tempoAtual);
-        tempoAtual += configAlmocoLocal.duracao; // usar duração configurada da equipe
+        // O almoço deve começar no mínimo às config.inicio (ex: 12:00)
+        const inicioAlmoco = Math.max(tempoAtual, configAlmocoLocal.inicio);
+        srv.horaInicio = minutosParaHora(inicioAlmoco);
+        tempoAtual = inicioAlmoco + configAlmocoLocal.duracao; // usar duração configurada da equipe
         srv.tempoTotal = tempoAtual;
         srv.horaFim = minutosParaHora(tempoAtual);
         srv.eta = srv.horaInicio;
@@ -4774,10 +4778,12 @@ export function recalcularRota(rota: RotaEquipe): ResultadoRecalculo {
   for (const servico of rotaRecalculada.servicos) {
     if (servico.tipo === "ALMOCO") {
       // Almoço: usar duração configurada da equipe
+      // O almoço deve começar no mínimo às config.inicio (ex: 12:00)
       servico.tempoDeslocamento = 0;
       servico.distancia = 0;
-      servico.horaInicio = minutosParaHora(tempoAtual);
-      tempoAtual += configAlmocoRecalc.duracao; // usar duração configurada da equipe
+      const inicioAlmoco = Math.max(tempoAtual, configAlmocoRecalc.inicio);
+      servico.horaInicio = minutosParaHora(inicioAlmoco);
+      tempoAtual = inicioAlmoco + configAlmocoRecalc.duracao; // usar duração configurada da equipe
       servico.tempoTotal = tempoAtual;
       servico.horaFim = minutosParaHora(tempoAtual);
       servico.eta = servico.horaInicio;
