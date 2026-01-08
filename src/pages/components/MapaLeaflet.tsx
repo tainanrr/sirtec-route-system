@@ -59,6 +59,28 @@ if (typeof window !== "undefined") {
     iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
     shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
   });
+  
+  // Configurar L.drawLocal para evitar erros de "type is not defined" no leaflet-draw
+  // @ts-ignore
+  if (L.drawLocal && L.drawLocal.draw && L.drawLocal.draw.handlers) {
+    // @ts-ignore
+    L.drawLocal.draw.handlers.polygon = {
+      tooltip: {
+        start: 'Clique para iniciar o desenho.',
+        cont: 'Clique para continuar.',
+        end: 'Clique no primeiro ponto para fechar.'
+      }
+    };
+    // @ts-ignore
+    L.drawLocal.draw.handlers.polyline = {
+      tooltip: {
+        start: 'Clique para iniciar.',
+        cont: 'Clique para continuar.',
+        end: 'Clique no último ponto para finalizar.'
+      },
+      error: '<strong>Erro:</strong> as linhas não podem se cruzar!'
+    };
+  }
 }
 
 // Constantes de otimização - carregamento em chunks para não travar a UI
@@ -595,11 +617,24 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
       // @ts-ignore
       map.on(L.Draw.Event.CREATED, handleCreated);
 
+      // Configurar L.drawLocal para evitar erros de "type is not defined"
+      // @ts-ignore
+      if (L.drawLocal) {
+        // @ts-ignore
+        L.drawLocal.draw.handlers.polygon.tooltip = {
+          start: 'Clique para iniciar o desenho do polígono.',
+          cont: 'Clique para continuar desenhando.',
+          end: 'Clique no primeiro ponto para fechar o polígono.'
+        };
+      }
+
       // Criar o handler de desenho de polígono e iniciar automaticamente
       // @ts-ignore
       const polygonDrawer = new L.Draw.Polygon(map, {
         allowIntersection: false,
-        showArea: true,
+        showArea: false, // Desabilitado para evitar bug "type is not defined"
+        showLength: false, // Desabilitado para evitar erros de medição
+        metric: false, // Desabilitar medições métricas
         drawError: {
           color: '#e1e1e1',
           message: '<strong>Erro:</strong> polígono inválido!'
