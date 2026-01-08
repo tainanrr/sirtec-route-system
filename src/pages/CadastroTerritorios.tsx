@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -12,7 +12,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Download, Upload, Trash2, Edit, X } from "lucide-react";
+import { Download, Upload, Trash2, Edit, X, MapPin, Search, ChevronDown, ChevronRight, Check } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
@@ -67,10 +76,19 @@ export default function CadastroTerritorios() {
   const [currentPolygon, setCurrentPolygon] = useState<Coordenada[] | null>(null);
   const [loading, setLoading] = useState(false);
   
-  // Estado para bairros disponíveis (do banco de dados)
-  const [bairrosDisponiveis, setBairrosDisponiveis] = useState<string[]>([]);
+  // Estado para bairros disponíveis (do banco de dados) - agora com município
+  interface BairroMunicipio {
+    bairro: string;
+    municipio: string;
+  }
+  const [bairrosComMunicipio, setBairrosComMunicipio] = useState<BairroMunicipio[]>([]);
   const [bairroSearch, setBairroSearch] = useState("");
   const [novoBairro, setNovoBairro] = useState("");
+  
+  // Modal de edição de bairros
+  const [modalBairrosOpen, setModalBairrosOpen] = useState(false);
+  const [bairrosSelecionados, setBairrosSelecionados] = useState<string[]>([]);
+  const [municipiosExpandidos, setMunicipiosExpandidos] = useState<Set<string>>(new Set());
 
   // Carregar equipes do Supabase
   useEffect(() => {
@@ -108,14 +126,14 @@ export default function CadastroTerritorios() {
     loadTerritorios();
   }, []);
 
-  // Carregar bairros únicos das OSs
+  // Carregar bairros únicos das OSs com município
   useEffect(() => {
     const fetchBairros = async () => {
       try {
-        // Buscar bairros únicos das OSs
+        // Buscar bairros e municípios das OSs
         const { data, error } = await supabase
           .from("ordens_servico")
-          .select("bairro")
+          .select("bairro, municipio")
           .not("bairro", "is", null)
           .not("bairro", "eq", "");
         
@@ -124,10 +142,29 @@ export default function CadastroTerritorios() {
           return;
         }
         
-        // Extrair bairros únicos e ordenar
-        const bairrosUnicos = [...new Set((data || []).map(d => d.bairro).filter(Boolean))] as string[];
-        bairrosUnicos.sort((a, b) => a.localeCompare(b, 'pt-BR'));
-        setBairrosDisponiveis(bairrosUnicos);
+        // Extrair combinações únicas de bairro+município
+        const combinacoes = new Map<string, BairroMunicipio>();
+        (data || []).forEach(d => {
+          if (d.bairro) {
+            const key = `${d.bairro}|${d.municipio || 'Sem município'}`;
+            if (!combinacoes.has(key)) {
+              combinacoes.set(key, {
+                bairro: d.bairro,
+                municipio: d.municipio || 'Sem município'
+              });
+            }
+          }
+        });
+        
+        // Converter para array e ordenar
+        const lista = Array.from(combinacoes.values());
+        lista.sort((a, b) => {
+          const mComp = a.municipio.localeCompare(b.municipio, 'pt-BR');
+          if (mComp !== 0) return mComp;
+          return a.bairro.localeCompare(b.bairro, 'pt-BR');
+        });
+        
+        setBairrosComMunicipio(lista);
       } catch (error) {
         console.error("Erro ao carregar bairros:", error);
       }
@@ -135,6 +172,42 @@ export default function CadastroTerritorios() {
     
     fetchBairros();
   }, []);
+
+  // Agrupar bairros por município para exibição no modal
+  const bairrosPorMunicipio = useMemo(() => {
+    const grupos = new Map<string, string[]>();
+    
+    bairrosComMunicipio.forEach(({ bairro, municipio }) => {
+      if (!grupos.has(municipio)) {
+        grupos.set(municipio, []);
+      }
+      grupos.get(municipio)!.push(bairro);
+    });
+    
+    // Converter para array ordenado
+    const resultado: { municipio: string; bairros: string[] }[] = [];
+    grupos.forEach((bairros, municipio) => {
+      resultado.push({ municipio, bairros: bairros.sort((a, b) => a.localeCompare(b, 'pt-BR')) });
+    });
+    
+    return resultado.sort((a, b) => a.municipio.localeCompare(b.municipio, 'pt-BR'));
+  }, [bairrosComMunicipio]);
+
+  // Filtrar bairros no modal de edição
+  const bairrosFiltrados = useMemo(() => {
+    if (!bairroSearch.trim()) return bairrosPorMunicipio;
+    
+    const searchLower = bairroSearch.toLowerCase();
+    return bairrosPorMunicipio
+      .map(grupo => ({
+        municipio: grupo.municipio,
+        bairros: grupo.bairros.filter(b => 
+          b.toLowerCase().includes(searchLower) ||
+          grupo.municipio.toLowerCase().includes(searchLower)
+        )
+      }))
+      .filter(grupo => grupo.bairros.length > 0);
+  }, [bairrosPorMunicipio, bairroSearch]);
 
   // Inicializar mapa
   useEffect(() => {
@@ -688,134 +761,56 @@ export default function CadastroTerritorios() {
                   )}
                 </div>
 
-                {/* Bairros/Localidades */}
+                {/* Bairros/Localidades - Versão simplificada com botão para modal */}
                 <div className="space-y-2">
-                  <Label className="text-white text-sm font-medium">Bairros/Localidades</Label>
-                  <p className="text-slate-400 text-xs">
-                    Selecione os bairros que pertencem a este território para validação de coordenadas
-                  </p>
-                  
-                  {/* Busca de bairros */}
-                  <div className="relative">
-                    <Input
-                      placeholder="Buscar bairro..."
-                      value={bairroSearch}
-                      onChange={(e) => setBairroSearch(e.target.value)}
-                      className="bg-slate-800 border-slate-600 text-white placeholder:text-slate-400"
-                      disabled={!podeEditar}
-                    />
+                  <div className="flex items-center justify-between">
+                    <Label className="text-white text-sm font-medium">Bairros/Localidades</Label>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setBairrosSelecionados([...formData.bairros]);
+                        setBairroSearch("");
+                        setMunicipiosExpandidos(new Set());
+                        setModalBairrosOpen(true);
+                      }}
+                      className="h-7 text-xs border-blue-500 text-blue-400 hover:bg-blue-600/20"
+                    >
+                      <MapPin className="h-3 w-3 mr-1" />
+                      Editar Bairros
+                    </Button>
                   </div>
                   
-                  {/* Lista de bairros disponíveis (filtrada) */}
-                  <div className="max-h-32 overflow-y-auto bg-slate-800 rounded border border-slate-600 p-1">
-                    {(() => {
-                      const bairrosFiltrados = bairrosDisponiveis.filter(b => 
-                        b.toLowerCase().includes(bairroSearch.toLowerCase()) &&
-                        !formData.bairros.includes(b)
-                      );
-                      
-                      if (bairrosFiltrados.length === 0 && bairroSearch) {
-                        return (
-                          <p className="text-slate-400 text-xs text-center py-2">
-                            Nenhum bairro encontrado
-                          </p>
-                        );
-                      }
-                      
-                      return bairrosFiltrados.slice(0, 20).map((bairro) => (
-                        <button
-                          key={bairro}
-                          type="button"
-                          onClick={() => {
-                            if (podeEditar) {
-                              setFormData({
-                                ...formData,
-                                bairros: [...formData.bairros, bairro],
-                              });
-                              setBairroSearch("");
-                            }
-                          }}
-                          className="w-full text-left text-sm p-1.5 rounded hover:bg-slate-600 text-white disabled:opacity-50"
-                          disabled={!podeEditar}
-                        >
-                          + {bairro}
-                        </button>
-                      ));
-                    })()}
-                  </div>
-                  
-                  {/* Adicionar bairro manualmente */}
-                  {podeEditar && (
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="Novo bairro (não listado)..."
-                        value={novoBairro}
-                        onChange={(e) => setNovoBairro(e.target.value)}
-                        className="bg-slate-800 border-slate-600 text-white placeholder:text-slate-400 flex-1"
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && novoBairro.trim()) {
-                            e.preventDefault();
-                            if (!formData.bairros.includes(novoBairro.trim())) {
-                              setFormData({
-                                ...formData,
-                                bairros: [...formData.bairros, novoBairro.trim()],
-                              });
-                            }
-                            setNovoBairro("");
-                          }
-                        }}
-                      />
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={() => {
-                          if (novoBairro.trim() && !formData.bairros.includes(novoBairro.trim())) {
-                            setFormData({
-                              ...formData,
-                              bairros: [...formData.bairros, novoBairro.trim()],
-                            });
-                            setNovoBairro("");
-                          }
-                        }}
-                        disabled={!novoBairro.trim()}
-                        className="bg-green-600 hover:bg-green-700"
-                      >
-                        +
-                      </Button>
-                    </div>
-                  )}
-                  
-                  {/* Bairros selecionados */}
-                  {formData.bairros.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {formData.bairros.map((bairro) => (
+                  {/* Preview dos bairros selecionados */}
+                  {formData.bairros.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {formData.bairros.slice(0, 5).map((bairro) => (
                         <Badge
                           key={bairro}
                           variant="secondary"
-                          className="bg-blue-600/30 text-blue-300 border border-blue-500/50 flex items-center gap-1"
+                          className="bg-blue-600/30 text-blue-300 border border-blue-500/50 text-xs"
                         >
                           {bairro}
-                          {podeEditar && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setFormData({
-                                  ...formData,
-                                  bairros: formData.bairros.filter(b => b !== bairro),
-                                });
-                              }}
-                              className="ml-1 hover:text-red-300"
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
-                          )}
                         </Badge>
                       ))}
+                      {formData.bairros.length > 5 && (
+                        <Badge
+                          variant="secondary"
+                          className="bg-slate-600/30 text-slate-300 border border-slate-500/50 text-xs"
+                        >
+                          +{formData.bairros.length - 5} mais
+                        </Badge>
+                      )}
                     </div>
+                  ) : (
+                    <p className="text-slate-500 text-xs italic">
+                      Nenhum bairro vinculado. Clique em "Editar Bairros" para adicionar.
+                    </p>
                   )}
                   
                   <p className="text-slate-400 text-xs">
-                    {formData.bairros.length} bairro(s) vinculado(s)
+                    {formData.bairros.length} bairro(s) vinculado(s) para validação de coordenadas
                   </p>
                 </div>
 
@@ -964,6 +959,308 @@ export default function CadastroTerritorios() {
           )}
         </div>
       </div>
+
+      {/* Modal de Edição de Bairros */}
+      <Dialog open={modalBairrosOpen} onOpenChange={setModalBairrosOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MapPin className="h-5 w-5 text-blue-500" />
+              Editar Bairros - {formData.nome || "Território"}
+            </DialogTitle>
+            <DialogDescription>
+              Selecione os bairros que pertencem a este território. 
+              Os bairros são agrupados por município para facilitar a navegação.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 flex flex-col gap-4 overflow-hidden">
+            {/* Barra de busca e contador */}
+            <div className="flex gap-4 items-center">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <Input
+                  placeholder="Buscar bairro ou município..."
+                  value={bairroSearch}
+                  onChange={(e) => setBairroSearch(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <Badge variant="outline" className="h-8 px-3">
+                {bairrosSelecionados.length} selecionado(s)
+              </Badge>
+            </div>
+
+            {/* Ações rápidas */}
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  // Expandir todos os municípios
+                  const todos = new Set(bairrosPorMunicipio.map(g => g.municipio));
+                  setMunicipiosExpandidos(todos);
+                }}
+              >
+                Expandir Todos
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setMunicipiosExpandidos(new Set())}
+              >
+                Recolher Todos
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setBairrosSelecionados([])}
+                className="text-red-500 hover:text-red-600"
+              >
+                Limpar Seleção
+              </Button>
+            </div>
+
+            {/* Container com duas colunas: lista de municípios/bairros e selecionados */}
+            <div className="flex-1 grid grid-cols-3 gap-4 overflow-hidden">
+              {/* Lista de municípios e bairros (2 colunas) */}
+              <div className="col-span-2 border rounded-lg overflow-hidden flex flex-col">
+                <div className="bg-slate-100 dark:bg-slate-800 px-3 py-2 border-b">
+                  <span className="font-medium text-sm">
+                    Bairros por Município ({bairrosComMunicipio.length} bairros em {bairrosPorMunicipio.length} municípios)
+                  </span>
+                </div>
+                <ScrollArea className="flex-1">
+                  <div className="p-2 space-y-1">
+                    {bairrosFiltrados.length === 0 ? (
+                      <p className="text-center text-slate-500 py-8">
+                        {bairroSearch ? "Nenhum bairro encontrado para a busca" : "Nenhum bairro disponível"}
+                      </p>
+                    ) : (
+                      bairrosFiltrados.map((grupo) => {
+                        const isExpandido = municipiosExpandidos.has(grupo.municipio);
+                        const bairrosSelecionadosNoGrupo = grupo.bairros.filter(b => bairrosSelecionados.includes(b));
+                        const todosSelecionados = bairrosSelecionadosNoGrupo.length === grupo.bairros.length;
+                        const algunsSelecionados = bairrosSelecionadosNoGrupo.length > 0 && !todosSelecionados;
+                        
+                        return (
+                          <div key={grupo.municipio} className="border rounded-lg overflow-hidden">
+                            {/* Cabeçalho do município */}
+                            <button
+                              type="button"
+                              className="w-full flex items-center justify-between p-2 bg-slate-50 dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                              onClick={() => {
+                                const novos = new Set(municipiosExpandidos);
+                                if (isExpandido) {
+                                  novos.delete(grupo.municipio);
+                                } else {
+                                  novos.add(grupo.municipio);
+                                }
+                                setMunicipiosExpandidos(novos);
+                              }}
+                            >
+                              <div className="flex items-center gap-2">
+                                {isExpandido ? (
+                                  <ChevronDown className="h-4 w-4" />
+                                ) : (
+                                  <ChevronRight className="h-4 w-4" />
+                                )}
+                                <span className="font-medium">{grupo.municipio}</span>
+                                <Badge variant="secondary" className="h-5 text-xs">
+                                  {grupo.bairros.length}
+                                </Badge>
+                                {bairrosSelecionadosNoGrupo.length > 0 && (
+                                  <Badge variant="default" className="h-5 text-xs bg-blue-500">
+                                    {bairrosSelecionadosNoGrupo.length} selecionado(s)
+                                  </Badge>
+                                )}
+                              </div>
+                              
+                              {/* Checkbox para selecionar todos do município */}
+                              <div 
+                                className="flex items-center gap-2"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <Checkbox
+                                  checked={todosSelecionados}
+                                  ref={(ref) => {
+                                    if (ref && algunsSelecionados) {
+                                      (ref as any).indeterminate = true;
+                                    }
+                                  }}
+                                  onCheckedChange={(checked) => {
+                                    if (checked) {
+                                      // Adicionar todos os bairros do município
+                                      const novos = new Set(bairrosSelecionados);
+                                      grupo.bairros.forEach(b => novos.add(b));
+                                      setBairrosSelecionados(Array.from(novos));
+                                    } else {
+                                      // Remover todos os bairros do município
+                                      setBairrosSelecionados(
+                                        bairrosSelecionados.filter(b => !grupo.bairros.includes(b))
+                                      );
+                                    }
+                                  }}
+                                  disabled={!podeEditar}
+                                />
+                                <span className="text-xs text-slate-500">Todos</span>
+                              </div>
+                            </button>
+                            
+                            {/* Lista de bairros */}
+                            {isExpandido && (
+                              <div className="grid grid-cols-2 gap-1 p-2 bg-white dark:bg-slate-950">
+                                {grupo.bairros.map((bairro) => {
+                                  const isSelecionado = bairrosSelecionados.includes(bairro);
+                                  return (
+                                    <label
+                                      key={bairro}
+                                      className={`flex items-center gap-2 p-2 rounded cursor-pointer transition-colors ${
+                                        isSelecionado 
+                                          ? "bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800" 
+                                          : "hover:bg-slate-50 dark:hover:bg-slate-900 border border-transparent"
+                                      }`}
+                                    >
+                                      <Checkbox
+                                        checked={isSelecionado}
+                                        onCheckedChange={(checked) => {
+                                          if (checked) {
+                                            setBairrosSelecionados([...bairrosSelecionados, bairro]);
+                                          } else {
+                                            setBairrosSelecionados(bairrosSelecionados.filter(b => b !== bairro));
+                                          }
+                                        }}
+                                        disabled={!podeEditar}
+                                      />
+                                      <span className={`text-sm ${isSelecionado ? "font-medium text-blue-700 dark:text-blue-300" : ""}`}>
+                                        {bairro}
+                                      </span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </ScrollArea>
+              </div>
+
+              {/* Coluna de bairros selecionados */}
+              <div className="border rounded-lg overflow-hidden flex flex-col">
+                <div className="bg-blue-50 dark:bg-blue-950 px-3 py-2 border-b">
+                  <span className="font-medium text-sm text-blue-700 dark:text-blue-300">
+                    Bairros Selecionados ({bairrosSelecionados.length})
+                  </span>
+                </div>
+                <ScrollArea className="flex-1">
+                  <div className="p-2 space-y-1">
+                    {bairrosSelecionados.length === 0 ? (
+                      <p className="text-center text-slate-500 py-8 text-sm">
+                        Nenhum bairro selecionado
+                      </p>
+                    ) : (
+                      bairrosSelecionados.sort((a, b) => a.localeCompare(b, 'pt-BR')).map((bairro) => (
+                        <div
+                          key={bairro}
+                          className="flex items-center justify-between p-2 bg-blue-50 dark:bg-blue-950 rounded border border-blue-200 dark:border-blue-800"
+                        >
+                          <span className="text-sm">{bairro}</span>
+                          {podeEditar && (
+                            <button
+                              type="button"
+                              onClick={() => setBairrosSelecionados(bairrosSelecionados.filter(b => b !== bairro))}
+                              className="text-red-500 hover:text-red-700"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </ScrollArea>
+                
+                {/* Adicionar bairro manualmente */}
+                {podeEditar && (
+                  <div className="border-t p-2">
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Adicionar bairro..."
+                        value={novoBairro}
+                        onChange={(e) => setNovoBairro(e.target.value)}
+                        className="flex-1 h-8 text-sm"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && novoBairro.trim()) {
+                            e.preventDefault();
+                            if (!bairrosSelecionados.includes(novoBairro.trim())) {
+                              setBairrosSelecionados([...bairrosSelecionados, novoBairro.trim()]);
+                            }
+                            setNovoBairro("");
+                          }
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => {
+                          if (novoBairro.trim() && !bairrosSelecionados.includes(novoBairro.trim())) {
+                            setBairrosSelecionados([...bairrosSelecionados, novoBairro.trim()]);
+                            setNovoBairro("");
+                          }
+                        }}
+                        disabled={!novoBairro.trim()}
+                        className="h-8"
+                      >
+                        +
+                      </Button>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Digite um bairro não listado e pressione Enter
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="border-t pt-4">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setModalBairrosOpen(false);
+                setBairroSearch("");
+                setNovoBairro("");
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                setFormData({
+                  ...formData,
+                  bairros: bairrosSelecionados,
+                });
+                setModalBairrosOpen(false);
+                setBairroSearch("");
+                setNovoBairro("");
+                toast.success(`${bairrosSelecionados.length} bairro(s) vinculado(s) ao território`);
+              }}
+              disabled={!podeEditar}
+            >
+              <Check className="h-4 w-4 mr-2" />
+              Confirmar Seleção
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </MainLayout>
   );
 }
