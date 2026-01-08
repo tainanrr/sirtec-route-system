@@ -552,9 +552,6 @@ const Equipes = () => {
     setEquipesSelecionadas(new Set());
   };
 
-  const todasSelecionadas = filteredEquipes.length > 0 && 
-    filteredEquipes.every(e => equipesSelecionadas.has(e.id));
-
   // Função para abrir diálogo de edição em massa
   const abrirEdicaoMassa = (tipo: "tipos" | "jornada" | "status" | "supervisor" | "centroCusto") => {
     setTipoEdicaoMassa(tipo);
@@ -645,6 +642,10 @@ const Equipes = () => {
     const matchesStatus = statusFilter === "all" || normalizedStatus === statusFilter;
     return matchesSearch && matchesStatus;
   });
+
+  // Verificar se todas as equipes visíveis estão selecionadas
+  const todasSelecionadas = filteredEquipes.length > 0 && 
+    filteredEquipes.every(e => equipesSelecionadas.has(e.id));
 
   // Normalizar status para contagem (antigos status são considerados como "disponivel")
   const statusCounts = tecnicos.reduce((acc, eq) => {
