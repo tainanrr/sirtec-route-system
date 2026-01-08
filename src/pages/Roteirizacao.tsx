@@ -1298,6 +1298,72 @@ const Roteirizacao = () => {
   }, [osPendentesTodas, hasAnyFilter, searchTerm, tiposFilter, contratosFilter, centrosCustoFilter, 
       municipiosFilter, bairrosFilter, statusFilter, gruposFilter, prazoInicio, prazoFim, reguladaFilter]);
 
+  // OSs com coordenadas suspeitas (bairro pertence a um território mas coordenadas estão fora dele)
+  const osCoordenadasSuspeitas = useMemo(() => {
+    if (!hasAnyFilter) return []; // Não mostrar se não há filtros ativos
+    
+    // Filtrar apenas territórios ativos que têm bairros cadastrados
+    const territoriosComBairros = territorios.filter(t => t.ativo && t.bairros && t.bairros.length > 0);
+    
+    if (territoriosComBairros.length === 0) return [];
+    
+    // Criar mapa de bairro -> território esperado
+    const bairroParaTerritorio = new Map<string, Territorio>();
+    territoriosComBairros.forEach(territorio => {
+      territorio.bairros.forEach(bairro => {
+        // Normalizar bairro para comparação case-insensitive
+        bairroParaTerritorio.set(bairro.toLowerCase().trim(), territorio);
+      });
+    });
+    
+    // Filtrar OSs que têm coordenadas válidas
+    const suspeitas = filteredServicos.filter(os => {
+      if (os.latitude === null || os.longitude === null) return false;
+      if (!os.bairro) return false;
+      
+      const bairroNormalizado = os.bairro.toLowerCase().trim();
+      const territorioEsperado = bairroParaTerritorio.get(bairroNormalizado);
+      
+      if (!territorioEsperado) return false; // Bairro não está cadastrado em nenhum território
+      
+      // Verificar se as coordenadas estão DENTRO do território esperado
+      const coordenadaNoTerritorio = territorioEsperado.poligono.length >= 3 && 
+        pontoNoPoligono({ lat: os.latitude, lng: os.longitude }, territorioEsperado.poligono);
+      
+      // Se NÃO está dentro do território esperado → suspeita!
+      return !coordenadaNoTerritorio;
+    });
+    
+    // Ordenar: reguladas primeiro, depois por prazo
+    return suspeitas.sort((a, b) => {
+      if (a.regulada && !b.regulada) return -1;
+      if (!a.regulada && b.regulada) return 1;
+      if (a.prazo && b.prazo) return new Date(a.prazo).getTime() - new Date(b.prazo).getTime();
+      return 0;
+    }).map(os => {
+      // Adicionar informação do território esperado
+      const bairroNormalizado = os.bairro?.toLowerCase().trim() || '';
+      const territorioEsperado = bairroParaTerritorio.get(bairroNormalizado);
+      
+      // Verificar em qual território a coordenada realmente está
+      let territorioReal: Territorio | null = null;
+      if (os.latitude !== null && os.longitude !== null) {
+        for (const t of territoriosComBairros) {
+          if (t.poligono.length >= 3 && pontoNoPoligono({ lat: os.latitude, lng: os.longitude }, t.poligono)) {
+            territorioReal = t;
+            break;
+          }
+        }
+      }
+      
+      return {
+        ...os,
+        territorioEsperado: territorioEsperado?.nome || 'Desconhecido',
+        territorioReal: territorioReal?.nome || 'Fora de territórios',
+      };
+    });
+  }, [filteredServicos, territorios, hasAnyFilter]);
+
   // Função auxiliar para validar hora
   const validarHora = (hora: string | null): string | null => {
     if (!hora) return null;
@@ -4732,6 +4798,71 @@ const Roteirizacao = () => {
               </div>
             )}
             
+            {/* OSs com Coordenadas Suspeitas - Bairro não bate com território */}
+            {osCoordenadasSuspeitas.length > 0 && (
+              <div className="mt-3 rounded-lg border-2 border-purple-500/50 bg-purple-500/5 overflow-hidden">
+                <div className="p-2 border-b border-purple-500/30 bg-purple-500/10">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4 text-purple-500" />
+                      <span className="font-semibold text-sm text-purple-700 dark:text-purple-400">OSs com Coordenadas Suspeitas</span>
+                      <Badge variant="outline" className="border-purple-500 text-purple-600 dark:text-purple-400 h-5 text-xs">
+                        {osCoordenadasSuspeitas.length}
+                      </Badge>
+                    </div>
+                    <span className="text-xs text-purple-600 dark:text-purple-400">
+                      ⚠️ Bairro não corresponde ao território
+                    </span>
+                  </div>
+                </div>
+                <div className="p-2 max-h-[180px] overflow-y-auto">
+                  <div className="grid grid-cols-4 gap-1 text-xs">
+                    {osCoordenadasSuspeitas.slice(0, 40).map((os) => {
+                      const nomeServico = obterLabelTipo(os.tipo);
+                      
+                      return (
+                        <div
+                          key={os.id}
+                          className={cn(
+                            "p-1.5 rounded border cursor-pointer hover:bg-muted/50 transition-colors select-text",
+                            os.regulada 
+                              ? "border-purple-400/50 bg-purple-500/10" 
+                              : "border-purple-300/30 bg-purple-500/5"
+                          )}
+                          onDoubleClick={() => handleAbrirEditarCoords(os)}
+                          title={`Duplo clique para editar coordenadas\nBairro: ${os.bairro}\nTerritório esperado: ${os.territorioEsperado}\nTerritório atual: ${os.territorioReal}`}
+                        >
+                          <div className="flex items-center justify-between gap-1 mb-0.5">
+                            <span className="font-mono font-semibold truncate text-[10px]">{os.numero}</span>
+                            {os.regulada && (
+                              <Badge variant="destructive" className="h-3.5 px-1 text-[8px]">REG</Badge>
+                            )}
+                          </div>
+                          <div className="text-muted-foreground truncate text-[9px]" title={nomeServico}>
+                            {nomeServico}
+                          </div>
+                          <div className="text-purple-600 dark:text-purple-400 truncate text-[9px]">
+                            📍 Bairro: {os.bairro}
+                          </div>
+                          <div className="text-[8px] mt-0.5">
+                            <span className="text-green-600">Esperado: {os.territorioEsperado}</span>
+                          </div>
+                          <div className="text-[8px]">
+                            <span className="text-red-500">Atual: {os.territorioReal}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {osCoordenadasSuspeitas.length > 40 && (
+                    <div className="text-center py-1 text-xs text-purple-600">
+                      ... e mais {osCoordenadasSuspeitas.length - 40} OSs com coordenadas suspeitas
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* OSs Sem Coordenadas - Entre filtros e tabela */}
             {osSemCoordenadas.length > 0 && (
               <div className="mt-3 rounded-lg border-2 border-amber-500/50 bg-amber-500/5 overflow-hidden">
