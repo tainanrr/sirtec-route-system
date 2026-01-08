@@ -13,7 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Pencil, Trash2, Clock, DollarSign, CheckCircle, XCircle, Loader2, RefreshCcw, Wrench } from "lucide-react";
+import { Plus, Pencil, Trash2, Clock, DollarSign, CheckCircle, XCircle, Loader2, RefreshCcw, Wrench, TrendingUp } from "lucide-react";
 import * as LucideIcons from "lucide-react";
 import { toast } from "sonner";
 import { SkillFormDialog } from "@/components/skills/SkillFormDialog";
@@ -28,6 +28,32 @@ import {
 import { ExportButton } from "@/components/ui/export-button";
 
 type Skill = Tables<"skills">;
+
+// Função para calcular a produtividade (R$/hora) e retornar a cor correspondente
+const calcularProdutividade = (valor: number | null, tempoMinutos: number | null): { valor: number; cor: string; bgClass: string } => {
+  if (!valor || !tempoMinutos || tempoMinutos === 0) {
+    return { valor: 0, cor: "text-muted-foreground", bgClass: "bg-gray-100 dark:bg-gray-800" };
+  }
+  
+  // Produtividade = Valor / Tempo em horas
+  const produtividade = (valor / tempoMinutos) * 60;
+  
+  // Escala de cores baseada na produtividade (R$/hora)
+  // Usando uma escala gradiente de vermelho para verde
+  if (produtividade < 50) {
+    return { valor: produtividade, cor: "text-red-700 dark:text-red-400", bgClass: "bg-red-100 dark:bg-red-900/30" };
+  } else if (produtividade < 100) {
+    return { valor: produtividade, cor: "text-orange-700 dark:text-orange-400", bgClass: "bg-orange-100 dark:bg-orange-900/30" };
+  } else if (produtividade < 150) {
+    return { valor: produtividade, cor: "text-yellow-700 dark:text-yellow-400", bgClass: "bg-yellow-100 dark:bg-yellow-900/30" };
+  } else if (produtividade < 200) {
+    return { valor: produtividade, cor: "text-lime-700 dark:text-lime-400", bgClass: "bg-lime-100 dark:bg-lime-900/30" };
+  } else if (produtividade < 300) {
+    return { valor: produtividade, cor: "text-green-700 dark:text-green-400", bgClass: "bg-green-100 dark:bg-green-900/30" };
+  } else {
+    return { valor: produtividade, cor: "text-emerald-700 dark:text-emerald-300", bgClass: "bg-emerald-100 dark:bg-emerald-900/40 font-semibold" };
+  }
+};
 
 // Configuração dos filtros
 const filterConfigs: FilterConfig[] = [
@@ -170,14 +196,21 @@ export default function Skills() {
           </div>
           <div className="flex items-center gap-2">
             <ExportButton
-              data={skills || []}
+              data={(skills || []).map(s => ({
+                ...s,
+                produtividade_prev: s.valor && s.tempo_execucao_minutos 
+                  ? ((s.valor / s.tempo_execucao_minutos) * 60).toFixed(2) 
+                  : 0
+              }))}
               filename="skills"
               columns={[
                 { key: "codigo", label: "Código" },
                 { key: "nome", label: "Nome" },
                 { key: "descricao", label: "Descrição" },
-                { key: "tempo_medio_minutos", label: "Tempo Médio (min)" },
-                { key: "valor_base", label: "Valor Base", format: (v) => v ? `R$ ${Number(v).toFixed(2)}` : "" },
+                { key: "tempo_execucao_minutos", label: "Tempo (min)" },
+                { key: "valor", label: "Valor (R$)", format: (v) => v ? `R$ ${Number(v).toFixed(2)}` : "" },
+                { key: "produtividade_prev", label: "Produtividade (R$/h)", format: (v) => v ? `R$ ${Number(v).toFixed(2)}/h` : "" },
+                { key: "regulada", label: "Regulada", format: (v) => v ? "Sim" : "Não" },
                 { key: "ativo", label: "Ativo", format: (v) => v ? "Sim" : "Não" },
                 { key: "icone", label: "Ícone" },
                 { key: "cor", label: "Cor" },
@@ -241,6 +274,12 @@ export default function Skills() {
                   onSort={handleSort}
                   className="text-center"
                 />
+                <TableHead className="text-center">
+                  <div className="flex items-center justify-center gap-1">
+                    <TrendingUp className="h-3.5 w-3.5" />
+                    <span>Produtiv. prev.</span>
+                  </div>
+                </TableHead>
                 <SortableTableHead
                   column="regulada"
                   label="Regulada"
@@ -261,13 +300,13 @@ export default function Skills() {
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8">
+                  <TableCell colSpan={10} className="text-center py-8">
                     <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
                   </TableCell>
                 </TableRow>
               ) : sortedData?.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8">
+                  <TableCell colSpan={10} className="text-center py-8">
                     <Wrench className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                     <p className="text-muted-foreground">
                       {hasActiveFilters
@@ -300,6 +339,21 @@ export default function Skills() {
                         <DollarSign className="h-3 w-3 mr-0.5" />
                         {Number(skill.valor || 0).toFixed(2)}
                       </Badge>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {(() => {
+                        const prod = calcularProdutividade(skill.valor, skill.tempo_execucao_minutos);
+                        return (
+                          <Badge 
+                            variant="outline" 
+                            className={`font-mono ${prod.cor} ${prod.bgClass} border-0`}
+                            title={`Produtividade: R$ ${prod.valor.toFixed(2)}/hora (Valor ÷ Tempo × 60)`}
+                          >
+                            <TrendingUp className="h-3 w-3 mr-1" />
+                            R$ {prod.valor.toFixed(0)}/h
+                          </Badge>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell className="text-center">
                       {skill.regulada ? (
