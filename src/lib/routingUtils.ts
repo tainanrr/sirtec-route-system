@@ -3117,8 +3117,8 @@ export async function otimizarRotas(
     const inicioAlmoco = configAlmocoRota.inicio;
     const tempoLivre = inicioAlmoco - fimServicoAntes;
     
-    // Só tentar se tiver pelo menos 15 minutos livres
-    if (tempoLivre < 15) continue;
+    // Só tentar se tiver pelo menos 10 minutos livres
+    if (tempoLivre < 10) continue;
     
     console.log(`[ROUTING] ${rota.equipe.codigo}: ${tempoLivre}min livres antes do almoço (${minutosParaHora(fimServicoAntes)} → ${minutosParaHora(inicioAlmoco)})`);
     
@@ -3126,10 +3126,12 @@ export async function otimizarRotas(
     const territorioEquipe = rota.territorioId;
     
     // Buscar OSs curtas disponíveis no território da equipe
+    // Máximo de 45min de execução, ou o tempo livre menos 2min para deslocamento
+    const maxDuracaoOS = Math.min(45, tempoLivre - 2);
+    
     const ossCurtasDisponiveis = ossParaRoteirizar.filter(os => {
       if (osAlocadas.has(os.id)) return false;
-      if (os.tempoExecucao > tempoLivre - 3) return false; // Margem de 3 min para deslocamento
-      if (os.tempoExecucao > 30) return false; // Máximo 30 min
+      if (os.tempoExecucao > maxDuracaoOS) return false;
       
       // Verificar se está no território correto
       if (usarTerritorios && territorioEquipe) {
@@ -3140,8 +3142,10 @@ export async function otimizarRotas(
       return true;
     });
     
+    console.log(`[ROUTING]   OSs disponíveis no território (até ${maxDuracaoOS}min): ${ossCurtasDisponiveis.length}`);
+    
     if (ossCurtasDisponiveis.length === 0) {
-      console.log(`[ROUTING]   Nenhuma OS curta disponível no território`);
+      console.log(`[ROUTING]   Nenhuma OS disponível no território com até ${maxDuracaoOS}min`);
       continue;
     }
     
