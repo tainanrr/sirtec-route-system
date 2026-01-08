@@ -148,11 +148,11 @@ export async function notificarAlteracaoRota(
     }
 
     // Montar mensagem
-    let mensagem = `⚠️ *ATENÇÃO: ALTERAÇÃO NA SUA ROTA*\n\n`;
+    let mensagem = `⚠️ ATENÇÃO: ALTERAÇÃO NA SUA ROTA\n\n`;
     mensagem += `📅 ${new Date().toLocaleString('pt-BR')}\n\n`;
 
     if (osIncluidas.length > 0) {
-      mensagem += `✅ *OSs INCLUÍDAS (${osIncluidas.length}):*\n`;
+      mensagem += `✅ OSs INCLUÍDAS (${osIncluidas.length}):\n`;
       osIncluidas.forEach(os => {
         mensagem += `   • ${os.numero} - ${os.tipo}\n`;
       });
@@ -160,14 +160,14 @@ export async function notificarAlteracaoRota(
     }
 
     if (osRemovidas.length > 0) {
-      mensagem += `❌ *OSs REMOVIDAS (${osRemovidas.length}):*\n`;
+      mensagem += `❌ OSs REMOVIDAS (${osRemovidas.length}):\n`;
       osRemovidas.forEach(os => {
         mensagem += `   • ${os.numero} - ${os.tipo}\n`;
       });
       mensagem += `\n`;
     }
 
-    mensagem += `📱 Atualize seu app para ver as alterações.`;
+    mensagem += `💬 Em caso de dúvidas, é só sinalizar, mandar áudio ou ligar!`;
 
     // Enviar mensagem
     const enviado = await enviarMensagemSistema(conversaId, mensagem);
