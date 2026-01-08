@@ -1758,7 +1758,8 @@ export async function otimizarRotas(
         console.log(`[ROUTING] ${rota.equipe.codigo}: Detectado ${tempoLivreAntesAlmoco.toFixed(0)}min livres antes do almoço (${minutosParaHora(tempoAtualRota)} → ${minutosParaHora(calc.inicioAlmoco)})`);
         
         // Buscar OSs curtas (≤30 min) disponíveis no território/zona
-        const ossCurtasDisponiveis = [...osProximoDia, ...osNormais, ...ossNormaisRemovidas, ...osUrgentes].filter(osCurta => {
+        // Nota: não usamos ossNormaisRemovidas aqui pois essa variável é declarada depois
+        const ossCurtasDisponiveis = [...osProximoDia, ...osNormais, ...osUrgentes].filter(osCurta => {
           if (osAlocadas.has(osCurta.id)) return false;
           if (osCurta.id === os.id) return false; // Não é a OS que estamos inserindo
           if (!equipeTemSkill(rota.equipe, osCurta.tipo)) return false;
