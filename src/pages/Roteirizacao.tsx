@@ -539,11 +539,20 @@ const Roteirizacao = () => {
     setBacklogLimit(50);
   }, [searchTerm, tiposFilter, contratosFilter, centrosCustoFilter, municipiosFilter, bairrosFilter, statusFilter, prazoInicio, prazoFim, coordenadasFilter, reguladaFilter]);
 
-  // Carregar planejamento se houver ID nos parâmetros da URL
+  // Carregar planejamento(s) se houver ID(s) nos parâmetros da URL
   useEffect(() => {
+    // Suporte para planejamento único ou múltiplos
     const planejamentoId = searchParams.get('planejamento');
+    const planejamentosIds = searchParams.get('planejamentos');
+    
     if (planejamentoId && rotas.length === 0) {
       handleCarregarPlanejamento(planejamentoId);
+    } else if (planejamentosIds && rotas.length === 0) {
+      // Carregar múltiplos planejamentos
+      const ids = planejamentosIds.split(',').filter(id => id.trim());
+      if (ids.length > 0) {
+        handleCarregarMultiplosPlanejamentos(ids);
+      }
     }
   }, [searchParams]);
 
@@ -690,6 +699,136 @@ const Roteirizacao = () => {
     } catch (error: any) {
       console.error("Erro ao carregar planejamento:", error);
       toast.error("Erro ao carregar planejamento", {
+        description: error.message || "Erro desconhecido",
+        duration: 30000,
+      });
+    } finally {
+      setLoadingOrdens(false);
+    }
+  };
+
+  // Função para carregar múltiplos planejamentos de uma vez
+  const handleCarregarMultiplosPlanejamentos = async (planejamentoIds: string[]) => {
+    try {
+      console.log("[ROTEIRIZAÇÃO] Carregando múltiplos planejamentos:", planejamentoIds);
+      setLoadingOrdens(true);
+      
+      // Buscar todos os planejamentos
+      const { data: planejamentos, error: erroPlanejamentos } = await supabase
+        .from("planejamentos")
+        .select(`
+          *,
+          planejamento_ordens (
+            *,
+            ordens_servico:ordem_servico_id (*),
+            tecnicos:equipe_id (*)
+          )
+        `)
+        .in("id", planejamentoIds);
+
+      if (erroPlanejamentos) throw erroPlanejamentos;
+      if (!planejamentos || planejamentos.length === 0) throw new Error("Nenhum planejamento encontrado");
+
+      // Buscar todas as equipes se ainda não foram carregadas
+      let equipesDisponiveis = equipes;
+      if (equipesDisponiveis.length === 0) {
+        const { data: tecnicosData } = await supabase
+          .from("tecnicos")
+          .select("*");
+
+        if (tecnicosData) {
+          equipesDisponiveis = tecnicosParaEquipes(tecnicosData);
+          setEquipes(equipesDisponiveis);
+        }
+      }
+
+      // Reconstruir rotas de todos os planejamentos
+      const rotasReconstruidas: RotaEquipe[] = [];
+      const ordensPorEquipe = new Map<string, any[]>();
+
+      // Agrupar todas as ordens por equipe (de todos os planejamentos)
+      for (const planejamento of planejamentos) {
+        if (planejamento.planejamento_ordens) {
+          for (const po of planejamento.planejamento_ordens) {
+            if (!ordensPorEquipe.has(po.equipe_id)) {
+              ordensPorEquipe.set(po.equipe_id, []);
+            }
+            ordensPorEquipe.get(po.equipe_id)!.push(po);
+          }
+        }
+      }
+
+      // Criar rotas para cada equipe
+      for (const [equipeId, ordens] of ordensPorEquipe.entries()) {
+        let equipe = equipesDisponiveis.find(e => e.id === equipeId);
+        
+        // Se não encontrou a equipe, tentar usar dados do relacionamento
+        if (!equipe && ordens.length > 0 && ordens[0].tecnicos) {
+          const equipesTemp = tecnicosParaEquipes([ordens[0].tecnicos]);
+          if (equipesTemp.length > 0) {
+            equipe = equipesTemp[0];
+          }
+        }
+        
+        if (!equipe) {
+          console.warn(`[ROTEIRIZAÇÃO] Equipe ${equipeId} não encontrada`);
+          continue;
+        }
+
+        // Ordenar ordens por ordem_na_rota
+        ordens.sort((a, b) => a.ordem_na_rota - b.ordem_na_rota);
+
+        const servicos: RotaServico[] = [];
+        let distanciaTotal = 0;
+        let tempoTotal = 0;
+        let faturamentoTotal = 0;
+
+        for (const po of ordens) {
+          if (po.ordens_servico) {
+            const osArray = await mapSupabaseOrdensServicoToOrdemServico([po.ordens_servico]);
+            if (osArray && osArray.length > 0) {
+              const os = osArray[0];
+              servicos.push({
+                tipo: "SERVICO",
+                ordemServico: os,
+                ordemNaRota: po.ordem_na_rota,
+                distancia: po.distancia_km || 0,
+                tempoTotal: po.tempo_estimado_minutos || 0,
+                horaInicio: po.hora_inicio_estimada || "",
+                horaFim: po.hora_fim_estimada || "",
+                eta: po.hora_inicio_estimada || "",
+              });
+              distanciaTotal += po.distancia_km || 0;
+              tempoTotal += po.tempo_estimado_minutos || 0;
+              faturamentoTotal += os.valor || 0;
+            }
+          }
+        }
+
+        rotasReconstruidas.push({
+          equipe,
+          servicos,
+          distanciaTotal,
+          tempoTotal,
+          faturamentoTotal,
+          progresso: 0,
+        });
+      }
+
+      setRotas(rotasReconstruidas);
+      
+      // Mostrar resumo
+      const totalEquipes = rotasReconstruidas.length;
+      const totalOSs = rotasReconstruidas.reduce((sum, r) => sum + r.servicos.length, 0);
+      toast.success(`${planejamentos.length} planejamento(s) carregado(s)`, {
+        description: `${totalEquipes} equipes, ${totalOSs} OSs`,
+      });
+      
+      // Limpar parâmetro da URL
+      setSearchParams({});
+    } catch (error: any) {
+      console.error("Erro ao carregar planejamentos:", error);
+      toast.error("Erro ao carregar planejamentos", {
         description: error.message || "Erro desconhecido",
         duration: 30000,
       });

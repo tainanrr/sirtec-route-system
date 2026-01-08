@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableBody,
@@ -48,6 +49,8 @@ import {
   Clock,
   AlertTriangle,
   Download,
+  Upload,
+  CheckSquare,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -69,12 +72,24 @@ interface Planejamento {
   planejamento_ordens?: any[];
 }
 
+// Função para extrair a unidade do código da equipe (ex: "4ST" de "4ST002")
+const extrairUnidade = (codigo: string): string => {
+  // Pegar os primeiros caracteres antes dos números finais
+  const match = codigo.match(/^([A-Za-z0-9]+?)(\d{2,})$/);
+  if (match) {
+    return match[1];
+  }
+  // Se não tiver padrão, pegar os 3 primeiros caracteres
+  return codigo.substring(0, 3).toUpperCase();
+};
+
 const Planejamentos = () => {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("aberto");
   const [dataFilter, setDataFilter] = useState<string>("");
   const [equipeFilter, setEquipeFilter] = useState<string>("all");
+  const [unidadeFilter, setUnidadeFilter] = useState<string>("all");
   const [planejamentos, setPlanejamentos] = useState<Planejamento[]>([]);
   const [loading, setLoading] = useState(true);
   const [equipes, setEquipes] = useState<Equipe[]>([]);
@@ -82,6 +97,17 @@ const Planejamentos = () => {
   const [detalhesDialogOpen, setDetalhesDialogOpen] = useState(false);
   const [cancelarDialogOpen, setCancelarDialogOpen] = useState(false);
   const [planejamentoParaCancelar, setPlanejamentoParaCancelar] = useState<Planejamento | null>(null);
+  const [planejamentosSelecionados, setPlanejamentosSelecionados] = useState<string[]>([]);
+
+  // Extrair unidades únicas das equipes
+  const unidadesDisponiveis = useMemo(() => {
+    const unidades = new Set<string>();
+    equipes.forEach(equipe => {
+      const unidade = extrairUnidade(equipe.codigo);
+      if (unidade) unidades.add(unidade);
+    });
+    return Array.from(unidades).sort();
+  }, [equipes]);
 
   // Carregar equipes
   useEffect(() => {
@@ -161,6 +187,19 @@ const Planejamentos = () => {
         });
       }
 
+      // Filtrar por unidade se necessário
+      if (unidadeFilter !== "all") {
+        planejamentosFiltrados = planejamentosFiltrados.filter(p => {
+          const ordens = p.planejamento_ordens || [];
+          return ordens.some((po: any) => {
+            const tecnico = po.tecnicos;
+            if (!tecnico?.codigo) return false;
+            const unidade = extrairUnidade(tecnico.codigo);
+            return unidade === unidadeFilter;
+          });
+        });
+      }
+
       // Filtrar por termo de busca
       if (searchTerm) {
         const termoLower = searchTerm.toLowerCase();
@@ -189,7 +228,7 @@ const Planejamentos = () => {
 
   useEffect(() => {
     fetchPlanejamentos();
-  }, [statusFilter, dataFilter, equipeFilter]);
+  }, [statusFilter, dataFilter, equipeFilter, unidadeFilter]);
 
   const handleCancelarPlanejamento = async () => {
     if (!planejamentoParaCancelar) return;
@@ -319,7 +358,7 @@ const Planejamentos = () => {
     >
       {/* Filtros */}
       <div className="rounded-xl border border-border bg-card p-4 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div>
             <label className="text-sm font-medium mb-2 block">Buscar</label>
             <div className="relative">
@@ -358,6 +397,23 @@ const Planejamentos = () => {
           </div>
 
           <div>
+            <label className="text-sm font-medium mb-2 block">Unidade</label>
+            <Select value={unidadeFilter} onValueChange={setUnidadeFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Todas" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas</SelectItem>
+                {unidadesDisponiveis.map(unidade => (
+                  <SelectItem key={unidade} value={unidade}>
+                    {unidade}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
             <label className="text-sm font-medium mb-2 block">Equipe</label>
             <Select value={equipeFilter} onValueChange={setEquipeFilter}>
               <SelectTrigger>
@@ -365,11 +421,13 @@ const Planejamentos = () => {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todas</SelectItem>
-                {equipes.map(equipe => (
-                  <SelectItem key={equipe.id} value={equipe.id}>
-                    {equipe.codigo}
-                  </SelectItem>
-                ))}
+                {equipes
+                  .filter(equipe => unidadeFilter === "all" || extrairUnidade(equipe.codigo) === unidadeFilter)
+                  .map(equipe => (
+                    <SelectItem key={equipe.id} value={equipe.id}>
+                      {equipe.codigo}
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
           </div>
@@ -380,8 +438,32 @@ const Planejamentos = () => {
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         <div className="p-4 border-b border-border">
           <div className="flex items-center justify-between">
-            <h3 className="font-semibold">Planejamentos</h3>
-            <Badge variant="secondary">{planejamentos.length}</Badge>
+            <div className="flex items-center gap-3">
+              <h3 className="font-semibold">Planejamentos</h3>
+              <Badge variant="secondary">{planejamentos.length}</Badge>
+              {planejamentosSelecionados.length > 0 && (
+                <Badge variant="default" className="bg-blue-600">
+                  {planejamentosSelecionados.length} selecionado(s)
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {planejamentosSelecionados.length > 0 && (
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => {
+                    // Carregar todos os planejamentos selecionados na roteirização
+                    const ids = planejamentosSelecionados.join(',');
+                    navigate(`/roteirizacao?planejamentos=${ids}`);
+                  }}
+                  className="gap-2"
+                >
+                  <Upload className="h-4 w-4" />
+                  Carregar {planejamentosSelecionados.length} na Roteirização
+                </Button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -395,6 +477,19 @@ const Planejamentos = () => {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-12">
+                  <Checkbox
+                    checked={planejamentosSelecionados.length === planejamentos.length && planejamentos.length > 0}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        setPlanejamentosSelecionados(planejamentos.map(p => p.id));
+                      } else {
+                        setPlanejamentosSelecionados([]);
+                      }
+                    }}
+                    title="Selecionar todos"
+                  />
+                </TableHead>
                 <TableHead>Data</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Equipes</TableHead>
@@ -406,70 +501,112 @@ const Planejamentos = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {planejamentos.map((planejamento) => (
-                <TableRow key={planejamento.id}>
-                  <TableCell>
-                    {(() => {
-                      // Corrigir timezone: adicionar um dia se necessário
-                      const data = new Date(planejamento.data_planejamento + 'T12:00:00');
-                      return data.toLocaleDateString('pt-BR');
-                    })()}
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={
-                        planejamento.status === "aberto"
-                          ? "default"
-                          : planejamento.status === "cancelado"
-                          ? "destructive"
-                          : "secondary"
-                      }
-                    >
-                      {planejamento.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{planejamento.total_equipes}</TableCell>
-                  <TableCell>{planejamento.total_ordens}</TableCell>
-                  <TableCell>{planejamento.distancia_total_km?.toFixed(1)} km</TableCell>
-                  <TableCell>R$ {planejamento.faturamento_total?.toFixed(2)}</TableCell>
-                  <TableCell>
-                    {new Date(planejamento.created_at).toLocaleString('pt-BR')}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          // Navegar para tela de roteirização com o ID do planejamento
-                          navigate(`/roteirizacao?planejamento=${planejamento.id}`);
+              {planejamentos.map((planejamento) => {
+                const isSelected = planejamentosSelecionados.includes(planejamento.id);
+                
+                // Extrair as equipes do planejamento para mostrar
+                const equipesDoPlano = Array.from(new Set(
+                  (planejamento.planejamento_ordens || [])
+                    .map((po: any) => po.tecnicos?.codigo)
+                    .filter(Boolean)
+                ));
+                
+                return (
+                  <TableRow 
+                    key={planejamento.id}
+                    className={isSelected ? "bg-blue-50 dark:bg-blue-950/30" : ""}
+                  >
+                    <TableCell>
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setPlanejamentosSelecionados(prev => [...prev, planejamento.id]);
+                          } else {
+                            setPlanejamentosSelecionados(prev => prev.filter(id => id !== planejamento.id));
+                          }
                         }}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      {(() => {
+                        // Corrigir timezone: adicionar um dia se necessário
+                        const data = new Date(planejamento.data_planejamento + 'T12:00:00');
+                        return data.toLocaleDateString('pt-BR');
+                      })()}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={
+                          planejamento.status === "aberto"
+                            ? "default"
+                            : planejamento.status === "cancelado"
+                            ? "destructive"
+                            : "secondary"
+                        }
                       >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleExportarPlanejamento(planejamento)}
-                      >
-                        <Download className="h-4 w-4" />
-                      </Button>
-                      {planejamento.status === "aberto" && (
+                        {planejamento.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {equipesDoPlano.slice(0, 3).map((codigo: string) => (
+                          <Badge key={codigo} variant="outline" className="text-xs">
+                            {codigo}
+                          </Badge>
+                        ))}
+                        {equipesDoPlano.length > 3 && (
+                          <Badge variant="outline" className="text-xs">
+                            +{equipesDoPlano.length - 3}
+                          </Badge>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>{planejamento.total_ordens}</TableCell>
+                    <TableCell>{planejamento.distancia_total_km?.toFixed(1)} km</TableCell>
+                    <TableCell>R$ {planejamento.faturamento_total?.toFixed(2)}</TableCell>
+                    <TableCell>
+                      {new Date(planejamento.created_at).toLocaleString('pt-BR')}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => {
-                            setPlanejamentoParaCancelar(planejamento);
-                            setCancelarDialogOpen(true);
+                            // Navegar para tela de roteirização com o ID do planejamento
+                            navigate(`/roteirizacao?planejamento=${planejamento.id}`);
                           }}
+                          title="Ver no mapa"
                         >
-                          <X className="h-4 w-4 text-destructive" />
+                          <Eye className="h-4 w-4" />
                         </Button>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleExportarPlanejamento(planejamento)}
+                          title="Exportar Excel"
+                        >
+                          <Download className="h-4 w-4" />
+                        </Button>
+                        {planejamento.status === "aberto" && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setPlanejamentoParaCancelar(planejamento);
+                              setCancelarDialogOpen(true);
+                            }}
+                            title="Cancelar planejamento"
+                          >
+                            <X className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         )}
