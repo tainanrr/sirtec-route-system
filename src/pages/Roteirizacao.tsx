@@ -238,6 +238,7 @@ const Roteirizacao = () => {
   const [mostrarTerritoriosNoMapa, setMostrarTerritoriosNoMapa] = useState(true); // V16: Padrão habilitado
   const [territorios, setTerritorios] = useState<Territorio[]>([]);
   const [territoriosSelecionados, setTerritoriosSelecionados] = useState<string[]>([]);
+  const [territoriosVisiveis, setTerritoriosVisiveis] = useState<string[]>([]); // Territórios visíveis no mapa (botão olho)
   const [expectativaDialogOpen, setExpectativaDialogOpen] = useState(false);
   const [expectativas, setExpectativas] = useState<ExpectativaTerritorio[]>([]);
   const [selecaoTerritoriosDialogOpen, setSelecaoTerritoriosDialogOpen] = useState(false);
@@ -387,7 +388,9 @@ const Roteirizacao = () => {
       // Marcar todos os territórios ativos por padrão (com polígono válido)
       const territoriosAtivos = loaded.filter(t => t.ativo && t.poligono.length >= 3);
       if (territoriosAtivos.length > 0) {
-        setTerritoriosSelecionados(territoriosAtivos.map(t => t.id));
+        const ids = territoriosAtivos.map(t => t.id);
+        setTerritoriosSelecionados(ids);
+        setTerritoriosVisiveis(ids); // Todos visíveis por padrão
       }
     };
     loadTerritorios();
@@ -2449,10 +2452,16 @@ const Roteirizacao = () => {
       const updated = await carregarTerritorios();
       setTerritorios(updated);
       
-      // Encontrar o novo território pelo nome e adicionar aos selecionados automaticamente
+      // Encontrar o novo território pelo nome e adicionar aos selecionados e visíveis automaticamente
       const novoTerritorioSalvo = updated.find(t => t.nome === novoTerritorioNome.trim() && t.ativo);
       if (novoTerritorioSalvo) {
         setTerritoriosSelecionados(prev => {
+          if (!prev.includes(novoTerritorioSalvo.id)) {
+            return [...prev, novoTerritorioSalvo.id];
+          }
+          return prev;
+        });
+        setTerritoriosVisiveis(prev => {
           if (!prev.includes(novoTerritorioSalvo.id)) {
             return [...prev, novoTerritorioSalvo.id];
           }
@@ -3064,48 +3073,81 @@ const Roteirizacao = () => {
                 <div className="grid grid-cols-3 lg:grid-cols-4 gap-1 max-h-[280px] overflow-y-auto flex-1">
                   {territorios.filter(t => t.ativo && t.poligono.length >= 3).map((territorio) => {
                     const checked = territoriosSelecionados.includes(territorio.id);
+                    const visivel = territoriosVisiveis.includes(territorio.id);
                     const equipesVinculadas = (territorio.equipeIds || [])
                       .map(id => equipes.find(e => e.id === id))
                       .filter(e => e !== undefined);
                     const temEquipes = equipesVinculadas.length > 0;
                     return (
-                      <label 
+                      <div 
                         key={territorio.id} 
-                        className={`flex items-center gap-1.5 text-xs text-foreground p-1 rounded border cursor-pointer hover:bg-muted/50 ${
+                        className={`flex items-center gap-1 text-xs text-foreground p-1 rounded border ${
                           temEquipes 
                             ? 'border-transparent' 
                             : 'border-dashed border-orange-400/50 bg-orange-50/50 dark:bg-orange-950/20'
                         }`}
-                        title={temEquipes ? `Equipes: ${equipesVinculadas.map(e => e?.codigo).join(", ")}` : '⚠️ Sem equipes vinculadas - vincule equipes em Cadastros → Territórios'}
                       >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={(e) => {
-                            // Permitir selecionar territórios mesmo sem equipes vinculadas
-                            if (e.target.checked) {
-                              setTerritoriosSelecionados((prev) => [...prev, territorio.id]);
+                        <label 
+                          className="flex items-center gap-1 flex-1 cursor-pointer hover:bg-muted/50 rounded px-0.5"
+                          title={temEquipes ? `Equipes: ${equipesVinculadas.map(e => e?.codigo).join(", ")}` : '⚠️ Sem equipes vinculadas - vincule equipes em Cadastros → Territórios'}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              // Permitir selecionar territórios mesmo sem equipes vinculadas
+                              if (e.target.checked) {
+                                setTerritoriosSelecionados((prev) => [...prev, territorio.id]);
+                                // Ao selecionar, também torna visível automaticamente
+                                if (!visivel) {
+                                  setTerritoriosVisiveis((prev) => [...prev, territorio.id]);
+                                }
+                              } else {
+                                setTerritoriosSelecionados((prev) => prev.filter((id) => id !== territorio.id));
+                                // Ao desselecionar, também oculta
+                                setTerritoriosVisiveis((prev) => prev.filter((id) => id !== territorio.id));
+                              }
+                            }}
+                            className="h-3 w-3 flex-shrink-0"
+                          />
+                          <div
+                            className={`h-2.5 w-2.5 rounded-full flex-shrink-0 ${!temEquipes ? 'border border-dashed border-orange-400' : ''}`}
+                            style={{ backgroundColor: temEquipes ? territorio.cor : 'transparent' }}
+                          />
+                          <span className="font-medium truncate text-[11px]">{territorio.nome}</span>
+                          {temEquipes ? (
+                            <span className="text-muted-foreground text-[9px] truncate">
+                              {equipesVinculadas.map(e => e?.codigo).join(", ")}
+                            </span>
+                          ) : (
+                            <span className="text-orange-500 text-[9px] truncate">
+                              (sem equipes)
+                            </span>
+                          )}
+                        </label>
+                        {/* Botão de visibilidade no mapa */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (visivel) {
+                              setTerritoriosVisiveis((prev) => prev.filter((id) => id !== territorio.id));
                             } else {
-                              setTerritoriosSelecionados((prev) => prev.filter((id) => id !== territorio.id));
+                              setTerritoriosVisiveis((prev) => [...prev, territorio.id]);
                             }
                           }}
-                          className="h-3 w-3 flex-shrink-0"
-                        />
-                        <div
-                          className={`h-2.5 w-2.5 rounded-full flex-shrink-0 ${!temEquipes ? 'border border-dashed border-orange-400' : ''}`}
-                          style={{ backgroundColor: temEquipes ? territorio.cor : 'transparent' }}
-                        />
-                        <span className="font-medium truncate text-[11px]">{territorio.nome}</span>
-                        {temEquipes ? (
-                          <span className="text-muted-foreground text-[9px] truncate">
-                            {equipesVinculadas.map(e => e?.codigo).join(", ")}
-                          </span>
-                        ) : (
-                          <span className="text-orange-500 text-[9px] truncate">
-                            (sem equipes)
-                          </span>
-                        )}
-                      </label>
+                          className={`p-0.5 rounded hover:bg-muted flex-shrink-0 transition-colors ${
+                            visivel ? 'text-foreground' : 'text-muted-foreground/50'
+                          }`}
+                          title={visivel ? 'Ocultar no mapa' : 'Mostrar no mapa'}
+                        >
+                          {visivel ? (
+                            <Eye className="h-3 w-3" />
+                          ) : (
+                            <EyeOff className="h-3 w-3" />
+                          )}
+                        </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -3118,8 +3160,11 @@ const Roteirizacao = () => {
                       const ativos = territorios.filter(t => t.ativo && t.poligono.length >= 3);
                       if (territoriosSelecionados.length === ativos.length) {
                         setTerritoriosSelecionados([]);
+                        setTerritoriosVisiveis([]);
                       } else {
-                        setTerritoriosSelecionados(ativos.map(t => t.id));
+                        const ids = ativos.map(t => t.id);
+                        setTerritoriosSelecionados(ids);
+                        setTerritoriosVisiveis(ids);
                       }
                     }}
                     className="flex-1 text-xs h-7"
@@ -3645,9 +3690,9 @@ const Roteirizacao = () => {
                 }}
                 key={`mapa-${rotas.length}-${equipeEditando || 'none'}`}
                 territorios={mostrarTerritoriosNoMapa
-                  ? (usarTerritorios && territoriosSelecionados.length > 0
-                      ? territorios.filter(t => territoriosSelecionados.includes(t.id))
-                      : territorios)
+                  ? (usarTerritorios && territoriosVisiveis.length > 0
+                      ? territorios.filter(t => territoriosVisiveis.includes(t.id))
+                      : [])
                   : []}
                 onTerritorioEditado={async (territorioId, novoPoligono) => {
                   const territorio = territorios.find(t => t.id === territorioId);
