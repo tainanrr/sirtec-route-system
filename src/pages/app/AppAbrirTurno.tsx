@@ -270,13 +270,14 @@ export default function AppAbrirTurno() {
   if (!equipe) return null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/20 via-background to-primary/10 flex flex-col items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-primary/20 via-background to-primary/10 flex flex-col items-center justify-start p-2 sm:p-4 overflow-x-hidden">
       {/* Header */}
-      <div className="w-full max-w-lg mb-4">
+      <div className="w-full max-w-lg mb-2 sm:mb-4">
         <Button 
           variant="ghost" 
           onClick={handleVoltar}
           className="text-muted-foreground"
+          size="sm"
         >
           <ChevronLeft className="h-4 w-4 mr-1" />
           Voltar
@@ -284,7 +285,7 @@ export default function AppAbrirTurno() {
       </div>
 
       {/* Card Principal */}
-      <Card className="w-full max-w-lg shadow-2xl border-0 bg-card/80 backdrop-blur">
+      <Card className="w-full max-w-lg shadow-2xl border-0 bg-card/80 backdrop-blur overflow-hidden">
         <CardHeader className="pb-4">
           <div className="flex items-center gap-3 mb-2">
             <div className="p-2 rounded-xl bg-primary/10">
@@ -305,7 +306,7 @@ export default function AppAbrirTurno() {
           </div>
         </CardHeader>
 
-        <CardContent className="space-y-6">
+        <CardContent className="space-y-4 sm:space-y-6 px-3 sm:px-6">
           {/* Colaboradores da Equipe */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
@@ -346,38 +347,40 @@ export default function AppAbrirTurno() {
               </div>
             ) : (
               <ScrollArea className="max-h-64">
-                <div className="space-y-2 pr-4">
+                <div className="space-y-2">
                   {colaboradoresTurno.map((colaborador) => (
                     <div
                       key={colaborador.id}
-                      className="flex items-center gap-3 p-3 rounded-lg border bg-card"
+                      className="flex items-center gap-2 p-2 rounded-lg border bg-card"
                     >
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium truncate">{colaborador.nome}</p>
+                      {/* Conteúdo do colaborador */}
+                      <div className="flex-1 min-w-0 overflow-hidden">
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <p className="font-medium text-sm truncate max-w-[120px]">{colaborador.nome}</p>
                           {colaborador.funcao === "lider" && (
-                            <Badge variant="default" className="text-xs bg-amber-500 hover:bg-amber-600">
-                              <Crown className="h-3 w-3 mr-1" />
+                            <Badge variant="default" className="text-[10px] px-1.5 py-0 bg-amber-500 hover:bg-amber-600 flex-shrink-0">
+                              <Crown className="h-2.5 w-2.5 mr-0.5" />
                               Líder
                             </Badge>
                           )}
                         </div>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-[10px] text-muted-foreground truncate">
                           {colaborador.cargo || "Colaborador"} • {colaborador.cpf}
                         </p>
                       </div>
                       
-                      <div className="flex items-center gap-1">
+                      {/* Botões de ação - sempre visíveis */}
+                      <div className="flex items-center gap-0.5 flex-shrink-0">
                         {/* Botão definir líder */}
                         {colaborador.funcao !== "lider" && (
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 text-amber-600 hover:text-amber-700 hover:bg-amber-100"
+                            className="h-7 w-7 text-amber-600 hover:text-amber-700 hover:bg-amber-100"
                             onClick={() => definirLider(colaborador.id)}
                             title="Definir como Líder"
                           >
-                            <Crown className="h-4 w-4" />
+                            <Crown className="h-3.5 w-3.5" />
                           </Button>
                         )}
                         
@@ -385,11 +388,11 @@ export default function AppAbrirTurno() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-100"
+                          className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-100"
                           onClick={() => removerColaborador(colaborador.id)}
                           title="Remover"
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
                     </div>
