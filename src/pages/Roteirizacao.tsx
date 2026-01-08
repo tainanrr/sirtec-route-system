@@ -928,16 +928,27 @@ const Roteirizacao = () => {
     // Filtro de Grupo de Serviço
     const matchesGrupo = excluirFiltro === 'grupo' || gruposFilter.length === 0 || gruposFilter.includes(obterGrupoServico(os.tipo));
     
-    // Filtro de Territórios (OSs dentro dos territórios ativos selecionados)
+    // Filtro de Territórios (OSs dentro dos territórios ativos selecionados OU com bairro cadastrado no território)
     let matchesTerritorio = true;
     if (excluirFiltro !== 'territorio' && territoriosFilter.length > 0) {
-      // Verificar se a OS está dentro de algum dos territórios selecionados
       const territoriosFiltrados = territorios.filter(t => territoriosFilter.includes(t.id));
-      matchesTerritorio = territoriosFiltrados.some(t => 
+      
+      // Verificar se a OS está DENTRO de algum dos territórios selecionados (por coordenadas)
+      const dentroDoTerritorio = territoriosFiltrados.some(t => 
         t.ativo && t.poligono.length >= 3 && 
         os.latitude !== null && os.longitude !== null &&
         pontoNoPoligono({ lat: os.latitude, lng: os.longitude }, t.poligono)
       );
+      
+      // Verificar se o BAIRRO da OS está cadastrado em algum dos territórios selecionados
+      // (isso inclui OSs com coordenadas suspeitas - bairro pertence ao território mas coordenadas não)
+      const bairroCadastradoNoTerritorio = os.bairro ? territoriosFiltrados.some(t => 
+        t.ativo && t.bairros && t.bairros.some(b => 
+          b.toLowerCase().trim() === os.bairro?.toLowerCase().trim()
+        )
+      ) : false;
+      
+      matchesTerritorio = dentroDoTerritorio || bairroCadastradoNoTerritorio;
     }
     
     return matchesTipo && matchesContrato && matchesCentroCusto && matchesMunicipio && 
@@ -983,8 +994,9 @@ const Roteirizacao = () => {
   }, [osPendentesTodas, tiposFilter, contratosFilter, centrosCustoFilter, municipiosFilter, bairrosFilter, statusFilter, territoriosFilter, reguladaFilter, coordenadasFilter, prazoInicio, prazoFim, gruposFilter]);
 
   // Territórios disponíveis para filtro (apenas os que contêm OSs que passam nos demais filtros)
+  // Considera tanto OSs dentro do polígono quanto OSs com bairro cadastrado no território
   const territoriosDisponiveis = useMemo(() => {
-    const territoriosAtivos = territorios.filter(t => t.ativo && t.poligono.length >= 3);
+    const territoriosAtivos = territorios.filter(t => t.ativo);
     
     // Filtrar apenas territórios que contêm pelo menos uma OS que passa nos filtros
     return territoriosAtivos.filter(territorio => {
@@ -992,9 +1004,16 @@ const Roteirizacao = () => {
         // Verificar se a OS passa nos demais filtros (exceto território)
         if (!osPassaFiltros(os, 'territorio')) return false;
         
-        // Verificar se a OS está dentro deste território
-        if (os.latitude === null || os.longitude === null) return false;
-        return pontoNoPoligono({ lat: os.latitude, lng: os.longitude }, territorio.poligono);
+        // Verificar se a OS está DENTRO deste território (por coordenadas)
+        const dentroDoPoligono = territorio.poligono.length >= 3 && 
+          os.latitude !== null && os.longitude !== null &&
+          pontoNoPoligono({ lat: os.latitude, lng: os.longitude }, territorio.poligono);
+        
+        // Verificar se o BAIRRO da OS está cadastrado neste território
+        const bairroCadastrado = os.bairro && territorio.bairros && 
+          territorio.bairros.some(b => b.toLowerCase().trim() === os.bairro?.toLowerCase().trim());
+        
+        return dentroDoPoligono || bairroCadastrado;
       });
     });
   }, [territorios, osPendentesTodas, tiposFilter, contratosFilter, centrosCustoFilter, municipiosFilter, bairrosFilter, statusFilter, gruposFilter, reguladaFilter, coordenadasFilter, prazoInicio, prazoFim, territoriosFilter]);
