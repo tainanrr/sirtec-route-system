@@ -3682,26 +3682,19 @@ const Roteirizacao = () => {
                                           ref={provided.innerRef}
                                           {...provided.draggableProps}
                                           className={cn(
-                                            "flex items-center gap-2 p-2 rounded border bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800 transition-all",
+                                            "flex items-center gap-1.5 px-1.5 py-0.5 rounded border bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800 transition-all text-[11px]",
                                             snapshot.isDragging && "shadow-lg ring-2 ring-primary z-50"
                                           )}
                                         >
-                                          {/* Ícone de Almoço */}
-                                          <div className="flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-sm bg-amber-500">
+                                          <div className="flex-shrink-0 h-4 w-4 rounded-full flex items-center justify-center text-[10px] bg-amber-500">
                                             🍽️
                                           </div>
-
-                                          {/* Informações do Almoço */}
-                                          <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2">
-                                              <span className="font-medium text-sm text-foreground">ALMOÇO</span>
-                                              {servico.horaInicio && servico.horaFim && (
-                                                <span className="text-xs text-muted-foreground">
-                                                  {servico.horaInicio} - {servico.horaFim}
-                                                </span>
-                                              )}
-                                            </div>
-                                          </div>
+                                          <span className="font-medium text-foreground">ALMOÇO</span>
+                                          {servico.horaInicio && servico.horaFim && (
+                                            <span className="text-muted-foreground">
+                                              {servico.horaInicio} - {servico.horaFim}
+                                            </span>
+                                          )}
                                         </div>
                                       )}
                                     </Draggable>
@@ -3731,7 +3724,7 @@ const Roteirizacao = () => {
                                                 }
                                               }}
                                               className={cn(
-                                                "group flex items-center gap-2 p-2 rounded border bg-card transition-all",
+                                                "group flex items-center gap-1.5 px-1.5 py-0.5 rounded border bg-card transition-all text-[11px]",
                                                 snapshot.isDragging && "shadow-lg ring-2 ring-primary z-50 cursor-grabbing",
                                                 !snapshot.isDragging && "hover:bg-muted/50 cursor-grab",
                                                 foraDoPrazo && "border-danger/50 bg-danger/5",
@@ -3801,7 +3794,7 @@ const Roteirizacao = () => {
                                                     else if (e.key === 'Escape') { setOsEditandoPosicao(null); setNovaPosicaoInput(""); }
                                                   }}
                                                   onClick={(e) => e.stopPropagation()}
-                                                  className="h-6 w-10 text-xs p-0 text-center flex-shrink-0"
+                                                  className="h-4 w-6 text-[10px] p-0 text-center flex-shrink-0"
                                                   autoFocus
                                                 />
                                               ) : (
@@ -3811,7 +3804,7 @@ const Roteirizacao = () => {
                                                     setOsEditandoPosicao(os.id);
                                                     setNovaPosicaoInput((servicosComAlmoco.slice(0, index).filter(s => s.tipo === 'SERVICO').length + 1).toString());
                                                   }}
-                                                  className="flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                                                  className="flex-shrink-0 h-4 w-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white"
                                                   style={{ backgroundColor: cor }}
                                                   title="Duplo clique para editar posição"
                                                 >
@@ -3819,52 +3812,43 @@ const Roteirizacao = () => {
                                                 </div>
                                               )}
 
-                                              {/* Número OS e Tipo */}
-                                              <div className="flex-shrink-0 min-w-[100px]">
-                                                <div className="flex items-center gap-1">
-                                                  <span className="font-mono font-semibold text-xs">{os.numero}</span>
-                                                  {os.regulada && <Zap className="h-3 w-3 text-danger flex-shrink-0" />}
-                                                </div>
-                                                <div className="text-[10px] text-muted-foreground truncate">{os.tipo}</div>
-                                              </div>
+                                              {/* Número OS */}
+                                              <span className="font-mono font-semibold flex-shrink-0">{os.numero}</span>
+                                              {os.regulada && <Zap className="h-3 w-3 text-danger flex-shrink-0" />}
+
+                                              {/* Tipo */}
+                                              <span className="text-muted-foreground truncate max-w-[80px] flex-shrink-0" title={os.tipo}>{os.tipo}</span>
 
                                               {/* Horário */}
-                                              <div className="flex-shrink-0 text-xs text-center min-w-[70px]">
-                                                {servico.horaInicio && (
-                                                  <div className="font-medium">{servico.horaInicio}</div>
-                                                )}
-                                                {servico.horaFim && (
-                                                  <div className="text-[10px] text-muted-foreground">até {servico.horaFim}</div>
-                                                )}
-                                              </div>
+                                              <span className="text-muted-foreground flex-shrink-0">
+                                                {servico.horaInicio}{servico.horaFim && `-${servico.horaFim}`}
+                                              </span>
 
                                               {/* Endereço */}
-                                              <div className="flex-1 min-w-0 flex items-center gap-1">
-                                                <MapPin className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
-                                                <span className="text-xs truncate">{os.endereco}</span>
+                                              <div className="flex-1 min-w-0 flex items-center gap-0.5 text-muted-foreground">
+                                                <MapPin className="h-2.5 w-2.5 flex-shrink-0" />
+                                                <span className="truncate">{os.endereco}</span>
                                               </div>
 
                                               {/* Badges */}
-                                              <div className="flex items-center gap-1 flex-shrink-0">
-                                                {estaEmAndamento && (
-                                                  <Badge className="bg-green-500 hover:bg-green-600 text-[10px] px-1">
-                                                    EM ANDAMENTO
-                                                  </Badge>
-                                                )}
-                                                {foraDoPrazo && (
-                                                  <Badge variant="destructive" className="text-[10px] px-1">
-                                                    FORA DO PRAZO
-                                                  </Badge>
-                                                )}
-                                              </div>
+                                              {estaEmAndamento && (
+                                                <Badge className="bg-green-500 hover:bg-green-600 text-[8px] px-1 py-0 h-4">
+                                                  ANDANDO
+                                                </Badge>
+                                              )}
+                                              {foraDoPrazo && (
+                                                <Badge variant="destructive" className="text-[8px] px-1 py-0 h-4">
+                                                  FORA
+                                                </Badge>
+                                              )}
 
                                               {/* Botões de Ação */}
-                                              <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                                              <div className="flex items-center flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                                           {index > 0 && servico.tipo === 'SERVICO' && (
                                             <Button
                                               variant="ghost"
                                               size="sm"
-                                              className="h-5 w-5 p-0"
+                                              className="h-4 w-4 p-0"
                                               title="Mover para cima"
                                               onClick={() => {
                                                 const novasRotas = rotas.map(r => {
@@ -3893,14 +3877,14 @@ const Roteirizacao = () => {
                                                 setRotas(novasRotas);
                                               }}
                                             >
-                                              <ArrowUp className="h-3 w-3" />
+                                              <ArrowUp className="h-2.5 w-2.5" />
                                             </Button>
                                           )}
                                           {index < servicosComAlmoco.length - 1 && (
                                             <Button
                                               variant="ghost"
                                               size="sm"
-                                              className="h-5 w-5 p-0"
+                                              className="h-4 w-4 p-0"
                                               title="Mover para baixo"
                                               onClick={() => {
                                                 const novasRotas = rotas.map(r => {
@@ -3931,14 +3915,14 @@ const Roteirizacao = () => {
                                                 setRotas(novasRotas);
                                               }}
                                             >
-                                              <ArrowDown className="h-3 w-3" />
+                                              <ArrowDown className="h-2.5 w-2.5" />
                                             </Button>
                                           )}
                                           {servico.tipo === 'SERVICO' && (
                                           <Button
                                             variant="ghost"
                                             size="sm"
-                                            className="h-5 w-5 p-0 text-destructive hover:text-destructive"
+                                            className="h-4 w-4 p-0 text-destructive hover:text-destructive"
                                             title="Remover da rota"
                                             onClick={() => {
                                               const novasRotas = rotas.map(r => {
@@ -3953,7 +3937,7 @@ const Roteirizacao = () => {
                                               toast.success(`OS ${os.numero} removida`);
                                             }}
                                           >
-                                            <X className="h-3 w-3" />
+                                            <X className="h-2.5 w-2.5" />
                                           </Button>
                                           )}
                                         </div>
