@@ -707,6 +707,20 @@ const Roteirizacao = () => {
 
       setRotas(rotasReconstruidas);
       
+      // Guardar snapshot das rotas originais para comparação posterior (notificação de alterações)
+      const snapshotRotas = new Map<string, { numero: string; tipo: string }[]>();
+      rotasReconstruidas.forEach(rota => {
+        const ossDaRota = rota.servicos
+          .filter(s => s.tipo === 'SERVICO' && s.ordemServico)
+          .map(s => ({
+            numero: s.ordemServico!.numero,
+            tipo: s.ordemServico!.tipo
+          }));
+        snapshotRotas.set(rota.equipe.id, ossDaRota);
+      });
+      setRotasOriginais(snapshotRotas);
+      console.log("[PLANEJAMENTO] Snapshot das rotas originais salvo para comparação:", snapshotRotas.size, "equipes");
+      
       // Guardar ID do planejamento sendo editado e a data
       setPlanejamentoEditandoId(planejamentoId);
       setDataPlanejamento(planejamento.data_planejamento);
@@ -4594,20 +4608,21 @@ const Roteirizacao = () => {
                 if (!planejamentoEditandoId) {
                   const hoje = new Date().toISOString().split('T')[0];
                   setDataPlanejamento(hoje);
+                  
+                  // Guardar snapshot das rotas atuais para comparação posterior
+                  // (só quando NÃO está editando, pois ao editar o snapshot já foi salvo no carregamento)
+                  const snapshotRotas = new Map<string, { numero: string; tipo: string }[]>();
+                  rotas.forEach(rota => {
+                    const ossDaRota = rota.servicos
+                      .filter(s => s.tipo === 'SERVICO' && s.ordemServico)
+                      .map(s => ({
+                        numero: s.ordemServico!.numero,
+                        tipo: s.ordemServico!.tipo
+                      }));
+                    snapshotRotas.set(rota.equipe.id, ossDaRota);
+                  });
+                  setRotasOriginais(snapshotRotas);
                 }
-                
-                // Guardar snapshot das rotas atuais para comparação posterior
-                const snapshotRotas = new Map<string, { numero: string; tipo: string }[]>();
-                rotas.forEach(rota => {
-                  const ossDaRota = rota.servicos
-                    .filter(s => s.tipo === 'SERVICO' && s.ordemServico)
-                    .map(s => ({
-                      numero: s.ordemServico!.numero,
-                      tipo: s.ordemServico!.tipo
-                    }));
-                  snapshotRotas.set(rota.equipe.id, ossDaRota);
-                });
-                setRotasOriginais(snapshotRotas);
                 
                 setConfirmarPlanejamentoDialogOpen(true);
               }}
