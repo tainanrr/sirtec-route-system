@@ -79,6 +79,7 @@ import { tecnicosParaEquipes } from "@/lib/equipeUtils";
 import { mapSupabaseOrdensServicoToOrdemServico } from "@/lib/ordemServicoUtils";
 import type { Tables } from "@/integrations/supabase/types";
 import MapaLeaflet from "./components/MapaLeaflet";
+import { notificarAlteracaoRota, detectarAlteracoesRota } from "@/lib/chatNotificacaoUtils";
 import { carregarTerritorios, salvarTerritorios, salvarTerritorio, Territorio, pontoNoPoligono, atualizarTerritoriosOSs, CORES_TERRITORIOS } from "@/types/territorios";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -2633,7 +2634,7 @@ const Roteirizacao = () => {
 
   // Função para incluir OS diretamente na rota (chamada do mapa)
   // Usa osPendentesTodas para permitir inclusão manual de OSs fora do território
-  const handleIncluirOSNaRota = (osId: string) => {
+  const handleIncluirOSNaRota = async (osId: string) => {
     if (!equipeEditando) {
       toast.error("Selecione uma equipe para editar primeiro");
       return;
@@ -2675,6 +2676,43 @@ const Roteirizacao = () => {
     setRotas(novasRotas);
     setOsSelecionadaNoMapa(null);
     toast.success(`OS ${os.numero} adicionada à rota`);
+    
+    // Notificar equipe via chat se tiver turno em andamento
+    if (equipe) {
+      notificarAlteracaoRota(equipe.id, equipe.codigo, {
+        osIncluidas: [{ numero: os.numero, tipo: os.tipo }],
+        osRemovidas: []
+      });
+    }
+  };
+
+  // Função para remover OS da rota com notificação
+  const handleRemoverOSDaRota = async (
+    equipeId: string,
+    equipeCodigo: string,
+    servicos: RotaServico[],
+    indiceRemover: number,
+    osNumero: string,
+    osTipo: string
+  ) => {
+    const novosServicos = servicos.filter((_, i) => i !== indiceRemover);
+    
+    const novasRotas = rotas.map(r => {
+      if (r.equipe.id === equipeId) {
+        const rotaAtualizada = { ...r, servicos: novosServicos };
+        return recalcularRota(rotaAtualizada).rota;
+      }
+      return r;
+    });
+    
+    setRotas(novasRotas);
+    toast.success(`OS ${osNumero} removida`);
+    
+    // Notificar equipe via chat se tiver turno em andamento
+    notificarAlteracaoRota(equipeId, equipeCodigo, {
+      osIncluidas: [],
+      osRemovidas: [{ numero: osNumero, tipo: osTipo }]
+    });
   };
 
   // Função para calcular e exibir expectativa de equipes
@@ -4353,23 +4391,21 @@ const Roteirizacao = () => {
                                               <ArrowDown className="h-2.5 w-2.5" />
                                             </Button>
                                           )}
-                                          {servico.tipo === 'SERVICO' && (
+                                          {servico.tipo === 'SERVICO' && rotaEditando && (
                                           <Button
                                             variant="ghost"
                                             size="sm"
                                             className="h-4 w-4 p-0 text-destructive hover:text-destructive"
                                             title="Remover da rota"
                                             onClick={() => {
-                                              const novasRotas = rotas.map(r => {
-                                                if (r.equipe.id === equipeEditando) {
-                                                  const novosServicos = r.servicos.filter((_, i) => i !== index);
-                                                  const rotaAtualizada = { ...r, servicos: novosServicos };
-                                                  return recalcularRota(rotaAtualizada).rota;
-                                                }
-                                                return r;
-                                              });
-                                              setRotas(novasRotas);
-                                              toast.success(`OS ${os.numero} removida`);
+                                              handleRemoverOSDaRota(
+                                                rotaEditando.equipe.id,
+                                                rotaEditando.equipe.codigo,
+                                                rotaEditando.servicos,
+                                                index,
+                                                os.numero,
+                                                os.tipo
+                                              );
                                             }}
                                           >
                                             <X className="h-2.5 w-2.5" />
