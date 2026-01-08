@@ -240,6 +240,7 @@ const Roteirizacao = () => {
   const [equipeEditando, setEquipeEditando] = useState<string | null>(null);
   const [osSelecionadaNoMapa, setOsSelecionadaNoMapa] = useState<string | null>(null);
   const [osSelecionadaNoEditor, setOsSelecionadaNoEditor] = useState<string | null>(null);
+  const [focarOSNoMapa, setFocarOSNoMapa] = useState(false); // Controla se deve centralizar mapa na OS
   const [osEditandoPosicao, setOsEditandoPosicao] = useState<string | null>(null);
   const [novaPosicaoInput, setNovaPosicaoInput] = useState<string>("");
   const [metricasAntesEdicao, setMetricasAntesEdicao] = useState<{
@@ -3424,10 +3425,12 @@ const Roteirizacao = () => {
                 equipeEditando={equipeEditando}
                 osSelecionada={osSelecionadaNoMapa}
                 osSelecionadaNoEditor={osSelecionadaNoEditor}
+                focarOSNoMapa={focarOSNoMapa}
                 onOSSelecionada={(osId) => {
                   setOsSelecionadaNoMapa(osId);
-                  // Também destacar no Editor de Rotas
+                  // Também destacar no Editor de Rotas (sem focar no mapa)
                   if (osId) {
+                    setFocarOSNoMapa(false); // Não centralizar mapa pois o clique veio do mapa
                     setOsSelecionadaNoEditor(osId);
                   }
                 }}
@@ -3738,6 +3741,7 @@ const Roteirizacao = () => {
                                               onClick={(e) => {
                                                 // Não selecionar se estiver editando posição
                                                 if (osEditandoPosicao !== os.id) {
+                                                  setFocarOSNoMapa(true); // Centralizar mapa pois o clique veio do Editor
                                                   setOsSelecionadaNoEditor(os.id);
                                                 }
                                               }}

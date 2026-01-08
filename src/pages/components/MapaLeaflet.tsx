@@ -69,6 +69,7 @@ interface MapaLeafletProps {
   equipeEditando?: string | null; // ID da equipe sendo editada (destacar no mapa)
   osSelecionada?: string | null; // ID da OS selecionada no mapa
   osSelecionadaNoEditor?: string | null; // ID da OS selecionada no editor de rotas
+  focarOSNoMapa?: boolean; // Se deve centralizar mapa na OS selecionada no editor
   onOSSelecionada?: (osId: string | null) => void; // Callback quando OS é selecionada no mapa
   onIncluirOSNaRota?: (osId: string) => void; // Callback para incluir OS diretamente na rota
   territorios?: Territorio[]; // Territórios para mostrar no mapa
@@ -115,7 +116,7 @@ function getLucideIconSVG(iconName: string | undefined, color: string, size: num
   `;
 }
 
-export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear, selecionandoCoordNoMapa, onMapClick }: MapaLeafletProps) {
+export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, focarOSNoMapa, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear, selecionandoCoordNoMapa, onMapClick }: MapaLeafletProps) {
   
   const mapRef = useRef<HTMLDivElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -1932,9 +1933,9 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
     };
   }, []);
 
-  // useEffect para focar na OS selecionada no Editor de Rotas
+  // useEffect para focar na OS selecionada no Editor de Rotas (apenas se focarOSNoMapa for true)
   useEffect(() => {
-    if (!osSelecionadaNoEditor || !mapInstanceRef.current) return;
+    if (!osSelecionadaNoEditor || !mapInstanceRef.current || !focarOSNoMapa) return;
 
     const marker = markersMapRef.current.get(osSelecionadaNoEditor);
     if (marker) {
@@ -1948,7 +1949,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
         marker.openPopup();
       }, 300);
     }
-  }, [osSelecionadaNoEditor]);
+  }, [osSelecionadaNoEditor, focarOSNoMapa]);
 
   // Tratamento de erro com fallback
   // Não bloquear renderização do mapa por erros menores
