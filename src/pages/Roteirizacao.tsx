@@ -1976,7 +1976,7 @@ const Roteirizacao = () => {
             ordem_servico_id,
             equipe_id,
             ordem_na_rota,
-            tecnicos:equipe_id (codigo, nome, centro_custo),
+            tecnicos:equipe_id (codigo, nome),
             ordens_servico:ordem_servico_id (numero, tipo, endereco, bairro)
           )
         `)
@@ -2000,14 +2000,6 @@ const Roteirizacao = () => {
           return ordens.some((po: any) => filtroEquipesConsulta.includes(po.equipe_id));
         });
       }
-      
-      // Filtrar por Centro de Custo
-      if (filtroCentroCustoConsulta !== "all") {
-        planejamentosFiltrados = planejamentosFiltrados.filter(p => {
-          const ordens = p.planejamento_ordens || [];
-          return ordens.some((po: any) => po.tecnicos?.centro_custo === filtroCentroCustoConsulta);
-        });
-      }
 
       setPlanejamentosEncontrados(planejamentosFiltrados);
     } catch (error: any) {
@@ -2020,7 +2012,7 @@ const Roteirizacao = () => {
     } finally {
       setCarregandoPlanejamentos(false);
     }
-  }, [filtroDataConsulta, filtroEquipesConsulta, filtroCentroCustoConsulta, equipes]);
+  }, [filtroDataConsulta, filtroEquipesConsulta, equipes]);
 
   // Carregar planejamentos quando o dialog abrir
   useEffect(() => {
@@ -5896,7 +5888,7 @@ const Roteirizacao = () => {
           
           <div className="space-y-4 py-4">
             {/* Filtros */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="filtro-data-consulta">Data</Label>
                 <Input
@@ -5906,23 +5898,6 @@ const Roteirizacao = () => {
                   onChange={(e) => setFiltroDataConsulta(e.target.value)}
                   className="mt-2"
                 />
-              </div>
-              
-              <div>
-                <Label htmlFor="filtro-cc-consulta">Centro de Custo</Label>
-                <Select value={filtroCentroCustoConsulta} onValueChange={setFiltroCentroCustoConsulta}>
-                  <SelectTrigger className="mt-2">
-                    <SelectValue placeholder="Todos os centros de custo" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos os centros de custo</SelectItem>
-                    {[...new Set(equipes.map(e => e.centroCusto).filter(Boolean))].map(cc => (
-                      <SelectItem key={cc} value={cc!}>
-                        {cc}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
               </div>
               
               <div>
