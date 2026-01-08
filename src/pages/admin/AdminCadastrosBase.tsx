@@ -304,7 +304,7 @@ export default function AdminCadastrosBase() {
 
   // Filtrar e ordenar dados para tipos de serviço (skills)
   const filteredTiposServico = useMemo(() => {
-    return filterData(
+    const filtered = filterData(
       tiposServico,
       filterValues,
       tipoServicoFilterConfigs,
@@ -329,6 +329,14 @@ export default function AdminCadastrosBase() {
         },
       }
     );
+    
+    // Adicionar campo calculado de produtividade para ordenação
+    return filtered.map(item => ({
+      ...item,
+      produtividade: item.valor && item.tempo_execucao_minutos 
+        ? (item.valor / item.tempo_execucao_minutos) * 60 
+        : 0
+    }));
   }, [tiposServico, filterValues, tipoServicoFilterConfigs]);
 
   const { sortConfig: tipoServicoSortConfig, handleSort: handleTipoServicoSort, sortedData: sortedTiposServico } =
@@ -813,12 +821,7 @@ export default function AdminCadastrosBase() {
                   <TableHead>Descrição</TableHead>
                   <SortableTableHead column="tempo_execucao_minutos" label="Tempo" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} className="text-center" />
                   <SortableTableHead column="valor" label="Valor" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} className="text-center" />
-                  <TableHead className="text-center">
-                    <div className="flex items-center justify-center gap-1">
-                      <TrendingUp className="h-3.5 w-3.5" />
-                      <span>Produtiv.</span>
-                    </div>
-                  </TableHead>
+                  <SortableTableHead column="produtividade" label="Produtiv." sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} className="text-center" />
                   <SortableTableHead column="regulada" label="Regulada" sortConfig={tipoServicoSortConfig} onSort={handleTipoServicoSort} className="text-center" />
                   <TableHead className="text-center">Avulso</TableHead>
                   <TableHead className="text-center">Sigla/Mapa</TableHead>
