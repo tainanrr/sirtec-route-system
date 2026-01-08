@@ -6038,21 +6038,49 @@ const Roteirizacao = () => {
             {/* Cor do território */}
             <div className="space-y-2">
               <label className="text-sm font-medium">Cor</label>
-              <div className="flex flex-wrap gap-2">
+              {/* Paleta de cores predefinidas */}
+              <div className="grid grid-cols-8 gap-1.5 max-h-[100px] overflow-y-auto border rounded-lg p-2">
                 {CORES_TERRITORIOS.map((cor) => (
                   <button
                     key={cor}
                     type="button"
                     onClick={() => setNovoTerritorioCor(cor)}
                     className={cn(
-                      "w-8 h-8 rounded-lg border-2 transition-all",
+                      "w-6 h-6 rounded border-2 transition-all",
                       novoTerritorioCor === cor 
-                        ? "border-foreground scale-110 ring-2 ring-offset-2 ring-blue-500" 
-                        : "border-transparent hover:scale-105"
+                        ? "border-foreground scale-110 ring-2 ring-offset-1 ring-blue-500" 
+                        : "border-muted hover:border-foreground hover:scale-105"
                     )}
                     style={{ backgroundColor: cor }}
+                    title={cor}
                   />
                 ))}
+              </div>
+              {/* Input de cor personalizada */}
+              <div className="flex gap-2 items-center">
+                <input
+                  type="color"
+                  value={novoTerritorioCor}
+                  onChange={(e) => setNovoTerritorioCor(e.target.value)}
+                  className="h-8 w-12 p-0.5 cursor-pointer border border-border rounded bg-background"
+                  title="Selecione uma cor personalizada"
+                />
+                <Input
+                  placeholder="#3b82f6"
+                  value={novoTerritorioCor}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value === "" || /^#[0-9A-Fa-f]{0,6}$/.test(value)) {
+                      setNovoTerritorioCor(value || "#3b82f6");
+                    }
+                  }}
+                  className="flex-1 h-8 text-sm"
+                />
+                <div
+                  className="w-10 h-8 rounded border border-border flex-shrink-0"
+                  style={{ backgroundColor: novoTerritorioCor }}
+                  title="Preview da cor"
+                />
               </div>
             </div>
             

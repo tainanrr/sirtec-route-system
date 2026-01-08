@@ -694,20 +694,48 @@ export default function CadastroTerritorios() {
 
                 <div>
                   <Label className="text-white mb-2 block">Cor</Label>
-                  <div className="grid grid-cols-5 gap-2">
+                  {/* Paleta de cores predefinidas */}
+                  <div className="grid grid-cols-8 gap-1.5 mb-3 max-h-[120px] overflow-y-auto bg-slate-700 p-2 rounded">
                     {CORES_TERRITORIOS.map((cor) => (
                       <button
                         key={cor}
                         type="button"
                         onClick={() => setFormData({ ...formData, cor })}
-                        className={`w-8 h-8 rounded border-2 ${
+                        className={`w-6 h-6 rounded border-2 transition-all ${
                           formData.cor === cor
-                            ? "border-white scale-110"
-                            : "border-slate-600"
+                            ? "border-white scale-110 ring-2 ring-white/50"
+                            : "border-slate-500 hover:border-slate-300"
                         }`}
                         style={{ backgroundColor: cor }}
+                        title={cor}
                       />
                     ))}
+                  </div>
+                  {/* Input de cor personalizada */}
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="color"
+                      value={formData.cor}
+                      onChange={(e) => setFormData({ ...formData, cor: e.target.value })}
+                      className="h-8 w-12 p-0.5 cursor-pointer border border-slate-600 rounded bg-slate-700"
+                      title="Selecione uma cor personalizada"
+                    />
+                    <Input
+                      placeholder="#3b82f6"
+                      value={formData.cor}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value === "" || /^#[0-9A-Fa-f]{0,6}$/.test(value)) {
+                          setFormData({ ...formData, cor: value || "#3b82f6" });
+                        }
+                      }}
+                      className="flex-1 bg-slate-700 text-white border-slate-600 h-8 text-sm"
+                    />
+                    <div
+                      className="w-10 h-8 rounded border border-slate-600 flex-shrink-0"
+                      style={{ backgroundColor: formData.cor }}
+                      title="Preview da cor"
+                    />
                   </div>
                 </div>
 

@@ -16,8 +16,36 @@ export interface Territorio {
 }
 
 export const CORES_TERRITORIOS = [
-  '#EF4444', '#F97316', '#EAB308', '#22C55E', '#14B8A6',
-  '#3B82F6', '#8B5CF6', '#EC4899', '#6366F1', '#06B6D4',
+  // Vermelhos
+  '#EF4444', '#DC2626', '#B91C1C', '#991B1B',
+  // Laranjas
+  '#F97316', '#EA580C', '#C2410C', '#9A3412',
+  // Amarelos
+  '#EAB308', '#CA8A04', '#A16207', '#854D0E',
+  // Verdes claros
+  '#84CC16', '#65A30D', '#4D7C0F', '#3F6212',
+  // Verdes
+  '#22C55E', '#16A34A', '#15803D', '#166534',
+  // Teais
+  '#14B8A6', '#0D9488', '#0F766E', '#115E59',
+  // Cyans
+  '#06B6D4', '#0891B2', '#0E7490', '#155E75',
+  // Azuis claros
+  '#0EA5E9', '#0284C7', '#0369A1', '#075985',
+  // Azuis
+  '#3B82F6', '#2563EB', '#1D4ED8', '#1E40AF',
+  // Índigos
+  '#6366F1', '#4F46E5', '#4338CA', '#3730A3',
+  // Violetas
+  '#8B5CF6', '#7C3AED', '#6D28D9', '#5B21B6',
+  // Roxos
+  '#A855F7', '#9333EA', '#7E22CE', '#6B21A8',
+  // Fúcsias
+  '#D946EF', '#C026D3', '#A21CAF', '#86198F',
+  // Rosas
+  '#EC4899', '#DB2777', '#BE185D', '#9D174D',
+  // Marrons/Neutros
+  '#78716C', '#57534E', '#44403C', '#292524',
 ];
 
 export function pontoNoPoligono(ponto: Coordenada, poligono: Coordenada[]): boolean {
