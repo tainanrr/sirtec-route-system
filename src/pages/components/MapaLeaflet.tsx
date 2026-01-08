@@ -1923,6 +1923,24 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
     };
   }, []);
 
+  // useEffect para focar na OS selecionada no Editor de Rotas
+  useEffect(() => {
+    if (!osSelecionadaNoEditor || !mapInstanceRef.current) return;
+
+    const marker = markersMapRef.current.get(osSelecionadaNoEditor);
+    if (marker) {
+      const latlng = marker.getLatLng();
+      
+      // Centralizar o mapa na OS selecionada
+      mapInstanceRef.current.setView(latlng, 16, { animate: true });
+      
+      // Abrir o popup do marker
+      setTimeout(() => {
+        marker.openPopup();
+      }, 300);
+    }
+  }, [osSelecionadaNoEditor]);
+
   // Tratamento de erro com fallback
   // Não bloquear renderização do mapa por erros menores
   // if (erro) {

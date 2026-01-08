@@ -3484,7 +3484,7 @@ const Roteirizacao = () => {
           </div>
 
           {/* Coluna 2 (Direita - 33%): Lista de OSs */}
-          <div className="lg:col-span-4 rounded-xl border border-border bg-card overflow-hidden flex flex-col">
+          <div className="lg:col-span-4 rounded-xl border border-border bg-card overflow-hidden flex flex-col" style={{ height: 'calc(700px + 57px)' }}>
             <div className="p-4 border-b border-border">
               <div className="flex items-center justify-between mb-3">
                 <div>
@@ -3657,7 +3657,7 @@ const Roteirizacao = () => {
                             ref={provided.innerRef}
                             {...provided.droppableProps}
                             className={cn(
-                              "flex flex-col gap-1 min-h-[200px] max-h-[400px] overflow-y-auto pr-1",
+                              "flex flex-col gap-0.5 min-h-[200px] flex-1 overflow-y-auto pr-1",
                               snapshot.isDraggingOver && "bg-primary/5 rounded-lg p-2"
                             )}
                           >
