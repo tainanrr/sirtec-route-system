@@ -107,6 +107,8 @@ import { OrdemServicoDetalhesDialog } from "@/components/ordens/OrdemServicoDeta
 
 // Mapa dinâmico de tipo -> nome (preenchido com dados do banco)
 let skillsNomesMap: Map<string, string> = new Map();
+// Mapa dinâmico de tipo -> grupo_servico (preenchido com dados do banco)
+let skillsGruposMap: Map<string, string> = new Map();
 
 /**
  * Obtém o label formatado para um tipo de OS usando o nome da skill do banco
@@ -319,30 +321,38 @@ const Roteirizacao = () => {
     fetchEquipes();
   }, []);
 
-  // Carregar nomes das skills para exibição
+  // Carregar nomes e grupos das skills para exibição
   useEffect(() => {
     const fetchSkillsNomes = async () => {
       try {
         const { data, error } = await (supabase as any)
           .from("skills")
-          .select("codigo, nome")
+          .select("codigo, nome, grupo_servico")
           .eq("ativo", true);
         
         if (error) throw error;
         
-        // Preencher o mapa de nomes
-        const novoMapa = new Map<string, string>();
+        // Preencher o mapa de nomes e grupos
+        const novoMapaNomes = new Map<string, string>();
+        const novoMapaGrupos = new Map<string, string>();
         (data || []).forEach((skill: any) => {
           // Mapear código normalizado (minúsculo, sem " -") para nome
           const codigoNorm = skill.codigo.toLowerCase().replace(/ -$/, "").trim();
-          novoMapa.set(codigoNorm, skill.nome);
+          novoMapaNomes.set(codigoNorm, skill.nome);
           
           // Também mapear o código exato
-          novoMapa.set(skill.codigo.toLowerCase(), skill.nome);
+          novoMapaNomes.set(skill.codigo.toLowerCase(), skill.nome);
+          
+          // Mapear grupo de serviço (se existir)
+          if (skill.grupo_servico) {
+            novoMapaGrupos.set(codigoNorm, skill.grupo_servico);
+            novoMapaGrupos.set(skill.codigo.toLowerCase(), skill.grupo_servico);
+          }
         });
         
-        skillsNomesMap = novoMapa;
-        console.log("[Roteirização] Skills carregadas para exibição:", novoMapa.size);
+        skillsNomesMap = novoMapaNomes;
+        skillsGruposMap = novoMapaGrupos;
+        console.log("[Roteirização] Skills carregadas para exibição:", novoMapaNomes.size, "grupos:", novoMapaGrupos.size);
       } catch (error) {
         console.error("Erro ao carregar nomes das skills:", error);
       }
@@ -900,17 +910,30 @@ const Roteirizacao = () => {
            matchesPrazoInicio && matchesPrazoFim && matchesGrupo && matchesTerritorio;
   };
 
-  // Função para obter o grupo de um tipo de serviço
+  // Função para obter o grupo de um tipo de serviço (usando cadastro da skill)
   const obterGrupoServico = (tipo: string): string => {
-    const tipoUpper = tipo.toUpperCase();
-    if (tipoUpper.includes('CORTE') || tipoUpper.includes('RECORTE')) return 'Cobrança';
-    if (tipoUpper.includes('RELIGA') || tipoUpper.includes('REATIVACAO')) return 'Religação';
-    if (tipoUpper.includes('LIGACAO') || tipoUpper.includes('ALTERACAO') || tipoUpper.includes('MODIF')) return 'Ligação';
-    if (tipoUpper.includes('BAIXA') || tipoUpper.includes('VERIFICACAO')) return 'Baixa/Verificação';
-    if (tipoUpper.includes('ENLACE')) return 'Enlace';
-    if (tipoUpper.includes('VARREDURA')) return 'Varredura';
-    if (tipoUpper.includes('MICROGER')) return 'Microgeração';
-    return 'Outros';
+    // Normalizar o tipo para buscar no mapa
+    const tipoNorm = tipo.toLowerCase().replace(/ -$/, "").trim();
+    
+    // Buscar no mapa de grupos (cadastrado em Tipos de Serviço)
+    if (skillsGruposMap.has(tipoNorm)) {
+      return skillsGruposMap.get(tipoNorm)!;
+    }
+    
+    // Buscar também pelo código exato
+    if (skillsGruposMap.has(tipo.toLowerCase())) {
+      return skillsGruposMap.get(tipo.toLowerCase())!;
+    }
+    
+    // Tentar variações
+    for (const [key, value] of skillsGruposMap.entries()) {
+      if (key.toLowerCase() === tipoNorm || key.includes(tipoNorm) || tipoNorm.includes(key)) {
+        return value;
+      }
+    }
+    
+    // Fallback: se não encontrar no cadastro, retornar "Sem grupo"
+    return 'Sem grupo';
   };
 
   // Grupos de serviço disponíveis (considerando todos os outros filtros)
