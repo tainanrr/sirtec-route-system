@@ -2449,6 +2449,17 @@ const Roteirizacao = () => {
       const updated = await carregarTerritorios();
       setTerritorios(updated);
       
+      // Encontrar o novo território pelo nome e adicionar aos selecionados automaticamente
+      const novoTerritorioSalvo = updated.find(t => t.nome === novoTerritorioNome.trim() && t.ativo);
+      if (novoTerritorioSalvo) {
+        setTerritoriosSelecionados(prev => {
+          if (!prev.includes(novoTerritorioSalvo.id)) {
+            return [...prev, novoTerritorioSalvo.id];
+          }
+          return prev;
+        });
+      }
+      
       // Atualizar territórios das OSs
       atualizarTerritoriosOSs().then(({ atualizadas }) => {
         if (atualizadas > 0) {
