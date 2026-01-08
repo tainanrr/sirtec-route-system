@@ -537,10 +537,26 @@ const Roteirizacao = () => {
   // Scroll para a OS selecionada no Editor quando mudada pelo mapa
   useEffect(() => {
     if (osSelecionadaNoEditor) {
-      // Encontrar o elemento no DOM e fazer scroll
-      const elemento = document.querySelector(`[data-os-id="${osSelecionadaNoEditor}"]`);
+      // Encontrar o elemento no DOM
+      const elemento = document.querySelector(`[data-os-id="${osSelecionadaNoEditor}"]`) as HTMLElement;
       if (elemento) {
-        elemento.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Encontrar o container scrollável (pai com overflow-y-auto)
+        const container = elemento.closest('.overflow-y-auto') as HTMLElement;
+        if (container) {
+          // Calcular posição do elemento dentro do container
+          const containerRect = container.getBoundingClientRect();
+          const elementoRect = elemento.getBoundingClientRect();
+          
+          // Calcular se o elemento está visível no container
+          const isVisible = elementoRect.top >= containerRect.top && 
+                           elementoRect.bottom <= containerRect.bottom;
+          
+          // Só fazer scroll se não estiver visível
+          if (!isVisible) {
+            const scrollTop = elemento.offsetTop - container.offsetTop - (container.clientHeight / 2) + (elemento.clientHeight / 2);
+            container.scrollTo({ top: scrollTop, behavior: 'smooth' });
+          }
+        }
       }
     }
   }, [osSelecionadaNoEditor]);
