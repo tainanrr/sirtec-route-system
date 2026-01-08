@@ -53,77 +53,76 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ==============================================================
--- ALTERACAO CONTRATUAL
+-- ALTERACAO CONTRATUAL -
 -- ==============================================================
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '9506', 'SDCLU6012II', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '9506', 'SDCLU6012RD', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '9506', 'SDCLU6017II', 'obrigatorio', 1, false, 1);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '9506', 'SDCLU6017RD', 'obrigatorio', 1, false, 1);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '9507', 'SDCLU6012II', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '9507', 'SDCLU6012RD', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '9507', 'SDCLU6017II', 'obrigatorio', 1, false, 1);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '9507', 'SDCLU6017RD', 'obrigatorio', 1, false, 1);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '95034', 'SDCLU6012II', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '95034', 'SDCLU6016RD', 'obrigatorio', 1, false, 1);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '95034', 'SDCLU6017II', 'obrigatorio', 1, false, 1);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '95035', 'SDCLU6016II', 'obrigatorio', 1, false, 1);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '95035', 'SDCLU6017RD', 'obrigatorio', 1, false, 1);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '95036', 'SDCLU6013RD', 'opcional_selecionado', 1, true, 1);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '95036', 'SDCLU6017II', 'opcional_selecionado', 1, false, 1);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '95036', 'SDCLU6016RD', 'opcional_selecionado', 1, false, 1);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '95036', 'SDCLU6012II', 'opcional_selecionado', 1, true, 1);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '95037', 'SDCLU6012RD', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '95037', 'SDCLU6013II', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '95037', 'SDCLU6016II', 'obrigatorio', 1, false, 1);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '95037', 'SDCLU6017RD', 'obrigatorio', 1, false, 1);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '96004', 'SDCCU6419SC', 'obrigatorio', 1, true, 3);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '96007', 'SDCLU6020SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '96017', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '96018', 'SDCCU6420SC', 'obrigatorio', 1, true, 3);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '96028', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '96029', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '96030', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('ALTERACAO_CONTRATUAL', '96031', 'SDCCU6420SC', 'obrigatorio', 1, false, 2);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '9506', 'SDCLU6012II', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '9506', 'SDCLU6012RD', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '9506', 'SDCLU6017II', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '9506', 'SDCLU6017RD', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '9507', 'SDCLU6012II', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '9507', 'SDCLU6012RD', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '9507', 'SDCLU6017II', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '9507', 'SDCLU6017RD', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '95034', 'SDCLU6012II', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '95034', 'SDCLU6016RD', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '95034', 'SDCLU6017II', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '95035', 'SDCLU6016II', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '95035', 'SDCLU6017RD', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '95036', 'SDCLU6013RD', 'opcional_selecionado', 1, true, 1);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '95036', 'SDCLU6017II', 'opcional_selecionado', 1, false, 1);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '95036', 'SDCLU6016RD', 'opcional_selecionado', 1, false, 1);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '95036', 'SDCLU6012II', 'opcional_selecionado', 1, true, 1);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '95037', 'SDCLU6012RD', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '95037', 'SDCLU6013II', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '95037', 'SDCLU6016II', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '95037', 'SDCLU6017RD', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '96004', 'SDCCU6419SC', 'obrigatorio', 1, true, 3);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '96007', 'SDCLU6020SC', 'obrigatorio', 1, true, 2);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '96017', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '96018', 'SDCCU6420SC', 'obrigatorio', 1, true, 3);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '96028', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '96029', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '96030', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
+SELECT atualizar_retorno_atividade('ALTERACAO CONTRATUAL -', '96031', 'SDCCU6420SC', 'obrigatorio', 1, false, 2);
 
 -- ==============================================================
--- BAIXA A PEDIDO
+-- BAIXA A PEDIDO -
 -- ==============================================================
-SELECT atualizar_retorno_atividade('BAIXA_A_PEDIDO', '95008', 'SDCLU6016RD', 'obrigatorio', 1, false, 1);
-SELECT atualizar_retorno_atividade('BAIXA_A_PEDIDO', '95012', 'SDCLU6013RD', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('BAIXA_A_PEDIDO', '95013', 'SDCLU6013RD', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('BAIXA_A_PEDIDO', '95013', 'SDCLU6016RD', 'obrigatorio', 1, false, 1);
-SELECT atualizar_retorno_atividade('BAIXA_A_PEDIDO', '95016', 'SDCLU6017RD', 'obrigatorio', 1, false, 1);
-SELECT atualizar_retorno_atividade('BAIXA_A_PEDIDO', '95019', 'SDCLU6012RD', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('BAIXA_A_PEDIDO', '95020', 'SDCLU6012RD', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('BAIXA_A_PEDIDO', '95020', 'SDCLU6017RD', 'obrigatorio', 1, false, 1);
-SELECT atualizar_retorno_atividade('BAIXA_A_PEDIDO', '96004', 'SDCCU6419SC', 'obrigatorio', 1, true, 3);
-SELECT atualizar_retorno_atividade('BAIXA_A_PEDIDO', '96005', 'SDCCU6420SC', 'obrigatorio', 1, false, 2);
-SELECT atualizar_retorno_atividade('BAIXA_A_PEDIDO', '96009', 'SDCCU6420SC', 'obrigatorio', 1, false, 2);
-SELECT atualizar_retorno_atividade('BAIXA_A_PEDIDO', '96012', 'SDCCU6420SC', 'obrigatorio', 1, false, 1);
-SELECT atualizar_retorno_atividade('BAIXA_A_PEDIDO', '96013', 'SDCCU6420SC', 'obrigatorio', 1, false, 2);
-SELECT atualizar_retorno_atividade('BAIXA_A_PEDIDO', '96014', 'SDCCU6420SC', 'obrigatorio', 1, false, 2);
-SELECT atualizar_retorno_atividade('BAIXA_A_PEDIDO', '96017', 'SDCCU6420SC', 'obrigatorio', 1, false, 2);
+SELECT atualizar_retorno_atividade('BAIXA A PEDIDO -', '95008', 'SDCLU6016RD', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('BAIXA A PEDIDO -', '95012', 'SDCLU6013RD', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('BAIXA A PEDIDO -', '95013', 'SDCLU6013RD', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('BAIXA A PEDIDO -', '95013', 'SDCLU6016RD', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('BAIXA A PEDIDO -', '95016', 'SDCLU6017RD', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('BAIXA A PEDIDO -', '95019', 'SDCLU6012RD', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('BAIXA A PEDIDO -', '95020', 'SDCLU6012RD', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('BAIXA A PEDIDO -', '95020', 'SDCLU6017RD', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('BAIXA A PEDIDO -', '96004', 'SDCCU6419SC', 'obrigatorio', 1, true, 3);
+SELECT atualizar_retorno_atividade('BAIXA A PEDIDO -', '96005', 'SDCCU6420SC', 'obrigatorio', 1, false, 2);
+SELECT atualizar_retorno_atividade('BAIXA A PEDIDO -', '96009', 'SDCCU6420SC', 'obrigatorio', 1, false, 2);
+SELECT atualizar_retorno_atividade('BAIXA A PEDIDO -', '96012', 'SDCCU6420SC', 'obrigatorio', 1, false, 1);
+SELECT atualizar_retorno_atividade('BAIXA A PEDIDO -', '96013', 'SDCCU6420SC', 'obrigatorio', 1, false, 2);
+SELECT atualizar_retorno_atividade('BAIXA A PEDIDO -', '96014', 'SDCCU6420SC', 'obrigatorio', 1, false, 2);
+SELECT atualizar_retorno_atividade('BAIXA A PEDIDO -', '96017', 'SDCCU6420SC', 'obrigatorio', 1, false, 2);
 
 -- ==============================================================
--- BAIXA ADM
+-- BAIXA ADM -
 -- ==============================================================
-SELECT atualizar_retorno_atividade('BAIXA_ADM', '9600', 'SDCCU6420SC', 'obrigatorio', 1, false, 2);
-SELECT atualizar_retorno_atividade('BAIXA_ADM', '95008', 'SDCLU6016RD', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('BAIXA_ADM', '95012', 'SDCLU6013RD', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('BAIXA_ADM', '95013', 'SDCLU6013RD', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('BAIXA_ADM', '95013', 'SDCLU6016RD', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('BAIXA_ADM', '95016', 'SDCLU6017RD', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('BAIXA_ADM', '95019', 'SDCLU6012RD', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('BAIXA_ADM', '95020', 'SDCLU6012RD', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('BAIXA_ADM', '95020', 'SDCLU6017RD', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('BAIXA_ADM', '96004', 'SDCCU6419SC', 'obrigatorio', 1, true, 3);
-SELECT atualizar_retorno_atividade('BAIXA_ADM', '96005', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('BAIXA_ADM', '96009', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('BAIXA_ADM', '96012', 'SDCCU6420SC', 'obrigatorio', 1, true, 1);
-SELECT atualizar_retorno_atividade('BAIXA_ADM', '96013', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('BAIXA_ADM', '96014', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
-SELECT atualizar_retorno_atividade('BAIXA_ADM', '96017', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
+SELECT atualizar_retorno_atividade('BAIXA ADM -', '9600', 'SDCCU6420SC', 'obrigatorio', 1, false, 2);
+SELECT atualizar_retorno_atividade('BAIXA ADM -', '95008', 'SDCLU6016RD', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('BAIXA ADM -', '95012', 'SDCLU6013RD', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('BAIXA ADM -', '95013', 'SDCLU6013RD', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('BAIXA ADM -', '95013', 'SDCLU6016RD', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('BAIXA ADM -', '95016', 'SDCLU6017RD', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('BAIXA ADM -', '95019', 'SDCLU6012RD', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('BAIXA ADM -', '95020', 'SDCLU6012RD', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('BAIXA ADM -', '95020', 'SDCLU6017RD', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('BAIXA ADM -', '96004', 'SDCCU6419SC', 'obrigatorio', 1, true, 3);
+SELECT atualizar_retorno_atividade('BAIXA ADM -', '96005', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
+SELECT atualizar_retorno_atividade('BAIXA ADM -', '96009', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
+SELECT atualizar_retorno_atividade('BAIXA ADM -', '96012', 'SDCCU6420SC', 'obrigatorio', 1, true, 1);
+SELECT atualizar_retorno_atividade('BAIXA ADM -', '96013', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
+SELECT atualizar_retorno_atividade('BAIXA ADM -', '96014', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
+SELECT atualizar_retorno_atividade('BAIXA ADM -', '96017', 'SDCCU6420SC', 'obrigatorio', 1, true, 2);
 
 -- Verificação
-SELECT 'Parte 1 executada com sucesso' as resultado;
-
+SELECT 'Parte 1 executada com sucesso - códigos corrigidos com espaços e hífen' as resultado;

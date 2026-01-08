@@ -112,3 +112,4 @@ SELECT atualizar_retorno_atividade('MODIF_RELIGAR_MANUT', '96014', 'SDCCU6420SC'
 -- Verificação
 SELECT 'Parte 4 executada com sucesso' as resultado;
 
+

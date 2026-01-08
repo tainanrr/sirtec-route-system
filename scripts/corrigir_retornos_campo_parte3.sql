@@ -99,3 +99,4 @@ SELECT atualizar_retorno_atividade('MICROGERACAO', '96024', 'SDCCU6420SC', 'obri
 -- Verificação
 SELECT 'Parte 3 executada com sucesso' as resultado;
 
+

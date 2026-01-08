@@ -215,3 +215,4 @@ SELECT 'Chat tables created successfully!' as status;
 
 
 
+

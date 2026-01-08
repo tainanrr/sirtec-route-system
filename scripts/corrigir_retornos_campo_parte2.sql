@@ -122,3 +122,4 @@ SELECT atualizar_retorno_atividade('CORTE_TOP25', '96039', 'SDCCU6427SC', 'obrig
 -- Verificação
 SELECT 'Parte 2 executada com sucesso' as resultado;
 
+

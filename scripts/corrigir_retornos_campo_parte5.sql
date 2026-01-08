@@ -98,3 +98,4 @@ SELECT atualizar_retorno_atividade('RECORTE_C', '96024', 'SDCCU6420SC', 'obrigat
 -- Verificação
 SELECT 'Parte 5 executada com sucesso' as resultado;
 
+
