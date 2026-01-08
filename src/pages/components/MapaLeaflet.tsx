@@ -1343,7 +1343,8 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
         
         // Evento de clique - selecionar OS e garantir que popup abre
         marker.on('click', (e) => {
-          if (equipeEditando && onOSSelecionada) {
+          // Sempre notificar a seleção da OS
+          if (onOSSelecionada) {
             onOSSelecionada(os.id);
           }
           // Garantir que o popup abre
@@ -1599,6 +1600,14 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
           
           const popup = L.popup().setContent(popupContent);
           marker.bindPopup(popup);
+          
+          // Evento de clique - notificar seleção da OS
+          marker.on('click', () => {
+            if (onOSSelecionada) {
+              onOSSelecionada(servico.ordemServico!.id);
+            }
+          });
+          
           marker.addTo(map);
           markersRef.current.push(marker);
           markersMapRef.current.set(servico.ordemServico.id, marker);
