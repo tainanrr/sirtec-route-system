@@ -3682,11 +3682,11 @@ const Roteirizacao = () => {
                                           ref={provided.innerRef}
                                           {...provided.draggableProps}
                                           className={cn(
-                                            "flex items-center gap-1.5 px-1.5 py-0.5 rounded border bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800 transition-all text-[11px]",
+                                            "flex items-center gap-1.5 px-1.5 py-1 rounded border bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800 transition-all text-xs",
                                             snapshot.isDragging && "shadow-lg ring-2 ring-primary z-50"
                                           )}
                                         >
-                                          <div className="flex-shrink-0 h-4 w-4 rounded-full flex items-center justify-center text-[10px] bg-amber-500">
+                                          <div className="flex-shrink-0 h-5 w-5 rounded-full flex items-center justify-center text-xs bg-amber-500">
                                             🍽️
                                           </div>
                                           <span className="font-medium text-foreground">ALMOÇO</span>
@@ -3724,7 +3724,7 @@ const Roteirizacao = () => {
                                                 }
                                               }}
                                               className={cn(
-                                                "group flex items-center gap-1.5 px-1.5 py-0.5 rounded border bg-card transition-all text-[11px]",
+                                                "group flex items-center gap-1.5 px-1.5 py-1 rounded border bg-card transition-all text-xs",
                                                 snapshot.isDragging && "shadow-lg ring-2 ring-primary z-50 cursor-grabbing",
                                                 !snapshot.isDragging && "hover:bg-muted/50 cursor-grab",
                                                 foraDoPrazo && "border-danger/50 bg-danger/5",
@@ -3794,7 +3794,7 @@ const Roteirizacao = () => {
                                                     else if (e.key === 'Escape') { setOsEditandoPosicao(null); setNovaPosicaoInput(""); }
                                                   }}
                                                   onClick={(e) => e.stopPropagation()}
-                                                  className="h-4 w-6 text-[10px] p-0 text-center flex-shrink-0"
+                                                  className="h-5 w-8 text-xs p-0 text-center flex-shrink-0"
                                                   autoFocus
                                                 />
                                               ) : (
@@ -3804,7 +3804,7 @@ const Roteirizacao = () => {
                                                     setOsEditandoPosicao(os.id);
                                                     setNovaPosicaoInput((servicosComAlmoco.slice(0, index).filter(s => s.tipo === 'SERVICO').length + 1).toString());
                                                   }}
-                                                  className="flex-shrink-0 h-4 w-4 rounded-full flex items-center justify-center text-[9px] font-bold text-white"
+                                                  className="flex-shrink-0 h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
                                                   style={{ backgroundColor: cor }}
                                                   title="Duplo clique para editar posição"
                                                 >
