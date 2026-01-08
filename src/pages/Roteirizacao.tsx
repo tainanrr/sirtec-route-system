@@ -1230,15 +1230,26 @@ const Roteirizacao = () => {
     // Grupo de Serviço - seleção múltipla
     const matchesGrupo = gruposFilter.length === 0 || gruposFilter.includes(obterGrupoServico(s.tipo));
     
-    // Territórios - verifica se a OS está dentro dos territórios selecionados
+    // Territórios - verifica se a OS está dentro dos territórios selecionados OU se o bairro está cadastrado
     let matchesTerritorio = true;
     if (territoriosFilter.length > 0) {
       const territoriosFiltrados = territorios.filter(t => territoriosFilter.includes(t.id));
-      matchesTerritorio = territoriosFiltrados.some(t => 
+      
+      // Verificar se está DENTRO do polígono
+      const dentroDoPoligono = territoriosFiltrados.some(t => 
         t.ativo && t.poligono.length >= 3 && 
         s.latitude !== null && s.longitude !== null &&
         pontoNoPoligono({ lat: s.latitude, lng: s.longitude }, t.poligono)
       );
+      
+      // Verificar se o BAIRRO da OS está cadastrado em algum dos territórios selecionados
+      const bairroCadastrado = s.bairro ? territoriosFiltrados.some(t => 
+        t.ativo && t.bairros && t.bairros.some(b => 
+          b.toLowerCase().trim() === s.bairro?.toLowerCase().trim()
+        )
+      ) : false;
+      
+      matchesTerritorio = dentroDoPoligono || bairroCadastrado;
     }
     
     return matchesSearch && matchesTipo && matchesContrato && matchesCentroCusto && 
