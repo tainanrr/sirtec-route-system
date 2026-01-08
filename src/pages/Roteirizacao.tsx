@@ -533,6 +533,17 @@ const Roteirizacao = () => {
     }
   }, [searchParams]);
 
+  // Scroll para a OS selecionada no Editor quando mudada pelo mapa
+  useEffect(() => {
+    if (osSelecionadaNoEditor) {
+      // Encontrar o elemento no DOM e fazer scroll
+      const elemento = document.querySelector(`[data-os-id="${osSelecionadaNoEditor}"]`);
+      if (elemento) {
+        elemento.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }, [osSelecionadaNoEditor]);
+
   // Função para carregar planejamento na tela de roteirização
   const handleCarregarPlanejamento = async (planejamentoId: string) => {
     try {
@@ -3413,7 +3424,13 @@ const Roteirizacao = () => {
                 equipeEditando={equipeEditando}
                 osSelecionada={osSelecionadaNoMapa}
                 osSelecionadaNoEditor={osSelecionadaNoEditor}
-                onOSSelecionada={setOsSelecionadaNoMapa}
+                onOSSelecionada={(osId) => {
+                  setOsSelecionadaNoMapa(osId);
+                  // Também destacar no Editor de Rotas
+                  if (osId) {
+                    setOsSelecionadaNoEditor(osId);
+                  }
+                }}
                 onIncluirOSNaRota={handleIncluirOSNaRota}
                 selecionandoCoordNoMapa={selecionandoCoordNoMapa}
                 onMapClick={(lat, lng) => {
@@ -3717,6 +3734,7 @@ const Roteirizacao = () => {
                                               ref={provided.innerRef}
                                               {...provided.draggableProps}
                                               {...provided.dragHandleProps}
+                                              data-os-id={os.id}
                                               onClick={(e) => {
                                                 // Não selecionar se estiver editando posição
                                                 if (osEditandoPosicao !== os.id) {
