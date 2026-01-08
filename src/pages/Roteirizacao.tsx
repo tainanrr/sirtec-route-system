@@ -50,7 +50,7 @@ import {
   ChevronDown,
   Calendar,
 } from "lucide-react";
-import * as XLSX from "xlsx";
+import * as XLSX from "xlsx-js-style";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -2641,13 +2641,44 @@ const Roteirizacao = () => {
 
     console.log("Total de linhas para exportar:", dadosExportacao.length);
     
-    console.log("Total de linhas para exportar:", dadosExportacao.length);
+    // Identificar linhas de ALMOÇO (índice baseado em 0, +1 para header)
+    const linhasAlmoco: number[] = [];
+    dadosExportacao.forEach((linha, idx) => {
+      if (linha["Número OS"] === "ALMOÇO") {
+        linhasAlmoco.push(idx + 2); // +2 porque row 1 é header, e xlsx é 1-indexed
+      }
+    });
+    console.log("Linhas de ALMOÇO identificadas:", linhasAlmoco);
     
     // Criar workbook
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(dadosExportacao);
     console.log("Worksheet criado");
-    console.log("Worksheet criado");
+    
+    // Aplicar estilo laranja nas linhas de ALMOÇO
+    const estiloAlmoco = {
+      fill: {
+        fgColor: { rgb: "FFA500" } // Laranja
+      },
+      font: {
+        bold: true,
+        color: { rgb: "000000" }
+      }
+    };
+    
+    // Obter range do worksheet
+    const range = XLSX.utils.decode_range(ws["!ref"] || "A1");
+    const numColunas = range.e.c + 1;
+    
+    // Aplicar estilo a todas as células das linhas de ALMOÇO
+    linhasAlmoco.forEach(rowNum => {
+      for (let col = 0; col < numColunas; col++) {
+        const cellAddress = XLSX.utils.encode_cell({ r: rowNum - 1, c: col });
+        if (ws[cellAddress]) {
+          ws[cellAddress].s = estiloAlmoco;
+        }
+      }
+    });
 
     // Ajustar largura das colunas
     const colWidths = [
