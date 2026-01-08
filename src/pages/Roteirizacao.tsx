@@ -3563,6 +3563,7 @@ const Roteirizacao = () => {
                     }
                   }
                 }}
+                osCoordenadasSuspeitas={osCoordenadasSuspeitas}
               />
 
               {/* Legenda */}

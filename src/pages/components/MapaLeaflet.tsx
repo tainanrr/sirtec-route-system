@@ -61,6 +61,11 @@ const CHUNK_DELAY = 10; // ms entre chunks
 
 import { Territorio } from "@/types/territorios";
 
+interface OSSuspeita extends OrdemServico {
+  territorioEsperado: string;
+  territorioReal: string;
+}
+
 interface MapaLeafletProps {
   rotas: RotaEquipe[];
   osPendentes: OrdemServico[];
@@ -79,6 +84,7 @@ interface MapaLeafletProps {
   onOsUrgenteDestaqueClear?: () => void; // V19.6: Callback para limpar destaque
   selecionandoCoordNoMapa?: boolean; // Modo de seleção de coordenada no mapa
   onMapClick?: (lat: number, lng: number) => void; // Callback quando o mapa é clicado (para seleção de coordenada)
+  osCoordenadasSuspeitas?: OSSuspeita[]; // OSs com coordenadas que não correspondem ao bairro
 }
 
 interface RouteGeometryData {
@@ -116,7 +122,7 @@ function getLucideIconSVG(iconName: string | undefined, color: string, size: num
   `;
 }
 
-export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, focarOSNoMapa, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear, selecionandoCoordNoMapa, onMapClick }: MapaLeafletProps) {
+export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, focarOSNoMapa, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear, selecionandoCoordNoMapa, onMapClick, osCoordenadasSuspeitas = [] }: MapaLeafletProps) {
   
   const mapRef = useRef<HTMLDivElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -557,6 +563,17 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
       }
       .marker-vencida {
         animation: pulse-black-vencida 1s ease-in-out infinite !important;
+      }
+      @keyframes pulse-purple-suspeita {
+        0%, 100% {
+          box-shadow: 0 0 0 0 rgba(147, 51, 234, 0.9), 0 0 8px 2px rgba(147, 51, 234, 0.6);
+        }
+        50% {
+          box-shadow: 0 0 0 8px rgba(147, 51, 234, 0), 0 0 12px 4px rgba(147, 51, 234, 0.8);
+        }
+      }
+      .marker-coord-suspeita {
+        animation: pulse-purple-suspeita 1.2s ease-in-out infinite !important;
       }
       /* Estilos otimizados para tooltips de OSs */
       .os-tooltip {
@@ -1277,14 +1294,30 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
         const isReguladaHoje = isRegulada && classificacaoOS === 'hoje'; // Regulada vencendo HOJE → vermelho
         const isReguladaVencida = isRegulada && classificacaoOS === 'passado'; // Regulada VENCIDA → preto
         
+        // Verificar se é coordenada suspeita
+        const osSuspeita = osCoordenadasSuspeitas.find(s => s.id === os.id);
+        const isCoordSuspeita = !!osSuspeita;
+        
         // Obter dados do skill
         const skillData = skillsIcons.get(os.tipo);
         const sigla = skillData?.sigla || obterLetraGrupo(os.tipo);
         const corMarcador = skillData?.cor || '#6b7280';
         const corBorda = obterCorBordaPrioridade(os);
         
-        // Determinar classe de animação (APENAS para reguladas)
-        const animationClass = isReguladaHoje ? 'marker-regulada-urgente' : isReguladaVencida ? 'marker-vencida' : '';
+        // Determinar classe de animação (coordenada suspeita tem prioridade visual)
+        const animationClass = isCoordSuspeita ? 'marker-coord-suspeita' : 
+                              isReguladaHoje ? 'marker-regulada-urgente' : 
+                              isReguladaVencida ? 'marker-vencida' : '';
+        
+        // Determinar borda e sombra
+        const borderStyle = isCoordSuspeita ? '3px solid #9333ea' :
+                           isReguladaHoje ? '3px solid #dc2626' : 
+                           isReguladaVencida ? '3px solid #000000' : 
+                           `2px solid ${corBorda}`;
+        const shadowStyle = isCoordSuspeita ? '0 0 8px 2px rgba(147, 51, 234, 0.6)' :
+                           isReguladaHoje ? '0 0 8px 2px rgba(220, 38, 38, 0.6)' : 
+                           isReguladaVencida ? '0 0 8px 2px rgba(0, 0, 0, 0.6)' : 
+                           '0 2px 6px rgba(0,0,0,0.3)';
         
         // Criar ícone do marcador
         const markerIcon = L.divIcon({
@@ -1295,8 +1328,8 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
               width: 28px;
               height: 28px;
               border-radius: 50%;
-              border: ${isReguladaHoje ? '3px solid #dc2626' : isReguladaVencida ? '3px solid #000000' : `2px solid ${corBorda}`};
-              box-shadow: ${isReguladaHoje ? '0 0 8px 2px rgba(220, 38, 38, 0.6)' : isReguladaVencida ? '0 0 8px 2px rgba(0, 0, 0, 0.6)' : '0 2px 6px rgba(0,0,0,0.3)'};
+              border: ${borderStyle};
+              box-shadow: ${shadowStyle};
               display: flex;
               align-items: center;
               justify-content: center;
@@ -1326,6 +1359,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
             ${prazoTooltip ? `<div style="color: #fca5a5; font-size: 11px;">⏰ ${prazoTooltip}</div>` : ''}
             ${isReguladaHoje ? '<div style="color: #fca5a5; font-weight: bold; font-size: 10px;">⚠️ REGULADA - VENCE HOJE</div>' : ''}
             ${isReguladaVencida ? '<div style="color: #a1a1aa; font-weight: bold; font-size: 10px;">⚠️ REGULADA - VENCIDA</div>' : ''}
+            ${isCoordSuspeita ? `<div style="color: #c084fc; font-weight: bold; font-size: 10px; margin-top: 4px;">⚠️ COORD. SUSPEITA<br/>Bairro: ${os.bairro}<br/>Esperado: ${osSuspeita?.territorioEsperado}<br/>Atual: ${osSuspeita?.territorioReal}</div>` : ''}
           </div>
         `;
         
