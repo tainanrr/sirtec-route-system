@@ -3651,18 +3651,18 @@ const Roteirizacao = () => {
                       <div className="text-xs font-semibold text-muted-foreground mb-2">
                         Sequência de OSs (arraste para reordenar):
                       </div>
-                      <Droppable droppableId={`equipe-${rotaEditando.equipe.id}`}>
+                      <Droppable droppableId={`equipe-${rotaEditando.equipe.id}`} direction="horizontal">
                         {(provided, snapshot) => (
                           <div
                             ref={provided.innerRef}
                             {...provided.droppableProps}
                             className={cn(
-                              "grid grid-cols-4 gap-1 min-h-[200px]",
+                              "flex flex-wrap gap-1 min-h-[200px]",
                               snapshot.isDraggingOver && "bg-primary/5 rounded-lg p-2"
                             )}
                           >
                             {servicosComAlmoco.length === 0 ? (
-                              <div className="col-span-4 text-center py-8 text-muted-foreground text-sm border-2 border-dashed rounded-lg">
+                              <div className="w-full text-center py-8 text-muted-foreground text-sm border-2 border-dashed rounded-lg">
                                 <p>Nenhuma OS nesta rota</p>
                                 <p className="text-xs mt-1">Arraste OSs do backlog ou clique em uma OS no mapa</p>
                               </div>
@@ -3683,6 +3683,7 @@ const Roteirizacao = () => {
                                           {...provided.draggableProps}
                                           className={cn(
                                             "group flex items-center gap-1 p-1 rounded border bg-amber-50 dark:bg-amber-950 border-amber-200 dark:border-amber-800 transition-all",
+                                            "w-[calc(25%-3px)]", // ~4 itens por linha com gap de 4px
                                             snapshot.isDragging && "shadow-lg ring-2 ring-primary z-50"
                                           )}
                                         >
@@ -3734,6 +3735,7 @@ const Roteirizacao = () => {
                                               }}
                                               className={cn(
                                                 "group flex flex-col gap-0.5 p-1 rounded border bg-card transition-all",
+                                                "w-[calc(25%-3px)]", // ~4 itens por linha com gap de 4px
                                                 snapshot.isDragging && "shadow-lg ring-2 ring-primary z-50 cursor-grabbing",
                                                 !snapshot.isDragging && "hover:bg-muted/50 cursor-grab",
                                                 foraDoPrazo && "border-danger/50 bg-danger/5",
