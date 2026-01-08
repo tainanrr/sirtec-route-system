@@ -1441,11 +1441,28 @@ export async function otimizarRotas(
     const config = obterConfigAlmoco(equipe);
     const fimServico = tempo + duracao;
     
+    // Ainda muito cedo para almoço - próximo serviço termina antes da janela
     if (fimServico <= config.inicio) return { tempo, almocoInserido: false };
-    if (tempo >= config.fim) return { tempo, almocoInserido: false };
     
+    // Calcular o último momento possível para INICIAR o almoço 
+    // (o almoço deve TERMINAR até config.fim)
+    const ultimoInicioPermitido = config.fim - config.duracao;
+    
+    // Já passou do momento de fazer almoço (não há tempo para completá-lo dentro da janela)
+    if (tempo > ultimoInicioPermitido) return { tempo, almocoInserido: false };
+    
+    // Determinar quando o almoço começa:
+    // - Não antes de config.inicio (início da janela)
+    // - Não depois de ultimoInicioPermitido (para terminar dentro da janela)
+    // - Não antes do tempo atual
     const inicioAlmoco = Math.max(tempo, config.inicio);
+    
+    // Verificar se ainda cabe o almoço (fim do almoço <= fim da janela)
     const fimAlmoco = inicioAlmoco + config.duracao;
+    if (fimAlmoco > config.fim) {
+      // Não cabe mais - já perdeu a janela
+      return { tempo, almocoInserido: false };
+    }
     
     return { tempo: fimAlmoco, almocoInserido: true, inicioAlmoco, fimAlmoco };
   };
@@ -1844,8 +1861,10 @@ export async function otimizarRotas(
       if (servicoAntigo.tipo === "ALMOCO") {
         // Manter almoço mas recalcular horário
         const config = obterConfigAlmoco(rota.equipe);
-        if (tempoAtual >= config.inicio && tempoAtual < config.fim) {
-          // Precisa almoçar agora
+        // Calcular último momento para iniciar almoço (deve terminar dentro da janela)
+        const ultimoInicioPermitido = config.fim - config.duracao;
+        if (tempoAtual >= config.inicio && tempoAtual <= ultimoInicioPermitido) {
+          // Precisa almoçar agora - ainda há tempo
           const almocoServico: RotaServico = {
             tipo: "ALMOCO",
             ordemNaRota: 0,
@@ -1868,21 +1887,28 @@ export async function otimizarRotas(
           if (!jaAlmocouNaRota || !rota.servicos.some(s => s.tipo === "ALMOCO")) {
             const config = obterConfigAlmoco(rota.equipe);
             const fimProximoServico = tempoAtual + getTempo(ultimaLocIdx, osAntigaLocIdx) + osAntiga.tempoExecucao;
+            // Calcular último momento para iniciar almoço
+            const ultimoInicioPermitido = config.fim - config.duracao;
             
-            if (fimProximoServico > config.inicio && tempoAtual < config.fim) {
-              // Inserir almoço
-              const almocoServico: RotaServico = {
-                tipo: "ALMOCO",
-                ordemNaRota: 0,
-                tempoDeslocamento: 0,
-                distancia: 0,
-                tempoTotal: Math.max(tempoAtual, config.inicio) + config.duracao,
-                horaInicio: minutosParaHora(Math.max(tempoAtual, config.inicio)),
-                horaFim: minutosParaHora(Math.max(tempoAtual, config.inicio) + config.duracao),
-                eta: minutosParaHora(Math.max(tempoAtual, config.inicio))
-              };
-              rota.servicos.push(almocoServico);
-              tempoAtual = Math.max(tempoAtual, config.inicio) + config.duracao;
+            // Verificar se o próximo serviço cruza a janela de almoço E ainda há tempo para fazer almoço
+            if (fimProximoServico > config.inicio && tempoAtual <= ultimoInicioPermitido) {
+              // Inserir almoço - garantindo que começa não antes de config.inicio
+              const inicioAlmoco = Math.max(tempoAtual, config.inicio);
+              // Verificar se o almoço terminaria dentro da janela
+              if (inicioAlmoco + config.duracao <= config.fim) {
+                const almocoServico: RotaServico = {
+                  tipo: "ALMOCO",
+                  ordemNaRota: 0,
+                  tempoDeslocamento: 0,
+                  distancia: 0,
+                  tempoTotal: inicioAlmoco + config.duracao,
+                  horaInicio: minutosParaHora(inicioAlmoco),
+                  horaFim: minutosParaHora(inicioAlmoco + config.duracao),
+                  eta: minutosParaHora(inicioAlmoco)
+                };
+                rota.servicos.push(almocoServico);
+                tempoAtual = inicioAlmoco + config.duracao;
+              }
             }
           }
           
@@ -1967,12 +1993,13 @@ export async function otimizarRotas(
           let faturamentoTotal = 0;
           let ultimaLocIdx = equipeIdx.get(rota.equipe.id)!;
           
+          const configAlmoco = obterConfigAlmoco(rota.equipe);
           for (const srv of rota.servicos) {
             if (srv.tipo === "ALMOCO") {
               srv.tempoDeslocamento = 0;
               srv.distancia = 0;
               srv.horaInicio = minutosParaHora(tempoAtual);
-              tempoAtual += 60; // duração almoço
+              tempoAtual += configAlmoco.duracao; // usar duração configurada da equipe
               srv.tempoTotal = tempoAtual;
               srv.horaFim = minutosParaHora(tempoAtual);
               srv.eta = srv.horaInicio;
@@ -2807,13 +2834,14 @@ export async function otimizarRotas(
     let faturamentoTotal = 0;
     let ultimaLocIdx = equipeIdx.get(rota.equipe.id)!;
     let todasValidas = true;
+    const configAlmocoLocal = obterConfigAlmoco(rota.equipe);
     
     for (const srv of rota.servicos) {
       if (srv.tipo === "ALMOCO") {
         srv.tempoDeslocamento = 0;
         srv.distancia = 0;
         srv.horaInicio = minutosParaHora(tempoAtual);
-        tempoAtual += 60; // duração almoço
+        tempoAtual += configAlmocoLocal.duracao; // usar duração configurada da equipe
         srv.tempoTotal = tempoAtual;
         srv.horaFim = minutosParaHora(tempoAtual);
         srv.eta = srv.horaInicio;
@@ -4739,14 +4767,17 @@ export function recalcularRota(rota: RotaEquipe): ResultadoRecalculo {
   const duracaoJornada = (rota.equipe.maxHorasTrabalho || rota.equipe.jornadaHoras || 10) * 60;
   const fimJornada = inicioJornada + duracaoJornada;
   
+  // Obter configuração de almoço da equipe
+  const configAlmocoRecalc = obterConfigAlmoco(rota.equipe);
+  
   // Recalcular cada serviço na sequência
   for (const servico of rotaRecalculada.servicos) {
     if (servico.tipo === "ALMOCO") {
-      // Almoço: apenas atualizar horários
+      // Almoço: usar duração configurada da equipe
       servico.tempoDeslocamento = 0;
       servico.distancia = 0;
       servico.horaInicio = minutosParaHora(tempoAtual);
-      tempoAtual += 60; // duração almoço
+      tempoAtual += configAlmocoRecalc.duracao; // usar duração configurada da equipe
       servico.tempoTotal = tempoAtual;
       servico.horaFim = minutosParaHora(tempoAtual);
       servico.eta = servico.horaInicio;
