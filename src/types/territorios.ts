@@ -9,6 +9,7 @@ export interface Territorio {
   cor: string;
   poligono: Coordenada[];
   equipeIds: string[]; // Múltiplas equipes podem ser vinculadas
+  bairros: string[]; // Lista de bairros/localidades que pertencem a este território
   ativo: boolean;
   criadoEm: Date;
   atualizadoEm: Date;
@@ -43,6 +44,7 @@ function dbToTerritorio(db: any): Territorio {
     cor: db.cor,
     poligono: db.poligono || [],
     equipeIds: db.equipe_ids || [],
+    bairros: db.bairros || [],
     ativo: db.ativo ?? true,
     criadoEm: new Date(db.created_at),
     atualizadoEm: new Date(db.updated_at),
@@ -56,6 +58,7 @@ function territorioToDb(territorio: Territorio): any {
     cor: territorio.cor,
     poligono: territorio.poligono,
     equipe_ids: territorio.equipeIds || [],
+    bairros: territorio.bairros || [],
     ativo: territorio.ativo ?? true,
   };
 }

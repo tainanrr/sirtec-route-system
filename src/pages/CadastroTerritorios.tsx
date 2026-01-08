@@ -61,10 +61,16 @@ export default function CadastroTerritorios() {
     nome: "",
     cor: CORES_TERRITORIOS[0],
     equipeIds: [] as string[],
+    bairros: [] as string[],
   });
   const [showForm, setShowForm] = useState(false);
   const [currentPolygon, setCurrentPolygon] = useState<Coordenada[] | null>(null);
   const [loading, setLoading] = useState(false);
+  
+  // Estado para bairros disponíveis (do banco de dados)
+  const [bairrosDisponiveis, setBairrosDisponiveis] = useState<string[]>([]);
+  const [bairroSearch, setBairroSearch] = useState("");
+  const [novoBairro, setNovoBairro] = useState("");
 
   // Carregar equipes do Supabase
   useEffect(() => {
@@ -100,6 +106,34 @@ export default function CadastroTerritorios() {
       }
     };
     loadTerritorios();
+  }, []);
+
+  // Carregar bairros únicos das OSs
+  useEffect(() => {
+    const fetchBairros = async () => {
+      try {
+        // Buscar bairros únicos das OSs
+        const { data, error } = await supabase
+          .from("ordens_servico")
+          .select("bairro")
+          .not("bairro", "is", null)
+          .not("bairro", "eq", "");
+        
+        if (error) {
+          console.error("Erro ao carregar bairros:", error);
+          return;
+        }
+        
+        // Extrair bairros únicos e ordenar
+        const bairrosUnicos = [...new Set((data || []).map(d => d.bairro).filter(Boolean))] as string[];
+        bairrosUnicos.sort((a, b) => a.localeCompare(b, 'pt-BR'));
+        setBairrosDisponiveis(bairrosUnicos);
+      } catch (error) {
+        console.error("Erro ao carregar bairros:", error);
+      }
+    };
+    
+    fetchBairros();
   }, []);
 
   // Inicializar mapa
@@ -307,6 +341,7 @@ export default function CadastroTerritorios() {
         cor: formData.cor,
         poligono: currentPolygon,
         equipeIds: formData.equipeIds || [],
+        bairros: formData.bairros || [],
         ativo: true,
         criadoEm: editingTerritorio?.criadoEm || new Date(),
         atualizadoEm: new Date(),
@@ -331,7 +366,7 @@ export default function CadastroTerritorios() {
       });
 
       // Limpar formulário
-      setFormData({ nome: "", cor: CORES_TERRITORIOS[0], equipeIds: [] });
+      setFormData({ nome: "", cor: CORES_TERRITORIOS[0], equipeIds: [], bairros: [] });
       setShowForm(false);
       setEditingTerritorio(null);
       setCurrentPolygon(null);
@@ -351,7 +386,9 @@ export default function CadastroTerritorios() {
     setShowForm(false);
     setEditingTerritorio(null);
     setCurrentPolygon(null);
-    setFormData({ nome: "", cor: CORES_TERRITORIOS[0], equipeIds: [] });
+    setFormData({ nome: "", cor: CORES_TERRITORIOS[0], equipeIds: [], bairros: [] });
+    setBairroSearch("");
+    setNovoBairro("");
     drawnLayersRef.current.clearLayers();
     atualizarPoligonosNoMapa(territorios);
   };
@@ -363,9 +400,12 @@ export default function CadastroTerritorios() {
       nome: territorio.nome,
       cor: territorio.cor,
       equipeIds: territorio.equipeIds || [],
+      bairros: territorio.bairros || [],
     });
     setCurrentPolygon(territorio.poligono);
     setShowForm(true);
+    setBairroSearch("");
+    setNovoBairro("");
 
     // Limpar camadas de desenho anteriores
     drawnLayersRef.current.clearLayers();
@@ -646,6 +686,137 @@ export default function CadastroTerritorios() {
                       {formData.equipeIds.length} equipe(s) selecionada(s)
                     </p>
                   )}
+                </div>
+
+                {/* Bairros/Localidades */}
+                <div className="space-y-2">
+                  <Label className="text-white text-sm font-medium">Bairros/Localidades</Label>
+                  <p className="text-slate-400 text-xs">
+                    Selecione os bairros que pertencem a este território para validação de coordenadas
+                  </p>
+                  
+                  {/* Busca de bairros */}
+                  <div className="relative">
+                    <Input
+                      placeholder="Buscar bairro..."
+                      value={bairroSearch}
+                      onChange={(e) => setBairroSearch(e.target.value)}
+                      className="bg-slate-800 border-slate-600 text-white placeholder:text-slate-400"
+                      disabled={!podeEditar}
+                    />
+                  </div>
+                  
+                  {/* Lista de bairros disponíveis (filtrada) */}
+                  <div className="max-h-32 overflow-y-auto bg-slate-800 rounded border border-slate-600 p-1">
+                    {(() => {
+                      const bairrosFiltrados = bairrosDisponiveis.filter(b => 
+                        b.toLowerCase().includes(bairroSearch.toLowerCase()) &&
+                        !formData.bairros.includes(b)
+                      );
+                      
+                      if (bairrosFiltrados.length === 0 && bairroSearch) {
+                        return (
+                          <p className="text-slate-400 text-xs text-center py-2">
+                            Nenhum bairro encontrado
+                          </p>
+                        );
+                      }
+                      
+                      return bairrosFiltrados.slice(0, 20).map((bairro) => (
+                        <button
+                          key={bairro}
+                          type="button"
+                          onClick={() => {
+                            if (podeEditar) {
+                              setFormData({
+                                ...formData,
+                                bairros: [...formData.bairros, bairro],
+                              });
+                              setBairroSearch("");
+                            }
+                          }}
+                          className="w-full text-left text-sm p-1.5 rounded hover:bg-slate-600 text-white disabled:opacity-50"
+                          disabled={!podeEditar}
+                        >
+                          + {bairro}
+                        </button>
+                      ));
+                    })()}
+                  </div>
+                  
+                  {/* Adicionar bairro manualmente */}
+                  {podeEditar && (
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Novo bairro (não listado)..."
+                        value={novoBairro}
+                        onChange={(e) => setNovoBairro(e.target.value)}
+                        className="bg-slate-800 border-slate-600 text-white placeholder:text-slate-400 flex-1"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && novoBairro.trim()) {
+                            e.preventDefault();
+                            if (!formData.bairros.includes(novoBairro.trim())) {
+                              setFormData({
+                                ...formData,
+                                bairros: [...formData.bairros, novoBairro.trim()],
+                              });
+                            }
+                            setNovoBairro("");
+                          }
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => {
+                          if (novoBairro.trim() && !formData.bairros.includes(novoBairro.trim())) {
+                            setFormData({
+                              ...formData,
+                              bairros: [...formData.bairros, novoBairro.trim()],
+                            });
+                            setNovoBairro("");
+                          }
+                        }}
+                        disabled={!novoBairro.trim()}
+                        className="bg-green-600 hover:bg-green-700"
+                      >
+                        +
+                      </Button>
+                    </div>
+                  )}
+                  
+                  {/* Bairros selecionados */}
+                  {formData.bairros.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {formData.bairros.map((bairro) => (
+                        <Badge
+                          key={bairro}
+                          variant="secondary"
+                          className="bg-blue-600/30 text-blue-300 border border-blue-500/50 flex items-center gap-1"
+                        >
+                          {bairro}
+                          {podeEditar && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFormData({
+                                  ...formData,
+                                  bairros: formData.bairros.filter(b => b !== bairro),
+                                });
+                              }}
+                              className="ml-1 hover:text-red-300"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          )}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                  
+                  <p className="text-slate-400 text-xs">
+                    {formData.bairros.length} bairro(s) vinculado(s)
+                  </p>
                 </div>
 
                 {podeEditar && (
