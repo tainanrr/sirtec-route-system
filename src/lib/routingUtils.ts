@@ -3148,20 +3148,59 @@ export async function otimizarRotas(
       return true;
     });
     
+    // Estatísticas para debug
+    let filtradoPorAlocada = 0;
+    let filtradoPorDuracao = 0;
+    let filtradoPorTerritorio = 0;
+    let filtradoPorCoordenadas = 0;
+    
     const ossCurtasDisponiveis = ossSemDuplicatas.filter(os => {
-      if (osAlocadas.has(os.id)) return false;
-      if (os.tempoExecucao > maxDuracaoOS) return false;
+      if (osAlocadas.has(os.id)) {
+        filtradoPorAlocada++;
+        return false;
+      }
+      if (os.tempoExecucao > maxDuracaoOS) {
+        filtradoPorDuracao++;
+        return false;
+      }
+      
+      // Verificar coordenadas
+      if (os.latitude === null || os.longitude === null) {
+        filtradoPorCoordenadas++;
+        return false;
+      }
       
       // Verificar se está no território correto
+      // V20.1: Verificar tanto pelo campo territorios quanto pela proximidade geográfica
       if (usarTerritorios && territorioEquipe) {
-        if (!os.territorios || !os.territorios.includes(territorioEquipe)) return false;
+        // Opção 1: Campo territorios preenchido
+        const temTerritorioCorreto = os.territorios && os.territorios.includes(territorioEquipe);
+        
+        // Opção 2: Verificar se a OS está próxima da última OS da rota (máx 5km)
+        // Isso ajuda quando o campo territorios não está preenchido mas a OS está na mesma região
+        const ultimaOSRota = servicoAntes.ordemServico;
+        let estaProxima = false;
+        if (ultimaOSRota && ultimaOSRota.latitude && ultimaOSRota.longitude) {
+          const distancia = calcularDistancia(
+            ultimaOSRota.latitude, ultimaOSRota.longitude,
+            os.latitude, os.longitude
+          );
+          estaProxima = distancia <= 5; // 5km de raio
+        }
+        
+        if (!temTerritorioCorreto && !estaProxima) {
+          filtradoPorTerritorio++;
+          return false;
+        }
       }
-      // Se não usa territórios, aceita qualquer OS da lista
       
       return true;
     });
     
     console.log(`[ROUTING]   OSs disponíveis no território (até ${maxDuracaoOS}min): ${ossCurtasDisponiveis.length}`);
+    if (ossCurtasDisponiveis.length === 0) {
+      console.log(`[ROUTING]   (Filtradas: ${filtradoPorAlocada} alocadas, ${filtradoPorDuracao} muito longas, ${filtradoPorTerritorio} fora território, ${filtradoPorCoordenadas} sem coords)`);
+    }
     
     if (ossCurtasDisponiveis.length === 0) {
       console.log(`[ROUTING]   Nenhuma OS disponível no território com até ${maxDuracaoOS}min`);
