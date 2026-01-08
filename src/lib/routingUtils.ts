@@ -3091,6 +3091,121 @@ export async function otimizarRotas(
   console.log(`[ROUTING] Total consolidadas (vizinhas): ${totalConsolidadas}`);
 
   // ============================================================================
+  // FASE 7.5: PREENCHER TEMPO LIVRE ANTES DO ALMOÇO
+  // V20: Após todas as inserções, verificar se há tempo ocioso antes do almoço
+  // e tentar preencher com OSs curtas
+  // ============================================================================
+  
+  console.log(`[ROUTING]`);
+  console.log(`[ROUTING] ══ FASE 7.5: Preencher Tempo Livre Antes do Almoço ══`);
+  
+  let totalOSsEncaixadasAntesAlmoco = 0;
+  
+  for (const rota of rotas) {
+    const configAlmocoRota = obterConfigAlmoco(rota.equipe);
+    
+    // Encontrar o índice do ALMOÇO na rota
+    const idxAlmoco = rota.servicos.findIndex(s => s.tipo === "ALMOCO");
+    if (idxAlmoco <= 0) continue; // Sem almoço ou almoço é primeiro item (impossível)
+    
+    // Pegar o serviço antes do almoço
+    const servicoAntes = rota.servicos[idxAlmoco - 1];
+    if (!servicoAntes || servicoAntes.tipo === "ALMOCO") continue;
+    
+    // Calcular tempo livre antes do almoço
+    const fimServicoAntes = horaParaMinutos(servicoAntes.horaFim || "12:00");
+    const inicioAlmoco = configAlmocoRota.inicio;
+    const tempoLivre = inicioAlmoco - fimServicoAntes;
+    
+    // Só tentar se tiver pelo menos 15 minutos livres
+    if (tempoLivre < 15) continue;
+    
+    console.log(`[ROUTING] ${rota.equipe.codigo}: ${tempoLivre}min livres antes do almoço (${minutosParaHora(fimServicoAntes)} → ${minutosParaHora(inicioAlmoco)})`);
+    
+    // Pegar território da equipe
+    const territorioEquipe = rota.territorioId;
+    
+    // Buscar OSs curtas disponíveis no território da equipe
+    const ossCurtasDisponiveis = ossParaRoteirizar.filter(os => {
+      if (osAlocadas.has(os.id)) return false;
+      if (os.tempoExecucao > tempoLivre - 3) return false; // Margem de 3 min para deslocamento
+      if (os.tempoExecucao > 30) return false; // Máximo 30 min
+      
+      // Verificar se está no território correto
+      if (usarTerritorios && territorioEquipe) {
+        if (!os.territorios || !os.territorios.includes(territorioEquipe)) return false;
+      }
+      // Se não usa territórios, aceita qualquer OS da lista
+      
+      return true;
+    });
+    
+    if (ossCurtasDisponiveis.length === 0) {
+      console.log(`[ROUTING]   Nenhuma OS curta disponível no território`);
+      continue;
+    }
+    
+    // Ordenar por proximidade ao último serviço antes do almoço
+    const ultimaOS = servicoAntes.ordemServico;
+    if (!ultimaOS) continue;
+    
+    const ultimaOSIdx = osIdx.get(ultimaOS.id);
+    if (ultimaOSIdx === undefined) continue;
+    
+    ossCurtasDisponiveis.sort((a, b) => {
+      const distA = getDistanciaKm(ultimaOSIdx, osIdx.get(a.id) || 0);
+      const distB = getDistanciaKm(ultimaOSIdx, osIdx.get(b.id) || 0);
+      return distA - distB;
+    });
+    
+    // Tentar encaixar a OS mais próxima que cabe no tempo
+    let encaixou = false;
+    for (const osCurta of ossCurtasDisponiveis) {
+      const osCurtaIdx = osIdx.get(osCurta.id);
+      if (osCurtaIdx === undefined) continue;
+      
+      const tempoDeslocamento = getTempo(ultimaOSIdx, osCurtaIdx);
+      const tempoTotal = tempoDeslocamento + osCurta.tempoExecucao;
+      
+      if (tempoTotal <= tempoLivre) {
+        // Encaixar!
+        const horaInicioOS = fimServicoAntes + tempoDeslocamento;
+        const horaFimOS = horaInicioOS + osCurta.tempoExecucao;
+        
+        const novoServico: RotaServico = {
+          tipo: "OS",
+          ordemServico: osCurta,
+          tempoDeslocamento: tempoDeslocamento,
+          distancia: getDistanciaKm(ultimaOSIdx, osCurtaIdx),
+          tempoTotal: horaFimOS,
+          horaInicio: minutosParaHora(horaInicioOS),
+          horaFim: minutosParaHora(horaFimOS),
+          eta: minutosParaHora(horaInicioOS)
+        };
+        
+        // Inserir antes do almoço
+        rota.servicos.splice(idxAlmoco, 0, novoServico);
+        osAlocadas.add(osCurta.id);
+        rota.distanciaTotal += novoServico.distancia;
+        rota.faturamentoTotal += osCurta.valor;
+        
+        console.log(`[ROUTING]   ✓ Encaixada OS ${osCurta.numero} (${osCurta.tempoExecucao}min) - termina ${minutosParaHora(horaFimOS)}`);
+        totalOSsEncaixadasAntesAlmoco++;
+        encaixou = true;
+        break;
+      }
+    }
+    
+    if (!encaixou) {
+      console.log(`[ROUTING]   Nenhuma OS curta cabe no tempo disponível`);
+    }
+  }
+  
+  if (totalOSsEncaixadasAntesAlmoco > 0) {
+    console.log(`[ROUTING] Total OSs encaixadas antes do almoço: ${totalOSsEncaixadasAntesAlmoco}`);
+  }
+
+  // ============================================================================
   // FASE 8 e 9: BALANCEAMENTO E SATURAÇÃO DESABILITADOS
   // V17: Não permitimos invadir zonas/territórios de outras equipes
   // ============================================================================
