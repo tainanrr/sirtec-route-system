@@ -3126,10 +3126,29 @@ export async function otimizarRotas(
     const territorioEquipe = rota.territorioId;
     
     // Buscar OSs curtas disponíveis no território da equipe
+    // Incluir OSs normais E OSs que foram removidas (para dar lugar a emergências)
     // Máximo de 45min de execução, ou o tempo livre menos 2min para deslocamento
     const maxDuracaoOS = Math.min(45, tempoLivre - 2);
     
-    const ossCurtasDisponiveis = ossParaRoteirizar.filter(os => {
+    // Combinar todas as fontes de OSs disponíveis:
+    // - ossParaRoteirizar: todas as OSs originais
+    // - ossNormaisRemovidas: OSs removidas para dar lugar a reguladas (FASE 5)
+    // - ossNormaisRemovidasEmergencia: OSs removidas para dar lugar a emergências (FASE 4)
+    const todasOSsDisponiveis = [
+      ...ossParaRoteirizar,
+      ...ossNormaisRemovidas,
+      ...ossNormaisRemovidasEmergencia
+    ];
+    
+    // Remover duplicatas
+    const idsVistos = new Set<string>();
+    const ossSemDuplicatas = todasOSsDisponiveis.filter(os => {
+      if (idsVistos.has(os.id)) return false;
+      idsVistos.add(os.id);
+      return true;
+    });
+    
+    const ossCurtasDisponiveis = ossSemDuplicatas.filter(os => {
       if (osAlocadas.has(os.id)) return false;
       if (os.tempoExecucao > maxDuracaoOS) return false;
       
