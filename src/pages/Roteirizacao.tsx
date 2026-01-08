@@ -50,6 +50,7 @@ import {
   ChevronDown,
   Calendar,
   PlusCircle,
+  Edit,
 } from "lucide-react";
 import * as XLSX from "xlsx-js-style";
 import { cn } from "@/lib/utils";
@@ -105,6 +106,14 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuCheckboxItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import ExpectativaEquipesDialog from "./components/ExpectativaEquipesDialog";
 import SelecaoTerritoriosDialog from "./components/SelecaoTerritoriosDialog";
 import SelecaoOpcoesRoteiroDialog from "./components/SelecaoOpcoesRoteiroDialog";
@@ -279,10 +288,14 @@ const Roteirizacao = () => {
   
   // Estados para consulta de planejamentos
   const [consultarPlanejamentosDialogOpen, setConsultarPlanejamentosDialogOpen] = useState(false);
-  const [filtroEquipeConsulta, setFiltroEquipeConsulta] = useState<string>("all");
+  const [filtroEquipesConsulta, setFiltroEquipesConsulta] = useState<string[]>([]);
+  const [filtroCentroCustoConsulta, setFiltroCentroCustoConsulta] = useState<string>("all");
   const [filtroDataConsulta, setFiltroDataConsulta] = useState<string>("");
   const [planejamentosEncontrados, setPlanejamentosEncontrados] = useState<any[]>([]);
   const [carregandoPlanejamentos, setCarregandoPlanejamentos] = useState(false);
+  
+  // Estado para controlar se estamos editando um planejamento existente
+  const [planejamentoEditandoId, setPlanejamentoEditandoId] = useState<string | null>(null);
 
   // Buscar OSs em andamento para destacar na lista
   // Polling otimizado: 60 segundos + staleTime para evitar refetch desnecessário
@@ -693,8 +706,13 @@ const Roteirizacao = () => {
       }
 
       setRotas(rotasReconstruidas);
+      
+      // Guardar ID do planejamento sendo editado e a data
+      setPlanejamentoEditandoId(planejamentoId);
+      setDataPlanejamento(planejamento.data_planejamento);
+      
       const dataExibicao = new Date(planejamento.data_planejamento + 'T12:00:00');
-      toast.success(`Planejamento carregado: ${dataExibicao.toLocaleDateString('pt-BR')}`);
+      toast.success(`Planejamento carregado: ${dataExibicao.toLocaleDateString('pt-BR')} - Modo de edição ativado`);
       
       // Limpar parâmetro da URL
       setSearchParams({});
@@ -1617,56 +1635,116 @@ const Roteirizacao = () => {
 
       console.log("[PLANEJAMENTO] Totais:", { totalEquipes, totalOrdens, distanciaTotal, tempoTotal, faturamentoTotal });
 
-      // Criar planejamento
       // CORREÇÃO: Ajustar data para evitar problemas de timezone
       // Converter data de YYYY-MM-DD para Date e depois formatar corretamente
       const dataPlanejamentoDate = new Date(dataPlanejamento + 'T12:00:00'); // Usar meio-dia para evitar problemas de timezone
       const dataPlanejamentoFormatada = dataPlanejamentoDate.toISOString().split('T')[0];
       
-      console.log("[PLANEJAMENTO] Criando registro de planejamento...");
       console.log("[PLANEJAMENTO] Data original:", dataPlanejamento);
       console.log("[PLANEJAMENTO] Data formatada:", dataPlanejamentoFormatada);
       
-      const { data: planejamento, error: erroPlanejamento } = await supabase
-        .from("planejamentos")
-        .insert({
-          data_planejamento: dataPlanejamentoFormatada, // Usar data formatada
-          status: "aberto",
-          total_equipes: totalEquipes,
-          total_ordens: totalOrdens,
-          distancia_total_km: Number(distanciaTotal.toFixed(2)),
-          tempo_total_minutos: Math.round(tempoTotal),
-          faturamento_total: Number(faturamentoTotal.toFixed(2)),
-          created_by: user.id,
-        })
-        .select()
-        .single();
-
-      if (erroPlanejamento) {
-        console.error("[PLANEJAMENTO] Erro ao criar planejamento:", erroPlanejamento);
-        throw erroPlanejamento;
-      }
-      if (!planejamento) {
-        throw new Error("Erro ao criar planejamento");
-      }
-
-      console.log("[PLANEJAMENTO] Planejamento criado:", planejamento.id);
-
-      // Criar log de criação (não bloquear se falhar)
-      try {
-        await supabase.from("planejamento_logs").insert({
-          planejamento_id: planejamento.id,
-          acao: "criado",
-          descricao: `Planejamento criado para ${new Date(dataPlanejamento).toLocaleDateString('pt-BR')}`,
-          dados_novos: {
+      let planejamento: any;
+      
+      // Verificar se estamos editando um planejamento existente
+      if (planejamentoEditandoId) {
+        console.log("[PLANEJAMENTO] Modo de edição - Atualizando planejamento:", planejamentoEditandoId);
+        
+        // Atualizar o planejamento existente
+        const { data: planejamentoAtualizado, error: erroAtualizar } = await supabase
+          .from("planejamentos")
+          .update({
             total_equipes: totalEquipes,
             total_ordens: totalOrdens,
-            distancia_total_km: distanciaTotal,
-          },
-          created_by: user.id,
-        });
-      } catch (logError) {
-        console.warn("[PLANEJAMENTO] Erro ao criar log (não crítico):", logError);
+            distancia_total_km: Number(distanciaTotal.toFixed(2)),
+            tempo_total_minutos: Math.round(tempoTotal),
+            faturamento_total: Number(faturamentoTotal.toFixed(2)),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", planejamentoEditandoId)
+          .select()
+          .single();
+
+        if (erroAtualizar) {
+          console.error("[PLANEJAMENTO] Erro ao atualizar planejamento:", erroAtualizar);
+          throw erroAtualizar;
+        }
+        
+        planejamento = planejamentoAtualizado;
+        
+        // Remover ordens antigas do planejamento
+        console.log("[PLANEJAMENTO] Removendo ordens antigas...");
+        const { error: erroRemoverOrdens } = await supabase
+          .from("planejamento_ordens")
+          .delete()
+          .eq("planejamento_id", planejamentoEditandoId);
+        
+        if (erroRemoverOrdens) {
+          console.error("[PLANEJAMENTO] Erro ao remover ordens antigas:", erroRemoverOrdens);
+          throw erroRemoverOrdens;
+        }
+        
+        // Criar log de edição (não bloquear se falhar)
+        try {
+          await supabase.from("planejamento_logs").insert({
+            planejamento_id: planejamentoEditandoId,
+            acao: "editado",
+            descricao: `Planejamento editado - ${totalOrdens} OSs`,
+            dados_novos: {
+              total_equipes: totalEquipes,
+              total_ordens: totalOrdens,
+              distancia_total_km: distanciaTotal,
+            },
+            created_by: user.id,
+          });
+        } catch (logError) {
+          console.warn("[PLANEJAMENTO] Erro ao criar log (não crítico):", logError);
+        }
+      } else {
+        // Criar novo planejamento
+        console.log("[PLANEJAMENTO] Criando novo registro de planejamento...");
+        
+        const { data: novoPlanejamento, error: erroPlanejamento } = await supabase
+          .from("planejamentos")
+          .insert({
+            data_planejamento: dataPlanejamentoFormatada,
+            status: "aberto",
+            total_equipes: totalEquipes,
+            total_ordens: totalOrdens,
+            distancia_total_km: Number(distanciaTotal.toFixed(2)),
+            tempo_total_minutos: Math.round(tempoTotal),
+            faturamento_total: Number(faturamentoTotal.toFixed(2)),
+            created_by: user.id,
+          })
+          .select()
+          .single();
+
+        if (erroPlanejamento) {
+          console.error("[PLANEJAMENTO] Erro ao criar planejamento:", erroPlanejamento);
+          throw erroPlanejamento;
+        }
+        if (!novoPlanejamento) {
+          throw new Error("Erro ao criar planejamento");
+        }
+
+        planejamento = novoPlanejamento;
+        console.log("[PLANEJAMENTO] Planejamento criado:", planejamento.id);
+
+        // Criar log de criação (não bloquear se falhar)
+        try {
+          await supabase.from("planejamento_logs").insert({
+            planejamento_id: planejamento.id,
+            acao: "criado",
+            descricao: `Planejamento criado para ${new Date(dataPlanejamento).toLocaleDateString('pt-BR')}`,
+            dados_novos: {
+              total_equipes: totalEquipes,
+              total_ordens: totalOrdens,
+              distancia_total_km: distanciaTotal,
+            },
+            created_by: user.id,
+          });
+        } catch (logError) {
+          console.warn("[PLANEJAMENTO] Erro ao criar log (não crítico):", logError);
+        }
       }
 
       // Processar cada rota e preparar dados
@@ -1778,7 +1856,10 @@ const Roteirizacao = () => {
       console.log("[PLANEJAMENTO] Salvamento concluído com sucesso!");
       // Corrigir timezone na exibição
       const dataExibicao = new Date(dataPlanejamentoFormatada + 'T12:00:00');
-      toast.success(`Planejamento salvo com sucesso! ${totalOrdens} OSs planejadas para ${dataExibicao.toLocaleDateString('pt-BR')}`);
+      const mensagemSucesso = planejamentoEditandoId 
+        ? `Alterações salvas com sucesso! ${totalOrdens} OSs para ${dataExibicao.toLocaleDateString('pt-BR')}`
+        : `Planejamento salvo com sucesso! ${totalOrdens} OSs planejadas para ${dataExibicao.toLocaleDateString('pt-BR')}`;
+      toast.success(mensagemSucesso);
       
       // V21: Enviar notificação consolidada para equipes com turno em andamento
       // Só notifica se a data do planejamento for HOJE
@@ -1822,8 +1903,9 @@ const Roteirizacao = () => {
         console.log("[PLANEJAMENTO] Data não é hoje, notificação não enviada");
       }
       
-      // Limpar snapshot das rotas originais
+      // Limpar snapshot das rotas originais e estado de edição
       setRotasOriginais(new Map());
+      setPlanejamentoEditandoId(null);
       
       // Fechar dialog e limpar
       setConfirmarPlanejamentoDialogOpen(false);
@@ -1894,7 +1976,8 @@ const Roteirizacao = () => {
             ordem_servico_id,
             equipe_id,
             ordem_na_rota,
-            tecnicos:equipe_id (codigo, nome)
+            tecnicos:equipe_id (codigo, nome, centro_custo),
+            ordens_servico:ordem_servico_id (numero, tipo, endereco, bairro)
           )
         `)
         .eq("status", "aberto")
@@ -1908,13 +1991,21 @@ const Roteirizacao = () => {
 
       if (error) throw error;
 
-      // Filtrar por equipe se necessário
+      // Filtrar por equipes selecionadas
       let planejamentosFiltrados = (data || []) as any[];
       
-      if (filtroEquipeConsulta !== "all") {
+      if (filtroEquipesConsulta.length > 0) {
         planejamentosFiltrados = planejamentosFiltrados.filter(p => {
           const ordens = p.planejamento_ordens || [];
-          return ordens.some((po: any) => po.equipe_id === filtroEquipeConsulta);
+          return ordens.some((po: any) => filtroEquipesConsulta.includes(po.equipe_id));
+        });
+      }
+      
+      // Filtrar por Centro de Custo
+      if (filtroCentroCustoConsulta !== "all") {
+        planejamentosFiltrados = planejamentosFiltrados.filter(p => {
+          const ordens = p.planejamento_ordens || [];
+          return ordens.some((po: any) => po.tecnicos?.centro_custo === filtroCentroCustoConsulta);
         });
       }
 
@@ -1929,7 +2020,7 @@ const Roteirizacao = () => {
     } finally {
       setCarregandoPlanejamentos(false);
     }
-  }, [filtroDataConsulta, filtroEquipeConsulta, equipes]);
+  }, [filtroDataConsulta, filtroEquipesConsulta, filtroCentroCustoConsulta, equipes]);
 
   // Carregar planejamentos quando o dialog abrir
   useEffect(() => {
@@ -4507,9 +4598,11 @@ const Roteirizacao = () => {
               className="gap-2" 
               disabled={rotas.length === 0 || salvandoPlanejamento || !podeEditar}
               onClick={() => {
-                // Definir data padrão como hoje
-                const hoje = new Date().toISOString().split('T')[0];
-                setDataPlanejamento(hoje);
+                // Se estiver editando, usar a data do planejamento. Senão, usar hoje.
+                if (!planejamentoEditandoId) {
+                  const hoje = new Date().toISOString().split('T')[0];
+                  setDataPlanejamento(hoje);
+                }
                 
                 // Guardar snapshot das rotas atuais para comparação posterior
                 const snapshotRotas = new Map<string, { numero: string; tipo: string }[]>();
@@ -4529,14 +4622,16 @@ const Roteirizacao = () => {
               title={!podeEditar ? "Você não tem permissão para confirmar rotas" : undefined}
             >
               <CheckCircle className="h-4 w-4" />
-              Confirmar Rotas
+              {planejamentoEditandoId ? "Confirmar Alterações" : "Confirmar Rotas"}
             </Button>
             <Button
               variant="outline"
               className="gap-2"
               onClick={() => {
+                // Definir data padrão como hoje ao abrir
+                const hoje = new Date().toISOString().split('T')[0];
+                setFiltroDataConsulta(hoje);
                 setConsultarPlanejamentosDialogOpen(true);
-                handleConsultarPlanejamentos();
               }}
             >
               <Eye className="h-4 w-4" />
@@ -5737,10 +5832,14 @@ const Roteirizacao = () => {
       <Dialog open={confirmarPlanejamentoDialogOpen} onOpenChange={setConfirmarPlanejamentoDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Confirmar Planejamento de Rotas</DialogTitle>
+            <DialogTitle>
+              {planejamentoEditandoId ? "Confirmar Alterações no Planejamento" : "Confirmar Planejamento de Rotas"}
+            </DialogTitle>
             <DialogDescription>
-              Selecione a data para a qual este planejamento será realizado. 
-              As OSs serão marcadas como "Planejadas" e associadas às equipes.
+              {planejamentoEditandoId 
+                ? "Revise as alterações realizadas no planejamento. As mudanças serão salvas e as equipes notificadas."
+                : "Selecione a data para a qual este planejamento será realizado. As OSs serão marcadas como \"Planejadas\" e associadas às equipes."
+              }
             </DialogDescription>
           </DialogHeader>
           
@@ -5754,7 +5853,13 @@ const Roteirizacao = () => {
                 onChange={(e) => setDataPlanejamento(e.target.value)}
                 min={new Date().toISOString().split('T')[0]}
                 className="mt-2"
+                disabled={!!planejamentoEditandoId}
               />
+              {planejamentoEditandoId && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  A data não pode ser alterada em um planejamento existente.
+                </p>
+              )}
             </div>
             
             <div className="rounded-lg border border-border bg-muted/50 p-4">
@@ -5773,7 +5878,7 @@ const Roteirizacao = () => {
               onClick={handleSalvarPlanejamento}
               disabled={!dataPlanejamento || salvandoPlanejamento}
             >
-              {salvandoPlanejamento ? "Salvando..." : "Confirmar Planejamento"}
+              {salvandoPlanejamento ? "Salvando..." : (planejamentoEditandoId ? "Confirmar Alterações" : "Confirmar Planejamento")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -5781,34 +5886,17 @@ const Roteirizacao = () => {
 
       {/* Dialog de Consulta de Planejamentos */}
       <Dialog open={consultarPlanejamentosDialogOpen} onOpenChange={setConsultarPlanejamentosDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-5xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Consultar Planejamentos</DialogTitle>
             <DialogDescription>
-              Consulte e gerencie os planejamentos de rotas em aberto.
+              Consulte e gerencie os planejamentos de rotas em aberto. Visualização por equipe/dia.
             </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4 py-4">
             {/* Filtros */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="filtro-equipe-consulta">Equipe</Label>
-                <Select value={filtroEquipeConsulta} onValueChange={setFiltroEquipeConsulta}>
-                  <SelectTrigger className="mt-2">
-                    <SelectValue placeholder="Todas as equipes" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todas as equipes</SelectItem>
-                    {equipes.map(equipe => (
-                      <SelectItem key={equipe.id} value={equipe.id}>
-                        {equipe.codigo} - {equipe.tecnico}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              
+            <div className="grid grid-cols-3 gap-4">
               <div>
                 <Label htmlFor="filtro-data-consulta">Data</Label>
                 <Input
@@ -5818,6 +5906,60 @@ const Roteirizacao = () => {
                   onChange={(e) => setFiltroDataConsulta(e.target.value)}
                   className="mt-2"
                 />
+              </div>
+              
+              <div>
+                <Label htmlFor="filtro-cc-consulta">Centro de Custo</Label>
+                <Select value={filtroCentroCustoConsulta} onValueChange={setFiltroCentroCustoConsulta}>
+                  <SelectTrigger className="mt-2">
+                    <SelectValue placeholder="Todos os centros de custo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos os centros de custo</SelectItem>
+                    {[...new Set(equipes.map(e => e.centroCusto).filter(Boolean))].map(cc => (
+                      <SelectItem key={cc} value={cc!}>
+                        {cc}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div>
+                <Label>Equipes ({filtroEquipesConsulta.length} selecionadas)</Label>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="w-full mt-2 justify-between">
+                      {filtroEquipesConsulta.length === 0 
+                        ? "Todas as equipes" 
+                        : `${filtroEquipesConsulta.length} equipe(s)`}
+                      <ChevronDown className="h-4 w-4 ml-2" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent className="w-56 max-h-64 overflow-y-auto">
+                    <DropdownMenuItem onClick={() => setFiltroEquipesConsulta([])}>
+                      <span className={filtroEquipesConsulta.length === 0 ? "font-bold" : ""}>
+                        Todas as equipes
+                      </span>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    {equipes.map(equipe => (
+                      <DropdownMenuCheckboxItem
+                        key={equipe.id}
+                        checked={filtroEquipesConsulta.includes(equipe.id)}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setFiltroEquipesConsulta([...filtroEquipesConsulta, equipe.id]);
+                          } else {
+                            setFiltroEquipesConsulta(filtroEquipesConsulta.filter(id => id !== equipe.id));
+                          }
+                        }}
+                      >
+                        {equipe.codigo} - {equipe.tecnico}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
             
@@ -5829,75 +5971,151 @@ const Roteirizacao = () => {
               {carregandoPlanejamentos ? "Carregando..." : "Buscar Planejamentos"}
             </Button>
 
-            {/* Lista de Planejamentos */}
+            {/* Lista de Planejamentos por Equipe/Dia */}
             {planejamentosEncontrados.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
-                <p>Nenhum planejamento encontrado.</p>
+                <p>Nenhum planejamento encontrado para os filtros selecionados.</p>
               </div>
             ) : (
               <div className="space-y-4">
-                {planejamentosEncontrados.map((planejamento: any) => (
-                  <div
-                    key={planejamento.id}
-                    className="rounded-lg border border-border bg-card p-4"
-                  >
-                    <div className="flex items-start justify-between mb-3">
-                      <div>
-                        <div className="font-semibold">
-                          Planejamento para {(() => {
-                          const data = new Date(planejamento.data_planejamento + 'T12:00:00');
-                          return data.toLocaleDateString('pt-BR');
-                        })()}
+                {planejamentosEncontrados.map((planejamento: any) => {
+                  // Agrupar OSs por equipe
+                  const ordensPorEquipe = new Map<string, any[]>();
+                  (planejamento.planejamento_ordens || []).forEach((po: any) => {
+                    if (!ordensPorEquipe.has(po.equipe_id)) {
+                      ordensPorEquipe.set(po.equipe_id, []);
+                    }
+                    ordensPorEquipe.get(po.equipe_id)!.push(po);
+                  });
+                  
+                  // Filtrar equipes se necessário
+                  const equipesParaExibir = filtroEquipesConsulta.length > 0
+                    ? Array.from(ordensPorEquipe.entries()).filter(([eqId]) => filtroEquipesConsulta.includes(eqId))
+                    : Array.from(ordensPorEquipe.entries());
+                  
+                  return (
+                    <div
+                      key={planejamento.id}
+                      className="rounded-lg border border-border bg-card"
+                    >
+                      {/* Cabeçalho do Planejamento */}
+                      <div className="flex items-center justify-between p-4 border-b bg-muted/30">
+                        <div className="flex items-center gap-4">
+                          <div>
+                            <div className="font-semibold text-lg">
+                              📅 {(() => {
+                                const data = new Date(planejamento.data_planejamento + 'T12:00:00');
+                                return data.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' });
+                              })()}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              Criado em {new Date(planejamento.created_at).toLocaleString('pt-BR')}
+                            </div>
+                          </div>
+                          <Badge variant="secondary">{planejamento.status}</Badge>
                         </div>
-                        <div className="text-sm text-muted-foreground">
-                          Criado em {new Date(planejamento.created_at).toLocaleString('pt-BR')}
+                        <div className="flex items-center gap-4 text-sm">
+                          <div className="text-center">
+                            <div className="text-muted-foreground text-xs">Equipes</div>
+                            <div className="font-semibold">{planejamento.total_equipes}</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-muted-foreground text-xs">OSs</div>
+                            <div className="font-semibold">{planejamento.total_ordens}</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-muted-foreground text-xs">Distância</div>
+                            <div className="font-semibold">{planejamento.distancia_total_km?.toFixed(1)} km</div>
+                          </div>
                         </div>
                       </div>
-                      <Badge variant="secondary">{planejamento.status}</Badge>
+                      
+                      {/* Lista de Equipes */}
+                      <div className="divide-y">
+                        {equipesParaExibir.map(([equipeId, ordens]) => {
+                          const tecnico = ordens[0]?.tecnicos;
+                          const equipeCodigo = tecnico?.codigo || equipeId.slice(0, 8);
+                          const equipeNome = tecnico?.nome || "Equipe";
+                          
+                          return (
+                            <div key={equipeId} className="p-3">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm">
+                                    {equipeCodigo.slice(-3)}
+                                  </div>
+                                  <div>
+                                    <div className="font-medium">{equipeCodigo}</div>
+                                    <div className="text-xs text-muted-foreground">{equipeNome}</div>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <div className="text-sm">
+                                    <span className="font-semibold">{ordens.length}</span>
+                                    <span className="text-muted-foreground"> OSs</span>
+                                  </div>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      navigate(`/roteirizacao?planejamento=${planejamento.id}`);
+                                      setConsultarPlanejamentosDialogOpen(false);
+                                    }}
+                                  >
+                                    <Edit className="h-3 w-3 mr-1" />
+                                    Editar
+                                  </Button>
+                                </div>
+                              </div>
+                              
+                              {/* Mini-lista de OSs */}
+                              <div className="mt-2 flex flex-wrap gap-1">
+                                {ordens.slice(0, 5).map((po: any, idx: number) => (
+                                  <span 
+                                    key={idx} 
+                                    className="text-xs bg-muted px-2 py-0.5 rounded"
+                                    title={po.ordens_servico?.endereco || ""}
+                                  >
+                                    {po.ordens_servico?.numero || `#${idx + 1}`}
+                                  </span>
+                                ))}
+                                {ordens.length > 5 && (
+                                  <span className="text-xs text-muted-foreground">
+                                    +{ordens.length - 5} mais
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      
+                      {/* Rodapé com ações */}
+                      <div className="p-3 border-t bg-muted/20 flex justify-between items-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleCancelarPlanejamento(planejamento.id)}
+                          className="text-destructive hover:text-destructive"
+                        >
+                          <X className="h-4 w-4 mr-1" />
+                          Cancelar Planejamento
+                        </Button>
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => {
+                            navigate(`/roteirizacao?planejamento=${planejamento.id}`);
+                            setConsultarPlanejamentosDialogOpen(false);
+                          }}
+                        >
+                          <Eye className="h-4 w-4 mr-1" />
+                          Editar Planejamento Completo
+                        </Button>
+                      </div>
                     </div>
-                    
-                    <div className="grid grid-cols-4 gap-4 mb-3 text-sm">
-                      <div>
-                        <div className="text-muted-foreground">Equipes</div>
-                        <div className="font-semibold">{planejamento.total_equipes}</div>
-                      </div>
-                      <div>
-                        <div className="text-muted-foreground">OSs</div>
-                        <div className="font-semibold">{planejamento.total_ordens}</div>
-                      </div>
-                      <div>
-                        <div className="text-muted-foreground">Distância</div>
-                        <div className="font-semibold">{planejamento.distancia_total_km?.toFixed(1)} km</div>
-                      </div>
-                      <div>
-                        <div className="text-muted-foreground">Faturamento</div>
-                        <div className="font-semibold">R$ {planejamento.faturamento_total?.toFixed(2)}</div>
-                      </div>
-                    </div>
-                    
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          navigate(`/roteirizacao?planejamento=${planejamento.id}`);
-                          setConsultarPlanejamentosDialogOpen(false);
-                        }}
-                      >
-                        <Eye className="h-4 w-4 mr-1" />
-                        Ver Detalhes
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleCancelarPlanejamento(planejamento.id)}
-                      >
-                        <X className="h-4 w-4 mr-1" />
-                        Cancelar
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
