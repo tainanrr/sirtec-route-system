@@ -293,6 +293,8 @@ const Roteirizacao = () => {
   const [filtroDataConsulta, setFiltroDataConsulta] = useState<string>("");
   const [planejamentosEncontrados, setPlanejamentosEncontrados] = useState<any[]>([]);
   const [carregandoPlanejamentos, setCarregandoPlanejamentos] = useState(false);
+  const [centrosCustoEquipes, setCentrosCustoEquipes] = useState<{id: string; nome: string}[]>([]);
+  const [equipesSelecionadasParaEditar, setEquipesSelecionadasParaEditar] = useState<Set<string>>(new Set());
   
   // Estado para controlar se estamos editando um planejamento existente
   const [planejamentoEditandoId, setPlanejamentoEditandoId] = useState<string | null>(null);
@@ -1981,7 +1983,16 @@ const Roteirizacao = () => {
   // Função para consultar planejamentos
   const handleConsultarPlanejamentos = useCallback(async () => {
     setCarregandoPlanejamentos(true);
+    setEquipesSelecionadasParaEditar(new Set()); // Limpar seleção anterior
     try {
+      // Buscar centros de custo das equipes
+      const { data: ccData } = await supabase
+        .from("centros_custo")
+        .select("id, nome")
+        .eq("ativo", true)
+        .order("nome");
+      setCentrosCustoEquipes(ccData || []);
+      
       let query = supabase
         .from("planejamentos")
         .select(`
@@ -1990,7 +2001,7 @@ const Roteirizacao = () => {
             ordem_servico_id,
             equipe_id,
             ordem_na_rota,
-            tecnicos:equipe_id (codigo, nome),
+            tecnicos:equipe_id (codigo, nome, centro_custo_id),
             ordens_servico:ordem_servico_id (numero, tipo, endereco, bairro)
           )
         `)
@@ -2014,6 +2025,14 @@ const Roteirizacao = () => {
           return ordens.some((po: any) => filtroEquipesConsulta.includes(po.equipe_id));
         });
       }
+      
+      // Filtrar por centro de custo
+      if (filtroCentroCustoConsulta !== "all") {
+        planejamentosFiltrados = planejamentosFiltrados.filter(p => {
+          const ordens = p.planejamento_ordens || [];
+          return ordens.some((po: any) => po.tecnicos?.centro_custo_id === filtroCentroCustoConsulta);
+        });
+      }
 
       setPlanejamentosEncontrados(planejamentosFiltrados);
     } catch (error: any) {
@@ -2026,7 +2045,7 @@ const Roteirizacao = () => {
     } finally {
       setCarregandoPlanejamentos(false);
     }
-  }, [filtroDataConsulta, filtroEquipesConsulta, equipes]);
+  }, [filtroDataConsulta, filtroEquipesConsulta, filtroCentroCustoConsulta, equipes]);
 
   // Carregar planejamentos quando o dialog abrir
   useEffect(() => {
@@ -5893,225 +5912,283 @@ const Roteirizacao = () => {
 
       {/* Dialog de Consulta de Planejamentos */}
       <Dialog open={consultarPlanejamentosDialogOpen} onOpenChange={setConsultarPlanejamentosDialogOpen}>
-        <DialogContent className="max-w-5xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>Consultar Planejamentos</DialogTitle>
             <DialogDescription>
-              Consulte e gerencie os planejamentos de rotas em aberto. Visualização por equipe/dia.
+              Consulte e gerencie os planejamentos de rotas em aberto.
             </DialogDescription>
           </DialogHeader>
           
-          <div className="space-y-4 py-4">
-            {/* Filtros */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="filtro-data-consulta">Data</Label>
+          <div className="flex-1 overflow-hidden flex flex-col gap-4 py-2">
+            {/* Filtros em linha */}
+            <div className="flex flex-wrap gap-3 items-end">
+              <div className="flex-1 min-w-[150px]">
+                <Label htmlFor="filtro-data-consulta" className="text-xs">Data</Label>
                 <Input
                   id="filtro-data-consulta"
                   type="date"
                   value={filtroDataConsulta}
                   onChange={(e) => setFiltroDataConsulta(e.target.value)}
-                  className="mt-2"
+                  className="h-9 mt-1"
                 />
               </div>
               
-              <div>
-                <Label>Equipes ({filtroEquipesConsulta.length} selecionadas)</Label>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="w-full mt-2 justify-between">
+              <div className="min-w-[180px]">
+                <Label className="text-xs">Centro de Custo</Label>
+                <Select value={filtroCentroCustoConsulta} onValueChange={setFiltroCentroCustoConsulta}>
+                  <SelectTrigger className="h-9 mt-1">
+                    <SelectValue placeholder="Todos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos os CCs</SelectItem>
+                    {centrosCustoEquipes.map(cc => (
+                      <SelectItem key={cc.id} value={cc.id}>
+                        {cc.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div className="min-w-[180px]">
+                <Label className="text-xs">Equipes</Label>
+                <Select 
+                  value={filtroEquipesConsulta.length === 0 ? "all" : "custom"} 
+                  onValueChange={(v) => v === "all" && setFiltroEquipesConsulta([])}
+                >
+                  <SelectTrigger className="h-9 mt-1">
+                    <SelectValue>
                       {filtroEquipesConsulta.length === 0 
-                        ? "Todas as equipes" 
-                        : `${filtroEquipesConsulta.length} equipe(s)`}
-                      <ChevronDown className="h-4 w-4 ml-2" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent className="w-56 max-h-64 overflow-y-auto">
-                    <DropdownMenuItem onClick={() => setFiltroEquipesConsulta([])}>
-                      <span className={filtroEquipesConsulta.length === 0 ? "font-bold" : ""}>
-                        Todas as equipes
-                      </span>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
+                        ? "Todas" 
+                        : `${filtroEquipesConsulta.length} selecionada(s)`}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas as equipes</SelectItem>
                     {equipes.map(equipe => (
-                      <DropdownMenuCheckboxItem
+                      <div
                         key={equipe.id}
-                        checked={filtroEquipesConsulta.includes(equipe.id)}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setFiltroEquipesConsulta([...filtroEquipesConsulta, equipe.id]);
-                          } else {
+                        className="flex items-center gap-2 px-2 py-1.5 cursor-pointer hover:bg-accent"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (filtroEquipesConsulta.includes(equipe.id)) {
                             setFiltroEquipesConsulta(filtroEquipesConsulta.filter(id => id !== equipe.id));
+                          } else {
+                            setFiltroEquipesConsulta([...filtroEquipesConsulta, equipe.id]);
                           }
                         }}
                       >
-                        {equipe.codigo} - {equipe.tecnico}
-                      </DropdownMenuCheckboxItem>
+                        <Checkbox 
+                          checked={filtroEquipesConsulta.includes(equipe.id)}
+                          className="pointer-events-none"
+                        />
+                        <span className="text-sm">{equipe.codigo}</span>
+                      </div>
                     ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                  </SelectContent>
+                </Select>
               </div>
+              
+              <Button
+                onClick={handleConsultarPlanejamentos}
+                disabled={carregandoPlanejamentos}
+                size="sm"
+                className="h-9"
+              >
+                {carregandoPlanejamentos ? "..." : "Buscar"}
+              </Button>
             </div>
-            
-            <Button
-              onClick={handleConsultarPlanejamentos}
-              disabled={carregandoPlanejamentos}
-              className="w-full"
-            >
-              {carregandoPlanejamentos ? "Carregando..." : "Buscar Planejamentos"}
-            </Button>
 
-            {/* Lista de Planejamentos por Equipe/Dia */}
-            {planejamentosEncontrados.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <p>Nenhum planejamento encontrado para os filtros selecionados.</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {planejamentosEncontrados.map((planejamento: any) => {
-                  // Agrupar OSs por equipe
-                  const ordensPorEquipe = new Map<string, any[]>();
-                  (planejamento.planejamento_ordens || []).forEach((po: any) => {
-                    if (!ordensPorEquipe.has(po.equipe_id)) {
-                      ordensPorEquipe.set(po.equipe_id, []);
-                    }
-                    ordensPorEquipe.get(po.equipe_id)!.push(po);
-                  });
-                  
-                  // Filtrar equipes se necessário
-                  const equipesParaExibir = filtroEquipesConsulta.length > 0
-                    ? Array.from(ordensPorEquipe.entries()).filter(([eqId]) => filtroEquipesConsulta.includes(eqId))
-                    : Array.from(ordensPorEquipe.entries());
-                  
-                  return (
-                    <div
-                      key={planejamento.id}
-                      className="rounded-lg border border-border bg-card"
-                    >
-                      {/* Cabeçalho do Planejamento */}
-                      <div className="flex items-center justify-between p-4 border-b bg-muted/30">
-                        <div className="flex items-center gap-4">
-                          <div>
-                            <div className="font-semibold text-lg">
-                              📅 {(() => {
-                                const data = new Date(planejamento.data_planejamento + 'T12:00:00');
-                                return data.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' });
-                              })()}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              Criado em {new Date(planejamento.created_at).toLocaleString('pt-BR')}
-                            </div>
-                          </div>
-                          <Badge variant="secondary">{planejamento.status}</Badge>
-                        </div>
-                        <div className="flex items-center gap-4 text-sm">
-                          <div className="text-center">
-                            <div className="text-muted-foreground text-xs">Equipes</div>
-                            <div className="font-semibold">{planejamento.total_equipes}</div>
-                          </div>
-                          <div className="text-center">
-                            <div className="text-muted-foreground text-xs">OSs</div>
-                            <div className="font-semibold">{planejamento.total_ordens}</div>
-                          </div>
-                          <div className="text-center">
-                            <div className="text-muted-foreground text-xs">Distância</div>
-                            <div className="font-semibold">{planejamento.distancia_total_km?.toFixed(1)} km</div>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      {/* Lista de Equipes */}
-                      <div className="divide-y">
-                        {equipesParaExibir.map(([equipeId, ordens]) => {
-                          const tecnico = ordens[0]?.tecnicos;
-                          const equipeCodigo = tecnico?.codigo || equipeId.slice(0, 8);
-                          const equipeNome = tecnico?.nome || "Equipe";
-                          
-                          return (
-                            <div key={equipeId} className="p-3">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                  <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm">
-                                    {equipeCodigo.slice(-3)}
-                                  </div>
-                                  <div>
-                                    <div className="font-medium">{equipeCodigo}</div>
-                                    <div className="text-xs text-muted-foreground">{equipeNome}</div>
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                  <div className="text-sm">
-                                    <span className="font-semibold">{ordens.length}</span>
-                                    <span className="text-muted-foreground"> OSs</span>
-                                  </div>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                      navigate(`/roteirizacao?planejamento=${planejamento.id}`);
-                                      setConsultarPlanejamentosDialogOpen(false);
-                                    }}
-                                  >
-                                    <Edit className="h-3 w-3 mr-1" />
-                                    Editar
-                                  </Button>
-                                </div>
-                              </div>
-                              
-                              {/* Mini-lista de OSs */}
-                              <div className="mt-2 flex flex-wrap gap-1">
-                                {ordens.slice(0, 5).map((po: any, idx: number) => (
-                                  <span 
-                                    key={idx} 
-                                    className="text-xs bg-muted px-2 py-0.5 rounded"
-                                    title={po.ordens_servico?.endereco || ""}
-                                  >
-                                    {po.ordens_servico?.numero || `#${idx + 1}`}
-                                  </span>
-                                ))}
-                                {ordens.length > 5 && (
-                                  <span className="text-xs text-muted-foreground">
-                                    +{ordens.length - 5} mais
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      
-                      {/* Rodapé com ações */}
-                      <div className="p-3 border-t bg-muted/20 flex justify-between items-center">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleCancelarPlanejamento(planejamento.id)}
-                          className="text-destructive hover:text-destructive"
-                        >
-                          <X className="h-4 w-4 mr-1" />
-                          Cancelar Planejamento
-                        </Button>
-                        <Button
-                          variant="default"
-                          size="sm"
-                          onClick={() => {
-                            navigate(`/roteirizacao?planejamento=${planejamento.id}`);
-                            setConsultarPlanejamentosDialogOpen(false);
-                          }}
-                        >
-                          <Eye className="h-4 w-4 mr-1" />
-                          Editar Planejamento Completo
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
+            {/* Barra de ações quando há seleção */}
+            {equipesSelecionadasParaEditar.size > 0 && (
+              <div className="flex items-center justify-between bg-primary/10 rounded-lg px-3 py-2">
+                <span className="text-sm font-medium">
+                  {equipesSelecionadasParaEditar.size} equipe(s) selecionada(s)
+                </span>
+                <div className="flex gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setEquipesSelecionadasParaEditar(new Set())}
+                  >
+                    Limpar
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      // Pegar os IDs dos planejamentos das equipes selecionadas
+                      const planejamentosIds = new Set<string>();
+                      planejamentosEncontrados.forEach(p => {
+                        (p.planejamento_ordens || []).forEach((po: any) => {
+                          if (equipesSelecionadasParaEditar.has(`${p.id}-${po.equipe_id}`)) {
+                            planejamentosIds.add(p.id);
+                          }
+                        });
+                      });
+                      if (planejamentosIds.size === 1) {
+                        navigate(`/roteirizacao?planejamento=${Array.from(planejamentosIds)[0]}`);
+                      } else {
+                        navigate(`/roteirizacao?planejamentos=${Array.from(planejamentosIds).join(',')}`);
+                      }
+                      setConsultarPlanejamentosDialogOpen(false);
+                    }}
+                  >
+                    <Edit className="h-4 w-4 mr-1" />
+                    Editar Selecionadas
+                  </Button>
+                </div>
               </div>
             )}
+
+            {/* Tabela de Equipes */}
+            <div className="flex-1 overflow-auto rounded-lg border">
+              {planejamentosEncontrados.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <p>Nenhum planejamento encontrado.</p>
+                  <p className="text-xs mt-1">Selecione uma data e clique em "Buscar"</p>
+                </div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 sticky top-0">
+                    <tr>
+                      <th className="w-10 p-2 text-left">
+                        <Checkbox 
+                          checked={(() => {
+                            let total = 0;
+                            planejamentosEncontrados.forEach(p => {
+                              (p.planejamento_ordens || []).forEach((po: any) => {
+                                const key = `${p.id}-${po.equipe_id}`;
+                                if (!equipesSelecionadasParaEditar.has(key)) return;
+                                total++;
+                              });
+                            });
+                            let allCount = 0;
+                            planejamentosEncontrados.forEach(p => {
+                              const seen = new Set();
+                              (p.planejamento_ordens || []).forEach((po: any) => {
+                                if (!seen.has(po.equipe_id)) {
+                                  seen.add(po.equipe_id);
+                                  allCount++;
+                                }
+                              });
+                            });
+                            return total > 0 && total === allCount;
+                          })()}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              const newSet = new Set<string>();
+                              planejamentosEncontrados.forEach(p => {
+                                const seen = new Set();
+                                (p.planejamento_ordens || []).forEach((po: any) => {
+                                  if (!seen.has(po.equipe_id)) {
+                                    seen.add(po.equipe_id);
+                                    newSet.add(`${p.id}-${po.equipe_id}`);
+                                  }
+                                });
+                              });
+                              setEquipesSelecionadasParaEditar(newSet);
+                            } else {
+                              setEquipesSelecionadasParaEditar(new Set());
+                            }
+                          }}
+                        />
+                      </th>
+                      <th className="p-2 text-left font-medium">Data</th>
+                      <th className="p-2 text-left font-medium">Equipe</th>
+                      <th className="p-2 text-left font-medium">Técnico</th>
+                      <th className="p-2 text-center font-medium">OSs</th>
+                      <th className="p-2 text-right font-medium">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {planejamentosEncontrados.flatMap((planejamento: any) => {
+                      // Agrupar por equipe única
+                      const equipesMap = new Map<string, { ordens: any[], tecnico: any }>();
+                      (planejamento.planejamento_ordens || []).forEach((po: any) => {
+                        if (!equipesMap.has(po.equipe_id)) {
+                          equipesMap.set(po.equipe_id, { ordens: [], tecnico: po.tecnicos });
+                        }
+                        equipesMap.get(po.equipe_id)!.ordens.push(po);
+                      });
+                      
+                      // Filtrar
+                      let entries = Array.from(equipesMap.entries());
+                      if (filtroEquipesConsulta.length > 0) {
+                        entries = entries.filter(([eqId]) => filtroEquipesConsulta.includes(eqId));
+                      }
+                      if (filtroCentroCustoConsulta !== "all") {
+                        entries = entries.filter(([_, data]) => data.tecnico?.centro_custo_id === filtroCentroCustoConsulta);
+                      }
+                      
+                      return entries.map(([equipeId, data]) => {
+                        const key = `${planejamento.id}-${equipeId}`;
+                        const isSelected = equipesSelecionadasParaEditar.has(key);
+                        const equipeCodigo = data.tecnico?.codigo || equipeId.slice(0, 8);
+                        const equipeNome = data.tecnico?.nome || "-";
+                        const dataFormatada = new Date(planejamento.data_planejamento + 'T12:00:00').toLocaleDateString('pt-BR');
+                        
+                        return (
+                          <tr 
+                            key={key} 
+                            className={cn(
+                              "hover:bg-muted/50 transition-colors",
+                              isSelected && "bg-primary/5"
+                            )}
+                          >
+                            <td className="p-2">
+                              <Checkbox 
+                                checked={isSelected}
+                                onCheckedChange={(checked) => {
+                                  const newSet = new Set(equipesSelecionadasParaEditar);
+                                  if (checked) {
+                                    newSet.add(key);
+                                  } else {
+                                    newSet.delete(key);
+                                  }
+                                  setEquipesSelecionadasParaEditar(newSet);
+                                }}
+                              />
+                            </td>
+                            <td className="p-2 text-muted-foreground">{dataFormatada}</td>
+                            <td className="p-2">
+                              <span className="font-medium">{equipeCodigo}</span>
+                            </td>
+                            <td className="p-2 text-muted-foreground truncate max-w-[150px]" title={equipeNome}>
+                              {equipeNome}
+                            </td>
+                            <td className="p-2 text-center">
+                              <Badge variant="secondary" className="font-mono">
+                                {data.ordens.length}
+                              </Badge>
+                            </td>
+                            <td className="p-2 text-right">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2"
+                                onClick={() => {
+                                  navigate(`/roteirizacao?planejamento=${planejamento.id}`);
+                                  setConsultarPlanejamentosDialogOpen(false);
+                                }}
+                              >
+                                <Edit className="h-3 w-3 mr-1" />
+                                Editar
+                              </Button>
+                            </td>
+                          </tr>
+                        );
+                      });
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
           
-          <DialogFooter>
-            <Button onClick={() => setConsultarPlanejamentosDialogOpen(false)}>
+          <DialogFooter className="flex-shrink-0 border-t pt-4">
+            <Button variant="outline" onClick={() => setConsultarPlanejamentosDialogOpen(false)}>
               Fechar
             </Button>
           </DialogFooter>
