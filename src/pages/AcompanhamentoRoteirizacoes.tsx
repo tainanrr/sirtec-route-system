@@ -47,6 +47,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { useWebAuth } from "@/contexts/WebAuthContext";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -94,6 +95,7 @@ const AcompanhamentoRoteirizacoes = () => {
 
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { usuarioWeb } = useWebAuth();
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("aberto");
@@ -473,14 +475,17 @@ const AcompanhamentoRoteirizacoes = () => {
 
   // Função para cancelar toda a rota (todas as OSs de uma equipe/data)
   const handleCancelarRota = async () => {
-    if (!rotaParaCancelar || !user) {
-      console.error("[CANCELAR ROTA] Dados faltando:", { rotaParaCancelar, user });
+    // Usar usuarioWeb como fallback se user não existir
+    const userId = user?.id || usuarioWeb?.id;
+    
+    if (!rotaParaCancelar) {
+      console.error("[CANCELAR ROTA] Dados faltando:", { rotaParaCancelar });
       toast.error("Dados insuficientes para cancelar a rota");
       return;
     }
 
     try {
-      console.log("[CANCELAR ROTA] Iniciando cancelamento:", rotaParaCancelar);
+      console.log("[CANCELAR ROTA] Iniciando cancelamento:", rotaParaCancelar, "User ID:", userId);
       
       // Buscar todas as OSs da rota (equipe/data específica)
       const { data: ordensRota, error: erroBuscar } = await supabase
@@ -541,16 +546,18 @@ const AcompanhamentoRoteirizacoes = () => {
 
       console.log("[CANCELAR ROTA] Ordens removidas:", dataRemover);
 
-      // Criar log
-      const { error: erroLog } = await supabase.from("planejamento_logs").insert({
-        planejamento_id: rotaParaCancelar.planejamentoId,
-        acao: "rota_cancelada",
-        descricao: `Rota completa cancelada (equipe: ${rotaParaCancelar.equipeId}, data: ${rotaParaCancelar.dataPlanejamento})`,
-        created_by: user.id,
-      });
+      // Criar log (se tiver userId)
+      if (userId) {
+        const { error: erroLog } = await supabase.from("planejamento_logs").insert({
+          planejamento_id: rotaParaCancelar.planejamentoId,
+          acao: "rota_cancelada",
+          descricao: `Rota completa cancelada (equipe: ${rotaParaCancelar.equipeId}, data: ${rotaParaCancelar.dataPlanejamento})`,
+          created_by: userId,
+        });
 
-      if (erroLog) {
-        console.error("[CANCELAR ROTA] Erro ao criar log (não crítico):", erroLog);
+        if (erroLog) {
+          console.error("[CANCELAR ROTA] Erro ao criar log (não crítico):", erroLog);
+        }
       }
 
       toast.success(`Rota cancelada com sucesso! ${ordensRota.length} OS(s) revertida(s) para pendente`);
