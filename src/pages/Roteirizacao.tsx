@@ -1620,12 +1620,17 @@ const Roteirizacao = () => {
       matchesPrazoFim = prazoOS <= prazoFimDate;
     }
     
-    // Coordenadas
+    // Coordenadas - filteredServicos SEMPRE filtra apenas OSs com coordenadas válidas
+    // As OSs sem coordenadas são listadas separadamente em osSemCoordenadas
+    // O filtro coordenadasFilter serve apenas para quando o usuário quer ver SÓ as sem coordenadas
     let matchesCoordenadas = true;
-    if (coordenadasFilter === "com") {
-      matchesCoordenadas = s.latitude !== 0 && s.longitude !== 0 && s.latitude !== null && s.longitude !== null;
-    } else if (coordenadasFilter === "sem") {
+    if (coordenadasFilter === "sem") {
+      // Usuário quer ver apenas as sem coordenadas no backlog principal
       matchesCoordenadas = s.latitude === 0 || s.longitude === 0 || s.latitude === null || s.longitude === null;
+    } else {
+      // Para "all" ou "com", mostrar apenas OSs com coordenadas válidas no backlog principal
+      // (as sem coordenadas aparecem na seção separada "OSs Sem Coordenadas")
+      matchesCoordenadas = s.latitude !== 0 && s.longitude !== 0 && s.latitude !== null && s.longitude !== null;
     }
     
     // Regulada
@@ -1672,10 +1677,15 @@ const Roteirizacao = () => {
   const osSemCoordenadas = useMemo(() => {
     if (!hasAnyFilter) return []; // Não mostrar se não há filtros ativos
     
+    // Se o usuário selecionou filtro "sem coordenadas", não mostrar aqui (já estão no backlog principal)
+    if (coordenadasFilter === "sem") return [];
+    
     // Filtrar OSs sem coordenadas válidas que passam nos demais filtros
     const semCoord = osPendentesTodas.filter(os => {
-      // Deve ser sem coordenadas
-      if (os.latitude !== null && os.longitude !== null) return false;
+      // Deve ser sem coordenadas válidas (null, undefined ou 0,0)
+      const coordenadasInvalidas = os.latitude === null || os.longitude === null || 
+                                   os.latitude === 0 || os.longitude === 0;
+      if (!coordenadasInvalidas) return false;
       
       // Aplicar os mesmos filtros do backlog (exceto coordenadas e territórios que dependem de coordenadas)
       const searchLower = searchTerm.toLowerCase();
@@ -1735,7 +1745,7 @@ const Roteirizacao = () => {
       return 0;
     });
   }, [osPendentesTodas, hasAnyFilter, searchTerm, tiposFilter, contratosFilter, centrosCustoFilter, 
-      municipiosFilter, bairrosFilter, statusFilter, gruposFilter, prazoInicio, prazoFim, reguladaFilter]);
+      municipiosFilter, bairrosFilter, statusFilter, gruposFilter, prazoInicio, prazoFim, reguladaFilter, coordenadasFilter]);
 
   // OSs com coordenadas suspeitas (bairro pertence a um território mas coordenadas estão fora dele)
   const osCoordenadasSuspeitas = useMemo(() => {
