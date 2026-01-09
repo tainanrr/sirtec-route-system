@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, createContext, useContext, ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -475,8 +475,7 @@ export function useOfflineSync() {
   };
 }
 
-// Contexto global para compartilhar o estado de sincronização
-import { createContext, useContext, ReactNode } from "react";
+// ============ CONTEXTO GLOBAL ============
 
 interface OfflineSyncContextType extends ReturnType<typeof useOfflineSync> {}
 
