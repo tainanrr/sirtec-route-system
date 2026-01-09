@@ -119,32 +119,115 @@ export function useOfflineData() {
     }
   }, [saveToCache]);
 
-  // Pré-carregar planejamento do dia
+  // Pré-carregar planejamento do dia - formato igual ao AppOrdens.tsx
   const preloadPlanejamentoDia = useCallback(async (equipeId: string, data: string) => {
     try {
-      const { data: planejamento, error } = await supabase
+      // Buscar ordens planejadas - MESMA query do AppOrdens para compatibilidade
+      const { data: ordensPlanejadasData, error: errorPlanejadas } = await supabase
         .from("planejamento_ordens")
         .select(`
-          *,
+          id,
+          ordem_na_rota,
+          hora_inicio_estimada,
+          hora_fim_estimada,
+          distancia_km,
+          tempo_estimado_minutos,
+          planejamento_id,
+          equipe_id,
           ordens_servico:ordem_servico_id (
-            id, numero, tipo, status, endereco, latitude, longitude,
-            cliente_nome, prazo, valor, regulada,
-            observacoes, contrato_id, centro_custo_id,
-            deslocamento_iniciado_at, chegada_local_at,
-            execucao_iniciada_at, concluido_at, pausado_at
+            id,
+            numero,
+            tipo,
+            endereco,
+            cliente_nome,
+            status,
+            prazo,
+            regulada,
+            avulsa,
+            latitude,
+            longitude,
+            created_at
+          ),
+          planejamentos!inner (
+            id,
+            data_planejamento,
+            status
           )
         `)
         .eq("equipe_id", equipeId)
-        .eq("data_planejamento", data)
-        .order("ordem_na_rota");
+        .eq("planejamentos.data_planejamento", data)
+        .eq("planejamentos.status", "aberto")
+        .order("ordem_na_rota", { ascending: true });
+
+      if (errorPlanejadas) throw errorPlanejadas;
+
+      // Buscar OSs avulsas da equipe criadas no dia (que não estão no planejamento)
+      const dataInicio = `${data}T00:00:00`;
+      const dataFim = `${data}T23:59:59`;
       
-      if (error) throw error;
-      await saveToCache(`${CACHE_KEYS.PLANEJAMENTO_DIA}_${equipeId}_${data}`, planejamento, 24);
-      console.log("[OfflineData] Planejamento cacheado:", planejamento?.length, "OSs");
+      const { data: ordensAvulsasData, error: errorAvulsas } = await supabase
+        .from("ordens_servico")
+        .select(`
+          id,
+          numero,
+          tipo,
+          endereco,
+          cliente_nome,
+          status,
+          prazo,
+          regulada,
+          avulsa,
+          latitude,
+          longitude,
+          created_at
+        `)
+        .eq("tecnico_id", equipeId)
+        .eq("avulsa", true)
+        .gte("created_at", dataInicio)
+        .lte("created_at", dataFim)
+        .order("created_at", { ascending: true });
+
+      if (errorAvulsas) {
+        console.error("[OfflineData] Erro ao buscar ordens avulsas:", errorAvulsas);
+      }
+
+      // Mesclar ordens planejadas e avulsas (igual AppOrdens)
+      const todasOrdens: any[] = [];
+      
+      if (ordensPlanejadasData) {
+        todasOrdens.push(...ordensPlanejadasData);
+      }
+      
+      if (ordensAvulsasData) {
+        const idsJaIncluidos = new Set(todasOrdens.map(o => o.ordens_servico?.id));
+        
+        ordensAvulsasData.forEach((osAvulsa, index) => {
+          if (!idsJaIncluidos.has(osAvulsa.id)) {
+            const maxOrdem = todasOrdens.length > 0 
+              ? Math.max(...todasOrdens.map(o => o.ordem_na_rota || 0))
+              : 0;
+            
+            todasOrdens.push({
+              id: `avulsa-${osAvulsa.id}`,
+              ordem_na_rota: maxOrdem + index + 1,
+              hora_inicio_estimada: null,
+              hora_fim_estimada: null,
+              distancia_km: null,
+              tempo_estimado_minutos: null,
+              planejamento_id: "",
+              ordens_servico: osAvulsa,
+              planejamentos: null,
+            });
+          }
+        });
+      }
+
+      await saveToCache(`${CACHE_KEYS.PLANEJAMENTO_DIA}_${equipeId}_${data}`, todasOrdens, 24);
+      console.log("[OfflineData] Planejamento cacheado:", todasOrdens.length, "OSs (incluindo avulsas)");
       
       // Cachear também as ordens separadamente para acesso rápido
-      if (planejamento) {
-        const ordens = planejamento
+      if (todasOrdens.length > 0) {
+        const ordens = todasOrdens
           .filter(p => p.ordens_servico)
           .map(p => p.ordens_servico);
         await saveToCache(`${CACHE_KEYS.ORDENS_PLANEJADAS}_${equipeId}`, ordens, 24);
