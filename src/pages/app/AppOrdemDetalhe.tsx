@@ -179,42 +179,13 @@ export default function AppOrdemDetalhe() {
   // Determinar equipeId - priorizar equipeAuth que funciona offline
   const equipeIdParaUsar = equipeAuth?.id || equipe?.id;
   
-  // Buscar ordem
-  const { data: ordem, isLoading } = useQuery({
+  // Estado local para ordem offline
+  const [ordemOfflineCache, setOrdemOfflineCache] = useState<any>(null);
+  
+  // Buscar ordem - só executa quando online
+  const { data: ordemOnline, isLoading: isLoadingOnline } = useQuery({
     queryKey: ["ordem-detalhe", id],
     queryFn: async () => {
-      console.log("[AppOrdemDetalhe] Buscando ordem:", id, "equipeId:", equipeIdParaUsar, "online:", isOnline);
-      
-      // Se estiver offline, tentar buscar do cache
-      if (!isOnline) {
-        if (!equipeIdParaUsar) {
-          console.log("[AppOrdemDetalhe] ❌ Offline sem equipeId");
-          return null;
-        }
-        
-        console.log("[AppOrdemDetalhe] 📦 Offline - buscando do cache...");
-        const dataHoje = format(new Date(), "yyyy-MM-dd");
-        const cacheKey = `${CACHE_KEYS.PLANEJAMENTO_DIA}_${equipeIdParaUsar}_${dataHoje}`;
-        console.log("[AppOrdemDetalhe] Cache key:", cacheKey);
-        
-        const cachedPlanejamento = await getFromCache(cacheKey);
-        console.log("[AppOrdemDetalhe] Cache encontrado:", cachedPlanejamento?.length || 0, "items");
-        
-        if (cachedPlanejamento && Array.isArray(cachedPlanejamento)) {
-          const ordemEncontrada = (cachedPlanejamento as any[]).find(
-            p => p.ordens_servico?.id === id
-          );
-          console.log("[AppOrdemDetalhe] Ordem encontrada:", !!ordemEncontrada, "id procurado:", id);
-          
-          if (ordemEncontrada?.ordens_servico) {
-            console.log("[AppOrdemDetalhe] ✅ Ordem encontrada no cache:", ordemEncontrada.ordens_servico.numero);
-            return ordemEncontrada.ordens_servico;
-          }
-        }
-        console.log("[AppOrdemDetalhe] ⚠️ Ordem não encontrada no cache");
-        return null;
-      }
-
       const { data, error } = await supabase
         .from("ordens_servico")
         .select("*")
@@ -223,10 +194,48 @@ export default function AppOrdemDetalhe() {
       if (error) throw error;
       return data;
     },
-    enabled: !!id && (isOnline || !!equipeIdParaUsar),
+    enabled: !!id && isOnline,
     staleTime: 0,
-    retry: isOnline ? 3 : 0,
+    retry: 3,
   });
+
+  // Buscar ordem do cache manualmente quando offline
+  useEffect(() => {
+    const buscarOrdemDoCache = async () => {
+      if (!isOnline && id && equipeIdParaUsar && !ordemOfflineCache) {
+        console.log("[AppOrdemDetalhe] 📦 Offline - buscando ordem do cache manualmente...");
+        const dataHoje = format(new Date(), "yyyy-MM-dd");
+        const cacheKey = `${CACHE_KEYS.PLANEJAMENTO_DIA}_${equipeIdParaUsar}_${dataHoje}`;
+        console.log("[AppOrdemDetalhe] Cache key:", cacheKey, "ID procurado:", id);
+        
+        try {
+          const cachedPlanejamento = await getFromCache(cacheKey);
+          console.log("[AppOrdemDetalhe] Cache encontrado:", cachedPlanejamento?.length || 0, "items");
+          
+          if (cachedPlanejamento && Array.isArray(cachedPlanejamento)) {
+            const ordemEncontrada = (cachedPlanejamento as any[]).find(
+              p => p.ordens_servico?.id === id
+            );
+            
+            if (ordemEncontrada?.ordens_servico) {
+              console.log("[AppOrdemDetalhe] ✅ Ordem encontrada no cache:", ordemEncontrada.ordens_servico.numero);
+              setOrdemOfflineCache(ordemEncontrada.ordens_servico);
+            } else {
+              console.log("[AppOrdemDetalhe] ⚠️ Ordem não encontrada no cache. IDs disponíveis:", 
+                (cachedPlanejamento as any[]).map(p => p.ordens_servico?.id).slice(0, 5));
+            }
+          }
+        } catch (error) {
+          console.error("[AppOrdemDetalhe] ❌ Erro ao buscar cache:", error);
+        }
+      }
+    };
+    buscarOrdemDoCache();
+  }, [isOnline, id, equipeIdParaUsar, ordemOfflineCache, getFromCache]);
+
+  // Usar ordem do React Query ou do cache offline
+  const ordem = isOnline ? ordemOnline : ordemOfflineCache;
+  const isLoading = isOnline ? isLoadingOnline : (!ordemOfflineCache && !!id);
 
   // Buscar produção (valor produzido)
   const { data: producao } = useQuery({

@@ -407,22 +407,13 @@ export default function AppOrdens() {
     };
   }, [equipe?.id, queryClient, isOnline]);
 
+  // Estado local para skills offline
+  const [skillsOfflineCache, setSkillsOfflineCache] = useState<any[]>([]);
+
   // Buscar skills para mapear código -> nome
   const { data: skillsDataList } = useQuery({
     queryKey: ["skills-app-lista"],
     queryFn: async () => {
-      // Se offline, buscar do cache
-      if (!isOnline) {
-        console.log("[AppOrdens] 📦 Offline - buscando skills do cache...");
-        const cachedSkills = await getSkillsFromCache();
-        if (cachedSkills && Array.isArray(cachedSkills)) {
-          console.log("[AppOrdens] ✅ Skills do cache:", cachedSkills.length);
-          return cachedSkills;
-        }
-        console.log("[AppOrdens] ⚠️ Skills não encontrados no cache");
-        return [];
-      }
-      
       const { data, error } = await supabase
         .from("skills")
         .select("codigo, nome")
@@ -432,19 +423,48 @@ export default function AppOrdens() {
       return data || [];
     },
     staleTime: 5 * 60 * 1000, // Cache por 5 minutos
+    enabled: isOnline, // Só executar quando online
   });
+
+  // Buscar skills do cache quando offline
+  useEffect(() => {
+    const buscarSkillsDoCache = async () => {
+      if (!isOnline && skillsOfflineCache.length === 0) {
+        console.log("[AppOrdens] 📦 Offline - buscando skills do cache manualmente...");
+        try {
+          const cachedSkills = await getSkillsFromCache();
+          if (cachedSkills && Array.isArray(cachedSkills) && cachedSkills.length > 0) {
+            console.log("[AppOrdens] ✅ Skills do cache:", cachedSkills.length);
+            setSkillsOfflineCache(cachedSkills);
+          } else {
+            console.log("[AppOrdens] ⚠️ Skills não encontrados no cache");
+          }
+        } catch (error) {
+          console.error("[AppOrdens] ❌ Erro ao buscar skills do cache:", error);
+        }
+      }
+    };
+    buscarSkillsDoCache();
+  }, [isOnline, skillsOfflineCache.length, getSkillsFromCache]);
+
+  // Usar skills do React Query ou do cache offline
+  const skillsParaUsar = (skillsDataList && skillsDataList.length > 0) 
+    ? skillsDataList 
+    : skillsOfflineCache;
 
   // Criar mapa de códigos para nomes
   const skillsNomes = new Map<string, string>();
-  if (skillsDataList) {
-    skillsDataList.forEach((skill: { codigo: string; nome: string }) => {
+  if (skillsParaUsar && skillsParaUsar.length > 0) {
+    skillsParaUsar.forEach((skill: { codigo: string; nome: string }) => {
       if (skill.codigo && skill.nome) {
         skillsNomes.set(skill.codigo.toLowerCase(), skill.nome);
         skillsNomes.set(skill.codigo.toUpperCase(), skill.nome);
+        skillsNomes.set(skill.codigo, skill.nome); // Também sem normalização
         const normalizado = skill.codigo.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
         skillsNomes.set(normalizado, skill.nome);
       }
     });
+    console.log("[AppOrdens] skillsNomes criado com", skillsNomes.size, "entradas");
   }
 
   // Usar ordens do React Query ou do cache offline
