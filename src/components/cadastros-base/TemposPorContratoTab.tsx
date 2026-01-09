@@ -197,47 +197,40 @@ export default function TemposPorContratoTab({ skillCodigo, skillNome }: Props) 
     const key = `${contratoId}_${centroCustoId}`;
     setCalculando(key);
     try {
-      // Buscar produções com tempo de execução, filtrando por contrato e centro de custo
-      const { data: producoes, error } = await supabase
-        .from("producao_equipes")
-        .select(`
-          tempo_execucao_minutos,
-          ordens_servico:ordem_servico_id (
-            tipo,
-            contrato_id,
-            centro_custo_id
-          )
-        `)
-        .order("created_at", { ascending: false })
-        .limit(5000);
+      // Buscar OSs concluídas com tempo de execução (execucao_iniciada_at e concluido_at)
+      const { data: ordens, error } = await supabase
+        .from("ordens_servico")
+        .select("id, tipo, contrato_id, centro_custo_id, execucao_iniciada_at, concluido_at")
+        .eq("tipo", skillCodigo.toLowerCase())
+        .eq("contrato_id", contratoId)
+        .eq("centro_custo_id", centroCustoId)
+        .eq("status", "concluida")
+        .not("execucao_iniciada_at", "is", null)
+        .not("concluido_at", "is", null)
+        .order("concluido_at", { ascending: false })
+        .limit(1000);
 
       if (error) throw error;
 
-      // Filtrar pelo tipo de serviço, contrato e centro de custo
-      const skillCodigoLower = skillCodigo.toLowerCase();
-      
-      const producoesFiltradas = (producoes || []).filter((p: any) => {
-        const tipoOS = (p.ordens_servico?.tipo || "").toLowerCase();
-        const contratoOS = p.ordens_servico?.contrato_id;
-        const centroOS = p.ordens_servico?.centro_custo_id;
-        // Filtrar apenas produções com tempo válido (> 0)
-        return tipoOS === skillCodigoLower && 
-               contratoOS === contratoId && 
-               centroOS === centroCustoId &&
-               p.tempo_execucao_minutos > 0;
-      }).slice(0, 1000);
+      // Calcular tempo de execução para cada OS
+      const ordensComTempo = (ordens || []).map((os: any) => {
+        const inicio = new Date(os.execucao_iniciada_at).getTime();
+        const fim = new Date(os.concluido_at).getTime();
+        const tempoMinutos = (fim - inicio) / 60000; // Converter ms para minutos
+        return { ...os, tempo_execucao_minutos: tempoMinutos };
+      }).filter((os: any) => os.tempo_execucao_minutos > 0 && os.tempo_execucao_minutos < 480); // Filtrar tempos válidos (até 8h)
 
-      console.log(`[TemposPorCentroCusto] Produções filtradas para ${skillCodigo}/${contratoId}/${centroCustoId}: ${producoesFiltradas.length}`);
+      console.log(`[TemposPorCentroCusto] OSs com tempo válido para ${skillCodigo}/${contratoId}/${centroCustoId}: ${ordensComTempo.length}`);
 
-      if (producoesFiltradas.length === 0) {
+      if (ordensComTempo.length === 0) {
         toast.info(`Nenhuma execução com tempo válido encontrada para este centro de custo`);
         setCalculando(null);
         return null;
       }
 
       // Calcular média do tempo de execução
-      const soma = producoesFiltradas.reduce((acc: number, p: any) => acc + (p.tempo_execucao_minutos || 0), 0);
-      const media = soma / producoesFiltradas.length;
+      const soma = ordensComTempo.reduce((acc: number, os: any) => acc + os.tempo_execucao_minutos, 0);
+      const media = soma / ordensComTempo.length;
 
       // Atualizar estado local
       setContratosComCentros(prev => prev.map(c => 
@@ -253,9 +246,9 @@ export default function TemposPorContratoTab({ skillCodigo, skillNome }: Props) 
           : c
       ));
 
-      toast.success(`Tempo médio: ${media.toFixed(0)} min (${producoesFiltradas.length} amostras)`);
+      toast.success(`Tempo médio: ${media.toFixed(0)} min (${ordensComTempo.length} amostras)`);
       
-      return { media, amostras: producoesFiltradas.length };
+      return { media, amostras: ordensComTempo.length };
     } catch (error) {
       console.error("Erro ao calcular tempo médio:", error);
       toast.error("Erro ao calcular tempo médio");
