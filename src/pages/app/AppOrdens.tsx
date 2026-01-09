@@ -114,15 +114,10 @@ export default function AppOrdens() {
   const initialState = getState();
   const [searchTerm, setSearchTerm] = useState(() => initialState?.searchTerm || "");
   const [activeTab, setActiveTab] = useState(() => initialState?.activeTab || "todas");
-  const [selectedDate, setSelectedDate] = useState<Date>(() => {
-    const iso = initialState?.selectedDate;
-    if (iso) {
-      const d = new Date(iso);
-      if (!Number.isNaN(d.getTime())) return d;
-    }
-    return new Date();
-  });
+  // SEMPRE começar com data de hoje - não usar data salva para evitar confusão
+  const [selectedDate, setSelectedDate] = useState<Date>(() => new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [hasAutoReloaded, setHasAutoReloaded] = useState(false);
   const [showMap, setShowMap] = useState(() => Boolean(initialState?.showMap));
   const [showCriarAvulsa, setShowCriarAvulsa] = useState(false);
 
@@ -299,9 +294,24 @@ export default function AppOrdens() {
     refetchInterval: isOnline ? 30000 : false, // Não refetch quando offline
   });
 
+  // Recarregar dados automaticamente quando a internet voltar
+  useEffect(() => {
+    if (isOnline && !hasAutoReloaded && (equipe?.id || equipeAuth?.id)) {
+      console.log("[AppOrdens] Internet restaurada - recarregando dados...");
+      setHasAutoReloaded(true);
+      refetch().then(() => {
+        toast.success("Dados atualizados!");
+      });
+    }
+    // Reset flag quando ficar offline para recarregar na próxima vez
+    if (!isOnline) {
+      setHasAutoReloaded(false);
+    }
+  }, [isOnline, hasAutoReloaded, equipe?.id, equipeAuth?.id, refetch]);
+
   // Realtime subscription
   useEffect(() => {
-    if (!equipe?.id) return;
+    if (!equipe?.id || !isOnline) return; // Só ativar realtime se online
 
     const channel = supabase
       .channel("ordens-lista-realtime")
@@ -321,7 +331,7 @@ export default function AppOrdens() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [equipe?.id, queryClient]);
+  }, [equipe?.id, queryClient, isOnline]);
 
   // Buscar skills para mapear código -> nome
   const { data: skillsDataList } = useQuery({

@@ -36,7 +36,10 @@ export default function AppLayout() {
   const dataHoje = format(new Date(), "yyyy-MM-dd");
   const [alertaTurnoFechado, setAlertaTurnoFechado] = useState(false);
 
-  // Pré-carregar dados essenciais quando online
+  // Estado para controlar se estava offline antes
+  const [wasOffline, setWasOffline] = useState(false);
+
+  // Pré-carregar dados essenciais quando online (primeira vez)
   useEffect(() => {
     if (isOnline && equipe?.id && temTurnoAberto && !hasPreloaded) {
       console.log("[AppLayout] Iniciando pré-carregamento de dados...");
@@ -48,6 +51,22 @@ export default function AppLayout() {
       });
     }
   }, [isOnline, equipe?.id, temTurnoAberto, hasPreloaded, preloadEssentialData]);
+
+  // Recarregar dados quando a internet voltar (após ter ficado offline)
+  useEffect(() => {
+    if (!isOnline) {
+      setWasOffline(true);
+    } else if (wasOffline && equipe?.id && temTurnoAberto) {
+      console.log("[AppLayout] Internet restaurada - atualizando dados...");
+      setWasOffline(false);
+      // Recarregar dados para ter versão mais atual
+      preloadEssentialData(equipe.id).then((success) => {
+        if (success) {
+          console.log("[AppLayout] Dados atualizados após reconexão!");
+        }
+      });
+    }
+  }, [isOnline, wasOffline, equipe?.id, temTurnoAberto, preloadEssentialData]);
 
   // Verificar se o turno é de um dia anterior (desatualizado)
   const turnoDesatualizado = useMemo(() => {
