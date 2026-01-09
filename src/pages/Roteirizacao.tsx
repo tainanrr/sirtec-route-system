@@ -51,6 +51,7 @@ import {
   Calendar,
   PlusCircle,
   Edit,
+  Users,
 } from "lucide-react";
 import * as XLSX from "xlsx-js-style";
 import { cn } from "@/lib/utils";
@@ -432,6 +433,76 @@ const Roteirizacao = () => {
     refetchInterval: 30000, // Atualizar a cada 30 segundos
     refetchOnWindowFocus: true, // Refetch ao voltar para a aba
   });
+
+  // STATUS DAS EQUIPES: Calcular se cada equipe está ociosa, trabalhando ou finalizou
+  // Retorna um Map<equipeId, { status, osAtual, totalOSs, concluidas, emExecucao }>
+  const statusEquipes = useMemo(() => {
+    const statusMap = new Map<string, {
+      status: 'ociosa' | 'trabalhando' | 'finalizada' | 'aguardando';
+      osAtualNumero: string | null;
+      osAtualStatus: string | null;
+      totalOSs: number;
+      concluidas: number;
+      emExecucao: number;
+      pendentes: number;
+    }>();
+
+    if (!statusOSsTempoReal || rotas.length === 0) return statusMap;
+
+    rotas.forEach(rota => {
+      const servicosValidos = rota.servicos.filter(s => s.tipo === 'SERVICO' && s.ordemServico);
+      
+      let concluidas = 0;
+      let emExecucao = 0;
+      let pendentes = 0;
+      let osAtualNumero: string | null = null;
+      let osAtualStatus: string | null = null;
+
+      servicosValidos.forEach(servico => {
+        const osId = servico.ordemServico!.id;
+        const statusInfo = statusOSsTempoReal.get(osId);
+        const status = statusInfo?.status || 'planejada';
+
+        if (status === 'concluida') {
+          concluidas++;
+        } else if (['em_deslocamento', 'no_local', 'em_apr', 'em_andamento', 'em_execucao'].includes(status)) {
+          emExecucao++;
+          // Guardar a OS em execução para mostrar
+          if (!osAtualNumero) {
+            osAtualNumero = servico.ordemServico!.numero;
+            osAtualStatus = status;
+          }
+        } else {
+          pendentes++;
+        }
+      });
+
+      // Determinar status da equipe
+      let statusEquipe: 'ociosa' | 'trabalhando' | 'finalizada' | 'aguardando' = 'aguardando';
+      
+      if (servicosValidos.length === 0) {
+        statusEquipe = 'aguardando'; // Sem OSs planejadas
+      } else if (concluidas === servicosValidos.length) {
+        statusEquipe = 'finalizada'; // Todas concluídas
+      } else if (emExecucao > 0) {
+        statusEquipe = 'trabalhando'; // Tem OS em execução
+      } else if (concluidas > 0 || pendentes > 0) {
+        statusEquipe = 'ociosa'; // Tem OSs mas nenhuma em execução
+      }
+
+      statusMap.set(rota.equipe.id, {
+        status: statusEquipe,
+        osAtualNumero,
+        osAtualStatus,
+        totalOSs: servicosValidos.length,
+        concluidas,
+        emExecucao,
+        pendentes,
+      });
+    });
+
+    return statusMap;
+  }, [statusOSsTempoReal, rotas]);
 
   // Carregar equipes do Supabase (apenas ativas)
   useEffect(() => {
@@ -3922,14 +3993,74 @@ const Roteirizacao = () => {
           const servicosValidos = rotaEditando.servicos.filter(s => s.tipo === 'SERVICO' && s.ordemServico);
           const urgentes = servicosValidos.filter(s => s.ordemServico?.regulada).length;
           
+          // Status da equipe em tempo real
+          const statusEq = statusEquipes.get(equipeEditando);
+          const isEquipeOciosa = statusEq?.status === 'ociosa';
+          const isEquipeTrabalhando = statusEq?.status === 'trabalhando';
+          const isEquipeFinalizada = statusEq?.status === 'finalizada';
+          
           return (
             <div className="mb-4 rounded-xl border border-border bg-card p-4">
+              {/* Alerta de Ociosidade */}
+              {isEquipeOciosa && (
+                <div className="mb-3 p-3 bg-amber-50 dark:bg-amber-950 rounded-lg border-2 border-amber-400 dark:border-amber-600 flex items-center gap-3 animate-pulse">
+                  <div className="h-10 w-10 rounded-full bg-amber-500 flex items-center justify-center text-white text-xl">
+                    🕐
+                  </div>
+                  <div>
+                    <div className="font-semibold text-amber-900 dark:text-amber-100">
+                      Equipe Ociosa
+                    </div>
+                    <div className="text-sm text-amber-700 dark:text-amber-300">
+                      {statusEq?.concluidas}/{statusEq?.totalOSs} OSs concluídas • Aguardando próxima OS
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Alerta de Equipe Trabalhando */}
+              {isEquipeTrabalhando && statusEq?.osAtualNumero && (
+                <div className="mb-3 p-3 bg-green-50 dark:bg-green-950 rounded-lg border border-green-300 dark:border-green-700 flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-full bg-green-500 flex items-center justify-center text-white text-xl animate-pulse">
+                    ⚡
+                  </div>
+                  <div>
+                    <div className="font-semibold text-green-900 dark:text-green-100">
+                      Equipe Trabalhando
+                    </div>
+                    <div className="text-sm text-green-700 dark:text-green-300">
+                      Executando OS <strong>{statusEq.osAtualNumero}</strong> • {statusEq?.concluidas}/{statusEq?.totalOSs} concluídas
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Alerta de Equipe Finalizada */}
+              {isEquipeFinalizada && (
+                <div className="mb-3 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-300 dark:border-gray-700 flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-full bg-gray-500 flex items-center justify-center text-white text-xl">
+                    ✓
+                  </div>
+                  <div>
+                    <div className="font-semibold text-gray-900 dark:text-gray-100">
+                      Rota Finalizada
+                    </div>
+                    <div className="text-sm text-gray-600 dark:text-gray-400">
+                      {statusEq?.concluidas}/{statusEq?.totalOSs} OSs concluídas
+                    </div>
+                  </div>
+                </div>
+              )}
+              
               <div className="flex items-start justify-between gap-4">
                 {/* Informações da Equipe */}
                 <div className="flex items-center gap-3">
                   <div
-                    className="h-12 w-12 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0"
-                    style={{ backgroundColor: cor }}
+                    className={cn(
+                      "h-12 w-12 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0",
+                      isEquipeOciosa && "ring-4 ring-amber-400 animate-pulse"
+                    )}
+                    style={{ backgroundColor: isEquipeOciosa ? '#f59e0b' : (isEquipeTrabalhando ? '#22c55e' : (isEquipeFinalizada ? '#6b7280' : cor)) }}
                   >
                     {rotaEditando.equipe.codigo}
                   </div>
@@ -4085,6 +4216,87 @@ const Roteirizacao = () => {
             </div>
           );
         })()}
+        
+        {/* Painel de Status das Equipes - Mini Cards */}
+        {planejamentoEditandoId && rotas.filter(r => r.servicos.length > 0).length > 0 && (
+          <div className="mb-4 rounded-xl border border-border bg-card p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Users className="h-4 w-4 text-muted-foreground" />
+                <h3 className="font-semibold text-sm">Status das Equipes em Tempo Real</h3>
+              </div>
+              <div className="flex gap-4 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-green-500"></span>
+                  Trabalhando
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse"></span>
+                  Ociosa
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-gray-500"></span>
+                  Finalizada
+                </span>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {rotas
+                .filter(r => r.servicos.length > 0)
+                .map(rota => {
+                  const statusEq = statusEquipes.get(rota.equipe.id);
+                  const isOciosa = statusEq?.status === 'ociosa';
+                  const isTrabalhando = statusEq?.status === 'trabalhando';
+                  const isFinalizada = statusEq?.status === 'finalizada';
+                  const isSelected = equipeEditando === rota.equipe.id;
+                  
+                  return (
+                    <div
+                      key={rota.equipe.id}
+                      onClick={() => {
+                        setEquipeEditando(rota.equipe.id);
+                        setOsSelecionadaNoMapa(null);
+                      }}
+                      className={cn(
+                        "flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all",
+                        isOciosa && "bg-amber-50 dark:bg-amber-950/50 border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900",
+                        isTrabalhando && "bg-green-50 dark:bg-green-950/50 border-green-300 dark:border-green-700 hover:bg-green-100 dark:hover:bg-green-900",
+                        isFinalizada && "bg-gray-50 dark:bg-gray-900/50 border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 opacity-60",
+                        !isOciosa && !isTrabalhando && !isFinalizada && "bg-card border-border hover:bg-muted/50",
+                        isSelected && "ring-2 ring-primary ring-offset-2",
+                        isOciosa && "animate-pulse"
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "h-8 w-8 rounded-full flex items-center justify-center text-white text-xs font-bold",
+                          isOciosa && "ring-2 ring-amber-400"
+                        )}
+                        style={{ 
+                          backgroundColor: isOciosa ? '#f59e0b' : (isTrabalhando ? '#22c55e' : (isFinalizada ? '#6b7280' : (rota.equipe.color || '#3b82f6')))
+                        }}
+                      >
+                        {rota.equipe.codigo}
+                      </div>
+                      <div className="flex flex-col">
+                        <div className="flex items-center gap-1">
+                          {isOciosa && <span className="text-amber-600 text-sm">🕐</span>}
+                          {isTrabalhando && <span className="text-green-600 text-sm">⚡</span>}
+                          {isFinalizada && <span className="text-gray-600 text-sm">✓</span>}
+                          <span className="text-xs font-medium">
+                            {isOciosa ? 'OCIOSA' : isTrabalhando ? statusEq?.osAtualNumero : isFinalizada ? 'FIM' : 'AGUARD.'}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground">
+                          {statusEq?.concluidas || 0}/{statusEq?.totalOSs || 0} OSs
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        )}
         
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6">
           {/* Coluna 1 (Esquerda - 66%): Mapa Interativo */}
@@ -4300,17 +4512,39 @@ const Roteirizacao = () => {
                       .filter(r => r.servicos.length > 0)
                       .map((rota) => {
                         const servicosValidos = rota.servicos.filter(s => s.tipo === 'SERVICO' && s.ordemServico);
+                        const statusEq = statusEquipes.get(rota.equipe.id);
+                        const isOciosa = statusEq?.status === 'ociosa';
+                        const isTrabalhando = statusEq?.status === 'trabalhando';
+                        const isFinalizada = statusEq?.status === 'finalizada';
                         return (
                           <SelectItem key={rota.equipe.id} value={rota.equipe.id}>
                             <div className="flex items-center gap-2">
                               <div
-                                className="h-3 w-3 rounded-full"
-                                style={{ backgroundColor: rota.equipe.color || "#3b82f6" }}
+                                className={cn(
+                                  "h-3 w-3 rounded-full",
+                                  isOciosa && "animate-pulse"
+                                )}
+                                style={{ backgroundColor: isOciosa ? '#f59e0b' : (isTrabalhando ? '#22c55e' : (isFinalizada ? '#6b7280' : (rota.equipe.color || "#3b82f6"))) }}
                               />
                               <span>{rota.equipe.codigo}</span>
                               <span className="text-muted-foreground text-xs">
                                 ({servicosValidos.length} OSs)
                               </span>
+                              {isOciosa && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200 font-medium">
+                                  🕐 OCIOSA
+                                </span>
+                              )}
+                              {isTrabalhando && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 font-medium">
+                                  ⚡ {statusEq?.osAtualNumero}
+                                </span>
+                              )}
+                              {isFinalizada && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200 font-medium">
+                                  ✓ FIM
+                                </span>
+                              )}
                             </div>
                           </SelectItem>
                         );
