@@ -177,4 +177,3 @@ FROM public.coordenadores_supervisores cs
 LEFT JOIN public.usuarios_web uw ON cs.usuario_web_id = uw.id
 LEFT JOIN public.coordenadores_supervisores coord ON cs.coordenador_id = coord.id
 ORDER BY cs.tipo, cs.nome;
-

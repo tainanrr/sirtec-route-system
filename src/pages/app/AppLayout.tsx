@@ -403,10 +403,10 @@ export default function AppLayout() {
                     <span className="hidden sm:inline">pendente{pendingCount > 1 ? "s" : ""}</span>
                   </>
                 ) : (
-                  <>
-                    <Wifi className="h-3 w-3" />
-                    <span className="hidden sm:inline">Online</span>
-                  </>
+                <>
+                  <Wifi className="h-3 w-3" />
+                  <span className="hidden sm:inline">Online</span>
+                </>
                 )
               ) : (
                 <>

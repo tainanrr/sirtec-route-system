@@ -164,25 +164,25 @@ const App = () => (
             <Route path="/app/login" element={
               <EquipeAuthProvider>
                 <OfflineSyncProvider>
-                  <AppLogin />
+                <AppLogin />
                 </OfflineSyncProvider>
               </EquipeAuthProvider>
             } />
             <Route path="/app/abrir-turno" element={
               <EquipeAuthProvider>
                 <OfflineSyncProvider>
-                  <AppAbrirTurno />
+                <AppAbrirTurno />
                 </OfflineSyncProvider>
               </EquipeAuthProvider>
             } />
             <Route path="/app" element={
               <EquipeAuthProvider>
                 <OfflineSyncProvider>
-                  <AppProtectedRoute>
-                    <TecnicoProvider>
-                      <AppLayout />
-                    </TecnicoProvider>
-                  </AppProtectedRoute>
+                <AppProtectedRoute>
+                  <TecnicoProvider>
+                    <AppLayout />
+                  </TecnicoProvider>
+                </AppProtectedRoute>
                 </OfflineSyncProvider>
               </EquipeAuthProvider>
             }>

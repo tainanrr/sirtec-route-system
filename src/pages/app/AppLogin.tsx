@@ -66,8 +66,8 @@ export default function AppLogin() {
       } else {
         if (result.isOffline) {
           toast.info("Login offline realizado! Dados carregados do cache.");
-        } else {
-          toast.success("Equipe validada!");
+      } else {
+        toast.success("Equipe validada!");
         }
         navigate("/app/abrir-turno");
       }
@@ -75,8 +75,8 @@ export default function AppLogin() {
       // Se está offline e falhou, mostrar mensagem específica
       if (result.isOffline) {
         toast.error(result.message || "Sem dados offline disponíveis. Conecte-se à internet para o primeiro acesso do dia.");
-      } else {
-        toast.error(result.message || "Código ou placa incorretos");
+    } else {
+      toast.error(result.message || "Código ou placa incorretos");
       }
     }
   };

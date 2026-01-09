@@ -165,28 +165,28 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
   // Carregar equipe e turno do localStorage ao iniciar
   useEffect(() => {
     const loadAuthData = async () => {
-      const equipeSalva = localStorage.getItem("equipe_auth");
-      const turnoSalvo = localStorage.getItem("turno_auth");
-      
-      if (equipeSalva) {
-        try {
-          const equipeData = JSON.parse(equipeSalva);
-          setEquipe(equipeData);
-        } catch {
-          localStorage.removeItem("equipe_auth");
-        }
+    const equipeSalva = localStorage.getItem("equipe_auth");
+    const turnoSalvo = localStorage.getItem("turno_auth");
+    
+    if (equipeSalva) {
+      try {
+        const equipeData = JSON.parse(equipeSalva);
+        setEquipe(equipeData);
+      } catch {
+        localStorage.removeItem("equipe_auth");
       }
-      
-      if (turnoSalvo) {
-        try {
-          const turnoData = JSON.parse(turnoSalvo);
-          setTurno(turnoData);
-        } catch {
-          localStorage.removeItem("turno_auth");
-        }
+    }
+    
+    if (turnoSalvo) {
+      try {
+        const turnoData = JSON.parse(turnoSalvo);
+        setTurno(turnoData);
+      } catch {
+        localStorage.removeItem("turno_auth");
       }
-      
-      setIsLoading(false);
+    }
+    
+    setIsLoading(false);
     };
 
     loadAuthData();
