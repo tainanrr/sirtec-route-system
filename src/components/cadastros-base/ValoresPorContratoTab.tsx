@@ -5,30 +5,12 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
-} from "@/components/ui/table";
 import { 
   RefreshCw, 
   Calculator, 
   Lock, 
   AlertCircle,
-  Loader2,
-  Building,
-  ChevronRight,
-  FileText,
-  DollarSign
+  Loader2
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -81,7 +63,6 @@ export default function ValoresPorContratoTab({ skillCodigo, skillNome }: Props)
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [calculando, setCalculando] = useState<string | null>(null);
-  const [expandedContratos, setExpandedContratos] = useState<string[]>([]);
 
   // Carregar contratos, centros de custo com OSs e valores existentes
   const carregarDados = useCallback(async () => {
@@ -499,32 +480,56 @@ export default function ValoresPorContratoTab({ skillCodigo, skillNome }: Props)
 
   if (contratosComCentros.length === 0) {
     return (
-      <div className="text-center py-8 text-muted-foreground">
-        <AlertCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
-        <p>Nenhum centro de custo com OSs encontrado.</p>
-        <p className="text-sm mt-2">
-          Para configurar valores, é necessário que existam Ordens de Serviço do tipo <strong>{skillNome}</strong> 
-          {" "}vinculadas a contratos e centros de custo.
-        </p>
+      <div className="text-center py-6 text-muted-foreground">
+        <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
+        <p className="text-sm">Nenhum centro de custo com OSs encontrado.</p>
       </div>
     );
   }
 
+  // Criar lista flat de todos os itens para exibir
+  const listaFlat = useMemo(() => {
+    const items: Array<{
+      tipo: 'contrato' | 'centro';
+      contrato: Contrato;
+      centro?: ValorCentroCusto;
+      qtdCentros?: number;
+      qtdOSs?: number;
+    }> = [];
+    
+    contratosComCentros.forEach(item => {
+      // Adicionar header do contrato
+      items.push({
+        tipo: 'contrato',
+        contrato: item.contrato,
+        qtdCentros: item.centros_custo.length,
+        qtdOSs: item.qtd_os_total,
+      });
+      // Adicionar centros de custo
+      item.centros_custo.forEach(centro => {
+        items.push({
+          tipo: 'centro',
+          contrato: item.contrato,
+          centro,
+        });
+      });
+    });
+    
+    return items;
+  }, [contratosComCentros]);
+
   return (
-    <div className="space-y-3">
-      {/* Header com estatísticas e ações */}
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-3">
-          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-            <Building className="h-3 w-3 mr-1" />
+    <div className="space-y-2">
+      {/* Header compacto */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Badge variant="outline" className="text-[10px] px-1.5 py-0">
             {contratosComCentros.length} contratos
           </Badge>
-          <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
-            <DollarSign className="h-3 w-3 mr-1" />
-            {estatisticas.centrosConfigurados}/{estatisticas.totalCentros} configurados
+          <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+            {estatisticas.centrosConfigurados}/{estatisticas.totalCentros} config.
           </Badge>
-          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-            <FileText className="h-3 w-3 mr-1" />
+          <Badge variant="outline" className="text-[10px] px-1.5 py-0">
             {estatisticas.totalOSs} OSs
           </Badge>
         </div>
@@ -533,175 +538,106 @@ export default function ValoresPorContratoTab({ skillCodigo, skillNome }: Props)
           size="sm"
           onClick={recalcularTodos}
           disabled={calculando !== null}
+          className="h-7 text-xs"
         >
-          <RefreshCw className={`h-4 w-4 mr-1 ${calculando ? 'animate-spin' : ''}`} />
-          Recalcular Todos
+          <RefreshCw className={`h-3 w-3 mr-1 ${calculando ? 'animate-spin' : ''}`} />
+          Recalcular
         </Button>
       </div>
 
-      <p className="text-xs text-muted-foreground">
-        💡 Configure valores por <strong>Centro de Custo</strong> dentro de cada <strong>Contrato</strong>. 
-        Apenas centros de custo com OSs cadastradas são exibidos.
-      </p>
+      {/* Lista compacta */}
+      <div className="max-h-[280px] overflow-y-auto border rounded text-xs">
+        {listaFlat.map((item, idx) => {
+          if (item.tipo === 'contrato') {
+            return (
+              <div 
+                key={`contrato-${item.contrato.id}`} 
+                className="flex items-center justify-between px-2 py-1.5 bg-muted/50 border-b font-medium sticky top-0"
+              >
+                <span className="font-mono">{item.contrato.codigo}</span>
+                <span className="text-muted-foreground text-[10px]">
+                  {item.qtdCentros} CC · {item.qtdOSs} OSs
+                </span>
+              </div>
+            );
+          }
 
-      {/* Lista de contratos com accordion */}
-      <div className="max-h-[420px] overflow-y-auto rounded-md border">
-        <Accordion 
-          type="multiple" 
-          value={expandedContratos}
-          onValueChange={setExpandedContratos}
-          className="w-full"
-        >
-          {contratosComCentros.map((item) => (
-            <AccordionItem key={item.contrato.id} value={item.contrato.id} className="border-b last:border-b-0">
-              <AccordionTrigger className="px-4 py-3 hover:bg-muted/50">
-                <div className="flex items-center justify-between w-full pr-4">
-                  <div className="flex items-center gap-3">
-                    <div className="flex flex-col items-start">
-                      <span className="font-mono text-sm font-semibold">{item.contrato.codigo}</span>
-                      <span className="text-xs text-muted-foreground truncate max-w-[200px]">
-                        {item.contrato.nome}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-xs">
-                      {item.centros_custo.length} CC
-                    </Badge>
-                    <Badge variant="outline" className="text-xs bg-slate-50">
-                      {item.qtd_os_total} OSs
-                    </Badge>
-                    {item.valor_medio_total > 0 && (
-                      <Badge variant="outline" className="text-xs bg-green-50 text-green-700">
-                        Média: {formatCurrency(item.valor_medio_total)}
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              </AccordionTrigger>
-              <AccordionContent className="px-0 pb-0">
-                <div className="border-t">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-muted/30">
-                        <TableHead className="w-[200px] pl-6">Centro de Custo</TableHead>
-                        <TableHead className="text-center w-[60px]">OSs</TableHead>
-                        <TableHead className="text-center w-[90px]">Modo</TableHead>
-                        <TableHead className="text-center w-[110px]">Valor</TableHead>
-                        <TableHead className="text-center w-[50px]"></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {item.centros_custo.map((centro) => {
-                        const key = `${item.contrato.id}_${centro.centro_custo_id}`;
-                        const isCalculando = calculando === key;
-                        const isSaving = saving === key;
-                        const isLoading = isCalculando || isSaving;
+          const centro = item.centro!;
+          const key = `${item.contrato.id}_${centro.centro_custo_id}`;
+          const isLoading = calculando === key || saving === key;
 
-                        return (
-                          <TableRow key={centro.centro_custo_id} className="group">
-                            <TableCell className="py-2 pl-6">
-                              <div className="flex items-center gap-2">
-                                <ChevronRight className="h-3 w-3 text-muted-foreground" />
-                                <div className="truncate max-w-[180px]" title={`${centro.centro_custo_codigo} - ${centro.centro_custo_nome}`}>
-                                  <span className="font-mono text-xs">{centro.centro_custo_codigo}</span>
-                                  <p className="text-xs text-muted-foreground truncate">{centro.centro_custo_nome}</p>
-                                </div>
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-center py-2">
-                              <Badge variant="secondary" className="text-xs">
-                                {centro.qtd_os_total}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-center py-2">
-                              <div className="flex items-center justify-center gap-1">
-                                <Switch
-                                  checked={centro.valor_automatico}
-                                  onCheckedChange={() => alternarModo(item.contrato.id, centro.centro_custo_id)}
-                                  disabled={isLoading}
-                                  className="scale-75"
-                                />
-                                <Badge 
-                                  variant={centro.valor_automatico ? "default" : "outline"}
-                                  className={`text-[10px] px-1 ${centro.valor_automatico ? "bg-blue-100 text-blue-700" : ""}`}
-                                >
-                                  {centro.valor_automatico ? (
-                                    <><Calculator className="h-2.5 w-2.5 mr-0.5" />Auto</>
-                                  ) : (
-                                    <><Lock className="h-2.5 w-2.5 mr-0.5" />Fix</>
-                                  )}
-                                </Badge>
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-center py-2">
-                              {centro.valor_automatico ? (
-                                <div className="flex flex-col items-center">
-                                  <span className="font-mono text-sm font-medium text-green-600">
-                                    {formatCurrency(centro.valor)}
-                                  </span>
-                                  {centro.qtd_amostras > 0 && (
-                                    <span className="text-[10px] text-muted-foreground">
-                                      ({centro.qtd_amostras} amostras)
-                                    </span>
-                                  )}
-                                </div>
-                              ) : (
-                                <Input
-                                  type="number"
-                                  step="0.01"
-                                  min={0}
-                                  value={centro.valor}
-                                  onChange={(e) => atualizarValorManual(item.contrato.id, centro.centro_custo_id, e.target.value)}
-                                  className="w-24 h-7 text-right font-mono text-sm mx-auto"
-                                  onBlur={() => salvarValorManual(item.contrato.id, centro.centro_custo_id)}
-                                  disabled={isLoading}
-                                />
-                              )}
-                            </TableCell>
-                            <TableCell className="text-center py-2">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7"
-                                onClick={() => calcularEAplicar(item.contrato.id, centro.centro_custo_id)}
-                                disabled={isLoading}
-                                title="Recalcular valor"
-                              >
-                                {isLoading ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  <RefreshCw className="h-3.5 w-3.5" />
-                                )}
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                  {/* Ação para recalcular todo o contrato */}
-                  <div className="px-4 py-2 bg-muted/20 border-t flex justify-end">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => recalcularContrato(item.contrato.id)}
-                      disabled={calculando !== null}
-                      className="text-xs"
-                    >
-                      <RefreshCw className="h-3 w-3 mr-1" />
-                      Recalcular Contrato
-                    </Button>
-                  </div>
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-          ))}
-        </Accordion>
+          return (
+            <div 
+              key={key}
+              className="flex items-center gap-2 px-2 py-1 border-b last:border-b-0 hover:bg-muted/30"
+            >
+              {/* Centro de Custo */}
+              <div className="flex-1 min-w-0 pl-2">
+                <span className="font-mono text-[11px]">{centro.centro_custo_codigo}</span>
+                <span className="text-muted-foreground ml-1 truncate text-[10px]">
+                  {centro.centro_custo_nome}
+                </span>
+              </div>
+
+              {/* OSs */}
+              <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4 shrink-0">
+                {centro.qtd_os_total}
+              </Badge>
+
+              {/* Switch Auto/Fix */}
+              <div className="flex items-center gap-0.5 shrink-0">
+                <Switch
+                  checked={centro.valor_automatico}
+                  onCheckedChange={() => alternarModo(item.contrato.id, centro.centro_custo_id)}
+                  disabled={isLoading}
+                  className="scale-[0.6]"
+                />
+                <span className={`text-[9px] w-6 ${centro.valor_automatico ? 'text-blue-600' : 'text-gray-500'}`}>
+                  {centro.valor_automatico ? 'Auto' : 'Fix'}
+                </span>
+              </div>
+
+              {/* Valor */}
+              <div className="w-20 text-right shrink-0">
+                {centro.valor_automatico ? (
+                  <span className="font-mono text-green-600 font-medium">
+                    {formatCurrency(centro.valor)}
+                  </span>
+                ) : (
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    value={centro.valor}
+                    onChange={(e) => atualizarValorManual(item.contrato.id, centro.centro_custo_id, e.target.value)}
+                    className="w-20 h-5 text-right font-mono text-[11px] px-1"
+                    onBlur={() => salvarValorManual(item.contrato.id, centro.centro_custo_id)}
+                    disabled={isLoading}
+                  />
+                )}
+              </div>
+
+              {/* Botão recalcular */}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-5 w-5 shrink-0"
+                onClick={() => calcularEAplicar(item.contrato.id, centro.centro_custo_id)}
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3 w-3" />
+                )}
+              </Button>
+            </div>
+          );
+        })}
       </div>
 
-      <p className="text-xs text-muted-foreground">
-        <strong>Auto</strong>: valor atualizado automaticamente com base nas últimas 1000 execuções | <strong>Fix</strong>: valor manual fixo
+      <p className="text-[10px] text-muted-foreground">
+        <strong>Auto</strong>: média das últimas 1000 execuções | <strong>Fix</strong>: valor manual
       </p>
     </div>
   );
