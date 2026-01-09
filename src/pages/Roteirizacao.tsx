@@ -561,14 +561,18 @@ const Roteirizacao = () => {
     // Suporte para planejamento único ou múltiplos
     const planejamentoId = searchParams.get('planejamento');
     const planejamentosIds = searchParams.get('planejamentos');
+    const equipesParam = searchParams.get('equipes');
+    
+    // Extrair IDs das equipes selecionadas (se houver)
+    const equipesFiltro = equipesParam ? equipesParam.split(',').filter(id => id.trim()) : undefined;
     
     if (planejamentoId && rotas.length === 0) {
-      handleCarregarPlanejamento(planejamentoId);
+      handleCarregarPlanejamento(planejamentoId, equipesFiltro);
     } else if (planejamentosIds && rotas.length === 0) {
       // Carregar múltiplos planejamentos
       const ids = planejamentosIds.split(',').filter(id => id.trim());
       if (ids.length > 0) {
-        handleCarregarMultiplosPlanejamentos(ids);
+        handleCarregarMultiplosPlanejamentos(ids, equipesFiltro);
       }
     }
   }, [searchParams]);
@@ -601,9 +605,10 @@ const Roteirizacao = () => {
   }, [osSelecionadaNoEditor]);
 
   // Função para carregar planejamento na tela de roteirização
-  const handleCarregarPlanejamento = async (planejamentoId: string) => {
+  // equipesFiltro: se informado, carrega apenas as equipes especificadas
+  const handleCarregarPlanejamento = async (planejamentoId: string, equipesFiltro?: string[]) => {
     try {
-      console.log("[ROTEIRIZAÇÃO] Carregando planejamento:", planejamentoId);
+      console.log("[ROTEIRIZAÇÃO] Carregando planejamento:", planejamentoId, equipesFiltro ? `(filtro: ${equipesFiltro.length} equipes)` : "(todas equipes)");
       setLoadingOrdens(true);
       
       // Buscar planejamento com todas as informações
@@ -640,9 +645,14 @@ const Roteirizacao = () => {
       const rotasReconstruidas: RotaEquipe[] = [];
       const ordensPorEquipe = new Map<string, any[]>();
 
-      // Agrupar ordens por equipe
+      // Agrupar ordens por equipe (filtrando se necessário)
       if (planejamento.planejamento_ordens) {
         for (const po of planejamento.planejamento_ordens) {
+          // Se há filtro de equipes, ignorar ordens de equipes não selecionadas
+          if (equipesFiltro && equipesFiltro.length > 0 && !equipesFiltro.includes(po.equipe_id)) {
+            continue;
+          }
+          
           if (!ordensPorEquipe.has(po.equipe_id)) {
             ordensPorEquipe.set(po.equipe_id, []);
           }
@@ -744,9 +754,10 @@ const Roteirizacao = () => {
   };
 
   // Função para carregar múltiplos planejamentos de uma vez
-  const handleCarregarMultiplosPlanejamentos = async (planejamentoIds: string[]) => {
+  // equipesFiltro: se informado, carrega apenas as equipes especificadas
+  const handleCarregarMultiplosPlanejamentos = async (planejamentoIds: string[], equipesFiltro?: string[]) => {
     try {
-      console.log("[ROTEIRIZAÇÃO] Carregando múltiplos planejamentos:", planejamentoIds);
+      console.log("[ROTEIRIZAÇÃO] Carregando múltiplos planejamentos:", planejamentoIds, equipesFiltro ? `(filtro: ${equipesFiltro.length} equipes)` : "(todas equipes)");
       setLoadingOrdens(true);
       
       // Buscar todos os planejamentos
@@ -782,10 +793,15 @@ const Roteirizacao = () => {
       const rotasReconstruidas: RotaEquipe[] = [];
       const ordensPorEquipe = new Map<string, any[]>();
 
-      // Agrupar todas as ordens por equipe (de todos os planejamentos)
+      // Agrupar todas as ordens por equipe (de todos os planejamentos, filtrando se necessário)
       for (const planejamento of planejamentos) {
         if (planejamento.planejamento_ordens) {
           for (const po of planejamento.planejamento_ordens) {
+            // Se há filtro de equipes, ignorar ordens de equipes não selecionadas
+            if (equipesFiltro && equipesFiltro.length > 0 && !equipesFiltro.includes(po.equipe_id)) {
+              continue;
+            }
+            
             if (!ordensPorEquipe.has(po.equipe_id)) {
               ordensPorEquipe.set(po.equipe_id, []);
             }
@@ -6034,19 +6050,25 @@ const Roteirizacao = () => {
                   <Button
                     size="sm"
                     onClick={() => {
-                      // Pegar os IDs dos planejamentos das equipes selecionadas
+                      // Pegar os IDs dos planejamentos e equipes selecionadas
                       const planejamentosIds = new Set<string>();
+                      const equipesIds = new Set<string>();
                       planejamentosEncontrados.forEach(p => {
                         (p.planejamento_ordens || []).forEach((po: any) => {
                           if (equipesSelecionadasParaEditar.has(`${p.id}-${po.equipe_id}`)) {
                             planejamentosIds.add(p.id);
+                            equipesIds.add(po.equipe_id);
                           }
                         });
                       });
+                      
+                      // Passar equipes selecionadas na URL para filtrar apenas elas
+                      const equipesParam = equipesIds.size > 0 ? `&equipes=${Array.from(equipesIds).join(',')}` : '';
+                      
                       if (planejamentosIds.size === 1) {
-                        navigate(`/roteirizacao?planejamento=${Array.from(planejamentosIds)[0]}`);
+                        navigate(`/roteirizacao?planejamento=${Array.from(planejamentosIds)[0]}${equipesParam}`);
                       } else {
-                        navigate(`/roteirizacao?planejamentos=${Array.from(planejamentosIds).join(',')}`);
+                        navigate(`/roteirizacao?planejamentos=${Array.from(planejamentosIds).join(',')}${equipesParam}`);
                       }
                       setConsultarPlanejamentosDialogOpen(false);
                     }}
