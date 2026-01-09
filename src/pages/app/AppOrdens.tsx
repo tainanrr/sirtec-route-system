@@ -103,7 +103,7 @@ export default function AppOrdens() {
   const queryClient = useQueryClient();
   const { equipe, isLoading: isLoadingEquipe } = useTecnico();
   const { isOnline } = useOfflineSyncContext();
-  const { getPlanejamentoFromCache, saveToCache } = useOfflineData();
+  const { getPlanejamentoFromCache, getSkillsFromCache, saveToCache } = useOfflineData();
   const { getState, saveState } = usePageState<{
     searchTerm?: string;
     activeTab?: string;
@@ -411,6 +411,18 @@ export default function AppOrdens() {
   const { data: skillsDataList } = useQuery({
     queryKey: ["skills-app-lista"],
     queryFn: async () => {
+      // Se offline, buscar do cache
+      if (!isOnline) {
+        console.log("[AppOrdens] 📦 Offline - buscando skills do cache...");
+        const cachedSkills = await getSkillsFromCache();
+        if (cachedSkills && Array.isArray(cachedSkills)) {
+          console.log("[AppOrdens] ✅ Skills do cache:", cachedSkills.length);
+          return cachedSkills;
+        }
+        console.log("[AppOrdens] ⚠️ Skills não encontrados no cache");
+        return [];
+      }
+      
       const { data, error } = await supabase
         .from("skills")
         .select("codigo, nome")

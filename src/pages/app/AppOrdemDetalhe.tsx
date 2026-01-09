@@ -176,28 +176,42 @@ export default function AppOrdemDetalhe() {
     navigate(parent || "/app");
   };
 
+  // Determinar equipeId - priorizar equipeAuth que funciona offline
+  const equipeIdParaUsar = equipeAuth?.id || equipe?.id;
+  
   // Buscar ordem
   const { data: ordem, isLoading } = useQuery({
-    queryKey: ["ordem-detalhe", id, isOnline],
+    queryKey: ["ordem-detalhe", id],
     queryFn: async () => {
-      const equipeId = equipe?.id || equipeAuth?.id;
+      console.log("[AppOrdemDetalhe] Buscando ordem:", id, "equipeId:", equipeIdParaUsar, "online:", isOnline);
       
       // Se estiver offline, tentar buscar do cache
-      if (!isOnline && equipeId) {
-        console.log("[AppOrdemDetalhe] Offline - buscando do cache...");
+      if (!isOnline) {
+        if (!equipeIdParaUsar) {
+          console.log("[AppOrdemDetalhe] ❌ Offline sem equipeId");
+          return null;
+        }
+        
+        console.log("[AppOrdemDetalhe] 📦 Offline - buscando do cache...");
         const dataHoje = format(new Date(), "yyyy-MM-dd");
-        const cachedPlanejamento = await getFromCache(`${CACHE_KEYS.PLANEJAMENTO_DIA}_${equipeId}_${dataHoje}`);
+        const cacheKey = `${CACHE_KEYS.PLANEJAMENTO_DIA}_${equipeIdParaUsar}_${dataHoje}`;
+        console.log("[AppOrdemDetalhe] Cache key:", cacheKey);
+        
+        const cachedPlanejamento = await getFromCache(cacheKey);
+        console.log("[AppOrdemDetalhe] Cache encontrado:", cachedPlanejamento?.length || 0, "items");
         
         if (cachedPlanejamento && Array.isArray(cachedPlanejamento)) {
           const ordemEncontrada = (cachedPlanejamento as any[]).find(
             p => p.ordens_servico?.id === id
           );
+          console.log("[AppOrdemDetalhe] Ordem encontrada:", !!ordemEncontrada, "id procurado:", id);
+          
           if (ordemEncontrada?.ordens_servico) {
-            console.log("[AppOrdemDetalhe] Ordem encontrada no cache");
+            console.log("[AppOrdemDetalhe] ✅ Ordem encontrada no cache:", ordemEncontrada.ordens_servico.numero);
             return ordemEncontrada.ordens_servico;
           }
         }
-        console.log("[AppOrdemDetalhe] Ordem não encontrada no cache");
+        console.log("[AppOrdemDetalhe] ⚠️ Ordem não encontrada no cache");
         return null;
       }
 
@@ -209,7 +223,9 @@ export default function AppOrdemDetalhe() {
       if (error) throw error;
       return data;
     },
-    enabled: !!id,
+    enabled: !!id && (isOnline || !!equipeIdParaUsar),
+    staleTime: 0,
+    retry: isOnline ? 3 : 0,
   });
 
   // Buscar produção (valor produzido)
