@@ -312,9 +312,9 @@ export default function AdminCadastrosBase() {
         search: (item, value) => {
           const searchTerm = value.toLowerCase();
           return (
-            item.codigo.toLowerCase().includes(searchTerm) ||
-            item.nome.toLowerCase().includes(searchTerm) ||
-            item.descricao?.toLowerCase().includes(searchTerm) || false
+            (item.codigo || "").toLowerCase().includes(searchTerm) ||
+            (item.nome || "").toLowerCase().includes(searchTerm) ||
+            (item.descricao || "").toLowerCase().includes(searchTerm)
           );
         },
         status: (item, value) => {
@@ -352,8 +352,8 @@ export default function AdminCadastrosBase() {
         search: (item, value) => {
           const searchTerm = value.toLowerCase();
           return (
-            item.codigo.toLowerCase().includes(searchTerm) ||
-            item.nome.toLowerCase().includes(searchTerm)
+            (item.codigo || "").toLowerCase().includes(searchTerm) ||
+            (item.nome || "").toLowerCase().includes(searchTerm)
           );
         },
         status: (item, value) => {
@@ -378,8 +378,8 @@ export default function AdminCadastrosBase() {
         search: (item, value) => {
           const searchTerm = value.toLowerCase();
           return (
-            item.codigo.toLowerCase().includes(searchTerm) ||
-            item.nome.toLowerCase().includes(searchTerm)
+            (item.codigo || "").toLowerCase().includes(searchTerm) ||
+            (item.nome || "").toLowerCase().includes(searchTerm)
           );
         },
         status: (item, value) => {
