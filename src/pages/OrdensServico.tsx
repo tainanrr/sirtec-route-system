@@ -796,14 +796,26 @@ const OrdensServico = () => {
 
     for (let i = 0; i < ordensSemCoordenadas.length; i++) {
       const os = ordensSemCoordenadas[i];
+      // Montar endereço completo para exibição
+      const enderecoCompleto = [
+        os.endereco,
+        (os as any).bairro,
+        (os as any).municipio
+      ].filter(Boolean).join(', ');
+      
       setGeocodingProgress({ 
         current: i + 1, 
         total: ordensSemCoordenadas.length, 
-        endereco: os.endereco 
+        endereco: enderecoCompleto 
       });
 
       try {
-        const result = await geocodeAddress(os.endereco);
+        // Passa endereço, bairro e município para melhor precisão
+        const result = await geocodeAddress(
+          os.endereco, 
+          (os as any).bairro, 
+          (os as any).municipio
+        );
         
         if (result) {
           // Atualizar no banco

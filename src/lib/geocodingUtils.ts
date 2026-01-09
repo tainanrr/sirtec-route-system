@@ -41,14 +41,47 @@ async function waitForRateLimit(): Promise<void> {
 }
 
 /**
- * Geocodifica um endereço usando Nominatim
+ * Monta o endereço completo combinando endereço, bairro e município
  */
-export async function geocodeAddress(endereco: string): Promise<GeocodingResult | null> {
-  const normalizedAddress = normalizeAddress(endereco);
+function buildFullAddress(endereco: string, bairro?: string | null, municipio?: string | null): string {
+  const parts: string[] = [normalizeAddress(endereco)];
+  
+  // Adicionar bairro se existir e não estiver já no endereço
+  if (bairro && bairro.trim()) {
+    const bairroNorm = bairro.trim();
+    if (!endereco.toLowerCase().includes(bairroNorm.toLowerCase())) {
+      parts.push(bairroNorm);
+    }
+  }
+  
+  // Adicionar município se existir e não estiver já no endereço
+  if (municipio && municipio.trim()) {
+    const municipioNorm = municipio.trim();
+    if (!endereco.toLowerCase().includes(municipioNorm.toLowerCase())) {
+      parts.push(municipioNorm);
+    }
+  }
+  
+  return parts.join(', ');
+}
+
+/**
+ * Geocodifica um endereço usando Nominatim
+ * @param endereco - Endereço principal (rua, número)
+ * @param bairro - Bairro (opcional, aumenta precisão)
+ * @param municipio - Município/Cidade (opcional, aumenta precisão)
+ */
+export async function geocodeAddress(
+  endereco: string, 
+  bairro?: string | null, 
+  municipio?: string | null
+): Promise<GeocodingResult | null> {
+  // Monta o endereço completo com bairro e município
+  const fullAddress = buildFullAddress(endereco, bairro, municipio);
   
   // Verificar cache
-  if (geocodingCache.has(normalizedAddress)) {
-    return geocodingCache.get(normalizedAddress) || null;
+  if (geocodingCache.has(fullAddress)) {
+    return geocodingCache.get(fullAddress) || null;
   }
   
   try {
@@ -56,9 +89,9 @@ export async function geocodeAddress(endereco: string): Promise<GeocodingResult 
     await waitForRateLimit();
     
     // Adicionar "Brasil" ao final se não tiver país
-    const searchAddress = normalizedAddress.toLowerCase().includes('brasil') 
-      ? normalizedAddress 
-      : `${normalizedAddress}, Brasil`;
+    const searchAddress = fullAddress.toLowerCase().includes('brasil') 
+      ? fullAddress 
+      : `${fullAddress}, Brasil`;
     
     const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchAddress)}&limit=1`;
     
@@ -70,8 +103,8 @@ export async function geocodeAddress(endereco: string): Promise<GeocodingResult 
     });
     
     if (!response.ok) {
-      console.warn(`[GEOCODING] Erro HTTP ${response.status} para: ${normalizedAddress}`);
-      geocodingCache.set(normalizedAddress, null);
+      console.warn(`[GEOCODING] Erro HTTP ${response.status} para: ${fullAddress}`);
+      geocodingCache.set(fullAddress, null);
       return null;
     }
     
@@ -84,17 +117,17 @@ export async function geocodeAddress(endereco: string): Promise<GeocodingResult 
         displayName: data[0].display_name,
       };
       
-      console.log(`[GEOCODING] Sucesso: ${normalizedAddress} -> (${result.latitude}, ${result.longitude})`);
-      geocodingCache.set(normalizedAddress, result);
+      console.log(`[GEOCODING] Sucesso: ${fullAddress} -> (${result.latitude}, ${result.longitude})`);
+      geocodingCache.set(fullAddress, result);
       return result;
     }
     
-    console.warn(`[GEOCODING] Não encontrado: ${normalizedAddress}`);
-    geocodingCache.set(normalizedAddress, null);
+    console.warn(`[GEOCODING] Não encontrado: ${fullAddress}`);
+    geocodingCache.set(fullAddress, null);
     return null;
   } catch (error) {
-    console.error(`[GEOCODING] Erro ao geocodificar: ${normalizedAddress}`, error);
-    geocodingCache.set(normalizedAddress, null);
+    console.error(`[GEOCODING] Erro ao geocodificar: ${fullAddress}`, error);
+    geocodingCache.set(fullAddress, null);
     return null;
   }
 }
