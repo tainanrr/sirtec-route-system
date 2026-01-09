@@ -746,6 +746,16 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
       .marker-coord-suspeita {
         animation: pulse-purple-suspeita 1.2s ease-in-out infinite !important;
       }
+      /* Estilos para clusters com destaques */
+      .cluster-vencida {
+        animation: pulse-black-vencida 1s ease-in-out infinite !important;
+      }
+      .cluster-vencendo {
+        animation: pulse-red-urgente 1s ease-in-out infinite !important;
+      }
+      .cluster-suspeita {
+        animation: pulse-purple-suspeita 1.2s ease-in-out infinite !important;
+      }
       /* Estilos otimizados para tooltips de OSs */
       .os-tooltip {
         background: rgba(0,0,0,0.85);
@@ -1301,21 +1311,62 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
         disableClusteringAtZoom: 22, // Desabilita clustering apenas no zoom máximo
         spiderfyDistanceMultiplier: 2.5, // Distância maior entre os marcadores no spiderfy
         spiderLegPolylineOptions: { weight: 2, color: '#666', opacity: 0.7 }, // Linhas do spiderfy
-        // Ícone customizado para o cluster (cor preta)
+        // Ícone customizado para o cluster COM DESTAQUE baseado na prioridade dos marcadores
+        // Prioridades: 3=vencida, 2=vencendo hoje, 1=fora de território/suspeita, 0=normal
         iconCreateFunction: (cluster) => {
           const count = cluster.getChildCount();
           let sizeNum = 30;
           if (count >= 10) { sizeNum = 36; }
           if (count >= 50) { sizeNum = 42; }
           
+          // Verificar a maior prioridade entre os marcadores do cluster
+          let maxPriority = 0;
+          const childMarkers = cluster.getAllChildMarkers();
+          childMarkers.forEach((marker: any) => {
+            const priority = marker.options?.markerPriority || 0;
+            if (priority > maxPriority) {
+              maxPriority = priority;
+            }
+          });
+          
+          // Definir cores e estilos baseados na prioridade
+          // Prioridade 3: Vencida (preto pulsante)
+          // Prioridade 2: Vencendo hoje (vermelho pulsante)
+          // Prioridade 1: Fora de território/suspeita (roxo pulsante)
+          // Prioridade 0: Normal (cinza escuro)
+          let background = 'linear-gradient(135deg, #1f2937 0%, #000000 100%)';
+          let border = '3px solid white';
+          let boxShadow = '0 3px 10px rgba(0,0,0,0.5)';
+          let animationClass = '';
+          
+          if (maxPriority === 3) {
+            // Vencida - preto com animação
+            background = 'linear-gradient(135deg, #1f2937 0%, #000000 100%)';
+            border = '3px solid #000000';
+            boxShadow = '0 0 8px 2px rgba(0, 0, 0, 0.6)';
+            animationClass = 'cluster-vencida';
+          } else if (maxPriority === 2) {
+            // Vencendo hoje - vermelho com animação
+            background = 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)';
+            border = '3px solid #dc2626';
+            boxShadow = '0 0 8px 2px rgba(220, 38, 38, 0.6)';
+            animationClass = 'cluster-vencendo';
+          } else if (maxPriority === 1) {
+            // Fora de território - roxo com animação
+            background = 'linear-gradient(135deg, #9333ea 0%, #7c3aed 100%)';
+            border = '3px solid #9333ea';
+            boxShadow = '0 0 8px 2px rgba(147, 51, 234, 0.6)';
+            animationClass = 'cluster-suspeita';
+          }
+          
           return L.divIcon({
-            html: `<div style="
-              background: linear-gradient(135deg, #1f2937 0%, #000000 100%);
+            html: `<div class="${animationClass}" style="
+              background: ${background};
               width: ${sizeNum}px;
               height: ${sizeNum}px;
               border-radius: 50%;
-              border: 3px solid white;
-              box-shadow: 0 3px 10px rgba(0,0,0,0.5);
+              border: ${border};
+              box-shadow: ${boxShadow};
               display: flex;
               align-items: center;
               justify-content: center;
@@ -1469,6 +1520,17 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
         const osSuspeita = osCoordenadasSuspeitas.find(s => s.id === os.id);
         const isCoordSuspeita = !!osSuspeita;
         
+        // Calcular prioridade do marcador para uso nos clusters
+        // Prioridade: 3=vencida, 2=vencendo hoje, 1=fora de território/suspeita, 0=normal
+        let markerPriority = 0;
+        if (isReguladaVencida) {
+          markerPriority = 3; // Maior prioridade: vencida
+        } else if (isReguladaHoje) {
+          markerPriority = 2; // Segunda prioridade: vencendo hoje
+        } else if (isCoordSuspeita) {
+          markerPriority = 1; // Terceira prioridade: fora de território
+        }
+        
         // Obter dados do skill
         const skillData = skillsIcons.get(os.tipo);
         const sigla = skillData?.sigla || obterLetraGrupo(os.tipo);
@@ -1514,8 +1576,11 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
           popupAnchor: [0, -14],
         });
         
-        // Criar marcador
-        const marker = L.marker([os.latitude, os.longitude], { icon: markerIcon });
+        // Criar marcador (com prioridade customizada para destaque em clusters)
+        const marker = L.marker([os.latitude, os.longitude], { 
+          icon: markerIcon,
+          markerPriority: markerPriority, // Usado pelo cluster para determinar destaque visual
+        } as any);
         
         // Adicionar tooltip (aparece ao passar o mouse)
         const nomeServico = skillData?.nome || obterLabelTipo(os.tipo);
