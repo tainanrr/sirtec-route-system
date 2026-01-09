@@ -123,3 +123,4 @@ COMMENT ON COLUMN public.metas.tipo_meta IS 'Tipo da meta: producao, qualidade, 
 
 
 
+
