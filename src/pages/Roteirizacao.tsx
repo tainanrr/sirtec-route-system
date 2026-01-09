@@ -6303,7 +6303,8 @@ const Roteirizacao = () => {
                                 size="sm"
                                 className="h-7 px-2"
                                 onClick={() => {
-                                  navigate(`/roteirizacao?planejamento=${planejamento.id}`);
+                                  // Passar apenas a equipe específica clicada
+                                  navigate(`/roteirizacao?planejamento=${planejamento.id}&equipes=${equipeId}`);
                                   setConsultarPlanejamentosDialogOpen(false);
                                 }}
                               >
