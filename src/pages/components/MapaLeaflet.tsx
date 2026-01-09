@@ -1621,6 +1621,12 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
           // Verificar se esta OS está selecionada no editor
           const isSelecionadaNoEditor = osSelecionadaNoEditor === servico.ordemServico.id;
           
+          // Verificar se é regulada vencendo hoje ou vencida (para efeito piscante)
+          const classificacaoOSRoteirizada = classificarPrazo(servico.ordemServico.prazo ? new Date(servico.ordemServico.prazo) : null);
+          const isReguladaRoteirizada = servico.ordemServico.regulada === true;
+          const isReguladaHojeRoteirizada = isReguladaRoteirizada && classificacaoOSRoteirizada === 'hoje';
+          const isReguladaVencidaRoteirizada = isReguladaRoteirizada && classificacaoOSRoteirizada === 'passado';
+          
           // Obter cor da borda baseada na prioridade
           const corBorda = obterCorBordaPrioridade(servico.ordemServico);
           
@@ -1637,21 +1643,54 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
           const baseFontSize = isEditando ? 18 : 14;
           const fontSize = siglaLen > 2 ? baseFontSize - 4 : baseFontSize;
           
+          // Determinar animação:
+          // 1. OS selecionada no editor → pulse-blue (azul)
+          // 2. Regulada vencendo HOJE → pulse-red-urgente (vermelho)
+          // 3. Regulada VENCIDA → pulse-black-vencida (preto)
+          // 4. Demais → sem animação (mesmo quando equipe selecionada no Editor de Rotas)
+          let animacaoRoteirizada = '';
+          if (isSelecionadaNoEditor) {
+            animacaoRoteirizada = 'animation: pulse-blue 1.5s infinite;';
+          } else if (isReguladaHojeRoteirizada) {
+            animacaoRoteirizada = 'animation: pulse-red-urgente 1s ease-in-out infinite;';
+          } else if (isReguladaVencidaRoteirizada) {
+            animacaoRoteirizada = 'animation: pulse-black-vencida 1s ease-in-out infinite;';
+          }
+          // Removido: efeito pulse genérico quando equipe está sendo editada
+          
+          // Determinar borda para reguladas urgentes (destacar visualmente)
+          const bordaRoteirizada = isSelecionadaNoEditor 
+            ? '4px solid #3b82f6' 
+            : isReguladaHojeRoteirizada 
+              ? '3px solid #dc2626' 
+              : isReguladaVencidaRoteirizada 
+                ? '3px solid #000000'
+                : `${isEditando ? '3px' : '2px'} solid ${corBorda}`;
+          
+          // Determinar sombra para reguladas urgentes
+          const sombraRoteirizada = isSelecionadaNoEditor 
+            ? '0 6px 16px rgba(59, 130, 246, 0.8)' 
+            : isReguladaHojeRoteirizada 
+              ? '0 0 8px 2px rgba(220, 38, 38, 0.6)' 
+              : isReguladaVencidaRoteirizada 
+                ? '0 0 8px 2px rgba(0, 0, 0, 0.6)'
+                : (isEditando ? '0 4px 12px rgba(0,0,0,0.6)' : '0 2px 6px rgba(0,0,0,0.4)');
+          
           const iconSVG = `
             <div style="
               background-color: ${cor}; 
               width: ${tamanhoMarker}px; 
               height: ${tamanhoMarker}px; 
               border-radius: 50%; 
-              border: ${isSelecionadaNoEditor ? '4px solid #3b82f6' : (isEditando ? '3px' : '2px')} solid ${isSelecionadaNoEditor ? '#3b82f6' : corBorda}; 
-              box-shadow: ${isSelecionadaNoEditor ? '0 6px 16px rgba(59, 130, 246, 0.8)' : (isEditando ? '0 4px 12px rgba(0,0,0,0.6)' : '0 2px 6px rgba(0,0,0,0.4)')};
+              border: ${bordaRoteirizada}; 
+              box-shadow: ${sombraRoteirizada};
               display: flex;
               align-items: center;
               justify-content: center;
               color: white;
               position: relative;
               opacity: ${opacidadeMarker};
-              ${isSelecionadaNoEditor ? 'animation: pulse-blue 1.5s infinite;' : (isEditando ? 'animation: pulse 2s infinite;' : '')}
+              ${animacaoRoteirizada}
             ">
               <span style="font-size: ${fontSize}px; font-weight: bold; color: white;">${sigla}</span>
               <div style="
