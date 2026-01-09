@@ -147,8 +147,11 @@ export default function AppOrdens() {
   const equipeIdParaUsar = equipeAuth?.id || equipe?.id;
   
   console.log("[DEBUG AppOrdens] IDs disponíveis - equipe:", equipe?.id, "equipeAuth:", equipeAuth?.id, "usando:", equipeIdParaUsar);
+
+  // Estado local para armazenar ordens do cache quando offline
+  const [ordensOfflineCache, setOrdensOfflineCache] = useState<OrdemPlanejada[]>([]);
   
-  const { data: ordensPlanejadas, isLoading: isLoadingOrdens, refetch } = useQuery({
+  const { data: ordensPlanejadas, isLoading: isLoadingOrdens, refetch, isFetching } = useQuery({
     // NÃO incluir isOnline na queryKey para que o cache seja compartilhado entre online/offline
     queryKey: ["ordens-planejadas", equipeIdParaUsar, format(selectedDate, "yyyy-MM-dd")],
     queryFn: async () => {
@@ -317,6 +320,48 @@ export default function AppOrdens() {
     retry: isOnline ? 3 : 0, // Não fazer retry se offline
   });
 
+  // Log do estado atual da query
+  console.log("[DEBUG AppOrdens] Estado da query - isLoading:", isLoadingOrdens, "isFetching:", isFetching, "ordensPlanejadas:", ordensPlanejadas?.length || 0, "ordensOfflineCache:", ordensOfflineCache.length);
+
+  // Buscar do cache quando offline e não temos dados
+  useEffect(() => {
+    const buscarDoCache = async () => {
+      if (!isOnline && equipeIdParaUsar && (!ordensPlanejadas || ordensPlanejadas.length === 0)) {
+        console.log("[DEBUG AppOrdens] 🔄 Offline sem dados - buscando do cache manualmente...");
+        const dataFormatada = format(selectedDate, "yyyy-MM-dd");
+        
+        try {
+          const cachedData = await getPlanejamentoFromCache(equipeIdParaUsar, dataFormatada);
+          console.log("[DEBUG AppOrdens] Cache manual encontrado:", cachedData);
+          
+          if (cachedData && Array.isArray(cachedData) && cachedData.length > 0) {
+            console.log("[DEBUG AppOrdens] ✅ Convertendo", cachedData.length, "ordens do cache");
+            const ordensFromCache: OrdemPlanejada[] = (cachedData as any[]).map((item, index) => ({
+              id: item.id || `cache-${index}`,
+              ordem_na_rota: item.ordem_na_rota || index + 1,
+              hora_inicio_estimada: item.hora_inicio_estimada,
+              hora_fim_estimada: item.hora_fim_estimada,
+              distancia_km: item.distancia_km,
+              tempo_estimado_minutos: item.tempo_estimado_minutos,
+              planejamento_id: item.planejamento_id || "",
+              equipe_id: item.equipe_id || equipeIdParaUsar,
+              ordens_servico: item.ordens_servico || item,
+              planejamentos: item.planejamentos || { id: "", data_planejamento: dataFormatada, status: "aberto" },
+            }));
+            setOrdensOfflineCache(ordensFromCache);
+            console.log("[DEBUG AppOrdens] ✅ ordensOfflineCache atualizado com", ordensFromCache.length, "ordens");
+          } else {
+            console.log("[DEBUG AppOrdens] ⚠️ Cache vazio ou inválido");
+          }
+        } catch (error) {
+          console.error("[DEBUG AppOrdens] ❌ Erro ao buscar cache:", error);
+        }
+      }
+    };
+    
+    buscarDoCache();
+  }, [isOnline, equipeIdParaUsar, selectedDate, ordensPlanejadas]);
+
   // Recarregar dados automaticamente quando a internet voltar
   useEffect(() => {
     const wasOffline = !previousOnlineRef.current;
@@ -326,6 +371,8 @@ export default function AppOrdens() {
     // Se estava offline e agora está online, recarregar dados
     if (wasOffline && isNowOnline && (equipe?.id || equipeAuth?.id)) {
       console.log("[AppOrdens] Internet restaurada - recarregando dados automaticamente...");
+      // Limpar cache offline
+      setOrdensOfflineCache([]);
       // Invalidar cache do react-query para forçar nova busca
       queryClient.invalidateQueries({ queryKey: ["ordens-planejadas"] });
       refetch().then(() => {
@@ -388,8 +435,15 @@ export default function AppOrdens() {
     });
   }
 
+  // Usar ordens do React Query ou do cache offline
+  const ordensParaUsar = (ordensPlanejadas && ordensPlanejadas.length > 0) 
+    ? ordensPlanejadas 
+    : ordensOfflineCache;
+  
+  console.log("[DEBUG AppOrdens] ordensParaUsar:", ordensParaUsar.length, "- origem:", (ordensPlanejadas && ordensPlanejadas.length > 0) ? "React Query" : "Cache Offline");
+
   // Filtrar ordens
-  const filteredOrdens = ordensPlanejadas?.filter((ordem) => {
+  const filteredOrdens = ordensParaUsar?.filter((ordem) => {
     if (!ordem.ordens_servico) return false;
 
     const matchesSearch =
@@ -518,7 +572,7 @@ export default function AppOrdens() {
             variant="ghost" 
             size="icon" 
             onClick={() => setShowMap(true)}
-            disabled={!ordensPlanejadas || ordensPlanejadas.length === 0}
+            disabled={!ordensParaUsar || ordensParaUsar.length === 0}
             title="Ver roteiro no mapa"
           >
             <MapIcon className="h-5 w-5" />
@@ -581,9 +635,9 @@ export default function AppOrdens() {
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="todas" className="text-xs">
             Todas
-            {ordensPlanejadas && ordensPlanejadas.length > 0 && (
+            {ordensParaUsar && ordensParaUsar.length > 0 && (
               <Badge variant="secondary" className="ml-1 h-5 w-5 p-0 justify-center">
-                {ordensPlanejadas.length}
+                {ordensParaUsar.length}
               </Badge>
             )}
           </TabsTrigger>
@@ -730,9 +784,9 @@ export default function AppOrdens() {
             </DialogTitle>
           </DialogHeader>
           <div className="flex-1 min-h-0 relative">
-            {ordensPlanejadas && ordensPlanejadas.length > 0 ? (
+            {ordensParaUsar && ordensParaUsar.length > 0 ? (
               <MapaRoteiro 
-                ordens={ordensPlanejadas} 
+                ordens={ordensParaUsar} 
                 equipe={equipe}
               />
             ) : (
