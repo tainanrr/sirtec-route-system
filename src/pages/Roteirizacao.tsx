@@ -4319,6 +4319,7 @@ const Roteirizacao = () => {
                 rotas={rotas}
                 osPendentes={filteredServicos}
                 equipesMock={equipesAtivas}
+                todasEquipes={equipes}
                 equipeHovered={equipeHovered}
                 equipeEditando={equipeEditando}
                 osSelecionada={osSelecionadaNoMapa}

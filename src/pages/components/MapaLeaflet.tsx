@@ -108,6 +108,7 @@ interface MapaLeafletProps {
   rotas: RotaEquipe[];
   osPendentes: OrdemServico[];
   equipesMock: Equipe[];
+  todasEquipes?: Equipe[]; // Todas as equipes disponíveis (usado para tooltip dos territórios)
   equipeHovered?: string | null; // ID da equipe em hover
   equipeEditando?: string | null; // ID da equipe sendo editada (destacar no mapa)
   osSelecionada?: string | null; // ID da OS selecionada no mapa
@@ -164,7 +165,7 @@ function getLucideIconSVG(iconName: string | undefined, color: string, size: num
   `;
 }
 
-export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, focarOSNoMapa, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear, selecionandoCoordNoMapa, onMapClick, osCoordenadasSuspeitas = [], criandoPoligono, onPoligonoCriado, onCriacaoCancelada, statusOSsTempoReal }: MapaLeafletProps) {
+export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEquipes, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, focarOSNoMapa, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear, selecionandoCoordNoMapa, onMapClick, osCoordenadasSuspeitas = [], criandoPoligono, onPoligonoCriado, onCriacaoCancelada, statusOSsTempoReal }: MapaLeafletProps) {
   
   const mapRef = useRef<HTMLDivElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -2159,8 +2160,10 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
         });
 
       // Encontrar nomes das equipes vinculadas
+      // Usa todasEquipes (se disponível) para incluir equipes não selecionadas para roteirização
+      const equipesParaBusca = todasEquipes && todasEquipes.length > 0 ? todasEquipes : equipesMock;
       const equipesVinculadas = territorio.equipeIds
-        .map(id => equipesMock.find(e => e.id === id))
+        .map(id => equipesParaBusca.find(e => e.id === id))
         .filter(e => e !== undefined);
       const nomesEquipes = equipesVinculadas.length > 0
         ? equipesVinculadas.map(e => `${e!.codigo}`).join(", ")
@@ -2251,7 +2254,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
         expectativasMarkersRef.current.push(marker);
       }
     });
-  }, [territorios, equipesMock, osPendentes, modoEdicao, territorioEditando, equipeEditando]);
+  }, [territorios, equipesMock, todasEquipes, osPendentes, modoEdicao, territorioEditando, equipeEditando]);
 
   // Error boundary adicional para capturar erros não tratados
   useEffect(() => {
