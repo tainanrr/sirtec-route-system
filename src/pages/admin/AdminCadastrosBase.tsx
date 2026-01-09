@@ -69,6 +69,7 @@ import UnidadesGruposFeriados from "@/components/cadastros-base/UnidadesGruposFe
 import TipoServicoRetornosConfig from "@/components/cadastros-base/TipoServicoRetornosConfig";
 import RetornosCampoAtividades from "@/components/cadastros-base/RetornosCampoAtividades";
 import ValoresPorContratoTab from "@/components/cadastros-base/ValoresPorContratoTab";
+import TemposPorContratoTab from "@/components/cadastros-base/TemposPorContratoTab";
 import { clearSkillsCache } from "@/lib/skillsUtils";
 
 // Função para calcular a produtividade (R$/hora) e retornar a cor correspondente
@@ -1100,11 +1101,15 @@ export default function AdminCadastrosBase() {
             {/* Form para Tipo de Serviço (Skills) */}
             {currentFormType === "tipo-servico" && (
               <Tabs defaultValue="geral" className="w-full">
-                <TabsList className="grid w-full grid-cols-2 mb-4">
+                <TabsList className="grid w-full grid-cols-3 mb-4">
                   <TabsTrigger value="geral">Dados Gerais</TabsTrigger>
                   <TabsTrigger value="valores" disabled={!editingItem}>
                     <DollarSign className="h-4 w-4 mr-1" />
-                    Valores por Contrato
+                    Valores por Unidade
+                  </TabsTrigger>
+                  <TabsTrigger value="tempos" disabled={!editingItem}>
+                    <Clock className="h-4 w-4 mr-1" />
+                    Tempos por Unidade
                   </TabsTrigger>
                 </TabsList>
                 
@@ -1276,6 +1281,15 @@ export default function AdminCadastrosBase() {
                 <TabsContent value="valores">
                   {editingItem && (
                     <ValoresPorContratoTab 
+                      skillCodigo={(editingItem as TipoServico).codigo}
+                      skillNome={(editingItem as TipoServico).nome}
+                    />
+                  )}
+                </TabsContent>
+                
+                <TabsContent value="tempos">
+                  {editingItem && (
+                    <TemposPorContratoTab 
                       skillCodigo={(editingItem as TipoServico).codigo}
                       skillNome={(editingItem as TipoServico).nome}
                     />
