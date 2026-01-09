@@ -4496,8 +4496,8 @@ const Roteirizacao = () => {
                                                 snapshot.isDragging && "shadow-lg ring-2 ring-primary z-50 cursor-grabbing",
                                                 !snapshot.isDragging && !estaConcluida && "hover:bg-muted/50 cursor-grab",
                                                 estaConcluida && !estaImpedida && !estaParcial && "opacity-60 cursor-default bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800",
-                                                estaImpedida && "opacity-80 cursor-default bg-red-50 dark:bg-red-950/30 border-red-300 dark:border-red-800 ring-1 ring-red-300",
-                                                estaParcial && "opacity-80 cursor-default bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800",
+                                                estaImpedida && "opacity-60 cursor-default bg-red-50 dark:bg-red-950/30 border-red-300 dark:border-red-800 ring-1 ring-red-300",
+                                                estaParcial && "opacity-60 cursor-default bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800",
                                                 foraDoPrazo && !estaConcluida && "border-danger/50 bg-danger/5",
                                                 osSelecionadaNoEditor === os.id && "ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-950",
                                                 estaEmExecucao && "ring-2 ring-green-500 bg-green-50 dark:bg-green-950 border-green-300 dark:border-green-700"

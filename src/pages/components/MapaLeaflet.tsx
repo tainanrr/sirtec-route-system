@@ -1671,7 +1671,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
           // Criar ícone SVG com a cor da equipe e sigla
           // Se equipe está sendo editada, destacar marcadores dela e reduzir um pouco os outros
           const tamanhoMarker = isEmExecucao ? 48 : (isEditando ? 40 : (equipeEditando ? 24 : 32));
-          const opacidadeMarker = isConcluida ? (isImpedida ? 0.85 : 0.5) : (opacidadeReduzida < 1 ? opacidadeReduzida : 1);
+          const opacidadeMarker = isConcluida ? 0.5 : (opacidadeReduzida < 1 ? opacidadeReduzida : 1);
           // Ajustar tamanho da fonte baseado no tamanho da sigla
           const siglaLen = sigla.length;
           const baseFontSize = isEmExecucao ? 20 : (isEditando ? 18 : 14);
