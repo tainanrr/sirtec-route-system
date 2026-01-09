@@ -42,12 +42,16 @@ export function useOfflineData() {
       return false;
     }
 
-    console.log("[OfflineData] Iniciando pré-carregamento de dados essenciais...");
     const dataHoje = format(new Date(), "yyyy-MM-dd");
+    console.log("[OfflineData] ========================================");
+    console.log("[OfflineData] Iniciando pré-carregamento de dados essenciais");
+    console.log("[OfflineData] Equipe:", equipeId);
+    console.log("[OfflineData] Data:", dataHoje);
+    console.log("[OfflineData] ========================================");
 
     try {
       // Carregar dados em paralelo
-      await Promise.all([
+      const results = await Promise.allSettled([
         preloadTiposIntervalo(),
         preloadSkills(),
         preloadRetornosCampo(),
@@ -59,13 +63,26 @@ export function useOfflineData() {
         preloadChecklists(),
       ]);
 
+      // Log de resultados
+      const nomes = ['TiposIntervalo', 'Skills', 'RetornosCampo', 'PlanejamentoDia', 
+                     'OrdensServico', 'IntervalosDia', 'ProducaoDia', 'MateriaisEstoque', 'Checklists'];
+      results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          console.error(`[OfflineData] ❌ ${nomes[index]} falhou:`, result.reason);
+        } else {
+          console.log(`[OfflineData] ✓ ${nomes[index]} OK`);
+        }
+      });
+
+      console.log("[OfflineData] ========================================");
       console.log("[OfflineData] Pré-carregamento concluído!");
+      console.log("[OfflineData] ========================================");
       return true;
     } catch (error) {
-      console.error("[OfflineData] Erro no pré-carregamento:", error);
+      console.error("[OfflineData] Erro geral no pré-carregamento:", error);
       return false;
     }
-  }, [isOnline, saveToCache]);
+  }, [isOnline]);
 
   // Pré-carregar tipos de intervalo
   const preloadTiposIntervalo = useCallback(async () => {
@@ -121,6 +138,7 @@ export function useOfflineData() {
 
   // Pré-carregar planejamento do dia - formato igual ao AppOrdens.tsx
   const preloadPlanejamentoDia = useCallback(async (equipeId: string, data: string) => {
+    console.log("[OfflineData] Buscando planejamento para equipe:", equipeId, "data:", data);
     try {
       // Buscar ordens planejadas - MESMA query do AppOrdens para compatibilidade
       const { data: ordensPlanejadasData, error: errorPlanejadas } = await supabase

@@ -114,10 +114,16 @@ export default function AppOrdens() {
   const initialState = getState();
   const [searchTerm, setSearchTerm] = useState(() => initialState?.searchTerm || "");
   const [activeTab, setActiveTab] = useState(() => initialState?.activeTab || "todas");
-  // SEMPRE começar com data de hoje - não usar data salva para evitar confusão
-  const [selectedDate, setSelectedDate] = useState<Date>(() => new Date());
+  // SEMPRE começar com data de hoje - NUNCA restaurar data salva
+  const [selectedDate, setSelectedDate] = useState<Date>(() => {
+    // Forçar data de hoje ao abrir a tela
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    return hoje;
+  });
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [hasAutoReloaded, setHasAutoReloaded] = useState(false);
+  const previousOnlineRef = useRef(isOnline);
   const [showMap, setShowMap] = useState(() => Boolean(initialState?.showMap));
   const [showCriarAvulsa, setShowCriarAvulsa] = useState(false);
 
@@ -296,18 +302,22 @@ export default function AppOrdens() {
 
   // Recarregar dados automaticamente quando a internet voltar
   useEffect(() => {
-    if (isOnline && !hasAutoReloaded && (equipe?.id || equipeAuth?.id)) {
-      console.log("[AppOrdens] Internet restaurada - recarregando dados...");
-      setHasAutoReloaded(true);
+    const wasOffline = !previousOnlineRef.current;
+    const isNowOnline = isOnline;
+    previousOnlineRef.current = isOnline;
+    
+    // Se estava offline e agora está online, recarregar dados
+    if (wasOffline && isNowOnline && (equipe?.id || equipeAuth?.id)) {
+      console.log("[AppOrdens] Internet restaurada - recarregando dados automaticamente...");
+      // Invalidar cache do react-query para forçar nova busca
+      queryClient.invalidateQueries({ queryKey: ["ordens-planejadas"] });
       refetch().then(() => {
-        toast.success("Dados atualizados!");
+        toast.success("Dados da rota atualizados!");
+      }).catch(err => {
+        console.error("[AppOrdens] Erro ao atualizar dados:", err);
       });
     }
-    // Reset flag quando ficar offline para recarregar na próxima vez
-    if (!isOnline) {
-      setHasAutoReloaded(false);
-    }
-  }, [isOnline, hasAutoReloaded, equipe?.id, equipeAuth?.id, refetch]);
+  }, [isOnline, equipe?.id, equipeAuth?.id, refetch, queryClient]);
 
   // Realtime subscription
   useEffect(() => {
