@@ -94,6 +94,14 @@ interface OSSuspeita extends OrdemServico {
   territorioReal: string;
 }
 
+// Tipo para status em tempo real das OSs
+interface StatusOSTempoReal {
+  status: string;
+  iniciado_at: string | null;
+  concluido_at: string | null;
+  tecnico_id: string | null;
+}
+
 interface MapaLeafletProps {
   rotas: RotaEquipe[];
   osPendentes: OrdemServico[];
@@ -116,6 +124,7 @@ interface MapaLeafletProps {
   criandoPoligono?: boolean; // Modo de criação de novo polígono
   onPoligonoCriado?: (poligono: { lat: number; lng: number }[]) => void; // Callback quando polígono é criado
   onCriacaoCancelada?: () => void; // Callback quando criação é cancelada
+  statusOSsTempoReal?: Map<string, StatusOSTempoReal>; // Status em tempo real das OSs
 }
 
 interface RouteGeometryData {
@@ -153,7 +162,7 @@ function getLucideIconSVG(iconName: string | undefined, color: string, size: num
   `;
 }
 
-export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, focarOSNoMapa, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear, selecionandoCoordNoMapa, onMapClick, osCoordenadasSuspeitas = [], criandoPoligono, onPoligonoCriado, onCriacaoCancelada }: MapaLeafletProps) {
+export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, focarOSNoMapa, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear, selecionandoCoordNoMapa, onMapClick, osCoordenadasSuspeitas = [], criandoPoligono, onPoligonoCriado, onCriacaoCancelada, statusOSsTempoReal }: MapaLeafletProps) {
   
   const mapRef = useRef<HTMLDivElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -710,6 +719,19 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
       }
       .marker-vencida {
         animation: pulse-black-vencida 1s ease-in-out infinite !important;
+      }
+      @keyframes pulse-green-execucao {
+        0%, 100% {
+          box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.9), 0 0 12px 4px rgba(34, 197, 94, 0.7);
+          transform: scale(1);
+        }
+        50% {
+          box-shadow: 0 0 0 12px rgba(34, 197, 94, 0), 0 0 20px 8px rgba(34, 197, 94, 0.9);
+          transform: scale(1.1);
+        }
+      }
+      .marker-em-execucao {
+        animation: pulse-green-execucao 1s ease-in-out infinite !important;
       }
       @keyframes pulse-purple-suspeita {
         0%, 100% {
@@ -1627,6 +1649,12 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
           const isReguladaHojeRoteirizada = isReguladaRoteirizada && classificacaoOSRoteirizada === 'hoje';
           const isReguladaVencidaRoteirizada = isReguladaRoteirizada && classificacaoOSRoteirizada === 'passado';
           
+          // STATUS EM TEMPO REAL - Verificar status atual da OS
+          const statusInfo = statusOSsTempoReal?.get(servico.ordemServico.id);
+          const statusAtual = statusInfo?.status || 'planejada';
+          const isEmExecucao = ['em_deslocamento', 'no_local', 'em_apr', 'em_andamento', 'em_execucao'].includes(statusAtual);
+          const isConcluida = statusAtual === 'concluida';
+          
           // Obter cor da borda baseada na prioridade
           const corBorda = obterCorBordaPrioridade(servico.ordemServico);
           
@@ -1636,49 +1664,65 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
           
           // Criar ícone SVG com a cor da equipe e sigla
           // Se equipe está sendo editada, destacar marcadores dela e reduzir um pouco os outros
-          const tamanhoMarker = isEditando ? 40 : (equipeEditando ? 24 : 32);
-          const opacidadeMarker = opacidadeReduzida < 1 ? opacidadeReduzida : 1;
+          const tamanhoMarker = isEmExecucao ? 48 : (isEditando ? 40 : (equipeEditando ? 24 : 32));
+          const opacidadeMarker = isConcluida ? 0.5 : (opacidadeReduzida < 1 ? opacidadeReduzida : 1);
           // Ajustar tamanho da fonte baseado no tamanho da sigla
           const siglaLen = sigla.length;
-          const baseFontSize = isEditando ? 18 : 14;
+          const baseFontSize = isEmExecucao ? 20 : (isEditando ? 18 : 14);
           const fontSize = siglaLen > 2 ? baseFontSize - 4 : baseFontSize;
           
+          // Cor ajustada para status
+          const corFinal = isConcluida ? '#6b7280' : cor; // Cinza para concluídas
+          
           // Determinar animação:
-          // 1. OS selecionada no editor → pulse-blue (azul)
-          // 2. Regulada vencendo HOJE → pulse-red-urgente (vermelho)
-          // 3. Regulada VENCIDA → pulse-black-vencida (preto)
-          // 4. Demais → sem animação (mesmo quando equipe selecionada no Editor de Rotas)
+          // 1. OS em execução → pulse-green (verde) PRIORIDADE MÁXIMA
+          // 2. OS selecionada no editor → pulse-blue (azul)
+          // 3. Regulada vencendo HOJE → pulse-red-urgente (vermelho)
+          // 4. Regulada VENCIDA → pulse-black-vencida (preto)
+          // 5. Demais → sem animação
           let animacaoRoteirizada = '';
-          if (isSelecionadaNoEditor) {
+          if (isEmExecucao) {
+            animacaoRoteirizada = 'animation: pulse-green-execucao 1s ease-in-out infinite;';
+          } else if (isSelecionadaNoEditor) {
             animacaoRoteirizada = 'animation: pulse-blue 1.5s infinite;';
-          } else if (isReguladaHojeRoteirizada) {
+          } else if (isReguladaHojeRoteirizada && !isConcluida) {
             animacaoRoteirizada = 'animation: pulse-red-urgente 1s ease-in-out infinite;';
-          } else if (isReguladaVencidaRoteirizada) {
+          } else if (isReguladaVencidaRoteirizada && !isConcluida) {
             animacaoRoteirizada = 'animation: pulse-black-vencida 1s ease-in-out infinite;';
           }
-          // Removido: efeito pulse genérico quando equipe está sendo editada
           
-          // Determinar borda para reguladas urgentes (destacar visualmente)
-          const bordaRoteirizada = isSelecionadaNoEditor 
-            ? '4px solid #3b82f6' 
-            : isReguladaHojeRoteirizada 
-              ? '3px solid #dc2626' 
-              : isReguladaVencidaRoteirizada 
-                ? '3px solid #000000'
-                : `${isEditando ? '3px' : '2px'} solid ${corBorda}`;
+          // Determinar borda baseada no status
+          let bordaRoteirizada = `${isEditando ? '3px' : '2px'} solid ${corBorda}`;
+          if (isEmExecucao) {
+            bordaRoteirizada = '4px solid #22c55e'; // Verde para em execução
+          } else if (isConcluida) {
+            bordaRoteirizada = '3px solid #10b981'; // Verde esmeralda para concluída
+          } else if (isSelecionadaNoEditor) {
+            bordaRoteirizada = '4px solid #3b82f6';
+          } else if (isReguladaHojeRoteirizada) {
+            bordaRoteirizada = '3px solid #dc2626';
+          } else if (isReguladaVencidaRoteirizada) {
+            bordaRoteirizada = '3px solid #000000';
+          }
           
-          // Determinar sombra para reguladas urgentes
-          const sombraRoteirizada = isSelecionadaNoEditor 
-            ? '0 6px 16px rgba(59, 130, 246, 0.8)' 
-            : isReguladaHojeRoteirizada 
-              ? '0 0 8px 2px rgba(220, 38, 38, 0.6)' 
-              : isReguladaVencidaRoteirizada 
-                ? '0 0 8px 2px rgba(0, 0, 0, 0.6)'
-                : (isEditando ? '0 4px 12px rgba(0,0,0,0.6)' : '0 2px 6px rgba(0,0,0,0.4)');
+          // Determinar sombra baseada no status
+          let sombraRoteirizada = isEditando ? '0 4px 12px rgba(0,0,0,0.6)' : '0 2px 6px rgba(0,0,0,0.4)';
+          if (isEmExecucao) {
+            sombraRoteirizada = '0 0 16px 4px rgba(34, 197, 94, 0.7)';
+          } else if (isSelecionadaNoEditor) {
+            sombraRoteirizada = '0 6px 16px rgba(59, 130, 246, 0.8)';
+          } else if (isReguladaHojeRoteirizada && !isConcluida) {
+            sombraRoteirizada = '0 0 8px 2px rgba(220, 38, 38, 0.6)';
+          } else if (isReguladaVencidaRoteirizada && !isConcluida) {
+            sombraRoteirizada = '0 0 8px 2px rgba(0, 0, 0, 0.6)';
+          }
+          
+          // Ícone de status para adicionar ao marcador
+          const iconeStatus = isEmExecucao ? '⚡' : isConcluida ? '✓' : '';
           
           const iconSVG = `
             <div style="
-              background-color: ${cor}; 
+              background-color: ${corFinal}; 
               width: ${tamanhoMarker}px; 
               height: ${tamanhoMarker}px; 
               border-radius: 50%; 
@@ -1697,19 +1741,19 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
                 position: absolute;
                 bottom: -2px;
                 right: -2px;
-                background-color: rgba(0,0,0,0.8);
+                background-color: ${isConcluida ? '#10b981' : (isEmExecucao ? '#22c55e' : 'rgba(0,0,0,0.8)')};
                 color: white;
                 border-radius: 50%;
-                width: ${isEditando ? '20px' : (equipeEditando ? '16px' : '18px')};
-                height: ${isEditando ? '20px' : (equipeEditando ? '16px' : '18px')};
+                width: ${isEmExecucao ? '24px' : (isEditando ? '20px' : (equipeEditando ? '16px' : '18px'))};
+                height: ${isEmExecucao ? '24px' : (isEditando ? '20px' : (equipeEditando ? '16px' : '18px'))};
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                font-size: ${isEditando ? '11px' : (equipeEditando ? '9px' : '10px')};
+                font-size: ${isEmExecucao ? '14px' : (isEditando ? '11px' : (equipeEditando ? '9px' : '10px'))};
                 font-weight: bold;
                 border: 1.5px solid white;
                 z-index: 10;
-              ">${servico.ordemNaRota}</div>
+              ">${iconeStatus || servico.ordemNaRota}</div>
             </div>
           `;
 
@@ -2491,4 +2535,5 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
     </div>
   );
 }
+
 

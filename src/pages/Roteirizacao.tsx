@@ -176,6 +176,37 @@ function formatarDataPrazo(prazo: Date): string {
   }
 }
 
+/**
+ * Retorna as informações de badge para o status de uma OS em tempo real
+ */
+function getStatusBadgeInfo(status: string | undefined): { label: string; className: string; icon?: string } | null {
+  if (!status) return null;
+  
+  switch (status) {
+    case "planejada":
+      return { label: "PLANEJADA", className: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" };
+    case "em_deslocamento":
+      return { label: "DESLOC.", className: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200", icon: "🚗" };
+    case "no_local":
+      return { label: "NO LOCAL", className: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200", icon: "📍" };
+    case "em_apr":
+      return { label: "APR", className: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200", icon: "📋" };
+    case "em_andamento":
+    case "em_execucao":
+      return { label: "EXECUTANDO", className: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 animate-pulse", icon: "⚡" };
+    case "concluida":
+      return { label: "CONCLUÍDA", className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200", icon: "✅" };
+    case "cancelada":
+      return { label: "CANCELADA", className: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200", icon: "❌" };
+    case "pendente":
+      return { label: "PENDENTE", className: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200" };
+    case "impedida":
+      return { label: "IMPEDIDA", className: "bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-200", icon: "🚫" };
+    default:
+      return null;
+  }
+}
+
 const Roteirizacao = () => {
   // Permissões da tela
   const { podeEditar } = useTelaPermissao("roteirizacao");
@@ -324,6 +355,62 @@ const Roteirizacao = () => {
     staleTime: 60000, // Dados são considerados frescos por 60 segundos
     refetchInterval: 60000, // Atualizar a cada 60 segundos (antes era 10)
     refetchOnWindowFocus: false, // Evitar refetch ao voltar para a aba
+  });
+
+  // STATUS EM TEMPO REAL: Buscar status de todas as OSs da rota quando editando planejamento
+  // Retorna um Map<osId, { status, iniciado_at, concluido_at, equipe_id }>
+  const { data: statusOSsTempoReal } = useQuery({
+    queryKey: ["status-oss-tempo-real", planejamentoEditandoId, rotas.map(r => r.equipe.id).join(",")],
+    queryFn: async () => {
+      if (!planejamentoEditandoId || rotas.length === 0) return new Map();
+      
+      // Coletar todos os IDs de OSs das rotas
+      const osIds: string[] = [];
+      rotas.forEach(rota => {
+        rota.servicos.forEach(s => {
+          if (s.tipo === "SERVICO" && s.ordemServico?.id) {
+            osIds.push(s.ordemServico.id);
+          }
+        });
+      });
+      
+      if (osIds.length === 0) return new Map();
+      
+      // Buscar status atualizado das OSs
+      const { data, error } = await supabase
+        .from("ordens_servico")
+        .select("id, status, iniciado_at, concluido_at, tecnico_id")
+        .in("id", osIds);
+      
+      if (error) {
+        console.error("[TEMPO REAL] Erro ao buscar status das OSs:", error);
+        return new Map();
+      }
+      
+      // Criar Map para acesso rápido
+      const statusMap = new Map<string, { 
+        status: string; 
+        iniciado_at: string | null; 
+        concluido_at: string | null;
+        tecnico_id: string | null;
+      }>();
+      
+      (data || []).forEach((os: any) => {
+        statusMap.set(os.id, {
+          status: os.status,
+          iniciado_at: os.iniciado_at,
+          concluido_at: os.concluido_at,
+          tecnico_id: os.tecnico_id,
+        });
+      });
+      
+      console.log(`[TEMPO REAL] Status atualizado de ${statusMap.size} OSs`);
+      return statusMap;
+    },
+    enabled: !!planejamentoEditandoId && rotas.length > 0,
+    staleTime: 15000, // Dados frescos por 15 segundos
+    refetchInterval: 30000, // Atualizar a cada 30 segundos
+    refetchOnWindowFocus: true, // Refetch ao voltar para a aba
   });
 
   // Carregar equipes do Supabase (apenas ativas)
@@ -4018,6 +4105,7 @@ const Roteirizacao = () => {
                 osSelecionada={osSelecionadaNoMapa}
                 osSelecionadaNoEditor={osSelecionadaNoEditor}
                 focarOSNoMapa={focarOSNoMapa}
+                statusOSsTempoReal={statusOSsTempoReal}
                 onOSSelecionada={(osId) => {
                   setOsSelecionadaNoMapa(osId);
                   // Também destacar no Editor de Rotas (sem focar no mapa)
@@ -4353,13 +4441,19 @@ const Roteirizacao = () => {
                                 // Se for SERVICO, renderizar normalmente
                                 const os = servico.ordemServico!;
                                 const foraDoPrazo = estaForaDoPrazo(os, servico.horaFim);
-                                const estaEmAndamento = osEmAndamento?.has(os.id) || false;
+                                // STATUS EM TEMPO REAL
+                                const statusInfo = statusOSsTempoReal?.get(os.id);
+                                const statusAtual = statusInfo?.status || "planejada";
+                                const statusBadge = getStatusBadgeInfo(statusAtual);
+                                const estaEmExecucao = ["em_deslocamento", "no_local", "em_apr", "em_andamento", "em_execucao"].includes(statusAtual);
+                                const estaConcluida = statusAtual === "concluida";
                                       
                                       return (
                                         <Draggable
                                     key={os.id}
                                     draggableId={os.id}
                                           index={index}
+                                    isDragDisabled={estaConcluida} // Não permitir arrastar OSs concluídas
                                         >
                                           {(provided, snapshot) => (
                                             <div
@@ -4377,10 +4471,11 @@ const Roteirizacao = () => {
                                               className={cn(
                                                 "group flex items-center gap-1.5 px-1.5 py-1 rounded border bg-card transition-all text-xs",
                                                 snapshot.isDragging && "shadow-lg ring-2 ring-primary z-50 cursor-grabbing",
-                                                !snapshot.isDragging && "hover:bg-muted/50 cursor-grab",
-                                                foraDoPrazo && "border-danger/50 bg-danger/5",
+                                                !snapshot.isDragging && !estaConcluida && "hover:bg-muted/50 cursor-grab",
+                                                estaConcluida && "opacity-60 cursor-default",
+                                                foraDoPrazo && !estaConcluida && "border-danger/50 bg-danger/5",
                                                 osSelecionadaNoEditor === os.id && "ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-950",
-                                                estaEmAndamento && "ring-2 ring-green-500 bg-green-50 dark:bg-green-950 border-green-300 dark:border-green-700"
+                                                estaEmExecucao && "ring-2 ring-green-500 bg-green-50 dark:bg-green-950 border-green-300 dark:border-green-700"
                                               )}
                                             >
                                               {/* Número da ordem */}
@@ -4481,13 +4576,14 @@ const Roteirizacao = () => {
                                                 <span className="truncate">{os.endereco}</span>
                                               </div>
 
-                                              {/* Badges */}
-                                              {estaEmAndamento && (
-                                                <Badge className="bg-green-500 hover:bg-green-600 text-[8px] px-1 py-0 h-4">
-                                                  ANDANDO
+                                              {/* Badges de Status em Tempo Real */}
+                                              {statusBadge && statusAtual !== "planejada" && statusAtual !== "pendente" && (
+                                                <Badge className={cn("text-[8px] px-1 py-0 h-4 font-medium", statusBadge.className)}>
+                                                  {statusBadge.icon && <span className="mr-0.5">{statusBadge.icon}</span>}
+                                                  {statusBadge.label}
                                                 </Badge>
                                               )}
-                                              {foraDoPrazo && (
+                                              {foraDoPrazo && !estaConcluida && (
                                                 <Badge variant="destructive" className="text-[8px] px-1 py-0 h-4">
                                                   FORA
                                                 </Badge>
