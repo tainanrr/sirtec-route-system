@@ -1,7 +1,13 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
 import { autenticarEquipe, EquipeAuthResult, validarLoginEquipe, ColaboradorEquipe, abrirTurno, fecharTurno, verificarTurnoAberto, TurnoExistente } from "@/lib/authUtils";
 import { supabase } from "@/integrations/supabase/client";
 import { logApp } from "@/lib/logUtils";
+import { format } from "date-fns";
+
+// Nome do banco de dados IndexedDB para autenticação offline
+const OFFLINE_AUTH_DB = "sirtec_offline_auth";
+const OFFLINE_AUTH_VERSION = 1;
+const AUTH_STORE = "auth_data";
 
 interface Equipe {
   id: string;
@@ -26,12 +32,23 @@ interface Turno {
   colaboradores: ColaboradorEquipe[];
 }
 
+// Dados salvos para autenticação offline
+interface OfflineAuthData {
+  equipe: Equipe;
+  turno: Turno | null;
+  colaboradores: ColaboradorEquipe[];
+  lastLoginDate: string; // Data do último login online
+  lastSyncDate: string; // Data da última sincronização
+}
+
 interface EquipeAuthContextType {
   equipe: Equipe | null;
   turno: Turno | null;
   colaboradoresPendentes: ColaboradorEquipe[];
   isLoading: boolean;
   error: string | null;
+  isOnline: boolean;
+  isOfflineLogin: boolean; // Indica se está logado via dados offline
   // Login antigo (com senha)
   login: (usuario: string, senha: string) => Promise<boolean>;
   // Login novo (código + placa)
@@ -40,6 +57,7 @@ interface EquipeAuthContextType {
     colaboradores?: ColaboradorEquipe[];
     message?: string;
     turnoExistente?: TurnoExistente;
+    isOffline?: boolean;
   }>;
   // Acessar turno existente
   acessarTurnoExistente: (turnoExistente: TurnoExistente) => void;
@@ -50,7 +68,67 @@ interface EquipeAuthContextType {
   logout: () => void;
   isAuthenticated: boolean;
   temTurnoAberto: boolean;
+  // Novas funções para offline
+  saveOfflineAuthData: () => Promise<void>;
+  clearOfflineAuthData: () => Promise<void>;
 }
+
+// Abrir conexão com IndexedDB para autenticação offline
+const openAuthDB = (): Promise<IDBDatabase> => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(OFFLINE_AUTH_DB, OFFLINE_AUTH_VERSION);
+
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
+
+    request.onupgradeneeded = (event) => {
+      const db = (event.target as IDBOpenDBRequest).result;
+      
+      if (!db.objectStoreNames.contains(AUTH_STORE)) {
+        db.createObjectStore(AUTH_STORE, { keyPath: "key" });
+      }
+    };
+  });
+};
+
+// Salvar dados de autenticação offline
+const saveAuthToIndexedDB = async (key: string, data: any): Promise<void> => {
+  const db = await openAuthDB();
+  const transaction = db.transaction(AUTH_STORE, "readwrite");
+  const store = transaction.objectStore(AUTH_STORE);
+  
+  await new Promise<void>((resolve, reject) => {
+    const request = store.put({ key, data, updated_at: new Date().toISOString() });
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
+
+// Obter dados de autenticação offline
+const getAuthFromIndexedDB = async (key: string): Promise<any> => {
+  const db = await openAuthDB();
+  const transaction = db.transaction(AUTH_STORE, "readonly");
+  const store = transaction.objectStore(AUTH_STORE);
+  
+  return new Promise((resolve, reject) => {
+    const request = store.get(key);
+    request.onsuccess = () => resolve(request.result?.data || null);
+    request.onerror = () => reject(request.error);
+  });
+};
+
+// Remover dados de autenticação offline
+const removeAuthFromIndexedDB = async (key: string): Promise<void> => {
+  const db = await openAuthDB();
+  const transaction = db.transaction(AUTH_STORE, "readwrite");
+  const store = transaction.objectStore(AUTH_STORE);
+  
+  await new Promise<void>((resolve, reject) => {
+    const request = store.delete(key);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
 
 const EquipeAuthContext = createContext<EquipeAuthContextType | undefined>(undefined);
 
@@ -60,32 +138,92 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
   const [colaboradoresPendentes, setColaboradoresPendentes] = useState<ColaboradorEquipe[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [isOfflineLogin, setIsOfflineLogin] = useState(false);
+
+  // Monitorar status de conexão
+  useEffect(() => {
+    const handleOnline = () => {
+      console.log("[EquipeAuth] Conexão restaurada");
+      setIsOnline(true);
+    };
+
+    const handleOffline = () => {
+      console.log("[EquipeAuth] Conexão perdida");
+      setIsOnline(false);
+    };
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
 
   // Carregar equipe e turno do localStorage ao iniciar
   useEffect(() => {
-    const equipeSalva = localStorage.getItem("equipe_auth");
-    const turnoSalvo = localStorage.getItem("turno_auth");
-    
-    if (equipeSalva) {
-      try {
-        const equipeData = JSON.parse(equipeSalva);
-        setEquipe(equipeData);
-      } catch {
-        localStorage.removeItem("equipe_auth");
+    const loadAuthData = async () => {
+      const equipeSalva = localStorage.getItem("equipe_auth");
+      const turnoSalvo = localStorage.getItem("turno_auth");
+      
+      if (equipeSalva) {
+        try {
+          const equipeData = JSON.parse(equipeSalva);
+          setEquipe(equipeData);
+        } catch {
+          localStorage.removeItem("equipe_auth");
+        }
       }
-    }
-    
-    if (turnoSalvo) {
-      try {
-        const turnoData = JSON.parse(turnoSalvo);
-        setTurno(turnoData);
-      } catch {
-        localStorage.removeItem("turno_auth");
+      
+      if (turnoSalvo) {
+        try {
+          const turnoData = JSON.parse(turnoSalvo);
+          setTurno(turnoData);
+        } catch {
+          localStorage.removeItem("turno_auth");
+        }
       }
-    }
-    
-    setIsLoading(false);
+      
+      setIsLoading(false);
+    };
+
+    loadAuthData();
   }, []);
+
+  // Salvar dados de autenticação para uso offline
+  const saveOfflineAuthData = useCallback(async () => {
+    if (!equipe) return;
+
+    const dataHoje = format(new Date(), "yyyy-MM-dd");
+    const offlineData: OfflineAuthData = {
+      equipe,
+      turno,
+      colaboradores: turno?.colaboradores || colaboradoresPendentes,
+      lastLoginDate: dataHoje,
+      lastSyncDate: new Date().toISOString(),
+    };
+
+    // Salvar usando código da equipe como chave
+    await saveAuthToIndexedDB(`auth_${equipe.codigo}`, offlineData);
+    console.log("[EquipeAuth] Dados salvos para uso offline:", equipe.codigo);
+  }, [equipe, turno, colaboradoresPendentes]);
+
+  // Limpar dados de autenticação offline
+  const clearOfflineAuthData = useCallback(async () => {
+    if (equipe) {
+      await removeAuthFromIndexedDB(`auth_${equipe.codigo}`);
+      console.log("[EquipeAuth] Dados offline removidos:", equipe.codigo);
+    }
+  }, [equipe]);
+
+  // Salvar automaticamente quando turno é aberto
+  useEffect(() => {
+    if (equipe && turno) {
+      saveOfflineAuthData();
+    }
+  }, [equipe, turno, saveOfflineAuthData]);
 
   // Login antigo (com usuário e senha) - mantido para compatibilidade
   const login = async (usuario: string, senha: string): Promise<boolean> => {
@@ -111,16 +249,113 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Login novo (código da equipe + placa)
+  // Login novo (código da equipe + placa) - com suporte offline
   const loginEquipe = async (codigoEquipe: string, placaVeiculo: string): Promise<{
     success: boolean;
     colaboradores?: ColaboradorEquipe[];
     message?: string;
     turnoExistente?: TurnoExistente;
+    isOffline?: boolean;
   }> => {
     setIsLoading(true);
     setError(null);
+    setIsOfflineLogin(false);
 
+    // Se está offline, tentar login via dados salvos
+    if (!navigator.onLine) {
+      console.log("[EquipeAuth] Tentando login offline para:", codigoEquipe);
+      
+      try {
+        const offlineData = await getAuthFromIndexedDB(`auth_${codigoEquipe.toUpperCase()}`);
+        
+        if (offlineData) {
+          const dataHoje = format(new Date(), "yyyy-MM-dd");
+          
+          // Verificar se o login offline é do mesmo dia
+          if (offlineData.lastLoginDate === dataHoje) {
+            console.log("[EquipeAuth] Login offline autorizado - dados do mesmo dia");
+            
+            // Verificar se a placa confere
+            if (offlineData.equipe.placa_veiculo !== placaVeiculo.toUpperCase()) {
+              setIsLoading(false);
+              setError("Placa do veículo não confere com o último acesso");
+              return {
+                success: false,
+                message: "Placa do veículo não confere com o último acesso",
+                isOffline: true,
+              };
+            }
+            
+            // Restaurar dados
+            setEquipe(offlineData.equipe);
+            setIsOfflineLogin(true);
+            localStorage.setItem("equipe_auth", JSON.stringify(offlineData.equipe));
+            
+            // Se tinha turno aberto, restaurar
+            if (offlineData.turno) {
+              setTurno(offlineData.turno);
+              localStorage.setItem("turno_auth", JSON.stringify(offlineData.turno));
+              setColaboradoresPendentes([]);
+              
+              setIsLoading(false);
+              return {
+                success: true,
+                colaboradores: offlineData.turno.colaboradores,
+                turnoExistente: {
+                  id: offlineData.turno.id,
+                  data_turno: offlineData.turno.data_turno,
+                  hora_inicio: offlineData.turno.hora_inicio,
+                  placa_veiculo: offlineData.turno.placa_veiculo,
+                  km_inicial: offlineData.turno.km_inicial,
+                  colaboradores: offlineData.turno.colaboradores,
+                },
+                isOffline: true,
+              };
+            } else {
+              // Não tinha turno, retornar colaboradores salvos
+              setColaboradoresPendentes(offlineData.colaboradores);
+              setIsLoading(false);
+              return {
+                success: true,
+                colaboradores: offlineData.colaboradores,
+                isOffline: true,
+              };
+            }
+          } else {
+            // Dados de outro dia - não permitir login offline
+            console.log("[EquipeAuth] Login offline negado - dados de outro dia");
+            setIsLoading(false);
+            setError("Dados offline expirados. Conecte-se à internet para fazer login.");
+            return {
+              success: false,
+              message: "Dados offline expirados. Conecte-se à internet para fazer login.",
+              isOffline: true,
+            };
+          }
+        } else {
+          // Sem dados offline
+          console.log("[EquipeAuth] Login offline negado - sem dados salvos");
+          setIsLoading(false);
+          setError("Sem conexão com internet. Faça login online primeiro.");
+          return {
+            success: false,
+            message: "Sem conexão com internet. Faça login online primeiro.",
+            isOffline: true,
+          };
+        }
+      } catch (offlineError) {
+        console.error("[EquipeAuth] Erro ao tentar login offline:", offlineError);
+        setIsLoading(false);
+        setError("Sem conexão com internet");
+        return {
+          success: false,
+          message: "Sem conexão com internet",
+          isOffline: true,
+        };
+      }
+    }
+
+    // Login online normal
     try {
       const result = await validarLoginEquipe(codigoEquipe, placaVeiculo);
 
@@ -158,11 +393,33 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
           },
           { equipeId: result.id, equipeCodigo: codigoEquipe }
         );
+
+        // Salvar dados para uso offline futuro
+        const dataHoje = format(new Date(), "yyyy-MM-dd");
+        const offlineData: OfflineAuthData = {
+          equipe: equipeData,
+          turno: turnoResult.turno ? {
+            id: turnoResult.turno.id,
+            equipe_id: equipeData.id,
+            data_turno: turnoResult.turno.data_turno,
+            hora_inicio: turnoResult.turno.hora_inicio,
+            placa_veiculo: turnoResult.turno.placa_veiculo || placaVeiculo,
+            km_inicial: turnoResult.turno.km_inicial,
+            status: "aberto",
+            colaboradores: turnoResult.turno.colaboradores || [],
+          } : null,
+          colaboradores: result.colaboradores || [],
+          lastLoginDate: dataHoje,
+          lastSyncDate: new Date().toISOString(),
+        };
+        await saveAuthToIndexedDB(`auth_${equipeData.codigo}`, offlineData);
+        console.log("[EquipeAuth] Dados salvos para uso offline");
         
         return {
           success: true,
           colaboradores: result.colaboradores || [],
           turnoExistente: turnoResult.turno,
+          isOffline: false,
         };
       } else {
         setError(result.message || "Equipe não encontrada");
@@ -172,6 +429,14 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
         };
       }
     } catch (err: any) {
+      // Se falhou por erro de rede, tentar login offline
+      if (!navigator.onLine || err.message?.includes("network") || err.message?.includes("Failed to fetch")) {
+        console.log("[EquipeAuth] Erro de rede, tentando login offline...");
+        // Recursivamente tentar login offline
+        setIsOnline(false);
+        return loginEquipe(codigoEquipe, placaVeiculo);
+      }
+      
       setError(err.message || "Erro ao fazer login");
       return {
         success: false,
@@ -222,7 +487,7 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
     );
   };
 
-  // Iniciar turno com colaboradores selecionados
+  // Iniciar turno com colaboradores selecionados - com suporte offline
   const iniciarTurno = async (colaboradoresIds: string[], kmInicial?: number, colaboradoresFull?: ColaboradorEquipe[]): Promise<{ success: boolean; message?: string }> => {
     if (!equipe) {
       setError("Equipe não autenticada");
@@ -232,6 +497,49 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     setError(null);
 
+    // Usar colaboradoresFull se fornecido, senão filtrar de colaboradoresPendentes
+    const colaboradoresTurno = colaboradoresFull || colaboradoresPendentes.filter(c => colaboradoresIds.includes(c.id));
+    const dataHoje = format(new Date(), "yyyy-MM-dd");
+
+    // Se está offline, criar turno local
+    if (!navigator.onLine) {
+      console.log("[EquipeAuth] Criando turno offline");
+      
+      const turnoOfflineId = `offline_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      const turnoData: Turno = {
+        id: turnoOfflineId,
+        equipe_id: equipe.id,
+        data_turno: dataHoje,
+        hora_inicio: new Date().toISOString(),
+        placa_veiculo: equipe.placa_veiculo || "",
+        km_inicial: kmInicial,
+        status: "aberto",
+        colaboradores: colaboradoresTurno,
+      };
+      
+      setTurno(turnoData);
+      localStorage.setItem("turno_auth", JSON.stringify(turnoData));
+      setColaboradoresPendentes([]);
+      
+      // Salvar dados offline atualizados
+      const offlineData: OfflineAuthData = {
+        equipe,
+        turno: turnoData,
+        colaboradores: colaboradoresTurno,
+        lastLoginDate: dataHoje,
+        lastSyncDate: new Date().toISOString(),
+      };
+      await saveAuthToIndexedDB(`auth_${equipe.codigo}`, offlineData);
+      
+      // TODO: Enfileirar para sincronização quando voltar online
+      // Isso será tratado pelo hook useOfflineSync
+      
+      setIsLoading(false);
+      return { success: true, message: "Turno criado offline. Será sincronizado quando houver conexão." };
+    }
+
+    // Online - criar turno normalmente
     try {
       const result = await abrirTurno(
         equipe.id,
@@ -241,13 +549,10 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
       );
 
       if (result.success && result.turnoId) {
-        // Usar colaboradoresFull se fornecido, senão filtrar de colaboradoresPendentes
-        const colaboradoresTurno = colaboradoresFull || colaboradoresPendentes.filter(c => colaboradoresIds.includes(c.id));
-        
         const turnoData: Turno = {
           id: result.turnoId,
           equipe_id: equipe.id,
-          data_turno: new Date().toISOString().split("T")[0],
+          data_turno: dataHoje,
           hora_inicio: new Date().toISOString(),
           placa_veiculo: equipe.placa_veiculo || "",
           km_inicial: kmInicial,
@@ -258,6 +563,16 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
         setTurno(turnoData);
         localStorage.setItem("turno_auth", JSON.stringify(turnoData));
         setColaboradoresPendentes([]);
+        
+        // Salvar dados offline atualizados
+        const offlineData: OfflineAuthData = {
+          equipe,
+          turno: turnoData,
+          colaboradores: colaboradoresTurno,
+          lastLoginDate: dataHoje,
+          lastSyncDate: new Date().toISOString(),
+        };
+        await saveAuthToIndexedDB(`auth_${equipe.codigo}`, offlineData);
         
         // Registrar log de abertura de turno
         const colaboradoresNomes = colaboradoresTurno.map(c => c.nome).join(", ");
@@ -386,6 +701,8 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
         colaboradoresPendentes,
         isLoading,
         error,
+        isOnline,
+        isOfflineLogin,
         login,
         loginEquipe,
         acessarTurnoExistente,
@@ -394,6 +711,8 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
         logout,
         isAuthenticated: !!equipe,
         temTurnoAberto: !!turno,
+        saveOfflineAuthData,
+        clearOfflineAuthData,
       }}
     >
       {children}

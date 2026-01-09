@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { Button } from "@/components/ui/button";
@@ -15,16 +15,19 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Zap, Loader2, Smartphone, Car, Users, Clock, AlertTriangle, Calendar } from "lucide-react";
+import { Zap, Loader2, Smartphone, Car, Users, Clock, AlertTriangle, Calendar, Wifi, WifiOff, CloudOff } from "lucide-react";
 import { TurnoExistente } from "@/lib/authUtils";
 import { format, parseISO, isToday, isBefore, startOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
 
 export default function AppLogin() {
   const navigate = useNavigate();
-  const { loginEquipe, acessarTurnoExistente, isLoading } = useEquipeAuth();
+  const { loginEquipe, acessarTurnoExistente, isLoading, isOfflineLogin } = useEquipeAuth();
+  const { isOnline } = useOfflineSyncContext();
   const [codigoEquipe, setCodigoEquipe] = useState("");
   const [placaVeiculo, setPlacaVeiculo] = useState("");
+  const [loginOffline, setLoginOffline] = useState(false);
   
   // Estado para diálogo de turno existente
   const [turnoExistenteDialog, setTurnoExistenteDialog] = useState<{
@@ -54,15 +57,27 @@ export default function AppLogin() {
     const result = await loginEquipe(codigoEquipe.trim(), placaVeiculo.trim());
 
     if (result.success) {
+      // Registrar se foi login offline
+      setLoginOffline(!!result.isOffline);
+      
       // Verificar se existe turno aberto
       if (result.turnoExistente) {
         setTurnoExistenteDialog({ open: true, turno: result.turnoExistente });
       } else {
-        toast.success("Equipe validada!");
+        if (result.isOffline) {
+          toast.info("Login offline realizado! Dados carregados do cache.");
+        } else {
+          toast.success("Equipe validada!");
+        }
         navigate("/app/abrir-turno");
       }
     } else {
-      toast.error(result.message || "Código ou placa incorretos");
+      // Se está offline e falhou, mostrar mensagem específica
+      if (result.isOffline) {
+        toast.error(result.message || "Sem dados offline disponíveis. Conecte-se à internet para o primeiro acesso do dia.");
+      } else {
+        toast.error(result.message || "Código ou placa incorretos");
+      }
     }
   };
 
@@ -99,6 +114,21 @@ export default function AppLogin() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/20 via-background to-primary/10 flex flex-col items-center justify-center p-4">
+      {/* Indicador de conexão no topo */}
+      <div className="fixed top-0 left-0 right-0 z-50">
+        {!isOnline && (
+          <div className="bg-gradient-to-r from-amber-600 to-orange-600 text-white px-4 py-2 text-center">
+            <div className="flex items-center justify-center gap-2 text-sm font-medium">
+              <WifiOff className="h-4 w-4 animate-pulse" />
+              <span>Modo offline</span>
+            </div>
+            <p className="text-xs text-white/80">
+              Você pode acessar se já fez login hoje com internet
+            </p>
+          </div>
+        )}
+      </div>
+
       {/* Logo e Título */}
       <div className="text-center mb-8">
         <div className="inline-flex items-center justify-center h-20 w-20 rounded-3xl bg-gradient-to-br from-primary to-primary/80 shadow-xl shadow-primary/30 mb-4">
@@ -109,6 +139,24 @@ export default function AppLogin() {
           <Smartphone className="h-4 w-4" />
           App do Técnico
         </p>
+        {/* Status de conexão */}
+        <div className={`mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs ${
+          isOnline 
+            ? "bg-green-100 text-green-700" 
+            : "bg-amber-100 text-amber-700"
+        }`}>
+          {isOnline ? (
+            <>
+              <Wifi className="h-3 w-3" />
+              <span>Online</span>
+            </>
+          ) : (
+            <>
+              <CloudOff className="h-3 w-3" />
+              <span>Offline</span>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Card de Login */}
@@ -183,9 +231,29 @@ export default function AppLogin() {
           {/* Info sobre próximo passo */}
           <div className="mt-6 p-3 rounded-lg bg-muted/50 border border-border">
             <p className="text-xs text-muted-foreground text-center">
-              Na próxima tela, você confirmará os colaboradores que vão trabalhar hoje.
+              {isOnline 
+                ? "Na próxima tela, você confirmará os colaboradores que vão trabalhar hoje."
+                : "Se você já acessou hoje com internet, poderá entrar com os dados salvos."
+              }
             </p>
           </div>
+          
+          {/* Info sobre funcionamento offline */}
+          {!isOnline && (
+            <div className="mt-3 p-3 rounded-lg bg-amber-50 border border-amber-200">
+              <div className="flex gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs font-medium text-amber-800">
+                    Primeiro acesso do dia requer internet
+                  </p>
+                  <p className="text-[10px] text-amber-700 mt-1">
+                    Após o primeiro login online, você poderá acessar mesmo sem conexão.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
-import { Home, Route, LogOut, Wifi, WifiOff, Package, MessageCircle, BarChart3, Timer, AlertTriangle, X } from "lucide-react";
+import { Home, Route, LogOut, Wifi, WifiOff, Package, MessageCircle, BarChart3, Timer, AlertTriangle, X, Cloud, CloudOff, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
@@ -11,23 +11,43 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
 import { format, parseISO, isBefore, startOfDay, isToday } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { OfflineSyncIndicator, OfflineStatusBanner } from "@/components/app/OfflineSyncIndicator";
+import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
+import { useOfflineData } from "@/hooks/useOfflineData";
 
 type AppSection = "home" | "ordens" | "estoque" | "chat" | "resultados";
 
 export default function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { logout, temTurnoAberto, turno } = useEquipeAuth();
+  const { logout, temTurnoAberto, turno, isOfflineLogin } = useEquipeAuth();
   const { equipe } = useTecnico();
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [chatNaoLidas, setChatNaoLidas] = useState(0);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  
+  // Sistema de sincronização offline
+  const { isOnline, pendingCount, isSyncing, syncPendingOperations } = useOfflineSyncContext();
+  const { preloadEssentialData } = useOfflineData();
+  const [hasPreloaded, setHasPreloaded] = useState(false);
   
   // Estado para contador de ociosidade
   const [tempoOcioso, setTempoOcioso] = useState(0);
   
   const dataHoje = format(new Date(), "yyyy-MM-dd");
   const [alertaTurnoFechado, setAlertaTurnoFechado] = useState(false);
+
+  // Pré-carregar dados essenciais quando online
+  useEffect(() => {
+    if (isOnline && equipe?.id && temTurnoAberto && !hasPreloaded) {
+      console.log("[AppLayout] Iniciando pré-carregamento de dados...");
+      preloadEssentialData(equipe.id).then((success) => {
+        if (success) {
+          setHasPreloaded(true);
+          console.log("[AppLayout] Dados pré-carregados com sucesso!");
+        }
+      });
+    }
+  }, [isOnline, equipe?.id, temTurnoAberto, hasPreloaded, preloadEssentialData]);
 
   // Verificar se o turno é de um dia anterior (desatualizado)
   const turnoDesatualizado = useMemo(() => {
@@ -264,19 +284,7 @@ export default function AppLayout() {
     return base;
   };
 
-  // Monitorar status de conexão
-  useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-
-    return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-    };
-  }, []);
+  // O status de conexão agora vem do hook useOfflineSyncContext
 
   // Memorizar a última rota visitada dentro de cada aba/seção
   useEffect(() => {
@@ -341,23 +349,66 @@ export default function AppLayout() {
           </div>
           
           <div className="flex items-center gap-2">
-            {/* Indicador de conexão */}
+            {/* Indicador de conexão e sincronização */}
             <div className={cn(
-              "flex items-center gap-1 px-2 py-1 rounded-full text-xs",
-              isOnline ? "bg-green-500/20 text-green-100" : "bg-red-500/20 text-red-100"
-            )}>
-              {isOnline ? (
+              "flex items-center gap-1.5 px-2 py-1 rounded-full text-xs cursor-pointer transition-colors",
+              isSyncing 
+                ? "bg-blue-500/20 text-blue-100" 
+                : isOnline 
+                  ? pendingCount > 0
+                    ? "bg-yellow-500/20 text-yellow-100"
+                    : "bg-green-500/20 text-green-100" 
+                  : "bg-red-500/20 text-red-100"
+            )}
+              onClick={() => pendingCount > 0 && isOnline && syncPendingOperations()}
+              title={
+                isSyncing 
+                  ? "Sincronizando..." 
+                  : isOnline 
+                    ? pendingCount > 0 
+                      ? `${pendingCount} pendentes - toque para sincronizar`
+                      : "Online" 
+                    : "Modo offline"
+              }
+            >
+              {isSyncing ? (
                 <>
-                  <Wifi className="h-3 w-3" />
-                  <span className="hidden sm:inline">Online</span>
+                  <RefreshCw className="h-3 w-3 animate-spin" />
+                  <span className="hidden sm:inline">Sincronizando</span>
                 </>
+              ) : isOnline ? (
+                pendingCount > 0 ? (
+                  <>
+                    <Cloud className="h-3 w-3" />
+                    <span className="font-medium">{pendingCount}</span>
+                    <span className="hidden sm:inline">pendente{pendingCount > 1 ? "s" : ""}</span>
+                  </>
+                ) : (
+                  <>
+                    <Wifi className="h-3 w-3" />
+                    <span className="hidden sm:inline">Online</span>
+                  </>
+                )
               ) : (
                 <>
-                  <WifiOff className="h-3 w-3" />
+                  <WifiOff className="h-3 w-3 animate-pulse" />
                   <span className="hidden sm:inline">Offline</span>
+                  {pendingCount > 0 && (
+                    <Badge variant="secondary" className="h-4 px-1 text-[10px] bg-white/20 text-white">
+                      {pendingCount}
+                    </Badge>
+                  )}
                 </>
               )}
             </div>
+            
+            {/* Indicador de login offline */}
+            {isOfflineLogin && (
+              <div className="px-2 py-1 rounded-full text-xs bg-orange-500/20 text-orange-100">
+                <CloudOff className="h-3 w-3 inline mr-1" />
+                <span className="hidden sm:inline">Modo local</span>
+              </div>
+            )}
             
             <button
               onClick={handleLogout}
@@ -370,11 +421,30 @@ export default function AppLayout() {
         </div>
       </header>
 
-      {/* Alerta de Offline */}
+      {/* Alerta de Offline / Sincronização */}
       {!isOnline && (
-        <div className="bg-amber-500 text-amber-950 px-4 py-2 text-center text-sm font-medium">
-          <WifiOff className="h-4 w-4 inline mr-2" />
-          Você está offline. Algumas funcionalidades podem não estar disponíveis.
+        <div className="bg-gradient-to-r from-amber-600 to-orange-600 text-white px-4 py-2">
+          <div className="flex items-center justify-center gap-2 text-sm font-medium">
+            <WifiOff className="h-4 w-4 animate-pulse" />
+            <span>Modo offline ativo</span>
+            {pendingCount > 0 && (
+              <>
+                <span>•</span>
+                <span className="text-white/90">{pendingCount} ação(ões) pendente(s)</span>
+              </>
+            )}
+          </div>
+          <p className="text-xs text-center text-white/80 mt-1">
+            Suas ações serão salvas e sincronizadas quando a conexão voltar.
+          </p>
+        </div>
+      )}
+      
+      {/* Banner de sincronização em andamento */}
+      {isOnline && isSyncing && pendingCount > 0 && (
+        <div className="bg-blue-500 text-white px-4 py-2 text-center text-sm font-medium">
+          <RefreshCw className="h-4 w-4 inline mr-2 animate-spin" />
+          Sincronizando {pendingCount} operação(ões)...
         </div>
       )}
 

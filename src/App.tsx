@@ -10,6 +10,7 @@ import { TecnicoProvider } from "@/contexts/TecnicoContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { PermissoesProvider } from "@/hooks/usePermissoes";
+import { OfflineSyncProvider } from "@/hooks/useOfflineSync";
 import Login from "./pages/Login";
 // Dashboard removido - sistema inicia em DashboardProducaoMeta
 import Roteirizacao from "./pages/Roteirizacao";
@@ -162,21 +163,27 @@ const App = () => (
             {/* Rotas do App Móvel */}
             <Route path="/app/login" element={
               <EquipeAuthProvider>
-                <AppLogin />
+                <OfflineSyncProvider>
+                  <AppLogin />
+                </OfflineSyncProvider>
               </EquipeAuthProvider>
             } />
             <Route path="/app/abrir-turno" element={
               <EquipeAuthProvider>
-                <AppAbrirTurno />
+                <OfflineSyncProvider>
+                  <AppAbrirTurno />
+                </OfflineSyncProvider>
               </EquipeAuthProvider>
             } />
             <Route path="/app" element={
               <EquipeAuthProvider>
-                <AppProtectedRoute>
-                  <TecnicoProvider>
-                    <AppLayout />
-                  </TecnicoProvider>
-                </AppProtectedRoute>
+                <OfflineSyncProvider>
+                  <AppProtectedRoute>
+                    <TecnicoProvider>
+                      <AppLayout />
+                    </TecnicoProvider>
+                  </AppProtectedRoute>
+                </OfflineSyncProvider>
               </EquipeAuthProvider>
             }>
               <Route index element={<AppHome />} />
