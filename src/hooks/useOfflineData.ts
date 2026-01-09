@@ -107,7 +107,7 @@ export function useOfflineData() {
     try {
       const { data, error } = await supabase
         .from("retornos_campo")
-        .select("*, atividades:retornos_campo_atividades(*)")
+        .select("id, codigo, descricao, tipo, cor, ativo")
         .eq("ativo", true)
         .order("codigo");
       
@@ -128,7 +128,7 @@ export function useOfflineData() {
           *,
           ordens_servico:ordem_servico_id (
             id, numero, tipo, status, endereco, latitude, longitude,
-            cliente_nome, cliente_telefone, prazo, valor, regulada,
+            cliente_nome, prazo, valor, regulada,
             observacoes, contrato_id, centro_custo_id,
             deslocamento_iniciado_at, chegada_local_at,
             execucao_iniciada_at, concluido_at, pausado_at
@@ -189,8 +189,8 @@ export function useOfflineData() {
   const preloadIntervalosDia = useCallback(async (equipeId: string, data: string) => {
     try {
       const { data: intervalos, error } = await supabase
-        .from("equipes_intervalos")
-        .select("*, tipos_intervalo:tipo_intervalo_id(*)")
+        .from("intervalos_equipe")
+        .select("*")
         .eq("equipe_id", equipeId)
         .gte("hora_inicio", `${data}T00:00:00`)
         .lte("hora_inicio", `${data}T23:59:59`);
@@ -224,19 +224,18 @@ export function useOfflineData() {
   // Pré-carregar materiais do estoque da equipe
   const preloadMateriaisEstoque = useCallback(async (equipeId: string) => {
     try {
-      // Buscar tecnico_id da equipe
-      const { data: equipe, error: equipeError } = await supabase
-        .from("tecnicos")
-        .select("id")
-        .eq("id", equipeId)
-        .single();
-      
-      if (equipeError || !equipe) return;
-
       const { data: estoque, error } = await supabase
-        .from("materiais_estoque_equipes")
-        .select("*, materiais_catalogo:material_id(*)")
-        .eq("tecnico_id", equipeId)
+        .from("materiais_estoque")
+        .select(`
+          id,
+          material_id,
+          quantidade,
+          materiais!inner (
+            id, codigo, nome, unidade, categoria, estoque_minimo, requer_serial
+          )
+        `)
+        .eq("local_tipo", "equipe")
+        .eq("local_id", equipeId)
         .gt("quantidade", 0);
       
       if (error) throw error;
@@ -252,7 +251,7 @@ export function useOfflineData() {
     try {
       const { data, error } = await supabase
         .from("checklists")
-        .select("*, perguntas:checklist_perguntas(*, opcoes:checklist_opcoes(*))")
+        .select("*")
         .eq("ativo", true)
         .order("nome");
       
