@@ -8,6 +8,8 @@ import { logApp } from "@/lib/logUtils";
 import { usePageState } from "@/contexts/ScrollRestoreContext";
 import { getAppParentRoute } from "@/lib/appNavigation";
 import { useRetornoCampo } from "@/hooks/useRetornoCampo";
+import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
+import { useOfflineData, CACHE_KEYS } from "@/hooks/useOfflineData";
 import RetornoCampoSelector from "@/components/app/RetornoCampoSelector";
 import {
   Dialog,
@@ -112,6 +114,8 @@ export default function AppOrdemDetalhe() {
   const queryClient = useQueryClient();
   const { equipe: equipeAuth } = useEquipeAuth();
   const { equipe } = useTecnico();
+  const { isOnline } = useOfflineSyncContext();
+  const { getFromCache } = useOfflineData();
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [observacao, setObservacao] = useState("");
@@ -174,8 +178,29 @@ export default function AppOrdemDetalhe() {
 
   // Buscar ordem
   const { data: ordem, isLoading } = useQuery({
-    queryKey: ["ordem-detalhe", id],
+    queryKey: ["ordem-detalhe", id, isOnline],
     queryFn: async () => {
+      const equipeId = equipe?.id || equipeAuth?.id;
+      
+      // Se estiver offline, tentar buscar do cache
+      if (!isOnline && equipeId) {
+        console.log("[AppOrdemDetalhe] Offline - buscando do cache...");
+        const dataHoje = format(new Date(), "yyyy-MM-dd");
+        const cachedPlanejamento = await getFromCache(`${CACHE_KEYS.PLANEJAMENTO_DIA}_${equipeId}_${dataHoje}`);
+        
+        if (cachedPlanejamento && Array.isArray(cachedPlanejamento)) {
+          const ordemEncontrada = (cachedPlanejamento as any[]).find(
+            p => p.ordens_servico?.id === id
+          );
+          if (ordemEncontrada?.ordens_servico) {
+            console.log("[AppOrdemDetalhe] Ordem encontrada no cache");
+            return ordemEncontrada.ordens_servico;
+          }
+        }
+        console.log("[AppOrdemDetalhe] Ordem não encontrada no cache");
+        return null;
+      }
+
       const { data, error } = await supabase
         .from("ordens_servico")
         .select("*")
@@ -202,10 +227,19 @@ export default function AppOrdemDetalhe() {
     enabled: !!id,
   });
 
-  // Buscar skills
+  // Buscar skills (com fallback para cache offline)
   const { data: skillsData } = useQuery({
-    queryKey: ["skills-app-detalhe"],
+    queryKey: ["skills-app-detalhe", isOnline],
     queryFn: async () => {
+      // Tentar buscar do cache se offline
+      if (!isOnline) {
+        const cachedSkills = await getFromCache(CACHE_KEYS.SKILLS);
+        if (cachedSkills && Array.isArray(cachedSkills)) {
+          return cachedSkills as { codigo: string; nome: string }[];
+        }
+        return [];
+      }
+
       const { data, error } = await supabase
         .from("skills")
         .select("codigo, nome")

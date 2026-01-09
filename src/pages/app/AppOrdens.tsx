@@ -5,6 +5,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useTecnico } from "@/contexts/TecnicoContext";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { usePageState } from "@/contexts/ScrollRestoreContext";
+import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
+import { useOfflineData, CACHE_KEYS } from "@/hooks/useOfflineData";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -100,6 +102,8 @@ export default function AppOrdens() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { equipe, isLoading: isLoadingEquipe } = useTecnico();
+  const { isOnline } = useOfflineSyncContext();
+  const { getPlanejamentoFromCache, saveToCache } = useOfflineData();
   const { getState, saveState } = usePageState<{
     searchTerm?: string;
     activeTab?: string;
@@ -138,7 +142,7 @@ export default function AppOrdens() {
   // Buscar ordens planejadas para a data selecionada
   const { equipe: equipeAuth } = useEquipeAuth();
   const { data: ordensPlanejadas, isLoading: isLoadingOrdens, refetch } = useQuery({
-    queryKey: ["ordens-planejadas", equipe?.id, equipeAuth?.id, format(selectedDate, "yyyy-MM-dd")],
+    queryKey: ["ordens-planejadas", equipe?.id, equipeAuth?.id, format(selectedDate, "yyyy-MM-dd"), isOnline],
     queryFn: async () => {
       const equipeId = equipe?.id || equipeAuth?.id;
       if (!equipeId) {
@@ -149,7 +153,31 @@ export default function AppOrdens() {
       const dataFormatada = format(selectedDate, "yyyy-MM-dd");
       const dataInicio = `${dataFormatada}T00:00:00`;
       const dataFim = `${dataFormatada}T23:59:59`;
-      console.log("[DEBUG AppOrdens] Buscando ordens para equipe:", equipeId, "data:", dataFormatada);
+      console.log("[DEBUG AppOrdens] Buscando ordens para equipe:", equipeId, "data:", dataFormatada, "online:", isOnline);
+
+      // Se estiver offline, tentar usar o cache
+      if (!isOnline) {
+        console.log("[DEBUG AppOrdens] Offline - buscando do cache...");
+        const cachedPlanejamento = await getPlanejamentoFromCache(equipeId, dataFormatada);
+        if (cachedPlanejamento && Array.isArray(cachedPlanejamento) && cachedPlanejamento.length > 0) {
+          console.log("[DEBUG AppOrdens] Cache encontrado:", cachedPlanejamento.length, "ordens");
+          // Converter para o formato esperado
+          const ordensFromCache: OrdemPlanejada[] = (cachedPlanejamento as any[]).map((item, index) => ({
+            id: item.id || `cache-${index}`,
+            ordem_na_rota: item.ordem_na_rota || index + 1,
+            hora_inicio_estimada: item.hora_inicio_estimada,
+            hora_fim_estimada: item.hora_fim_estimada,
+            distancia_km: item.distancia_km,
+            tempo_estimado_minutos: item.tempo_estimado_minutos,
+            planejamento_id: item.planejamento_id || "",
+            ordens_servico: item.ordens_servico || null,
+            planejamentos: item.planejamentos || { id: "", data_planejamento: dataFormatada, status: "aberto" },
+          }));
+          return ordensFromCache;
+        }
+        console.log("[DEBUG AppOrdens] Cache vazio ou não encontrado");
+        return [];
+      }
 
       // Buscar ordens planejadas
       const { data: ordensPlanejadasData, error: errorPlanejadas } = await supabase
@@ -254,11 +282,21 @@ export default function AppOrdens() {
       }
 
       console.log("[DEBUG AppOrdens] Total ordens (planejadas + avulsas):", todasOrdens.length);
+
+      // Salvar no cache para uso offline (apenas se tiver dados)
+      if (todasOrdens.length > 0) {
+        try {
+          await saveToCache(`${CACHE_KEYS.PLANEJAMENTO_DIA}_${equipeId}_${dataFormatada}`, todasOrdens, 24);
+          console.log("[DEBUG AppOrdens] Ordens salvas no cache");
+        } catch (e) {
+          console.error("[DEBUG AppOrdens] Erro ao salvar cache:", e);
+        }
+      }
       
       return todasOrdens;
     },
     enabled: !!(equipe?.id || equipeAuth?.id),
-    refetchInterval: 30000,
+    refetchInterval: isOnline ? 30000 : false, // Não refetch quando offline
   });
 
   // Realtime subscription
