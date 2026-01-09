@@ -898,20 +898,24 @@ const Roteirizacao = () => {
                 eta: po.hora_inicio_estimada || "",
               });
               distanciaTotal += po.distancia_km || 0;
-              tempoTotal += po.tempo_estimado_minutos || 0;
               faturamentoTotal += os.valor || 0;
             }
           }
         }
 
-        rotasReconstruidas.push({
+        // Criar rota inicial
+        const rotaInicial: RotaEquipe = {
           equipe,
           servicos,
           distanciaTotal,
-          tempoTotal,
+          tempoTotal: 0, // Será recalculado
           faturamentoTotal,
           progresso: 0,
-        });
+        };
+        
+        // Recalcular a rota para obter métricas corretas (tempo, progresso)
+        const resultado = recalcularRota(rotaInicial);
+        rotasReconstruidas.push(resultado.rota);
       }
 
       setRotas(rotasReconstruidas);
@@ -1048,20 +1052,24 @@ const Roteirizacao = () => {
                 eta: po.hora_inicio_estimada || "",
               });
               distanciaTotal += po.distancia_km || 0;
-              tempoTotal += po.tempo_estimado_minutos || 0;
               faturamentoTotal += os.valor || 0;
             }
           }
         }
 
-        rotasReconstruidas.push({
+        // Criar rota inicial
+        const rotaInicial: RotaEquipe = {
           equipe,
           servicos,
           distanciaTotal,
-          tempoTotal,
+          tempoTotal: 0, // Será recalculado
           faturamentoTotal,
           progresso: 0,
-        });
+        };
+        
+        // Recalcular a rota para obter métricas corretas (tempo, progresso)
+        const resultado = recalcularRota(rotaInicial);
+        rotasReconstruidas.push(resultado.rota);
       }
 
       setRotas(rotasReconstruidas);
