@@ -1933,8 +1933,14 @@ const Roteirizacao = () => {
       });
       setRotasOriginais(novoSnapshot);
       
-      // Fechar dialog mas manter o modo de edição
+      // Fechar dialog e definir modo de edição
       setConfirmarPlanejamentoDialogOpen(false);
+      
+      // Se era um novo planejamento, definir o ID para modo de edição
+      // Assim o botão muda de "Confirmar Rotas" para "Confirmar Alterações"
+      if (!planejamentoEditandoId && planejamento?.id) {
+        setPlanejamentoEditandoId(planejamento.id);
+      }
       // NÃO limpar: setPlanejamentoEditandoId(null) e setDataPlanejamento("")
       
       // Recarregar OSs para refletir mudanças (apenas pendentes, não planejadas)
