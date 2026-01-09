@@ -367,7 +367,7 @@ export function useOfflineSync() {
   }, []);
 
   // Obter dados do cache
-  const getFromCache = useCallback(async <T>(key: string): Promise<T | null> => {
+  const getFromCache = useCallback(async <T,>(key: string): Promise<T | null> => {
     try {
       const db = await openDB();
       const transaction = db.transaction(CACHE_STORE, "readonly");
