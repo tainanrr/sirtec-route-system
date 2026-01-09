@@ -100,6 +100,8 @@ interface StatusOSTempoReal {
   iniciado_at: string | null;
   concluido_at: string | null;
   tecnico_id: string | null;
+  retorno_grupo: string | null; // executado, impedimento, parcial
+  retorno_codigo: string | null;
 }
 
 interface MapaLeafletProps {
@@ -1652,8 +1654,12 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
           // STATUS EM TEMPO REAL - Verificar status atual da OS
           const statusInfo = statusOSsTempoReal?.get(servico.ordemServico.id);
           const statusAtual = statusInfo?.status || 'planejada';
+          const retornoGrupo = statusInfo?.retorno_grupo;
           const isEmExecucao = ['em_deslocamento', 'no_local', 'em_apr', 'em_andamento', 'em_execucao'].includes(statusAtual);
           const isConcluida = statusAtual === 'concluida';
+          const isImpedida = isConcluida && retornoGrupo === 'impedimento';
+          const isParcial = isConcluida && retornoGrupo === 'parcial';
+          const isConcluidaSucesso = isConcluida && !isImpedida && !isParcial;
           
           // Obter cor da borda baseada na prioridade
           const corBorda = obterCorBordaPrioridade(servico.ordemServico);
@@ -1665,14 +1671,15 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
           // Criar ícone SVG com a cor da equipe e sigla
           // Se equipe está sendo editada, destacar marcadores dela e reduzir um pouco os outros
           const tamanhoMarker = isEmExecucao ? 48 : (isEditando ? 40 : (equipeEditando ? 24 : 32));
-          const opacidadeMarker = isConcluida ? 0.5 : (opacidadeReduzida < 1 ? opacidadeReduzida : 1);
+          const opacidadeMarker = isConcluida ? (isImpedida ? 0.85 : 0.5) : (opacidadeReduzida < 1 ? opacidadeReduzida : 1);
           // Ajustar tamanho da fonte baseado no tamanho da sigla
           const siglaLen = sigla.length;
           const baseFontSize = isEmExecucao ? 20 : (isEditando ? 18 : 14);
           const fontSize = siglaLen > 2 ? baseFontSize - 4 : baseFontSize;
           
           // Cor ajustada para status
-          const corFinal = isConcluida ? '#6b7280' : cor; // Cinza para concluídas
+          // Impedida = vermelho, Parcial = amarelo, Concluída sucesso = cinza
+          const corFinal = isImpedida ? '#dc2626' : isParcial ? '#f59e0b' : isConcluida ? '#6b7280' : cor;
           
           // Determinar animação:
           // 1. OS em execução → pulse-green (verde) PRIORIDADE MÁXIMA
@@ -1695,8 +1702,12 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
           let bordaRoteirizada = `${isEditando ? '3px' : '2px'} solid ${corBorda}`;
           if (isEmExecucao) {
             bordaRoteirizada = '4px solid #22c55e'; // Verde para em execução
-          } else if (isConcluida) {
-            bordaRoteirizada = '3px solid #10b981'; // Verde esmeralda para concluída
+          } else if (isImpedida) {
+            bordaRoteirizada = '3px solid #dc2626'; // Vermelho para impedida
+          } else if (isParcial) {
+            bordaRoteirizada = '3px solid #f59e0b'; // Amarelo para parcial
+          } else if (isConcluidaSucesso) {
+            bordaRoteirizada = '3px solid #10b981'; // Verde esmeralda para concluída com sucesso
           } else if (isSelecionadaNoEditor) {
             bordaRoteirizada = '4px solid #3b82f6';
           } else if (isReguladaHojeRoteirizada) {
@@ -1709,6 +1720,8 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
           let sombraRoteirizada = isEditando ? '0 4px 12px rgba(0,0,0,0.6)' : '0 2px 6px rgba(0,0,0,0.4)';
           if (isEmExecucao) {
             sombraRoteirizada = '0 0 16px 4px rgba(34, 197, 94, 0.7)';
+          } else if (isImpedida) {
+            sombraRoteirizada = '0 0 8px 2px rgba(220, 38, 38, 0.5)';
           } else if (isSelecionadaNoEditor) {
             sombraRoteirizada = '0 6px 16px rgba(59, 130, 246, 0.8)';
           } else if (isReguladaHojeRoteirizada && !isConcluida) {
@@ -1718,7 +1731,8 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
           }
           
           // Ícone de status para adicionar ao marcador
-          const iconeStatus = isEmExecucao ? '⚡' : isConcluida ? '✓' : '';
+          // ⚡ = em execução, ✓ = concluída sucesso, ✗ = impedida, ⚠ = parcial
+          const iconeStatus = isEmExecucao ? '⚡' : isImpedida ? '✗' : isParcial ? '⚠' : isConcluida ? '✓' : '';
           
           const iconSVG = `
             <div style="
@@ -1741,7 +1755,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, equipeHov
                 position: absolute;
                 bottom: -2px;
                 right: -2px;
-                background-color: ${isConcluida ? '#10b981' : (isEmExecucao ? '#22c55e' : 'rgba(0,0,0,0.8)')};
+                background-color: ${isImpedida ? '#dc2626' : isParcial ? '#f59e0b' : isConcluidaSucesso ? '#10b981' : (isEmExecucao ? '#22c55e' : 'rgba(0,0,0,0.8)')};
                 color: white;
                 border-radius: 50%;
                 width: ${isEmExecucao ? '24px' : (isEditando ? '20px' : (equipeEditando ? '16px' : '18px'))};

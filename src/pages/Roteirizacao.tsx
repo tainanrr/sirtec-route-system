@@ -178,8 +178,10 @@ function formatarDataPrazo(prazo: Date): string {
 
 /**
  * Retorna as informações de badge para o status de uma OS em tempo real
+ * @param status - Status da OS
+ * @param retornoGrupo - Grupo do retorno de campo (executado, impedimento, parcial)
  */
-function getStatusBadgeInfo(status: string | undefined): { label: string; className: string; icon?: string } | null {
+function getStatusBadgeInfo(status: string | undefined, retornoGrupo?: string | null): { label: string; className: string; icon?: string } | null {
   if (!status) return null;
   
   switch (status) {
@@ -195,7 +197,13 @@ function getStatusBadgeInfo(status: string | undefined): { label: string; classN
     case "em_execucao":
       return { label: "EXECUTANDO", className: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 animate-pulse", icon: "⚡" };
     case "concluida":
-      return { label: "CONCLUÍDA", className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200", icon: "✅" };
+      // Diferenciar concluída com sucesso vs com impedimento
+      if (retornoGrupo === "impedimento") {
+        return { label: "IMPEDIDA", className: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200", icon: "✗" };
+      } else if (retornoGrupo === "parcial") {
+        return { label: "PARCIAL", className: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200", icon: "⚠️" };
+      }
+      return { label: "CONCLUÍDA", className: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200", icon: "✓" };
     case "cancelada":
       return { label: "CANCELADA", className: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200", icon: "❌" };
     case "pendente":
@@ -358,7 +366,7 @@ const Roteirizacao = () => {
   });
 
   // STATUS EM TEMPO REAL: Buscar status de todas as OSs da rota quando editando planejamento
-  // Retorna um Map<osId, { status, iniciado_at, concluido_at, equipe_id }>
+  // Retorna um Map<osId, { status, iniciado_at, concluido_at, equipe_id, retorno_grupo }>
   const { data: statusOSsTempoReal } = useQuery({
     queryKey: ["status-oss-tempo-real", planejamentoEditandoId, rotas.map(r => r.equipe.id).join(",")],
     queryFn: async () => {
@@ -376,10 +384,17 @@ const Roteirizacao = () => {
       
       if (osIds.length === 0) return new Map();
       
-      // Buscar status atualizado das OSs
+      // Buscar status atualizado das OSs com retorno de campo
       const { data, error } = await supabase
         .from("ordens_servico")
-        .select("id, status, iniciado_at, concluido_at, tecnico_id")
+        .select(`
+          id, 
+          status, 
+          iniciado_at, 
+          concluido_at, 
+          tecnico_id,
+          retornos_campo:retorno_campo_id (id, codigo, descricao, tipo)
+        `)
         .in("id", osIds);
       
       if (error) {
@@ -393,14 +408,19 @@ const Roteirizacao = () => {
         iniciado_at: string | null; 
         concluido_at: string | null;
         tecnico_id: string | null;
+        retorno_grupo: string | null; // executado, impedimento, parcial, etc.
+        retorno_codigo: string | null;
       }>();
       
       (data || []).forEach((os: any) => {
+        const retorno = os.retornos_campo;
         statusMap.set(os.id, {
           status: os.status,
           iniciado_at: os.iniciado_at,
           concluido_at: os.concluido_at,
           tecnico_id: os.tecnico_id,
+          retorno_grupo: retorno?.tipo || null, // tipo = grupo (executado, impedimento, parcial)
+          retorno_codigo: retorno?.codigo || null,
         });
       });
       
@@ -4444,9 +4464,12 @@ const Roteirizacao = () => {
                                 // STATUS EM TEMPO REAL
                                 const statusInfo = statusOSsTempoReal?.get(os.id);
                                 const statusAtual = statusInfo?.status || "planejada";
-                                const statusBadge = getStatusBadgeInfo(statusAtual);
+                                const retornoGrupo = statusInfo?.retorno_grupo;
+                                const statusBadge = getStatusBadgeInfo(statusAtual, retornoGrupo);
                                 const estaEmExecucao = ["em_deslocamento", "no_local", "em_apr", "em_andamento", "em_execucao"].includes(statusAtual);
                                 const estaConcluida = statusAtual === "concluida";
+                                const estaImpedida = estaConcluida && retornoGrupo === "impedimento";
+                                const estaParcial = estaConcluida && retornoGrupo === "parcial";
                                       
                                       return (
                                         <Draggable
@@ -4472,7 +4495,9 @@ const Roteirizacao = () => {
                                                 "group flex items-center gap-1.5 px-1.5 py-1 rounded border bg-card transition-all text-xs",
                                                 snapshot.isDragging && "shadow-lg ring-2 ring-primary z-50 cursor-grabbing",
                                                 !snapshot.isDragging && !estaConcluida && "hover:bg-muted/50 cursor-grab",
-                                                estaConcluida && "opacity-60 cursor-default",
+                                                estaConcluida && !estaImpedida && !estaParcial && "opacity-60 cursor-default bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800",
+                                                estaImpedida && "opacity-80 cursor-default bg-red-50 dark:bg-red-950/30 border-red-300 dark:border-red-800 ring-1 ring-red-300",
+                                                estaParcial && "opacity-80 cursor-default bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800",
                                                 foraDoPrazo && !estaConcluida && "border-danger/50 bg-danger/5",
                                                 osSelecionadaNoEditor === os.id && "ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-950",
                                                 estaEmExecucao && "ring-2 ring-green-500 bg-green-50 dark:bg-green-950 border-green-300 dark:border-green-700"
