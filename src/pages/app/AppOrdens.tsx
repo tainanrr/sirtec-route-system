@@ -149,7 +149,8 @@ export default function AppOrdens() {
   console.log("[DEBUG AppOrdens] IDs disponíveis - equipe:", equipe?.id, "equipeAuth:", equipeAuth?.id, "usando:", equipeIdParaUsar);
   
   const { data: ordensPlanejadas, isLoading: isLoadingOrdens, refetch } = useQuery({
-    queryKey: ["ordens-planejadas", equipeIdParaUsar, format(selectedDate, "yyyy-MM-dd"), isOnline],
+    // NÃO incluir isOnline na queryKey para que o cache seja compartilhado entre online/offline
+    queryKey: ["ordens-planejadas", equipeIdParaUsar, format(selectedDate, "yyyy-MM-dd")],
     queryFn: async () => {
       if (!equipeIdParaUsar) {
         console.log("[DEBUG AppOrdens] ❌ Nenhuma equipe encontrada - equipe:", equipe?.id, "equipeAuth:", equipeAuth?.id);
@@ -310,7 +311,10 @@ export default function AppOrdens() {
       return todasOrdens;
     },
     enabled: !!equipeIdParaUsar,
+    staleTime: 0, // Sempre considerar dados como "stale" para garantir que busque do cache/API
     refetchInterval: isOnline ? 30000 : false, // Não refetch quando offline
+    refetchOnWindowFocus: isOnline, // Só refetch no foco se online
+    retry: isOnline ? 3 : 0, // Não fazer retry se offline
   });
 
   // Recarregar dados automaticamente quando a internet voltar
