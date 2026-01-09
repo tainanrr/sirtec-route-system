@@ -99,17 +99,6 @@ const navItemsConfig: NavItem[] = [
     ],
   },
   { icon: LayoutDashboard, label: "__divider_2__", type: "divider" },
-  // Torre de Controle - grupo expansível
-  {
-    icon: Radio,
-    label: "Torre de Controle",
-    children: [
-      { icon: Radio, label: "Monitoramento", href: "/torre-controle", permission: "roteirizacao.torre_controle" },
-      { icon: Activity, label: "Operação", href: "/operacao", permission: "roteirizacao.torre_controle" },
-      { icon: Brain, label: "Análise IA", href: "/cerebro", permission: "roteirizacao.torre_controle" },
-    ],
-  },
-  { icon: LayoutDashboard, label: "__divider_3__", type: "divider" },
   // Consultas - grupo expansível
   {
     icon: Search,
