@@ -817,27 +817,6 @@ export default function AppHome() {
           </Card>
         )}
 
-        {/* Botão Ver Rota do Dia */}
-        <Button
-          className="w-full h-12 text-base"
-          onClick={() => navigate("/app/ordens")}
-        >
-          <Route className="h-5 w-5 mr-2" />
-          Ver Rota do Dia
-          <ChevronRight className="h-5 w-5 ml-auto" />
-        </Button>
-      </div>
-
-      {/* Rodapé fixo com botão de sair */}
-      <div className="fixed bottom-20 left-0 right-0 px-4 pb-4 bg-gradient-to-t from-background via-background to-transparent pt-6 z-10 pointer-events-none">
-        <Button 
-          variant="outline" 
-          className="w-full text-destructive hover:text-destructive hover:bg-destructive/10 pointer-events-auto"
-          onClick={logout}
-        >
-          <LogOut className="h-4 w-4 mr-2" />
-          Sair do Aplicativo
-        </Button>
       </div>
 
       {/* Dialog de Intervalo */}
