@@ -165,7 +165,7 @@ export default function AdminCadastrosBase() {
   const [loading, setLoading] = useState(true);
   const [searchParams] = useSearchParams();
   const tabFromUrl = searchParams.get("tab");
-  const [activeTab, setActiveTab] = useState(tabFromUrl || "precificacao");
+  const [activeTab, setActiveTab] = useState(tabFromUrl || "tipos-servico");
   
   // Atualizar tab quando URL mudar
   useEffect(() => {
@@ -634,6 +634,10 @@ export default function AdminCadastrosBase() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="grid w-full grid-cols-6">
+          <TabsTrigger value="tipos-servico" className="flex items-center gap-2">
+            <Tag className="h-4 w-4" />
+            Tipos de Serviço
+          </TabsTrigger>
           <TabsTrigger value="precificacao" className="flex items-center gap-2">
             <DollarSign className="h-4 w-4" />
             Precificação
@@ -646,10 +650,6 @@ export default function AdminCadastrosBase() {
             <Building className="h-4 w-4" />
             Centros de Custo
           </TabsTrigger>
-          <TabsTrigger value="tipos-servico" className="flex items-center gap-2">
-            <Tag className="h-4 w-4" />
-            Tipos de Serviço
-          </TabsTrigger>
           <TabsTrigger value="tipos-intervalo" className="flex items-center gap-2">
             <Clock className="h-4 w-4" />
             Intervalos
@@ -660,106 +660,6 @@ export default function AdminCadastrosBase() {
           </TabsTrigger>
         </TabsList>
 
-        {/* Tab de Precificação */}
-        <TabsContent value="precificacao" className="mt-6">
-          <PrecificacaoServicos />
-        </TabsContent>
-
-        {/* Tab de Retornos de Campo */}
-        <TabsContent value="retornos-campo" className="mt-6">
-          <RetornosCampoAtividades />
-        </TabsContent>
-
-        {/* Tab de Centros de Custo */}
-        <TabsContent value="centros-custo" className="space-y-4 mt-6">
-          <div className="flex justify-between items-center">
-            <div className="rounded-xl border border-border bg-card p-4 flex-1 mr-4">
-              <DataTableFilters
-                filters={tipoServicoFilterConfigs}
-                values={filterValues}
-                onChange={setFilterValues}
-                onClear={clearFilters}
-              />
-            </div>
-            <div className="flex gap-2">
-              <ExportButton
-                data={centrosCusto}
-                filename="centros_custo"
-                columns={[
-                  { key: "nome", label: "Nome" },
-                  { key: "descricao", label: "Descrição" },
-                  { key: "ativo", label: "Ativo", format: (v: any) => v ? "Sim" : "Não" },
-                ]}
-              />
-              <Button onClick={() => handleCreate("centro-custo")}>
-                <Plus className="h-4 w-4 mr-2" />
-                Novo Centro
-              </Button>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-border bg-card overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <SortableTableHead column="nome" label="Nome" sortConfig={centroSortConfig} onSort={handleCentroSort} />
-                  <TableHead>Descrição</TableHead>
-                  <SortableTableHead column="ativo" label="Status" sortConfig={centroSortConfig} onSort={handleCentroSort} />
-                  <TableHead className="text-right">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center py-8">
-                      <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
-                    </TableCell>
-                  </TableRow>
-                ) : sortedCentrosCusto?.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center py-8">
-                      <Building className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-                      <p className="text-muted-foreground">
-                        {hasActiveFilters ? "Nenhum resultado" : "Nenhum centro cadastrado"}
-                      </p>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  sortedCentrosCusto?.map((item) => (
-                    <TableRow key={item.id} className="group">
-                      <TableCell className="font-medium">{item.nome}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground max-w-md truncate">
-                        {item.descricao || "-"}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={item.ativo ? "default" : "secondary"}>
-                          {item.ativo ? "Ativo" : "Inativo"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Button variant="ghost" size="sm" onClick={() => handleEdit("centro-custo", item)}>
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={() => confirmDelete("centro-custo", item)}>
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-            {sortedCentrosCusto && sortedCentrosCusto.length > 0 && (
-              <div className="px-4 py-3 border-t border-border bg-muted/30 text-sm text-muted-foreground">
-                Mostrando {sortedCentrosCusto.length} de {centrosCusto.length} registros
-              </div>
-            )}
-          </div>
-        </TabsContent>
-
-        {/* Tab de Tipos de Serviço */}
         {/* Tab de Tipos de Serviço / Skills */}
         <TabsContent value="tipos-servico" className="space-y-4 mt-6">
           <div className="flex justify-between items-center">
@@ -959,6 +859,105 @@ export default function AdminCadastrosBase() {
             {sortedTiposServico && sortedTiposServico.length > 0 && (
               <div className="px-4 py-3 border-t border-border bg-muted/30 text-sm text-muted-foreground">
                 Mostrando {sortedTiposServico.length} de {tiposServico.length} registros
+              </div>
+            )}
+          </div>
+        </TabsContent>
+
+        {/* Tab de Precificação */}
+        <TabsContent value="precificacao" className="mt-6">
+          <PrecificacaoServicos />
+        </TabsContent>
+
+        {/* Tab de Retornos de Campo */}
+        <TabsContent value="retornos-campo" className="mt-6">
+          <RetornosCampoAtividades />
+        </TabsContent>
+
+        {/* Tab de Centros de Custo */}
+        <TabsContent value="centros-custo" className="space-y-4 mt-6">
+          <div className="flex justify-between items-center">
+            <div className="rounded-xl border border-border bg-card p-4 flex-1 mr-4">
+              <DataTableFilters
+                filters={tipoServicoFilterConfigs}
+                values={filterValues}
+                onChange={setFilterValues}
+                onClear={clearFilters}
+              />
+            </div>
+            <div className="flex gap-2">
+              <ExportButton
+                data={centrosCusto}
+                filename="centros_custo"
+                columns={[
+                  { key: "nome", label: "Nome" },
+                  { key: "descricao", label: "Descrição" },
+                  { key: "ativo", label: "Ativo", format: (v: any) => v ? "Sim" : "Não" },
+                ]}
+              />
+              <Button onClick={() => handleCreate("centro-custo")}>
+                <Plus className="h-4 w-4 mr-2" />
+                Novo Centro
+              </Button>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <SortableTableHead column="nome" label="Nome" sortConfig={centroSortConfig} onSort={handleCentroSort} />
+                  <TableHead>Descrição</TableHead>
+                  <SortableTableHead column="ativo" label="Status" sortConfig={centroSortConfig} onSort={handleCentroSort} />
+                  <TableHead className="text-right">Ações</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
+                    </TableCell>
+                  </TableRow>
+                ) : sortedCentrosCusto?.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center py-8">
+                      <Building className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                      <p className="text-muted-foreground">
+                        {hasActiveFilters ? "Nenhum resultado" : "Nenhum centro cadastrado"}
+                      </p>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  sortedCentrosCusto?.map((item) => (
+                    <TableRow key={item.id} className="group">
+                      <TableCell className="font-medium">{item.nome}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground max-w-md truncate">
+                        {item.descricao || "-"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={item.ativo ? "default" : "secondary"}>
+                          {item.ativo ? "Ativo" : "Inativo"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button variant="ghost" size="sm" onClick={() => handleEdit("centro-custo", item)}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => confirmDelete("centro-custo", item)}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+            {sortedCentrosCusto && sortedCentrosCusto.length > 0 && (
+              <div className="px-4 py-3 border-t border-border bg-muted/30 text-sm text-muted-foreground">
+                Mostrando {sortedCentrosCusto.length} de {centrosCusto.length} registros
               </div>
             )}
           </div>
