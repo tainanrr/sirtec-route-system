@@ -435,7 +435,7 @@ const Roteirizacao = () => {
   });
 
   // STATUS DAS EQUIPES: Calcular se cada equipe está ociosa, trabalhando ou finalizou
-  // Retorna um Map<equipeId, { status, osAtual, totalOSs, concluidas, emExecucao }>
+  // Retorna um Map<equipeId, { status, osAtual, totalOSs, concluidas, emExecucao, tempoOciosidadeMin }>
   const statusEquipes = useMemo(() => {
     const statusMap = new Map<string, {
       status: 'ociosa' | 'trabalhando' | 'finalizada' | 'aguardando';
@@ -445,9 +445,12 @@ const Roteirizacao = () => {
       concluidas: number;
       emExecucao: number;
       pendentes: number;
+      tempoOciosidadeMin: number | null; // Tempo em minutos desde a última OS concluída
     }>();
 
     if (!statusOSsTempoReal || rotas.length === 0) return statusMap;
+
+    const agora = new Date();
 
     rotas.forEach(rota => {
       const servicosValidos = rota.servicos.filter(s => s.tipo === 'SERVICO' && s.ordemServico);
@@ -457,6 +460,7 @@ const Roteirizacao = () => {
       let pendentes = 0;
       let osAtualNumero: string | null = null;
       let osAtualStatus: string | null = null;
+      let ultimaConclusao: Date | null = null;
 
       servicosValidos.forEach(servico => {
         const osId = servico.ordemServico!.id;
@@ -465,6 +469,13 @@ const Roteirizacao = () => {
 
         if (status === 'concluida') {
           concluidas++;
+          // Guardar a última conclusão para calcular ociosidade
+          if (statusInfo?.concluido_at) {
+            const dataConclusao = new Date(statusInfo.concluido_at);
+            if (!ultimaConclusao || dataConclusao > ultimaConclusao) {
+              ultimaConclusao = dataConclusao;
+            }
+          }
         } else if (['em_deslocamento', 'no_local', 'em_apr', 'em_andamento', 'em_execucao'].includes(status)) {
           emExecucao++;
           // Guardar a OS em execução para mostrar
@@ -490,6 +501,13 @@ const Roteirizacao = () => {
         statusEquipe = 'ociosa'; // Tem OSs mas nenhuma em execução
       }
 
+      // Calcular tempo de ociosidade (apenas se estiver ociosa e tiver última conclusão)
+      let tempoOciosidadeMin: number | null = null;
+      if (statusEquipe === 'ociosa' && ultimaConclusao) {
+        const diffMs = agora.getTime() - ultimaConclusao.getTime();
+        tempoOciosidadeMin = Math.floor(diffMs / 60000); // Converter para minutos
+      }
+
       statusMap.set(rota.equipe.id, {
         status: statusEquipe,
         osAtualNumero,
@@ -498,6 +516,7 @@ const Roteirizacao = () => {
         concluidas,
         emExecucao,
         pendentes,
+        tempoOciosidadeMin,
       });
     });
 
@@ -4249,6 +4268,8 @@ const Roteirizacao = () => {
                   const isTrabalhando = statusEq?.status === 'trabalhando';
                   const isFinalizada = statusEq?.status === 'finalizada';
                   const isSelected = equipeEditando === rota.equipe.id;
+                  const tempoOcioso = statusEq?.tempoOciosidadeMin;
+                  const ociosidadeCritica = tempoOcioso !== null && tempoOcioso >= 10;
                   
                   return (
                     <div
@@ -4258,8 +4279,9 @@ const Roteirizacao = () => {
                         setOsSelecionadaNoMapa(null);
                       }}
                       className={cn(
-                        "flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all",
-                        isOciosa && "bg-amber-50 dark:bg-amber-950/50 border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900",
+                        "flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all min-w-[140px]",
+                        isOciosa && !ociosidadeCritica && "bg-amber-50 dark:bg-amber-950/50 border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900",
+                        isOciosa && ociosidadeCritica && "bg-red-50 dark:bg-red-950/50 border-red-400 dark:border-red-600 hover:bg-red-100 dark:hover:bg-red-900 border-2",
                         isTrabalhando && "bg-green-50 dark:bg-green-950/50 border-green-300 dark:border-green-700 hover:bg-green-100 dark:hover:bg-green-900",
                         isFinalizada && "bg-gray-50 dark:bg-gray-900/50 border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 opacity-60",
                         !isOciosa && !isTrabalhando && !isFinalizada && "bg-card border-border hover:bg-muted/50",
@@ -4269,25 +4291,42 @@ const Roteirizacao = () => {
                     >
                       <div
                         className={cn(
-                          "h-8 w-8 rounded-full flex items-center justify-center text-white text-xs font-bold",
-                          isOciosa && "ring-2 ring-amber-400"
+                          "h-9 w-9 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0",
+                          isOciosa && !ociosidadeCritica && "ring-2 ring-amber-400",
+                          ociosidadeCritica && "ring-2 ring-red-500"
                         )}
                         style={{ 
-                          backgroundColor: isOciosa ? '#f59e0b' : (isTrabalhando ? '#22c55e' : (isFinalizada ? '#6b7280' : (rota.equipe.color || '#3b82f6')))
+                          backgroundColor: ociosidadeCritica ? '#dc2626' : (isOciosa ? '#f59e0b' : (isTrabalhando ? '#22c55e' : (isFinalizada ? '#6b7280' : (rota.equipe.color || '#3b82f6'))))
                         }}
                       >
-                        {rota.equipe.codigo}
+                        {isOciosa ? '🕐' : isTrabalhando ? '⚡' : isFinalizada ? '✓' : '⏳'}
                       </div>
-                      <div className="flex flex-col">
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-xs font-bold truncate" title={rota.equipe.codigo}>
+                          {rota.equipe.codigo}
+                        </span>
                         <div className="flex items-center gap-1">
-                          {isOciosa && <span className="text-amber-600 text-sm">🕐</span>}
-                          {isTrabalhando && <span className="text-green-600 text-sm">⚡</span>}
-                          {isFinalizada && <span className="text-gray-600 text-sm">✓</span>}
-                          <span className="text-xs font-medium">
-                            {isOciosa ? 'OCIOSA' : isTrabalhando ? statusEq?.osAtualNumero : isFinalizada ? 'FIM' : 'AGUARD.'}
+                          <span className={cn(
+                            "text-[10px] font-medium",
+                            ociosidadeCritica && "text-red-600 dark:text-red-400",
+                            isOciosa && !ociosidadeCritica && "text-amber-600 dark:text-amber-400",
+                            isTrabalhando && "text-green-600 dark:text-green-400",
+                            isFinalizada && "text-gray-600 dark:text-gray-400"
+                          )}>
+                            {isOciosa ? (
+                              tempoOcioso !== null ? (
+                                <span className={cn(ociosidadeCritica && "font-bold")}>
+                                  🕐 {tempoOcioso}min
+                                </span>
+                              ) : 'OCIOSA'
+                            ) : isTrabalhando ? (
+                              <span title={statusEq?.osAtualNumero || ''}>
+                                OS {statusEq?.osAtualNumero}
+                              </span>
+                            ) : isFinalizada ? 'FINALIZADA' : 'AGUARD.'}
                           </span>
                         </div>
-                        <span className="text-[10px] text-muted-foreground">
+                        <span className="text-[9px] text-muted-foreground">
                           {statusEq?.concluidas || 0}/{statusEq?.totalOSs || 0} OSs
                         </span>
                       </div>
