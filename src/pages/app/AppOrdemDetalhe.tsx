@@ -10,6 +10,7 @@ import { getAppParentRoute } from "@/lib/appNavigation";
 import { useRetornoCampo } from "@/hooks/useRetornoCampo";
 import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
 import { useOfflineData, CACHE_KEYS } from "@/hooks/useOfflineData";
+import { useOfflineOperations } from "@/hooks/useOfflineOperations";
 import RetornoCampoSelector from "@/components/app/RetornoCampoSelector";
 import {
   Dialog,
@@ -116,6 +117,7 @@ export default function AppOrdemDetalhe() {
   const { equipe } = useTecnico();
   const { isOnline } = useOfflineSyncContext();
   const { getFromCache } = useOfflineData();
+  const { updateOSStatus } = useOfflineOperations();
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [observacao, setObservacao] = useState("");
@@ -252,19 +254,13 @@ export default function AppOrdemDetalhe() {
     enabled: !!id,
   });
 
-  // Buscar skills (com fallback para cache offline)
-  const { data: skillsData } = useQuery({
-    queryKey: ["skills-app-detalhe", isOnline],
-    queryFn: async () => {
-      // Tentar buscar do cache se offline
-      if (!isOnline) {
-        const cachedSkills = await getFromCache(CACHE_KEYS.SKILLS);
-        if (cachedSkills && Array.isArray(cachedSkills)) {
-          return cachedSkills as { codigo: string; nome: string }[];
-        }
-        return [];
-      }
+  // Estado local para skills offline
+  const [skillsOfflineCache, setSkillsOfflineCache] = useState<any[]>([]);
 
+  // Buscar skills (só online)
+  const { data: skillsDataOnline } = useQuery({
+    queryKey: ["skills-app-detalhe"],
+    queryFn: async () => {
       const { data, error } = await supabase
         .from("skills")
         .select("codigo, nome")
@@ -273,13 +269,39 @@ export default function AppOrdemDetalhe() {
       return data || [];
     },
     staleTime: 5 * 60 * 1000,
+    enabled: isOnline,
   });
+
+  // Buscar skills do cache quando offline
+  useEffect(() => {
+    const buscarSkillsDoCache = async () => {
+      if (!isOnline && skillsOfflineCache.length === 0) {
+        console.log("[AppOrdemDetalhe] 📦 Buscando skills do cache...");
+        try {
+          const cachedSkills = await getFromCache(CACHE_KEYS.SKILLS);
+          if (cachedSkills && Array.isArray(cachedSkills) && cachedSkills.length > 0) {
+            console.log("[AppOrdemDetalhe] ✅ Skills do cache:", cachedSkills.length);
+            setSkillsOfflineCache(cachedSkills);
+          }
+        } catch (error) {
+          console.error("[AppOrdemDetalhe] ❌ Erro ao buscar skills:", error);
+        }
+      }
+    };
+    buscarSkillsDoCache();
+  }, [isOnline, skillsOfflineCache.length, getFromCache]);
+
+  // Usar skills do React Query ou do cache offline
+  const skillsData = (skillsDataOnline && skillsDataOnline.length > 0) 
+    ? skillsDataOnline 
+    : skillsOfflineCache;
 
   const getTipoNome = (tipo: string | null | undefined): string => {
     if (!tipo) return "";
-    if (!skillsData) return tipo;
+    if (!skillsData || skillsData.length === 0) return tipo;
     const skill = skillsData.find((s: { codigo: string; nome: string }) => 
-      s.codigo?.toLowerCase() === tipo.toLowerCase()
+      s.codigo?.toLowerCase() === tipo.toLowerCase() ||
+      s.codigo === tipo
     );
     return skill?.nome || tipo;
   };
@@ -416,71 +438,114 @@ export default function AppOrdemDetalhe() {
     return () => { supabase.removeChannel(channel); };
   }, [id, queryClient]);
 
-  // Mutation para atualizar status
-  const updateStatusMutation = useMutation({
-    mutationFn: async (newStatus: string) => {
-      const now = new Date().toISOString();
-      const updates: Record<string, unknown> = { status: newStatus, updated_at: now };
-      let acaoDescricao = "";
+  // Estado para controlar loading da mutation
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
-      if (newStatus === "em_deslocamento") {
-        updates.deslocamento_iniciado_at = now;
-        acaoDescricao = "Deslocamento iniciado";
-      } else if (newStatus === "no_local") {
-        updates.chegada_local_at = now;
-        acaoDescricao = "Chegou no local";
-      } else if (newStatus === "em_execucao" || newStatus === "em_andamento") {
-        if (!ordem?.iniciado_at) updates.iniciado_at = now;
-        updates.execucao_iniciada_at = now;
-        acaoDescricao = "Serviço iniciado";
-      } else if (newStatus === "concluida") {
-        updates.concluido_at = now;
-        acaoDescricao = "Serviço concluído";
-        if (ordem?.deslocamento_iniciado_at) {
-          updates.tempo_total_minutos = Math.round((new Date().getTime() - new Date(ordem.deslocamento_iniciado_at).getTime()) / 60000);
+  // Função para atualizar status (funciona online e offline)
+  const updateStatusMutation = {
+    isPending: isUpdatingStatus,
+    mutate: async (newStatus: string) => {
+      setIsUpdatingStatus(true);
+      
+      try {
+        const equipeId = equipeIdParaUsar;
+        if (!equipeId || !id) {
+          toast.error("Erro: equipe ou ordem não identificada");
+          setIsUpdatingStatus(false);
+          return;
         }
-        if (ordem?.execucao_iniciada_at) {
-          updates.tempo_execucao_minutos = Math.round((new Date().getTime() - new Date(ordem.execucao_iniciada_at).getTime()) / 60000);
+
+        const now = new Date().toISOString();
+        const dadosAdicionais: Record<string, unknown> = {};
+        let acaoDescricao = "";
+
+        if (newStatus === "em_deslocamento") {
+          acaoDescricao = "Deslocamento iniciado";
+        } else if (newStatus === "no_local") {
+          acaoDescricao = "Chegou no local";
+        } else if (newStatus === "em_execucao" || newStatus === "em_andamento") {
+          if (!ordem?.iniciado_at) dadosAdicionais.iniciado_at = now;
+          acaoDescricao = "Serviço iniciado";
+        } else if (newStatus === "concluida") {
+          acaoDescricao = "Serviço concluído";
+          if (ordem?.deslocamento_iniciado_at) {
+            dadosAdicionais.tempo_total_minutos = Math.round((new Date().getTime() - new Date(ordem.deslocamento_iniciado_at).getTime()) / 60000);
+          }
+          if (ordem?.execucao_iniciada_at) {
+            dadosAdicionais.tempo_execucao_minutos = Math.round((new Date().getTime() - new Date(ordem.execucao_iniciada_at).getTime()) / 60000);
+          }
         }
-      }
 
-      if (observacao.trim()) {
-        const novaObs = `[${format(new Date(), "dd/MM HH:mm")} - ${acaoDescricao}] ${observacao}`;
-        const obsEquipeAtual = (ordem as any)?.observacoes_equipe || "";
-        (updates as any).observacoes_equipe = obsEquipeAtual ? `${obsEquipeAtual}\n\n${novaObs}` : novaObs;
-      }
+        if (observacao.trim()) {
+          const novaObs = `[${format(new Date(), "dd/MM HH:mm")} - ${acaoDescricao}] ${observacao}`;
+          const obsEquipeAtual = (ordem as any)?.observacoes_equipe || "";
+          dadosAdicionais.observacoes_equipe = obsEquipeAtual ? `${obsEquipeAtual}\n\n${novaObs}` : novaObs;
+        }
 
-      const { error } = await supabase.from("ordens_servico").update(updates).eq("id", id);
-      if (error) throw error;
+        console.log("[AppOrdemDetalhe] Atualizando status:", newStatus, "online:", isOnline);
 
-      const equipeId = equipe?.id || equipeAuth?.id;
-      if (equipeId) {
-        await supabase.from("planejamento_logs").insert({
-          ordem_servico_id: id,
-          acao: `status_${newStatus}`,
-          descricao: `${acaoDescricao}${observacao ? `: ${observacao}` : ""}`,
-          dados_anteriores: { status: ordem?.status },
-          dados_novos: { status: newStatus, timestamp: now },
-          created_by: equipeId,
-        });
-        logApp("editar", "ordens", "ordens_servico", id || "",
-          { id: equipeId, nome: equipe?.codigo || equipeAuth?.codigo || "", equipeId },
-          { status: ordem?.status }, { status: newStatus, timestamp: now },
-          `Alterou OS ${ordem?.numero || id} para ${statusConfig[newStatus]?.label || newStatus}`
-        );
+        // Usar o hook de operações offline que funciona tanto online quanto offline
+        const result = await updateOSStatus(id, newStatus, equipeId, dadosAdicionais);
+        
+        if (result.success) {
+          // Atualizar o estado local da ordem para refletir mudança imediatamente
+          if (ordemOfflineCache) {
+            setOrdemOfflineCache({
+              ...ordemOfflineCache,
+              status: newStatus,
+              ...dadosAdicionais,
+            });
+          }
+
+          // Se online, fazer log no servidor
+          if (isOnline) {
+            try {
+              await supabase.from("planejamento_logs").insert({
+                ordem_servico_id: id,
+                acao: `status_${newStatus}`,
+                descricao: `${acaoDescricao}${observacao ? `: ${observacao}` : ""}`,
+                dados_anteriores: { status: ordem?.status },
+                dados_novos: { status: newStatus, timestamp: now },
+                created_by: equipeId,
+              });
+              logApp("editar", "ordens", "ordens_servico", id,
+                { id: equipeId, nome: equipe?.codigo || equipeAuth?.codigo || "", equipeId },
+                { status: ordem?.status }, { status: newStatus, timestamp: now },
+                `Alterou OS ${ordem?.numero || id} para ${statusConfig[newStatus]?.label || newStatus}`
+              );
+            } catch (logError) {
+              console.warn("[AppOrdemDetalhe] Erro ao registrar log:", logError);
+            }
+          }
+
+          // Invalidar queries se online
+          if (isOnline) {
+            queryClient.invalidateQueries({ queryKey: ["ordem-detalhe", id] });
+            queryClient.invalidateQueries({ queryKey: ["ordens-planejadas"] });
+            queryClient.invalidateQueries({ queryKey: ["ordem-historico", id] });
+            queryClient.invalidateQueries({ queryKey: ["ordem-producao", id] });
+          }
+
+          setObservacao("");
+          setConfirmDialog({ open: false, status: "", title: "", description: "" });
+          
+          const statusLabel = statusConfig[newStatus]?.label || "Status atualizado";
+          if (result.offline) {
+            toast.success(`${statusLabel} (salvo offline)`);
+          } else {
+            toast.success(statusLabel);
+          }
+        } else {
+          toast.error("Erro ao atualizar status");
+        }
+      } catch (error) {
+        console.error("[AppOrdemDetalhe] Erro na mutation:", error);
+        toast.error("Erro ao atualizar status");
+      } finally {
+        setIsUpdatingStatus(false);
       }
-    },
-    onSuccess: (_, newStatus) => {
-      queryClient.invalidateQueries({ queryKey: ["ordem-detalhe", id] });
-      queryClient.invalidateQueries({ queryKey: ["ordens-planejadas"] });
-      queryClient.invalidateQueries({ queryKey: ["ordem-historico", id] });
-      queryClient.invalidateQueries({ queryKey: ["ordem-producao", id] });
-      setObservacao("");
-      setConfirmDialog({ open: false, status: "", title: "", description: "" });
-      toast.success(statusConfig[newStatus]?.label || "Status atualizado");
-    },
-    onError: () => toast.error("Erro ao atualizar status"),
-  });
+    }
+  };
 
   // Upload de foto
   const uploadMutation = useMutation({
