@@ -468,26 +468,7 @@ export default function ValoresPorContratoTab({ skillCodigo, skillNome }: Props)
     return { totalCentros, totalOSs, centrosConfigurados };
   }, [contratosComCentros]);
 
-  if (loading) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-10 w-full" />
-        <Skeleton className="h-32 w-full" />
-        <Skeleton className="h-32 w-full" />
-      </div>
-    );
-  }
-
-  if (contratosComCentros.length === 0) {
-    return (
-      <div className="text-center py-6 text-muted-foreground">
-        <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
-        <p className="text-sm">Nenhum centro de custo com OSs encontrado.</p>
-      </div>
-    );
-  }
-
-  // Criar lista flat de todos os itens para exibir
+  // Criar lista flat de todos os itens para exibir (deve ficar antes dos early returns)
   const listaFlat = useMemo(() => {
     const items: Array<{
       tipo: 'contrato' | 'centro';
@@ -517,6 +498,25 @@ export default function ValoresPorContratoTab({ skillCodigo, skillNome }: Props)
     
     return items;
   }, [contratosComCentros]);
+
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-32 w-full" />
+        <Skeleton className="h-32 w-full" />
+      </div>
+    );
+  }
+
+  if (contratosComCentros.length === 0) {
+    return (
+      <div className="text-center py-6 text-muted-foreground">
+        <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
+        <p className="text-sm">Nenhum centro de custo com OSs encontrado.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-2">
