@@ -11,7 +11,7 @@ import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { PermissoesProvider } from "@/hooks/usePermissoes";
 import Login from "./pages/Login";
-import Dashboard from "./pages/Dashboard";
+// Dashboard removido - sistema inicia em DashboardProducaoMeta
 import Roteirizacao from "./pages/Roteirizacao";
 import Planejamentos from "./pages/Planejamentos";
 import AcompanhamentoRoteirizacoes from "./pages/AcompanhamentoRoteirizacoes";
@@ -110,7 +110,7 @@ const App = () => (
             <Routes>
             {/* Rotas do Painel Admin */}
             <Route path="/login" element={<Login />} />
-            <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/" element={<Navigate to="/dashboard/producao-meta" replace />} />
             <Route path="/roteirizacao" element={<ProtectedRoute><Roteirizacao /></ProtectedRoute>} />
             <Route path="/planejamentos" element={<ProtectedRoute><Planejamentos /></ProtectedRoute>} />
             <Route path="/acompanhamento-roteirizacoes" element={<ProtectedRoute><AcompanhamentoRoteirizacoes /></ProtectedRoute>} />

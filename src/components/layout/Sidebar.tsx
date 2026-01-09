@@ -81,7 +81,6 @@ const navItemsConfig: NavItem[] = [
     icon: BarChart3,
     label: "Dashboards",
     children: [
-      { icon: LayoutDashboard, label: "Visão Geral", href: "/" },
       { icon: Target, label: "Produção x Meta", href: "/dashboard/producao-meta" },
       { icon: Zap, label: "Assertividade", href: "/dashboard/assertividade" },
       { icon: Clock, label: "Tempo Ocioso", href: "/dashboard/tempo-ocioso" },
