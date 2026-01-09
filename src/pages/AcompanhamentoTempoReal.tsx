@@ -67,6 +67,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { TimelinePrevistoRealizado, type TimelineEquipeCompleta, type TimelineOrdemServico, type TimelineIntervalo } from "@/components/torre/TimelinePrevistoRealizado";
 import { OrdemServicoDetalhesDialog } from "@/components/ordens/OrdemServicoDetalhesDialog";
+import { ChatTorreControle } from "@/components/chat/ChatTorreControle";
 import MapaLeaflet from "@/pages/components/MapaLeaflet";
 import { Territorio } from "@/types/territorios";
 
@@ -1664,6 +1665,9 @@ export default function AcompanhamentoTempoReal() {
         onOpenChange={setDetalhesOpen}
         ordemId={ordemDetalhesId}
       />
+
+      {/* Chat da Torre de Controle */}
+      <ChatTorreControle />
     </MainLayout>
   );
 }

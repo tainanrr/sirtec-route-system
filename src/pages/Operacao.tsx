@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
-import { ChatTorreControle } from "@/components/chat/ChatTorreControle";
+// Chat foi migrado para a tela de Acompanhamento Tempo Real
 import { PainelEquipesDestaque, type EquipeDestaque } from "@/components/torre/PainelEquipesDestaque";
 import { TimelineEquipes, type TimelineEquipeData } from "@/components/torre/TimelineEquipes";
 import { IntervencaoRota, type OSParaAdicionar } from "@/components/torre/IntervencaoRota";
@@ -1469,8 +1469,7 @@ export default function Operacao() {
         </DialogContent>
       </Dialog>
 
-      {/* Chat (link rápido) */}
-      <ChatTorreControle />
+      {/* Chat foi migrado para a tela de Acompanhamento Tempo Real */}
     </MainLayout>
   );
 }
