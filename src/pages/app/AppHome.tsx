@@ -4,6 +4,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
+import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
+import { useOfflineData, CACHE_KEYS } from "@/hooks/useOfflineData";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -110,6 +112,8 @@ export default function AppHome() {
   const queryClient = useQueryClient();
   const { equipe: equipeAuth, turno, encerrarTurno, temTurnoAberto, logout } = useEquipeAuth();
   const { equipe, isLoading: isLoadingEquipe, error: equipeError } = useTecnico();
+  const { isOnline } = useOfflineSyncContext();
+  const { getTiposIntervaloFromCache, getProducaoFromCache } = useOfflineData();
   const [greeting, setGreeting] = useState("Olá");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [kmFinal, setKmFinal] = useState("");
@@ -137,10 +141,20 @@ export default function AppHome() {
     else setGreeting("Boa noite");
   }, []);
 
-  // Buscar tipos de intervalo
+  // Buscar tipos de intervalo (com fallback para cache offline)
   const { data: tiposIntervalo } = useQuery({
-    queryKey: ["tipos-intervalo"],
+    queryKey: ["tipos-intervalo", isOnline],
     queryFn: async () => {
+      // Se offline, tentar usar cache
+      if (!isOnline) {
+        const cached = await getTiposIntervaloFromCache();
+        if (cached && Array.isArray(cached)) {
+          console.log("[AppHome] Usando tipos de intervalo do cache:", cached.length);
+          return cached as TipoIntervalo[];
+        }
+        return [];
+      }
+
       const { data, error } = await supabase
         .from("tipos_intervalo")
         .select("*")

@@ -233,7 +233,7 @@ export function useOfflineOperations() {
         // Enfileirar para sincronização
         await queueOperation(
           "start_intervalo",
-          "equipes_intervalos",
+          "intervalos_equipe",
           "insert",
           intervalo,
           2 // Prioridade média
@@ -254,7 +254,7 @@ export function useOfflineOperations() {
     // Se online, inserir direto
     try {
       const { data, error } = await supabase
-        .from("equipes_intervalos")
+        .from("intervalos_equipe")
         .insert({
           equipe_id: equipeId,
           tipo_intervalo_id: tipoIntervaloId,
@@ -299,7 +299,7 @@ export function useOfflineOperations() {
         // Enfileirar para sincronização
         await queueOperation(
           "end_intervalo",
-          "equipes_intervalos",
+          "intervalos_equipe",
           "update",
           { id: intervaloId, hora_fim: agora },
           2 // Prioridade média
@@ -320,7 +320,7 @@ export function useOfflineOperations() {
     // Se online, atualizar direto
     try {
       const { error } = await supabase
-        .from("equipes_intervalos")
+        .from("intervalos_equipe")
         .update({ hora_fim: agora })
         .eq("id", intervaloId);
 
