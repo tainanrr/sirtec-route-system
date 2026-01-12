@@ -741,8 +741,69 @@ export function useOfflineSync() {
         // Remover campos auxiliares que não devem ir para o banco
         const { numero_os, ...cleanPayload } = operation.payload;
         
+        // Tratamento especial para end_intervalo: ID pode ser temporário
+        if (operation.type === "end_intervalo" && operation.table === "intervalos_equipe") {
+          const { id, equipe_id, ...updateData } = cleanPayload;
+          
+          // Se o ID não é um UUID válido, é um ID temporário criado offline
+          if (id && typeof id === 'string' && !isValidUUID(id)) {
+            console.log(`[OfflineSync] ID temporário detectado para end_intervalo: ${id}`);
+            
+            // Tentar encontrar o intervalo aberto mais recente para esta equipe
+            // que foi criado com hora_inicio próximo ao timestamp do ID temporário
+            const timestampFromId = parseInt(id.split('_')[0]);
+            const toleranceMs = 60000; // 1 minuto de tolerância
+            
+            // Buscar o intervalo mais recente sem hora_fim para esta equipe
+            const { data: intervaloAberto, error: searchError } = await supabase
+              .from("intervalos_equipe")
+              .select("id, hora_inicio")
+              .eq("equipe_id", equipe_id)
+              .is("hora_fim", null)
+              .order("hora_inicio", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            
+            if (searchError) {
+              console.error(`[OfflineSync] Erro ao buscar intervalo aberto:`, searchError);
+              throw searchError;
+            }
+            
+            if (intervaloAberto) {
+              console.log(`[OfflineSync] Intervalo aberto encontrado: ${intervaloAberto.id}`);
+              
+              // Verificar se o hora_inicio do intervalo está próximo do timestamp do ID temporário
+              const horaInicioTimestamp = new Date(intervaloAberto.hora_inicio).getTime();
+              const isMatch = Math.abs(horaInicioTimestamp - timestampFromId) <= toleranceMs;
+              
+              if (isMatch) {
+                console.log(`[OfflineSync] Match confirmado! Atualizando intervalo ${intervaloAberto.id}`);
+                result = await supabase
+                  .from(operation.table)
+                  .update({ hora_fim: updateData.hora_fim })
+                  .eq("id", intervaloAberto.id);
+              } else {
+                // Se não houver match exato, atualizar mesmo assim o intervalo aberto mais recente
+                console.log(`[OfflineSync] Timestamps não coincidem, mas atualizando intervalo aberto mais recente: ${intervaloAberto.id}`);
+                result = await supabase
+                  .from(operation.table)
+                  .update({ hora_fim: updateData.hora_fim })
+                  .eq("id", intervaloAberto.id);
+              }
+            } else {
+              console.warn(`[OfflineSync] Nenhum intervalo aberto encontrado para equipe ${equipe_id}`);
+              // Não falhar a operação, apenas marcar como concluída (pode ter sido fechado de outra forma)
+              result = { data: null, error: null };
+            }
+          } else {
+            // ID é um UUID válido, fazer update normal
+            result = await supabase
+              .from(operation.table)
+              .update({ hora_fim: updateData.hora_fim })
+              .eq("id", id);
+          }
         // Tratamento especial para update_apr: verificar se ID é válido
-        if (operation.type === "update_apr" && operation.table === "checklist_respostas") {
+        } else if (operation.type === "update_apr" && operation.table === "checklist_respostas") {
           const { id, ...data } = cleanPayload;
           
           // Se o ID não é um UUID válido, tentar encontrar pelo ordem_servico_id e checklist_id
