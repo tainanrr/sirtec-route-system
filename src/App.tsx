@@ -77,7 +77,22 @@ import AppProcedimentos from "./pages/app/AppProcedimentos";
 import AppProcedimentoDetalhe from "./pages/app/AppProcedimentoDetalhe";
 import AppChat from "./pages/app/AppChat";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Permitir que queries executem mesmo quando offline
+      networkMode: "always",
+      // Não refetch automaticamente quando reconectar
+      refetchOnReconnect: false,
+      // Manter dados em cache por mais tempo quando offline
+      staleTime: 1000 * 60 * 5, // 5 minutos
+    },
+    mutations: {
+      // Permitir que mutations executem mesmo quando offline
+      networkMode: "always",
+    },
+  },
+});
 
 // Componente para proteger rotas do app móvel
 function AppProtectedRoute({ children }: { children: React.ReactNode }) {
