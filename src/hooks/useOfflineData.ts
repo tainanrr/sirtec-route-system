@@ -24,6 +24,11 @@ export const CACHE_KEYS = {
   CHECKLISTS: "checklists",
   MATERIAIS_CATALOGO: "materiais_catalogo",
   
+  // Dados de retorno de campo completos
+  TIPO_SERVICO_RETORNOS: "tipo_servico_retornos",
+  TIPO_SERVICO_RETORNO_ATIVIDADES: "tipo_servico_retorno_atividades",
+  ATIVIDADES: "atividades",
+  
   // Dados da equipe
   MATERIAIS_ESTOQUE: "materiais_estoque",
   HISTORICO_PRODUCAO: "historico_producao",
@@ -61,11 +66,12 @@ export function useOfflineData() {
         preloadProducaoDia(equipeId, dataHoje),
         preloadMateriaisEstoque(equipeId),
         preloadChecklists(),
+        preloadRetornosCampoCompleto(),
       ]);
 
       // Log de resultados
       const nomes = ['TiposIntervalo', 'Skills', 'RetornosCampo', 'PlanejamentoDia', 
-                     'OrdensServico', 'IntervalosDia', 'ProducaoDia', 'MateriaisEstoque', 'Checklists'];
+                     'OrdensServico', 'IntervalosDia', 'ProducaoDia', 'MateriaisEstoque', 'Checklists', 'RetornosCampoCompleto'];
       results.forEach((result, index) => {
         if (result.status === 'rejected') {
           console.error(`[OfflineData] ❌ ${nomes[index]} falhou:`, result.reason);
@@ -364,6 +370,90 @@ export function useOfflineData() {
     }
   }, [saveToCache]);
 
+  // Pré-carregar dados completos de retorno de campo
+  const preloadRetornosCampoCompleto = useCallback(async () => {
+    try {
+      console.log("[OfflineData] Cacheando dados de retorno de campo completos...");
+      
+      // 1. Cachear tipo_servico_retornos com retornos_campo
+      const { data: tipoServicoRetornos, error: tsrError } = await supabase
+        .from("tipo_servico_retornos")
+        .select(`
+          id,
+          skill_id,
+          retorno_campo_id,
+          padrao,
+          ordem,
+          retorno:retornos_campo(
+            id,
+            codigo,
+            descricao,
+            tipo,
+            cor,
+            gera_producao
+          )
+        `)
+        .eq("ativo", true)
+        .order("skill_id")
+        .order("ordem");
+      
+      if (tsrError) {
+        console.error("[OfflineData] Erro ao buscar tipo_servico_retornos:", tsrError);
+      } else {
+        await saveToCache(CACHE_KEYS.TIPO_SERVICO_RETORNOS, tipoServicoRetornos || [], 168);
+        console.log("[OfflineData] tipo_servico_retornos cacheados:", tipoServicoRetornos?.length);
+      }
+      
+      // 2. Cachear tipo_servico_retorno_atividades com atividades
+      const { data: retornoAtividades, error: raError } = await supabase
+        .from("tipo_servico_retorno_atividades")
+        .select(`
+          id,
+          tipo_servico_retorno_id,
+          atividade_id,
+          situacao,
+          quantidade_padrao,
+          permite_alterar_qtd,
+          qtd_min_fotos,
+          ordem,
+          atividade:atividades(
+            id,
+            codigo,
+            descricao,
+            valor_unitario,
+            unidade
+          )
+        `)
+        .order("tipo_servico_retorno_id")
+        .order("ordem");
+      
+      if (raError) {
+        console.error("[OfflineData] Erro ao buscar retorno_atividades:", raError);
+      } else {
+        await saveToCache(CACHE_KEYS.TIPO_SERVICO_RETORNO_ATIVIDADES, retornoAtividades || [], 168);
+        console.log("[OfflineData] tipo_servico_retorno_atividades cacheados:", retornoAtividades?.length);
+      }
+      
+      // 3. Cachear todas as atividades (para referência)
+      const { data: atividades, error: atvError } = await supabase
+        .from("atividades")
+        .select("id, codigo, descricao, valor_unitario, unidade")
+        .eq("ativo", true)
+        .order("codigo");
+      
+      if (atvError) {
+        console.error("[OfflineData] Erro ao buscar atividades:", atvError);
+      } else {
+        await saveToCache(CACHE_KEYS.ATIVIDADES, atividades || [], 168);
+        console.log("[OfflineData] Atividades cacheadas:", atividades?.length);
+      }
+      
+      console.log("[OfflineData] ✅ Dados de retorno de campo completos cacheados!");
+    } catch (error) {
+      console.error("[OfflineData] Erro ao cachear retornos de campo:", error);
+    }
+  }, [saveToCache]);
+
   // ============ FUNÇÕES DE ACESSO AO CACHE ============
 
   // Obter equipe do cache
@@ -404,6 +494,31 @@ export function useOfflineData() {
   // Obter retornos de campo do cache
   const getRetornosCampoFromCache = useCallback(async () => {
     return await getFromCache(CACHE_KEYS.RETORNOS_CAMPO);
+  }, [getFromCache]);
+
+  // Obter tipo_servico_retornos do cache (por skill_id)
+  const getTipoServicoRetornosFromCache = useCallback(async (skillId?: string) => {
+    const data = await getFromCache<any[]>(CACHE_KEYS.TIPO_SERVICO_RETORNOS);
+    if (!data) return [];
+    if (skillId) {
+      return data.filter(item => item.skill_id === skillId);
+    }
+    return data;
+  }, [getFromCache]);
+
+  // Obter atividades de retorno do cache (por tipo_servico_retorno_id)
+  const getRetornoAtividadesFromCache = useCallback(async (tipoServicoRetornoId?: string) => {
+    const data = await getFromCache<any[]>(CACHE_KEYS.TIPO_SERVICO_RETORNO_ATIVIDADES);
+    if (!data) return [];
+    if (tipoServicoRetornoId) {
+      return data.filter(item => item.tipo_servico_retorno_id === tipoServicoRetornoId);
+    }
+    return data;
+  }, [getFromCache]);
+
+  // Obter atividades do cache
+  const getAtividadesFromCache = useCallback(async () => {
+    return await getFromCache<any[]>(CACHE_KEYS.ATIVIDADES) || [];
   }, [getFromCache]);
 
   // Obter checklists do cache
@@ -504,6 +619,7 @@ export function useOfflineData() {
     preloadProducaoDia,
     preloadMateriaisEstoque,
     preloadChecklists,
+    preloadRetornosCampoCompleto,
     
     // Acesso ao cache
     getEquipeFromCache,
@@ -518,6 +634,9 @@ export function useOfflineData() {
     getEstoqueFromCache,
     getProducaoFromCache,
     getIntervalosFromCache,
+    getTipoServicoRetornosFromCache,
+    getRetornoAtividadesFromCache,
+    getAtividadesFromCache,
     
     // Atualizações locais
     updateOrdemLocal,

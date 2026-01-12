@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
+import { useOfflineData } from "@/hooks/useOfflineData";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -33,6 +35,7 @@ import {
   Plus,
   Minus,
   Check,
+  WifiOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -137,6 +140,10 @@ export default function RetornoCampoSelector({
   skillId,
   onConfirm,
 }: Props) {
+  // Hooks de offline
+  const { isOnline } = useOfflineSyncContext();
+  const { getTipoServicoRetornosFromCache, getRetornoAtividadesFromCache } = useOfflineData();
+
   // Estados
   const [loading, setLoading] = useState(true);
   const [retornosDisponiveis, setRetornosDisponiveis] = useState<TipoServicoRetorno[]>([]);
@@ -158,9 +165,39 @@ export default function RetornoCampoSelector({
     }
   }, [open, skillId]);
 
+  // Carregar retornos do cache offline
+  const carregarRetornosOffline = async () => {
+    try {
+      console.log("[RetornoCampoSelector] 📦 Buscando retornos do cache para skill:", skillId);
+      const retornosCache = await getTipoServicoRetornosFromCache(skillId);
+      
+      if (retornosCache && retornosCache.length > 0) {
+        console.log("[RetornoCampoSelector] ✅ Retornos do cache:", retornosCache.length);
+        setRetornosDisponiveis(retornosCache);
+        return true;
+      }
+      
+      console.log("[RetornoCampoSelector] ❌ Nenhum retorno no cache");
+      return false;
+    } catch (error) {
+      console.error("[RetornoCampoSelector] Erro ao buscar cache:", error);
+      return false;
+    }
+  };
+
   const carregarRetornos = async () => {
     setLoading(true);
     try {
+      // Se offline, usar cache
+      if (!isOnline) {
+        const sucesso = await carregarRetornosOffline();
+        if (!sucesso) {
+          toast.error("Dados de retorno não disponíveis offline");
+        }
+        return;
+      }
+
+      // Se online, buscar do Supabase
       const { data, error } = await supabase
         .from("tipo_servico_retornos")
         .select(`
@@ -184,15 +221,59 @@ export default function RetornoCampoSelector({
       setRetornosDisponiveis(data || []);
     } catch (error: any) {
       console.error("Erro ao carregar retornos:", error);
-      toast.error("Erro ao carregar opções de retorno");
+      // Tentar cache como fallback
+      if (!navigator.onLine) {
+        await carregarRetornosOffline();
+      } else {
+        toast.error("Erro ao carregar opções de retorno");
+      }
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Carregar atividades do cache offline
+  const carregarAtividadesOffline = async (tipoServicoRetornoId: string) => {
+    try {
+      console.log("[RetornoCampoSelector] 📦 Buscando atividades do cache para retorno:", tipoServicoRetornoId);
+      const atividadesCache = await getRetornoAtividadesFromCache(tipoServicoRetornoId);
+      
+      if (atividadesCache && atividadesCache.length > 0) {
+        console.log("[RetornoCampoSelector] ✅ Atividades do cache:", atividadesCache.length);
+        setAtividadesRetorno(atividadesCache);
+        
+        // Pré-selecionar atividades obrigatórias e opcionais selecionadas
+        const novasSelecionadas = new Map<string, number>();
+        atividadesCache.forEach((atv: any) => {
+          if (atv.situacao === "obrigatorio" || atv.situacao === "opcional_selecionado") {
+            novasSelecionadas.set(atv.atividade_id, atv.quantidade_padrao);
+          }
+        });
+        setAtividadesSelecionadas(novasSelecionadas);
+        return true;
+      }
+      
+      console.log("[RetornoCampoSelector] ❌ Nenhuma atividade no cache");
+      return false;
+    } catch (error) {
+      console.error("[RetornoCampoSelector] Erro ao buscar atividades do cache:", error);
+      return false;
     }
   };
 
   const carregarAtividadesRetorno = async (tipoServicoRetornoId: string) => {
     setLoadingAtividades(true);
     try {
+      // Se offline, usar cache
+      if (!isOnline) {
+        const sucesso = await carregarAtividadesOffline(tipoServicoRetornoId);
+        if (!sucesso) {
+          toast.error("Atividades não disponíveis offline");
+        }
+        return;
+      }
+
+      // Se online, buscar do Supabase
       const { data, error } = await supabase
         .from("tipo_servico_retorno_atividades")
         .select(`
@@ -228,7 +309,12 @@ export default function RetornoCampoSelector({
 
     } catch (error: any) {
       console.error("Erro ao carregar atividades:", error);
-      toast.error("Erro ao carregar atividades");
+      // Tentar cache como fallback
+      if (!navigator.onLine) {
+        await carregarAtividadesOffline(tipoServicoRetornoId);
+      } else {
+        toast.error("Erro ao carregar atividades");
+      }
     } finally {
       setLoadingAtividades(false);
     }
