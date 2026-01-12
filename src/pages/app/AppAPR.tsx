@@ -369,6 +369,9 @@ export default function AppAPR() {
     return status;
   })();
   
+  // Verificar se está sincronizando (online mas com operações pendentes)
+  const isSincronizando = isOnline && pendingOperations.length > 0;
+  
   // Verificar se a equipe já chegou no local (permitir APR apenas após chegada)
   // Verificar tanto o status da ordem quanto operações pendentes de sincronização
   const chegouNoLocal = ordem?.chegada_local_at || 
@@ -377,7 +380,7 @@ export default function AppAPR() {
     ordem?.status === "em_andamento" || 
     ordem?.status === "concluida" ||
     ordem?.status === "pausada" ||
-    // Verificar também operações pendentes (importante quando offline)
+    // Verificar também operações pendentes (importante quando offline ou durante sincronização)
     statusPendente === "no_local" ||
     statusPendente === "em_execucao" ||
     statusPendente === "em_andamento" ||
@@ -1830,8 +1833,26 @@ export default function AppAPR() {
         </div>
       )}
 
-      {/* Aviso de bloqueio - ainda não chegou no local */}
-      {!chegouNoLocal && !aprConcluida && (
+      {/* Banner de sincronização em andamento */}
+      {isSincronizando && (
+        <div className="mx-4 mt-4">
+          <Card className="bg-blue-50 border-blue-300">
+            <CardContent className="p-4 flex items-start gap-3">
+              <Loader2 className="h-5 w-5 text-blue-600 shrink-0 mt-0.5 animate-spin" />
+              <div>
+                <p className="font-medium text-blue-800">Sincronizando dados...</p>
+                <p className="text-sm text-blue-700 mt-1">
+                  Aguarde enquanto os dados são sincronizados com o servidor.
+                  {pendingOperations.length > 0 && ` (${pendingOperations.length} operação(ões) pendente(s))`}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Aviso de bloqueio - ainda não chegou no local (não mostrar durante sincronização) */}
+      {!chegouNoLocal && !aprConcluida && !isSincronizando && (
         <div className="mx-4 mt-4">
           <Card className="bg-orange-50 border-orange-300">
             <CardContent className="p-4 flex items-start gap-3">
@@ -1848,8 +1869,8 @@ export default function AppAPR() {
         </div>
       )}
 
-      {/* Grupos e Perguntas */}
-      <div className={`p-4 space-y-3 ${!chegouNoLocal && !aprConcluida ? 'opacity-50 pointer-events-none' : ''}`}>
+      {/* Grupos e Perguntas - Durante sincronização, permitir interação se tinha status pendente válido */}
+      <div className={`p-4 space-y-3 ${!chegouNoLocal && !aprConcluida && !isSincronizando ? 'opacity-50 pointer-events-none' : ''}`}>
         {checklist.descricao && (
           <Card className="bg-violet-50 border-violet-200">
             <CardContent className="p-4">
