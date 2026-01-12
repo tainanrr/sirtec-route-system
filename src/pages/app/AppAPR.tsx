@@ -160,6 +160,11 @@ export default function AppAPR() {
   // Estado para checklist offline
   const [checklistOfflineCache, setChecklistOfflineCache] = useState<Checklist | null>(null);
   
+  // Estado para rastrear se a sincronização acabou de terminar
+  // Isso evita mostrar mensagem de "Aguardando chegada" enquanto os dados do servidor são atualizados
+  const [syncJustCompleted, setSyncJustCompleted] = useState(false);
+  const prevPendingCountRef = useRef(pendingOperations.length);
+  
   // Refs para scroll
   const perguntaRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const grupoRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -372,6 +377,29 @@ export default function AppAPR() {
   // Verificar se está sincronizando (online mas com operações pendentes)
   const isSincronizando = isOnline && pendingOperations.length > 0;
   
+  // Detectar quando a sincronização termina e manter estado por alguns segundos
+  // para evitar mostrar mensagem de bloqueio enquanto dados são atualizados
+  useEffect(() => {
+    const prevCount = prevPendingCountRef.current;
+    const currentCount = pendingOperations.length;
+    
+    // Sincronização terminou: tinha operações pendentes e agora não tem mais
+    if (prevCount > 0 && currentCount === 0 && isOnline) {
+      console.log("[APR] ⏳ Sincronização terminou - aguardando atualização do servidor...");
+      setSyncJustCompleted(true);
+      
+      // Após 3 segundos, permitir que a UI volte ao normal
+      const timer = setTimeout(() => {
+        console.log("[APR] ✅ Período de transição de sincronização concluído");
+        setSyncJustCompleted(false);
+      }, 3000);
+      
+      return () => clearTimeout(timer);
+    }
+    
+    prevPendingCountRef.current = currentCount;
+  }, [pendingOperations.length, isOnline]);
+  
   // Verificar se a equipe já chegou no local (permitir APR apenas após chegada)
   // Verificar tanto o status da ordem quanto operações pendentes de sincronização
   const chegouNoLocal = ordem?.chegada_local_at || 
@@ -385,7 +413,9 @@ export default function AppAPR() {
     statusPendente === "em_execucao" ||
     statusPendente === "em_andamento" ||
     statusPendente === "concluida" ||
-    statusPendente === "pausada";
+    statusPendente === "pausada" ||
+    // Durante período de transição após sincronização, assumir que chegou no local
+    syncJustCompleted;
 
   // Verificar se já existe APR preenchida para esta OS
   const { data: respostaExistente } = useQuery({
@@ -1833,17 +1863,21 @@ export default function AppAPR() {
         </div>
       )}
 
-      {/* Banner de sincronização em andamento */}
-      {isSincronizando && (
+      {/* Banner de sincronização em andamento ou finalizando */}
+      {(isSincronizando || syncJustCompleted) && (
         <div className="mx-4 mt-4">
           <Card className="bg-blue-50 border-blue-300">
             <CardContent className="p-4 flex items-start gap-3">
               <Loader2 className="h-5 w-5 text-blue-600 shrink-0 mt-0.5 animate-spin" />
               <div>
-                <p className="font-medium text-blue-800">Sincronizando dados...</p>
+                <p className="font-medium text-blue-800">
+                  {syncJustCompleted ? "Finalizando sincronização..." : "Sincronizando dados..."}
+                </p>
                 <p className="text-sm text-blue-700 mt-1">
-                  Aguarde enquanto os dados são sincronizados com o servidor.
-                  {pendingOperations.length > 0 && ` (${pendingOperations.length} operação(ões) pendente(s))`}
+                  {syncJustCompleted 
+                    ? "Aguarde enquanto os dados são atualizados..."
+                    : `Aguarde enquanto os dados são sincronizados com o servidor.${pendingOperations.length > 0 ? ` (${pendingOperations.length} operação(ões) pendente(s))` : ''}`
+                  }
                 </p>
               </div>
             </CardContent>
@@ -1851,8 +1885,8 @@ export default function AppAPR() {
         </div>
       )}
 
-      {/* Aviso de bloqueio - ainda não chegou no local (não mostrar durante sincronização) */}
-      {!chegouNoLocal && !aprConcluida && !isSincronizando && (
+      {/* Aviso de bloqueio - ainda não chegou no local (não mostrar durante sincronização ou transição) */}
+      {!chegouNoLocal && !aprConcluida && !isSincronizando && !syncJustCompleted && (
         <div className="mx-4 mt-4">
           <Card className="bg-orange-50 border-orange-300">
             <CardContent className="p-4 flex items-start gap-3">
@@ -1869,8 +1903,8 @@ export default function AppAPR() {
         </div>
       )}
 
-      {/* Grupos e Perguntas - Durante sincronização, permitir interação se tinha status pendente válido */}
-      <div className={`p-4 space-y-3 ${!chegouNoLocal && !aprConcluida && !isSincronizando ? 'opacity-50 pointer-events-none' : ''}`}>
+      {/* Grupos e Perguntas - Durante sincronização ou transição, permitir interação */}
+      <div className={`p-4 space-y-3 ${!chegouNoLocal && !aprConcluida && !isSincronizando && !syncJustCompleted ? 'opacity-50 pointer-events-none' : ''}`}>
         {checklist.descricao && (
           <Card className="bg-violet-50 border-violet-200">
             <CardContent className="p-4">
