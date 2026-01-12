@@ -239,12 +239,22 @@ export default function AppProcedimentoDetalhe() {
 
   // Obter URL do arquivo (do cache ou online)
   const getFileUrl = async (anexo: Anexo): Promise<string | null> => {
-    // Primeiro, verificar se está no cache
-    if (isInCache(anexo.id)) {
+    // Tentar buscar do cache primeiro (sempre, independente do estado isInCache)
+    // Isso garante que funciona offline mesmo se o estado não estiver atualizado
+    try {
       const blob = await getFromCache(anexo.id);
       if (blob) {
+        console.log("[ProcedimentoDetalhe] Arquivo carregado do cache:", anexo.nome);
         return URL.createObjectURL(blob);
       }
+    } catch (error) {
+      console.warn("[ProcedimentoDetalhe] Erro ao buscar do cache:", error);
+    }
+
+    // Se não estiver no cache e estiver offline, não há como buscar
+    if (!isOnline) {
+      console.warn("[ProcedimentoDetalhe] Arquivo não disponível offline:", anexo.nome);
+      return null;
     }
 
     // Se não estiver no cache, buscar online
@@ -264,7 +274,11 @@ export default function AppProcedimentoDetalhe() {
       const url = await getFileUrl(anexo);
 
       if (!url) {
-        toast.error("URL do arquivo não disponível");
+        if (!isOnline) {
+          toast.error("Arquivo não disponível offline. Sincronize enquanto estiver conectado.");
+        } else {
+          toast.error("URL do arquivo não disponível");
+        }
         return;
       }
 
