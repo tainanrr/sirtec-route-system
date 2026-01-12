@@ -6,6 +6,7 @@ import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
 import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
 import { useOfflineData, CACHE_KEYS } from "@/hooks/useOfflineData";
+import { useOfflineOperations } from "@/hooks/useOfflineOperations";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -113,7 +114,8 @@ export default function AppHome() {
   const { equipe: equipeAuth, turno, encerrarTurno, temTurnoAberto, logout } = useEquipeAuth();
   const { equipe, isLoading: isLoadingEquipe, error: equipeError } = useTecnico();
   const { isOnline } = useOfflineSyncContext();
-  const { getTiposIntervaloFromCache, getProducaoFromCache } = useOfflineData();
+  const { getTiposIntervaloFromCache, getProducaoFromCache, getIntervalosFromCache } = useOfflineData();
+  const { iniciarIntervalo: iniciarIntervaloOffline, encerrarIntervalo: encerrarIntervaloOffline } = useOfflineOperations();
   const [greeting, setGreeting] = useState("Olá");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [kmFinal, setKmFinal] = useState("");
@@ -169,9 +171,28 @@ export default function AppHome() {
 
   // Buscar intervalo ativo (não finalizado)
   const { data: intervaloAtivo, refetch: refetchIntervalo } = useQuery({
-    queryKey: ["intervalo-ativo", equipe?.id, turno?.id],
+    queryKey: ["intervalo-ativo", equipe?.id, turno?.id, isOnline],
     queryFn: async () => {
       if (!equipe?.id) return null;
+      
+      // Se offline, buscar do cache
+      if (!isOnline) {
+        const intervalosCached = await getIntervalosFromCache(equipe.id, dataHoje);
+        if (intervalosCached && Array.isArray(intervalosCached)) {
+          // Buscar intervalo ativo (sem hora_fim)
+          const intervaloAtivoCache = intervalosCached.find((i: any) => !i.hora_fim);
+          if (intervaloAtivoCache) {
+            // Adicionar dados do tipo de intervalo do cache
+            const tiposIntervaloCache = await getTiposIntervaloFromCache();
+            if (tiposIntervaloCache && Array.isArray(tiposIntervaloCache)) {
+              const tipoIntervalo = tiposIntervaloCache.find((t: any) => t.id === intervaloAtivoCache.tipo_intervalo_id);
+              return { ...intervaloAtivoCache, tipo_intervalo: tipoIntervalo } as IntervaloAtivo;
+            }
+            return intervaloAtivoCache as IntervaloAtivo;
+          }
+        }
+        return null;
+      }
       
       const { data, error } = await supabase
         .from("intervalos_equipe")
@@ -189,14 +210,24 @@ export default function AppHome() {
       return data as IntervaloAtivo | null;
     },
     enabled: !!equipe?.id,
-    refetchInterval: 30000,
+    refetchInterval: isOnline ? 30000 : false, // Não atualizar automaticamente quando offline
   });
 
   // Buscar produção do dia
   const { data: producaoHoje, refetch: refetchProducao } = useQuery({
-    queryKey: ["producao-hoje", equipe?.id, dataHoje],
+    queryKey: ["producao-hoje", equipe?.id, dataHoje, isOnline],
     queryFn: async () => {
       if (!equipe?.id) return { valor: 0, quantidade: 0 };
+      
+      // Se offline, buscar do cache
+      if (!isOnline) {
+        const producaoCached = await getProducaoFromCache(equipe.id, dataHoje);
+        if (producaoCached && Array.isArray(producaoCached)) {
+          const valor = producaoCached.reduce((acc: number, p: any) => acc + (p.valor_total || 0), 0);
+          return { valor, quantidade: producaoCached.length };
+        }
+        return { valor: 0, quantidade: 0 };
+      }
       
       const { data, error } = await supabase
         .from("producao_equipes")
@@ -211,7 +242,7 @@ export default function AppHome() {
       return { valor, quantidade: data?.length || 0 };
     },
     enabled: !!equipe?.id,
-    refetchInterval: 30000,
+    refetchInterval: isOnline ? 30000 : false,
   });
 
   // Buscar meta do dia
@@ -394,7 +425,7 @@ export default function AppHome() {
       return;
     }
     
-    // Verificar se há OS em andamento
+    // Verificar se há OS em andamento (apenas se tiver dados)
     if (osEmAndamento) {
       toast.error(`Finalize a OS ${osEmAndamento.numero || ""} antes de iniciar o intervalo!`, { duration: 4000 });
       return;
@@ -402,23 +433,22 @@ export default function AppHome() {
     
     setIsStartingIntervalo(true);
     try {
-      const { error } = await supabase
-        .from("intervalos_equipe")
-        .insert({
-          equipe_id: equipe.id,
-          turno_id: turno?.id || null,
-          tipo_intervalo_id: selectedIntervalo,
-          hora_inicio: new Date().toISOString(),
-          observacao: intervaloObs || null,
-        });
+      // Usar operação offline que funciona tanto online quanto offline
+      const result = await iniciarIntervaloOffline(
+        equipe.id,
+        selectedIntervalo,
+        intervaloObs || undefined
+      );
       
-      if (error) throw error;
-      
-      toast.success("Intervalo iniciado!");
-      setIntervaloDialogOpen(false);
-      setSelectedIntervalo("");
-      setIntervaloObs("");
-      refetchIntervalo();
+      if (result.success) {
+        toast.success(result.offline ? "Intervalo iniciado (offline)!" : "Intervalo iniciado!");
+        setIntervaloDialogOpen(false);
+        setSelectedIntervalo("");
+        setIntervaloObs("");
+        refetchIntervalo();
+      } else {
+        toast.error("Erro ao iniciar intervalo");
+      }
     } catch (error: any) {
       toast.error("Erro ao iniciar intervalo: " + error.message);
     } finally {
@@ -427,19 +457,19 @@ export default function AppHome() {
   };
 
   const handleFinalizarIntervalo = async () => {
-    if (!intervaloAtivo?.id) return;
+    if (!intervaloAtivo?.id || !equipe?.id) return;
     
     setIsEndingIntervalo(true);
     try {
-      const { error } = await supabase
-        .from("intervalos_equipe")
-        .update({ hora_fim: new Date().toISOString() })
-        .eq("id", intervaloAtivo.id);
+      // Usar operação offline que funciona tanto online quanto offline
+      const result = await encerrarIntervaloOffline(intervaloAtivo.id, equipe.id);
       
-      if (error) throw error;
-      
-      toast.success("Intervalo finalizado!");
-      refetchIntervalo();
+      if (result.success) {
+        toast.success(result.offline ? "Intervalo finalizado (offline)!" : "Intervalo finalizado!");
+        refetchIntervalo();
+      } else {
+        toast.error("Erro ao finalizar intervalo");
+      }
     } catch (error: any) {
       toast.error("Erro ao finalizar intervalo: " + error.message);
     } finally {
