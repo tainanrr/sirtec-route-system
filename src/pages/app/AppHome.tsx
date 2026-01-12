@@ -145,7 +145,7 @@ export default function AppHome() {
 
   // Buscar tipos de intervalo (com fallback para cache offline)
   const { data: tiposIntervalo } = useQuery({
-    queryKey: ["tipos-intervalo", isOnline],
+    queryKey: ["tipos-intervalo"],
     queryFn: async () => {
       // Se offline, tentar usar cache
       if (!isOnline) {
@@ -171,7 +171,7 @@ export default function AppHome() {
 
   // Buscar intervalo ativo (não finalizado)
   const { data: intervaloAtivo, refetch: refetchIntervalo } = useQuery({
-    queryKey: ["intervalo-ativo", equipe?.id, turno?.id, isOnline],
+    queryKey: ["intervalo-ativo", equipe?.id, turno?.id],
     queryFn: async () => {
       if (!equipe?.id) return null;
       
@@ -215,7 +215,7 @@ export default function AppHome() {
 
   // Buscar produção do dia
   const { data: producaoHoje, refetch: refetchProducao } = useQuery({
-    queryKey: ["producao-hoje", equipe?.id, dataHoje, isOnline],
+    queryKey: ["producao-hoje", equipe?.id, dataHoje],
     queryFn: async () => {
       if (!equipe?.id) return { valor: 0, quantidade: 0 };
       

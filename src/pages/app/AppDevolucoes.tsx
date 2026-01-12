@@ -221,7 +221,7 @@ export default function AppDevolucoes() {
   };
 
   const { data: devolucoes, isLoading: loadingDevolucoes } = useQuery({
-    queryKey: ["app-devolucoes", equipeId, isOnline],
+    queryKey: ["app-devolucoes", equipeId],
     enabled: !!equipeId,
     queryFn: async () => {
       // Tentar buscar do cache se offline
@@ -291,7 +291,7 @@ export default function AppDevolucoes() {
   });
 
   const { data: estoqueEquipe } = useQuery({
-    queryKey: ["app-estoque-equipe", equipeId, isOnline],
+    queryKey: ["app-estoque-equipe", equipeId],
     enabled: !!equipeId,
     queryFn: async () => {
       // Tentar buscar do cache se offline
@@ -322,7 +322,7 @@ export default function AppDevolucoes() {
   });
 
   const { data: serializadosEquipe } = useQuery({
-    queryKey: ["app-serializados-equipe", equipeId, isOnline],
+    queryKey: ["app-serializados-equipe", equipeId],
     enabled: !!equipeId,
     queryFn: async () => {
       if (!equipeId) return [];

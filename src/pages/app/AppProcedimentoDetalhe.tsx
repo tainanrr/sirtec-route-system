@@ -161,7 +161,7 @@ export default function AppProcedimentoDetalhe() {
 
   // Buscar procedimento
   const { data: procedimento, isLoading, error } = useQuery({
-    queryKey: ["procedimento-detalhe", id, isOnline],
+    queryKey: ["procedimento-detalhe", id],
     queryFn: async () => {
       // Se offline, buscar do cache de procedimentos
       if (!isOnline) {
@@ -202,7 +202,7 @@ export default function AppProcedimentoDetalhe() {
 
   // Buscar anexos
   const { data: anexos, isLoading: isLoadingAnexos } = useQuery({
-    queryKey: ["procedimento-anexos", id, isOnline],
+    queryKey: ["procedimento-anexos", id],
     queryFn: async () => {
       // Se offline, buscar do cache
       if (!isOnline) {

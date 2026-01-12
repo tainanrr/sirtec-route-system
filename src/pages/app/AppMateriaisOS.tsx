@@ -166,7 +166,7 @@ export default function AppMateriaisOS() {
 
   // Query para dados da OS
   const { data: ordem } = useQuery({
-    queryKey: ["ordem-materiais", ordemId, isOnline],
+    queryKey: ["ordem-materiais", ordemId],
     queryFn: async () => {
       // Tentar buscar do cache se offline
       if (!isOnline && equipeId) {
@@ -195,7 +195,7 @@ export default function AppMateriaisOS() {
 
   // Query para materiais aplicados/retirados na OS
   const { data: materiaisOS, isLoading: loadingMateriaisOS } = useQuery({
-    queryKey: ["materiais-os", ordemId, isOnline],
+    queryKey: ["materiais-os", ordemId],
     queryFn: async () => {
       // Tentar buscar do cache se offline
       if (!isOnline) {
@@ -236,7 +236,7 @@ export default function AppMateriaisOS() {
 
   // Query para estoque da equipe
   const { data: estoqueEquipe } = useQuery({
-    queryKey: ["estoque-equipe-os", equipeId, isOnline],
+    queryKey: ["estoque-equipe-os", equipeId],
     queryFn: async () => {
       if (!equipeId) return [];
 
@@ -275,7 +275,7 @@ export default function AppMateriaisOS() {
 
   // Query para todos os materiais (para retirar)
   const { data: todosMateriais } = useQuery({
-    queryKey: ["todos-materiais-ativos", isOnline],
+    queryKey: ["todos-materiais-ativos"],
     queryFn: async () => {
       // Tentar buscar do cache se offline
       if (!isOnline) {
@@ -301,7 +301,7 @@ export default function AppMateriaisOS() {
   // Query para TODOS os rastros disponíveis da equipe (materiais serializados)
   // Usa a mesma lógica do AppEstoque - busca via entregas confirmadas
   const { data: rastrosDisponiveis } = useQuery({
-    queryKey: ["rastros-disponiveis-equipe", equipeId, isOnline],
+    queryKey: ["rastros-disponiveis-equipe", equipeId],
     queryFn: async () => {
       if (!equipeId) return [];
 

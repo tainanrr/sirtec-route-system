@@ -128,7 +128,7 @@ export default function AppProcedimentos() {
 
   // Buscar procedimentos
   const { data: procedimentos, isLoading, refetch, error } = useQuery({
-    queryKey: ["procedimentos-app", equipe?.contrato_id, isOnline],
+    queryKey: ["procedimentos-app", equipe?.contrato_id],
     queryFn: async () => {
       // Se offline, buscar do cache
       if (!isOnline) {

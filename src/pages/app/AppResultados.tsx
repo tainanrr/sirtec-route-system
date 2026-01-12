@@ -126,7 +126,7 @@ export default function AppResultados() {
 
   // Buscar metas da equipe
   const { data: metas, isLoading: isLoadingMetas, refetch: refetchMetas } = useQuery({
-    queryKey: ["metas-equipe", equipe?.id, dataInicio, dataFim, cicloOffset, isOnline],
+    queryKey: ["metas-equipe", equipe?.id, dataInicio, dataFim, cicloOffset],
     queryFn: async () => {
       if (!equipe?.id) return [];
       
@@ -155,7 +155,7 @@ export default function AppResultados() {
 
   // Buscar produções da equipe
   const { data: producoes, isLoading: isLoadingProducoes, refetch: refetchProducoes } = useQuery({
-    queryKey: ["producoes-equipe", equipe?.id, dataInicio, dataFim, cicloOffset, isOnline],
+    queryKey: ["producoes-equipe", equipe?.id, dataInicio, dataFim, cicloOffset],
     queryFn: async () => {
       if (!equipe?.id) return [];
       

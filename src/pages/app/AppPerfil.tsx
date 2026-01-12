@@ -49,7 +49,7 @@ export default function AppPerfil() {
 
   // Buscar estatísticas do mês
   const { data: estatisticas, isLoading: isLoadingStats, refetch: refetchStats } = useQuery({
-    queryKey: ["estatisticas-tecnico", equipe?.id, isOnline],
+    queryKey: ["estatisticas-tecnico", equipe?.id],
     queryFn: async () => {
       if (!equipe?.id) return null;
 
