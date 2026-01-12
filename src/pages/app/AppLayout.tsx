@@ -87,12 +87,24 @@ export default function AppLayout() {
         // Também recarregar mensagens não lidas do chat
         // (mensagens que chegaram durante período offline não disparam eventos Realtime)
         console.log("[AppLayout] 🔔 Recarregando mensagens não lidas do chat após reconexão...");
-        carregarMensagensNaoLidas();
+        try {
+          const { data } = await supabase
+            .from("chat_conversas")
+            .select("nao_lidas_equipe")
+            .eq("equipe_id", equipe.id)
+            .eq("status", "ativo");
+          
+          const total = (data || []).reduce((acc: number, conv: any) => acc + (conv.nao_lidas_equipe || 0), 0);
+          setChatNaoLidas(total);
+          console.log("[AppLayout] 🔔 Chat: " + total + " mensagens não lidas");
+        } catch (error) {
+          console.error("[AppLayout] Erro ao carregar mensagens não lidas:", error);
+        }
       }, 500);
       
       return () => clearTimeout(timeoutId);
     }
-  }, [pendingRefreshAfterSync, pendingOperations.length, isOnline, equipe?.id, preloadEssentialData, carregarMensagensNaoLidas]);
+  }, [pendingRefreshAfterSync, pendingOperations.length, isOnline, equipe?.id, preloadEssentialData]);
 
   // Verificar se o turno é de um dia anterior (desatualizado)
   const turnoDesatualizado = useMemo(() => {
