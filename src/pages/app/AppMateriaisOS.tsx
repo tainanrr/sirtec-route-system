@@ -400,6 +400,11 @@ export default function AppMateriaisOS() {
   // Mutation para aplicar/retirar material
   const aplicarMutation = useMutation({
     mutationFn: async (data: typeof formData & { tipo: "aplicado" | "retirado" }) => {
+      // Buscar material para obter info
+      const materialInfo = data.tipo === "aplicado" 
+        ? estoqueEquipe?.find((e) => e.material_id === data.material_id)?.materiais
+        : todosMateriais?.find((m: any) => m.id === data.material_id);
+      
       if (data.tipo === "aplicado") {
         const material = estoqueEquipe?.find((e) => e.material_id === data.material_id);
         
@@ -410,7 +415,69 @@ export default function AppMateriaisOS() {
         if (material.quantidade < data.quantidade) {
           throw new Error(`Quantidade insuficiente! Você tem apenas ${material.quantidade} ${material.materiais.unidade} em estoque.`);
         }
+      }
 
+      // Se offline, enfileirar operação e atualizar cache local
+      if (!isOnline) {
+        console.log("[AppMateriaisOS] Offline - enfileirando operação de material");
+        
+        const novoRegistroId = `offline_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        const novoRegistro: MaterialAplicado = {
+          id: novoRegistroId,
+          material_id: data.material_id,
+          quantidade: data.quantidade,
+          tipo: data.tipo,
+          numero_serie: data.numero_serie || null,
+          observacao: data.observacao || null,
+          created_at: new Date().toISOString(),
+          materiais: materialInfo || {
+            codigo: "---",
+            nome: "Material",
+            unidade: "UN",
+            requer_serial: false,
+          },
+        };
+        
+        // Atualizar cache local de materiais da OS
+        const materiaisOSAtual = await getFromCache<MaterialAplicado[]>(`materiais_os_${ordemId}`) || [];
+        await saveToCache(`materiais_os_${ordemId}`, [...materiaisOSAtual, novoRegistro], 24);
+        
+        // Atualizar cache local de estoque (se aplicando)
+        if (data.tipo === "aplicado" && equipeId) {
+          const estoqueAtual = await getEstoqueFromCache(equipeId) as EstoqueItem[] || [];
+          const estoqueAtualizado = estoqueAtual.map(item => {
+            if (item.material_id === data.material_id) {
+              return { ...item, quantidade: Math.max(0, item.quantidade - data.quantidade) };
+            }
+            return item;
+          });
+          await saveToCache(`${CACHE_KEYS.MATERIAIS_ESTOQUE}_${equipeId}`, estoqueAtualizado, 24);
+        }
+        
+        // Enfileirar operação para sincronização
+        await queueOperation(
+          "aplicar_material_os",
+          "materiais_aplicados_os",
+          "insert",
+          {
+            ordem_servico_id: ordemId,
+            material_id: data.material_id,
+            quantidade: data.quantidade,
+            tipo: data.tipo,
+            numero_serie: data.numero_serie || null,
+            observacao: data.observacao || null,
+            equipe_id: equipeId,
+            numero_os: ordem?.numero, // Para exibição no indicador offline
+          },
+          2 // Prioridade média
+        );
+        
+        toast.success(data.tipo === "aplicado" ? "Material aplicado (será sincronizado)!" : "Material retirado (será sincronizado)!");
+        return;
+      }
+
+      // Online - executar normalmente
+      if (data.tipo === "aplicado") {
         // Dar baixa no estoque da equipe
         const { data: estoqueAtual } = await supabase
           .from("materiais_estoque")

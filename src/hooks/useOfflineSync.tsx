@@ -12,6 +12,7 @@ const CACHE_STORE = "data_cache";
 export type OperationType = 
   | "update_os_status"
   | "register_producao"
+  | "register_producao_completa"
   | "start_turno"
   | "end_turno"
   | "start_intervalo"
@@ -20,7 +21,14 @@ export type OperationType =
   | "send_chat_message"
   | "save_checklist"
   | "save_foto"
-  | "movimentar_material";
+  | "save_apr"
+  | "update_apr"
+  | "update_ordem_retorno"
+  | "movimentar_material"
+  | "aplicar_material_os"
+  | "remover_material_os"
+  | "confirmar_recebimento"
+  | "criar_devolucao";
 
 export interface SyncOperation {
   id: string;
@@ -473,6 +481,59 @@ export function useOfflineSync() {
       } else if (operation.action === "rpc") {
         // Chamada RPC
         result = await supabase.rpc(operation.table, operation.payload);
+      // Tratamento especial para aplicar_material_os (precisa atualizar estoque também)
+      } else if (operation.type === "aplicar_material_os" && operation.action === "insert") {
+        const payload = operation.payload;
+        const { numero_os, ...insertPayload } = cleanInvalidIds(payload);
+        
+        // Se for aplicar material, dar baixa no estoque primeiro
+        if (insertPayload.tipo === "aplicado" && insertPayload.equipe_id) {
+          const { data: estoqueAtual } = await supabase
+            .from("materiais_estoque")
+            .select("id, quantidade")
+            .eq("material_id", insertPayload.material_id)
+            .eq("local_tipo", "equipe")
+            .eq("local_id", insertPayload.equipe_id)
+            .maybeSingle();
+
+          if (estoqueAtual) {
+            await supabase
+              .from("materiais_estoque")
+              .update({ quantidade: Math.max(0, estoqueAtual.quantidade - insertPayload.quantidade) })
+              .eq("id", estoqueAtual.id);
+          }
+        }
+
+        // Inserir registro de material aplicado/retirado
+        result = await supabase.from(operation.table).insert(insertPayload);
+
+        if (!result.error) {
+          // Registrar movimentação
+          await supabase.from("materiais_movimentacoes").insert({
+            material_id: insertPayload.material_id,
+            tipo: insertPayload.tipo === "aplicado" ? "saida" : "entrada",
+            quantidade: insertPayload.quantidade,
+            local_origem_tipo: insertPayload.tipo === "aplicado" ? "equipe" : "campo",
+            local_origem_id: insertPayload.tipo === "aplicado" ? insertPayload.equipe_id : insertPayload.ordem_servico_id,
+            local_destino_tipo: insertPayload.tipo === "aplicado" ? "campo" : "equipe",
+            local_destino_id: insertPayload.tipo === "aplicado" ? insertPayload.ordem_servico_id : insertPayload.equipe_id,
+            ordem_servico_id: insertPayload.ordem_servico_id,
+            observacao: `${insertPayload.tipo === "aplicado" ? "Aplicado" : "Retirado"} na OS`,
+          });
+
+          // Se for item serializado, atualizar status
+          if (insertPayload.numero_serie) {
+            await supabase
+              .from("materiais_serializados")
+              .update({
+                status: insertPayload.tipo === "aplicado" ? "instalado" : "retirado",
+                localizacao_tipo: insertPayload.tipo === "aplicado" ? "campo" : "equipe",
+                localizacao_id: insertPayload.tipo === "aplicado" ? insertPayload.ordem_servico_id : insertPayload.equipe_id,
+                ordem_servico_id: insertPayload.tipo === "aplicado" ? insertPayload.ordem_servico_id : null,
+              })
+              .eq("numero_serie", insertPayload.numero_serie);
+          }
+        }
       } else if (operation.action === "insert") {
         // Remover IDs inválidos (banco gera UUID automaticamente)
         let insertPayload = cleanInvalidIds(operation.payload);

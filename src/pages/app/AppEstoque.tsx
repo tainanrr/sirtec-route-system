@@ -555,36 +555,34 @@ export default function AppEstoque() {
         console.log("[AppEstoque] Enfileirando confirmação de recebimento offline");
         
         // Enfileirar atualização da entrega
-        await queueOperation({
-          id: `confirmar-recebimento-${data.entrega_id}-${Date.now()}`,
-          type: "update",
-          table: "materiais_entregas",
-          data: {
+        await queueOperation(
+          "confirmar_recebimento",
+          "materiais_entregas",
+          "update",
+          {
+            id: data.entrega_id,
             status: "confirmado",
             foto_recebimento: fotoPrincipal,
             assinatura_recebimento: assinaturaResposta?.assinatura_url || null,
             coordenadas_recebimento: coordenadas,
             data_confirmacao: dataConfirmacao,
           },
-          filters: { id: data.entrega_id },
-          timestamp: Date.now(),
-          retryCount: 0,
-        });
+          2 // Prioridade média
+        );
         
         // Enfileirar registro no checklist
-        await queueOperation({
-          id: `checklist-resposta-${data.checklist_id}-${Date.now()}`,
-          type: "insert",
-          table: "checklist_respostas",
-          data: {
+        await queueOperation(
+          "save_checklist",
+          "checklist_respostas",
+          "insert",
+          {
             checklist_id: data.checklist_id,
             equipe_id: equipeId,
             status: "completo",
             respostas: data.respostas,
           },
-          timestamp: Date.now(),
-          retryCount: 0,
-        });
+          2 // Prioridade média
+        );
         
         toast.success("Confirmação salva! Será sincronizada quando houver internet.");
         return;

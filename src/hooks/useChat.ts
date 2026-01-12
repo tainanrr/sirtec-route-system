@@ -441,11 +441,11 @@ export function useChat(options: UseChatOptions) {
     // Se offline, enfileirar e retornar
     if (!isOnline) {
       console.log("[Chat] Enfileirando mensagem offline");
-      await queueOperation({
-        id: `chat-msg-${tempId}`,
-        type: "insert",
-        table: "chat_mensagens",
-        data: {
+      await queueOperation(
+        "send_chat_message",
+        "chat_mensagens",
+        "insert",
+        {
           conversa_id: conversaAtiva.id,
           remetente_tipo: tipoUsuario,
           remetente_id: tipoUsuario === "torre" ? usuarioId : equipeId,
@@ -454,9 +454,8 @@ export function useChat(options: UseChatOptions) {
           conteudo: conteudo.trim(),
           status: "enviada"
         },
-        timestamp: Date.now(),
-        retryCount: 0,
-      });
+        2 // Prioridade média
+      );
       toast.success("Mensagem salva! Será enviada quando houver internet.", { duration: 2000 });
       setEnviando(false);
       return;
@@ -634,11 +633,11 @@ export function useChat(options: UseChatOptions) {
     // Se offline, enfileirar e retornar
     if (!isOnline) {
       console.log("[Chat] Enfileirando localização offline");
-      await queueOperation({
-        id: `chat-loc-${tempId}`,
-        type: "insert",
-        table: "chat_mensagens",
-        data: {
+      await queueOperation(
+        "send_chat_message",
+        "chat_mensagens",
+        "insert",
+        {
           conversa_id: conversaAtiva.id,
           remetente_tipo: tipoUsuario,
           remetente_id: tipoUsuario === "torre" ? usuarioId : equipeId,
@@ -649,9 +648,8 @@ export function useChat(options: UseChatOptions) {
           longitude,
           status: "enviada"
         },
-        timestamp: Date.now(),
-        retryCount: 0,
-      });
+        2 // Prioridade média
+      );
       toast.success("Localização salva! Será enviada quando houver internet.", { duration: 2000 });
       setEnviando(false);
       return;
