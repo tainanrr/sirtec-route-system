@@ -3,6 +3,8 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useOfflineCache } from "@/hooks/useOfflineCache";
+import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
+import { useOfflineData } from "@/hooks/useOfflineData";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -150,6 +152,8 @@ export default function AppProcedimentoDetalhe() {
     getFromCache,
     getCachedByProcedimento,
   } = useOfflineCache();
+  const { isOnline } = useOfflineSyncContext();
+  const { getProcedimentosFromCache, saveToCache, getFromCache: getDataFromCache } = useOfflineData();
   
   const [pdfViewerUrl, setPdfViewerUrl] = useState<string | null>(null);
   const [pdfViewerTitle, setPdfViewerTitle] = useState("");
@@ -157,8 +161,29 @@ export default function AppProcedimentoDetalhe() {
 
   // Buscar procedimento
   const { data: procedimento, isLoading, error } = useQuery({
-    queryKey: ["procedimento-detalhe", id],
+    queryKey: ["procedimento-detalhe", id, isOnline],
     queryFn: async () => {
+      // Se offline, buscar do cache de procedimentos
+      if (!isOnline) {
+        // Primeiro tentar cache específico do procedimento
+        const cachedProcedimento = await getDataFromCache<Procedimento>(`procedimento_${id}`);
+        if (cachedProcedimento) {
+          console.log("[ProcedimentoDetalhe] Usando cache específico do procedimento");
+          return cachedProcedimento;
+        }
+        
+        // Senão, buscar da lista de procedimentos
+        const procedimentos = await getProcedimentosFromCache();
+        if (procedimentos) {
+          const found = (procedimentos as Procedimento[]).find(p => p.id === id);
+          if (found) {
+            console.log("[ProcedimentoDetalhe] Encontrado na lista de procedimentos em cache");
+            return found;
+          }
+        }
+        return null;
+      }
+
       const { data, error } = await supabase
         .from("procedimentos")
         .select("*")
@@ -166,6 +191,10 @@ export default function AppProcedimentoDetalhe() {
         .single();
 
       if (error) throw error;
+      
+      // Salvar no cache para uso offline
+      await saveToCache(`procedimento_${id}`, data, 24);
+      
       return data as Procedimento;
     },
     enabled: !!id,
@@ -173,8 +202,18 @@ export default function AppProcedimentoDetalhe() {
 
   // Buscar anexos
   const { data: anexos, isLoading: isLoadingAnexos } = useQuery({
-    queryKey: ["procedimento-anexos", id],
+    queryKey: ["procedimento-anexos", id, isOnline],
     queryFn: async () => {
+      // Se offline, buscar do cache
+      if (!isOnline) {
+        const cachedAnexos = await getDataFromCache<Anexo[]>(`procedimento_anexos_${id}`);
+        if (cachedAnexos) {
+          console.log("[ProcedimentoDetalhe] Usando cache de anexos:", cachedAnexos.length);
+          return cachedAnexos;
+        }
+        return [];
+      }
+
       const { data, error } = await supabase
         .from("procedimentos_anexos")
         .select("*")
@@ -183,6 +222,12 @@ export default function AppProcedimentoDetalhe() {
         .order("ordem", { ascending: true });
 
       if (error) throw error;
+      
+      // Salvar no cache para uso offline
+      if (data && data.length > 0) {
+        await saveToCache(`procedimento_anexos_${id}`, data, 24);
+      }
+      
       return data as Anexo[];
     },
     enabled: !!id,
