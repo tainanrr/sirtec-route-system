@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -150,6 +150,32 @@ export default function AppOrdens() {
 
   // Estado local para armazenar ordens do cache quando offline
   const [ordensOfflineCache, setOrdensOfflineCache] = useState<OrdemPlanejada[]>([]);
+
+  // Função auxiliar para obter o status mais recente de uma OS (verificando operações pendentes)
+  const getStatusAtualizado = useCallback((osId: string, statusAtual: string): string => {
+    // Buscar operações de update_os_status para esta OS
+    const operacoesDestaOS = pendingOperations.filter(op => {
+      if (op.type !== "update_os_status") return false;
+      const payload = op.payload;
+      if (!payload) return false;
+      return payload.id === osId || payload.ordem_servico_id === osId;
+    });
+
+    if (operacoesDestaOS.length > 0) {
+      // Encontrar a operação mais recente
+      const operacaoMaisRecente = operacoesDestaOS.reduce((prev, current) =>
+        new Date(prev.created_at) > new Date(current.created_at) ? prev : current
+      );
+      
+      const novosStatus = operacaoMaisRecente.payload?.status;
+      if (novosStatus && novosStatus !== statusAtual) {
+        console.log(`[AppOrdens] Status atualizado para OS ${osId}: ${statusAtual} → ${novosStatus} (operação pendente)`);
+        return novosStatus;
+      }
+    }
+    
+    return statusAtual;
+  }, [pendingOperations]);
   
   const { data: ordensPlanejadas, isLoading: isLoadingOrdens, refetch, isFetching } = useQuery({
     // NÃO incluir isOnline na queryKey para que o cache seja compartilhado entre online/offline
@@ -474,7 +500,7 @@ export default function AppOrdens() {
   
   console.log("[DEBUG AppOrdens] ordensParaUsar:", ordensParaUsar.length, "- origem:", (ordensPlanejadas && ordensPlanejadas.length > 0) ? "React Query" : "Cache Offline");
 
-  // Filtrar ordens
+  // Filtrar ordens (usando status atualizado das operações pendentes)
   const filteredOrdens = ordensParaUsar?.filter((ordem) => {
     if (!ordem.ordens_servico) return false;
 
@@ -484,7 +510,8 @@ export default function AppOrdens() {
       ordem.ordens_servico.tipo.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (ordem.ordens_servico.cliente_nome?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false);
 
-    const status = ordem.ordens_servico.status;
+    // Usar status atualizado das operações pendentes
+    const status = getStatusAtualizado(ordem.ordens_servico.id, ordem.ordens_servico.status);
 
     if (activeTab === "todas") return matchesSearch;
     if (activeTab === "pendentes") return matchesSearch && (status === "pendente" || status === "planejada");
@@ -701,13 +728,14 @@ export default function AppOrdens() {
           filteredOrdens?.map((ordem) => {
             if (!ordem.ordens_servico) return null;
             
-            const status = ordem.ordens_servico.status as keyof typeof statusConfig;
-            const config = statusConfig[status] || statusConfig.pendente;
+            // Usar status atualizado das operações pendentes
+            const statusAtualizado = getStatusAtualizado(ordem.ordens_servico.id, ordem.ordens_servico.status) as keyof typeof statusConfig;
+            const config = statusConfig[statusAtualizado] || statusConfig.pendente;
             const StatusIcon = config.icon;
             
-            const isConcluida = status === "concluida";
-            const isCancelada = status === "cancelada";
-            const isEmAndamento = status === "em_deslocamento" || status === "em_andamento" || status === "em_execucao" || status === "no_local";
+            const isConcluida = statusAtualizado === "concluida";
+            const isCancelada = statusAtualizado === "cancelada";
+            const isEmAndamento = statusAtualizado === "em_deslocamento" || statusAtualizado === "em_andamento" || statusAtualizado === "em_execucao" || statusAtualizado === "no_local";
             const isAvulsa = ordem.ordens_servico.avulsa || ordem.ordens_servico.numero.startsWith("AVL-");
             
             return (
@@ -900,6 +928,28 @@ function MapaRoteiro({ ordens, equipe }: MapaRoteiroProps) {
   const [skillsIcons, setSkillsIcons] = useState<Map<string, string>>(new Map());
   const [skillsNomes, setSkillsNomes] = useState<Map<string, string>>(new Map());
   const [osSelecionada, setOsSelecionada] = useState<OrdemPlanejada | null>(null);
+
+  // Função auxiliar para obter o status mais recente de uma OS (verificando operações pendentes)
+  const getStatusAtualizado = useCallback((osId: string, statusAtual: string): string => {
+    // Buscar operações de update_os_status para esta OS
+    const operacoesDestaOS = pendingOperations.filter(op => {
+      if (op.type !== "update_os_status") return false;
+      const payload = op.payload;
+      if (!payload) return false;
+      return payload.id === osId || payload.ordem_servico_id === osId;
+    });
+
+    if (operacoesDestaOS.length > 0) {
+      // Encontrar a operação mais recente
+      const operacaoMaisRecente = operacoesDestaOS.reduce((prev, current) =>
+        new Date(prev.created_at) > new Date(current.created_at) ? prev : current
+      );
+      
+      return operacaoMaisRecente.payload?.status || statusAtual;
+    }
+    
+    return statusAtual;
+  }, [pendingOperations]);
   
   // Separar ordens com e sem coordenadas
   const ordensComCoordenadas = ordens.filter(
@@ -1227,7 +1277,8 @@ function MapaRoteiro({ ordens, equipe }: MapaRoteiroProps) {
     ordensOrdenadas.forEach((ordem) => {
       const lat = ordem.ordens_servico!.latitude!;
       const lng = ordem.ordens_servico!.longitude!;
-      const status = ordem.ordens_servico?.status;
+      // Usar status atualizado das operações pendentes
+      const status = getStatusAtualizado(ordem.ordens_servico?.id || "", ordem.ordens_servico?.status || "");
       const tipo = ordem.ordens_servico?.tipo || "";
       const prazo = ordem.ordens_servico?.prazo;
       const regulada = ordem.ordens_servico?.regulada;
@@ -1475,7 +1526,8 @@ function MapaRoteiro({ ordens, equipe }: MapaRoteiroProps) {
               )}
               {/* Todas as ordens ordenadas por ordem_na_rota */}
               {[...ordens].sort((a, b) => a.ordem_na_rota - b.ordem_na_rota).map((ordem) => {
-                const status = ordem.ordens_servico?.status;
+                // Usar status atualizado das operações pendentes
+                const status = getStatusAtualizado(ordem.ordens_servico?.id || "", ordem.ordens_servico?.status || "");
                 const tipo = ordem.ordens_servico?.tipo || "";
                 const prazo = ordem.ordens_servico?.prazo;
                 const regulada = ordem.ordens_servico?.regulada;

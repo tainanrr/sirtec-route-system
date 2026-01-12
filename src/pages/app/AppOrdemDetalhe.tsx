@@ -758,24 +758,30 @@ export default function AppOrdemDetalhe() {
           2 // Prioridade média
         );
         
-        // Atualizar cache local de anexos
+        // Atualizar cache local de anexos E query do React Query
         const cacheKey = `ordem_anexos_${id}`;
-        const anexosAtuais = await getFromCache<any[]>(cacheKey) || [];
+        
+        // IMPORTANTE: Buscar do cache E do estado atual da query para evitar sobrescrever dados
+        const cachedAnexos = await getFromCache<any[]>(cacheKey) || [];
+        const queryAnexos = queryClient.getQueryData<any[]>(["ordem-anexos", id, isOnline]) || [];
+        
+        // Usar o array que tiver mais itens (mais atualizado)
+        const anexosAtuais = cachedAnexos.length >= queryAnexos.length ? cachedAnexos : queryAnexos;
+        console.log("[AppOrdemDetalhe] Anexos atuais - cache:", cachedAnexos.length, "query:", queryAnexos.length, "usando:", anexosAtuais.length);
+        
         const novoAnexo = {
           id: `temp_${Date.now()}`,
           ...anexoData,
           created_at: new Date().toISOString(),
         };
         const anexosAtualizados = [novoAnexo, ...anexosAtuais]; // Novo anexo primeiro
+        
+        // Salvar no cache PRIMEIRO
         await saveToCache(cacheKey, anexosAtualizados, 24);
+        console.log("[AppOrdemDetalhe] Cache salvo com", anexosAtualizados.length, "anexos");
         
-        console.log("[AppOrdemDetalhe] Atualizando query com", anexosAtualizados.length, "anexos (isOnline:", isOnline, ")");
-        
-        // Atualizar query diretamente para mostrar na UI imediatamente
+        // Atualizar query diretamente para mostrar na UI imediatamente (NÃO usar invalidateQueries quando offline!)
         queryClient.setQueryData(["ordem-anexos", id, isOnline], anexosAtualizados);
-        
-        // Também invalidar para garantir que refetch quando voltar online
-        queryClient.invalidateQueries({ queryKey: ["ordem-anexos", id, isOnline] });
         
         toast.success("Foto salva localmente!", { id: "foto-upload" });
         console.log("[AppOrdemDetalhe] Foto salva localmente com sucesso - Total de anexos:", anexosAtualizados.length);

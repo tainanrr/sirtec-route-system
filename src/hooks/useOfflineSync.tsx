@@ -190,21 +190,28 @@ export function useOfflineSync() {
       priority,
     };
 
+    // Primeiro adicionar ao estado local (garante que estará disponível mesmo se IndexedDB falhar)
+    setPendingOperations(prev => [...prev, operation]);
+
     try {
       const db = await openDB();
       const transaction = db.transaction(QUEUE_STORE, "readwrite");
       const store = transaction.objectStore(QUEUE_STORE);
       
+      // Usar put em vez de add para evitar erros se já existir
       await new Promise<void>((resolve, reject) => {
-        const request = store.add(operation);
+        const request = store.put(operation);
         request.onsuccess = () => resolve();
         request.onerror = () => reject(request.error);
       });
+      
+      // Aguardar a transação completar
+      await new Promise<void>((resolve, reject) => {
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+      });
 
       console.log(`[OfflineSync] Operação enfileirada: ${type}`, operation.id);
-      
-      // Atualizar lista local
-      setPendingOperations(prev => [...prev, operation]);
       
       // Se online, tentar sincronizar imediatamente
       if (navigator.onLine) {
@@ -214,7 +221,9 @@ export function useOfflineSync() {
       return operation.id;
     } catch (error) {
       console.error("[OfflineSync] Erro ao enfileirar operação:", error);
-      throw error;
+      // Mesmo se falhar no IndexedDB, a operação está no estado local
+      console.warn("[OfflineSync] Operação salva apenas no estado local:", operation.id);
+      return operation.id;
     }
   }, []);
 
@@ -665,15 +674,47 @@ export function useOfflineSync() {
     setIsSyncing(true);
     
     try {
+      // Primeiro recarregar as operações do estado local (que foram adicionadas durante offline)
+      console.log(`[OfflineSync] Estado local tem ${pendingOperations.length} operações`);
+      
       const db = await openDB();
       const transaction = db.transaction(QUEUE_STORE, "readonly");
       const store = transaction.objectStore(QUEUE_STORE);
       
       const operations = await new Promise<SyncOperation[]>((resolve, reject) => {
         const request = store.getAll();
-        request.onsuccess = () => resolve(request.result);
+        request.onsuccess = () => {
+          console.log(`[OfflineSync] IndexedDB retornou ${request.result?.length || 0} operações`);
+          resolve(request.result);
+        };
         request.onerror = () => reject(request.error);
       });
+
+      // Se o IndexedDB está vazio mas temos operações no estado local, usar o estado local
+      // Isso pode acontecer se o IndexedDB não persistiu corretamente
+      if (operations.length === 0 && pendingOperations.length > 0) {
+        console.warn(`[OfflineSync] ⚠️ IndexedDB vazio mas estado local tem ${pendingOperations.length} operações! Tentando re-persistir...`);
+        
+        // Tentar re-persistir as operações do estado local
+        const writeTransaction = db.transaction(QUEUE_STORE, "readwrite");
+        const writeStore = writeTransaction.objectStore(QUEUE_STORE);
+        
+        for (const op of pendingOperations) {
+          try {
+            await new Promise<void>((resolve, reject) => {
+              const req = writeStore.put(op);
+              req.onsuccess = () => resolve();
+              req.onerror = () => reject(req.error);
+            });
+            console.log(`[OfflineSync] Re-persistida operação: ${op.type} ${op.id}`);
+          } catch (e) {
+            console.error(`[OfflineSync] Erro ao re-persistir operação ${op.id}:`, e);
+          }
+        }
+        
+        // Usar operações do estado local
+        operations.push(...pendingOperations);
+      }
 
       // Ordenar por prioridade e data
       operations.sort((a, b) => {
@@ -686,6 +727,10 @@ export function useOfflineSync() {
       
       if (toSync.length === 0) {
         console.log("[OfflineSync] Nenhuma operação para sincronizar");
+        // Limpar estado local se não tiver operações válidas
+        if (pendingOperations.length > 0) {
+          setPendingOperations([]);
+        }
         setIsSyncing(false);
         syncInProgress.current = false;
         releaseSyncLock();
