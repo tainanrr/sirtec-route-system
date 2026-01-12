@@ -9,6 +9,7 @@ import { logApp } from "@/lib/logUtils";
 import { usePageState } from "@/contexts/ScrollRestoreContext";
 import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
 import { useOfflineData, CACHE_KEYS } from "@/hooks/useOfflineData";
+import { useOfflineOperations } from "@/hooks/useOfflineOperations";
 import { getAppParentRoute } from "@/lib/appNavigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -144,6 +145,7 @@ export default function AppAPR() {
   const { equipe } = useTecnico();
   const { isOnline } = useOfflineSyncContext();
   const { getFromCache } = useOfflineData();
+  const { salvarAPR: salvarAPROffline } = useOfflineOperations();
   
   const [respostas, setRespostas] = useState<Record<string, Resposta>>({});
   const [gruposExpandidos, setGruposExpandidos] = useState<Set<string>>(new Set());
@@ -1013,59 +1015,65 @@ export default function AppAPR() {
     setSaving(true);
     try {
       const equipeId = equipe?.id || equipeAuth?.id;
+      if (!equipeId) {
+        toast.error("Equipe não identificada");
+        return;
+      }
+      
       const respostasArray = Object.values(respostas);
 
-      const payload = {
-        checklist_id: checklist.id,
-        ordem_servico_id: ordemId,
-        equipe_id: equipeId,
-        respostas: respostasArray,
-        status: 'completo',
-      };
+      // Usar operação offline que funciona tanto online quanto offline
+      const resultado = await salvarAPROffline(
+        checklist.id,
+        ordemId!,
+        equipeId,
+        respostasArray,
+        respostaExistente && !aprConcluida ? respostaExistente.id : undefined
+      );
 
-      if (respostaExistente && !aprConcluida) {
-        const { error } = await supabase
-          .from("checklist_respostas")
-          .update(payload)
-          .eq("id", respostaExistente.id);
+      if (!resultado.success) {
+        throw new Error("Falha ao salvar APR");
+      }
 
-        if (error) throw error;
+      // Se online, tentar registrar log (não bloqueia se falhar)
+      if (isOnline && equipeId) {
+        try {
+          await supabase.from("planejamento_logs").insert({
+            ordem_servico_id: ordemId,
+            acao: "apr_preenchida",
+            descricao: `APR "${checklist.nome}" preenchida e concluída`,
+            dados_novos: { checklist_id: checklist.id, respostas_count: respostasArray.length },
+            created_by: equipeId,
+          });
+          
+          // Log do sistema
+          logApp(
+            respostaExistente && !aprConcluida ? "editar" : "criar",
+            "app",
+            "checklist_respostas",
+            respostaExistente?.id || resultado.id || "",
+            {
+              id: equipeId,
+              nome: equipe?.codigo || equipeAuth?.codigo || "",
+              equipeId,
+              equipeCodigo: equipe?.codigo || equipeAuth?.codigo || ""
+            },
+            null,
+            { checklist_id: checklist.id, respostas: respostasArray },
+            `Preencheu APR "${checklist.nome}" para OS ${ordemId}`
+          );
+        } catch (logError) {
+          console.warn("[APR] Erro ao registrar log (não crítico):", logError);
+        }
+      }
+
+      // Mensagem de sucesso diferenciada
+      if (resultado.offline) {
+        toast.success("APR salva localmente! Será sincronizada quando houver conexão.");
       } else {
-        const { error } = await supabase
-          .from("checklist_respostas")
-          .insert(payload);
-
-        if (error) throw error;
+        toast.success("APR concluída com sucesso!");
       }
-
-      if (equipeId) {
-        await supabase.from("planejamento_logs").insert({
-          ordem_servico_id: ordemId,
-          acao: "apr_preenchida",
-          descricao: `APR "${checklist.nome}" preenchida e concluída`,
-          dados_novos: { checklist_id: checklist.id, respostas_count: respostasArray.length },
-          created_by: equipeId,
-        });
-        
-        // Log do sistema
-        logApp(
-          respostaExistente && !aprConcluida ? "editar" : "criar",
-          "app",
-          "checklist_respostas",
-          respostaExistente?.id || "",
-          {
-            id: equipeId,
-            nome: equipe?.codigo || equipeAuth?.codigo || "",
-            equipeId,
-            equipeCodigo: equipe?.codigo || equipeAuth?.codigo || ""
-          },
-          null,
-          payload,
-          `Preencheu APR "${checklist.nome}" para OS ${ordemId}`
-        );
-      }
-
-      toast.success("APR concluída com sucesso!");
+      
       queryClient.invalidateQueries({ queryKey: ["apr-existente", ordemId] });
       handleBack();
     } catch (error: any) {

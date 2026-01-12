@@ -395,6 +395,103 @@ export function useOfflineOperations() {
     }
   }, [isOnline, queueOperation]);
 
+  // ============ OPERAÇÕES DE APR/CHECKLIST ============
+
+  // Salvar resposta de APR/Checklist
+  const salvarAPR = useCallback(async (
+    checklistId: string,
+    ordemServicoId: string,
+    equipeId: string,
+    respostas: any[],
+    respostaExistenteId?: string
+  ): Promise<{ success: boolean; id?: string; offline?: boolean }> => {
+    const respostaId = respostaExistenteId || `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    const payload = {
+      id: respostaId,
+      checklist_id: checklistId,
+      ordem_servico_id: ordemServicoId,
+      equipe_id: equipeId,
+      respostas: respostas,
+      status: 'completo',
+    };
+
+    // Se offline, salvar na fila
+    if (!isOnline) {
+      console.log("[OfflineOps] Salvando APR offline");
+      
+      try {
+        // Enfileirar para sincronização
+        await queueOperation(
+          respostaExistenteId ? "update_apr" : "save_apr",
+          "checklist_respostas",
+          respostaExistenteId ? "update" : "insert",
+          payload,
+          1 // Alta prioridade
+        );
+
+        // Salvar localmente no cache de APRs respondidas
+        const cacheKey = `apr_resposta_${ordemServicoId}`;
+        await saveToCache(cacheKey, {
+          ...payload,
+          created_at: new Date().toISOString(),
+          pendente_sync: true
+        }, 48);
+
+        toast.info("APR salva localmente. Será sincronizada quando houver conexão.");
+        return { success: true, id: respostaId, offline: true };
+      } catch (error) {
+        console.error("[OfflineOps] Erro ao salvar APR offline:", error);
+        toast.error("Erro ao salvar APR offline");
+        return { success: false, offline: true };
+      }
+    }
+
+    // Se online, salvar direto
+    try {
+      if (respostaExistenteId) {
+        const { error } = await supabase
+          .from("checklist_respostas")
+          .update({
+            checklist_id: checklistId,
+            ordem_servico_id: ordemServicoId,
+            equipe_id: equipeId,
+            respostas: respostas,
+            status: 'completo',
+          })
+          .eq("id", respostaExistenteId);
+
+        if (error) throw error;
+        return { success: true, id: respostaExistenteId, offline: false };
+      } else {
+        const { data, error } = await supabase
+          .from("checklist_respostas")
+          .insert({
+            checklist_id: checklistId,
+            ordem_servico_id: ordemServicoId,
+            equipe_id: equipeId,
+            respostas: respostas,
+            status: 'completo',
+          })
+          .select("id")
+          .single();
+
+        if (error) throw error;
+        return { success: true, id: data.id, offline: false };
+      }
+    } catch (error) {
+      console.error("[OfflineOps] Erro ao salvar APR:", error);
+      
+      // Se falhou por rede, tentar offline
+      if (!navigator.onLine) {
+        return salvarAPR(checklistId, ordemServicoId, equipeId, respostas, respostaExistenteId);
+      }
+      
+      toast.error("Erro ao salvar APR");
+      return { success: false, offline: false };
+    }
+  }, [isOnline, queueOperation, saveToCache]);
+
   // ============ OPERAÇÕES DE CHAT ============
 
   // Enviar mensagem de chat
@@ -491,6 +588,9 @@ export function useOfflineOperations() {
     
     // Operações de chat
     enviarMensagemChat,
+    
+    // Operações de APR/Checklist
+    salvarAPR,
   };
 }
 
