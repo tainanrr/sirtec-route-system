@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import type { RealtimeChannel } from "@supabase/supabase-js";
+import { useOfflineSyncContext } from "./useOfflineSync";
+import { CACHE_KEYS } from "./useOfflineData";
 
 // Debounce helper
 function debounce<T extends (...args: Parameters<T>) => ReturnType<T>>(
@@ -91,6 +93,8 @@ export function useChat(options: UseChatOptions) {
     onNovaMensagem 
   } = options;
 
+  const { isOnline, queueOperation, saveToCache, getFromCache } = useOfflineSyncContext();
+
   const [conversas, setConversas] = useState<ChatConversa[]>([]);
   const [mensagens, setMensagens] = useState<ChatMensagem[]>([]);
   const [conversaAtiva, setConversaAtiva] = useState<ChatConversa | null>(null);
@@ -116,6 +120,23 @@ export function useChat(options: UseChatOptions) {
     lastConversaLoadRef.current = now;
 
     try {
+      // Se offline, tentar carregar do cache
+      if (!isOnline) {
+        const cached = await getFromCache<ChatConversa[]>(`${CACHE_KEYS.MENSAGENS_CHAT}_conversas_${equipeId}`);
+        if (cached) {
+          console.log("[Chat] Usando conversas do cache:", cached.length);
+          setConversas(cached);
+          const total = cached.reduce((acc, conv) => {
+            return acc + (tipoUsuario === "torre" ? conv.nao_lidas_torre : conv.nao_lidas_equipe);
+          }, 0);
+          setTotalNaoLidas(total);
+          setLoading(false);
+          return;
+        }
+        setLoading(false);
+        return;
+      }
+
       let query = supabase
         .from("chat_conversas")
         .select(`
@@ -135,6 +156,11 @@ export function useChat(options: UseChatOptions) {
       if (error) throw error;
 
       setConversas(data || []);
+      
+      // Cachear conversas para uso offline
+      if (equipeId && data) {
+        await saveToCache(`${CACHE_KEYS.MENSAGENS_CHAT}_conversas_${equipeId}`, data, 24);
+      }
 
       // Calcular total de não lidas
       const total = (data || []).reduce((acc, conv) => {
@@ -147,7 +173,7 @@ export function useChat(options: UseChatOptions) {
     } finally {
       setLoading(false);
     }
-  }, [tipoUsuario, equipeId]);
+  }, [tipoUsuario, equipeId, isOnline, getFromCache, saveToCache]);
 
   // Versão debounced para chamadas frequentes
   const carregarConversas = useMemo(
@@ -161,6 +187,18 @@ export function useChat(options: UseChatOptions) {
 
   const carregarMensagens = useCallback(async (conversaId: string) => {
     try {
+      // Se offline, tentar carregar do cache
+      if (!isOnline) {
+        const cached = await getFromCache<ChatMensagem[]>(`${CACHE_KEYS.MENSAGENS_CHAT}_mensagens_${conversaId}`);
+        if (cached) {
+          console.log("[Chat] Usando mensagens do cache:", cached.length);
+          setMensagens(cached);
+          return;
+        }
+        setMensagens([]);
+        return;
+      }
+
       const { data, error } = await supabase
         .from("chat_mensagens")
         .select("*")
@@ -170,6 +208,11 @@ export function useChat(options: UseChatOptions) {
       if (error) throw error;
 
       setMensagens(data || []);
+      
+      // Cachear mensagens para uso offline
+      if (data) {
+        await saveToCache(`${CACHE_KEYS.MENSAGENS_CHAT}_mensagens_${conversaId}`, data, 24);
+      }
 
       // Marcar como lidas
       await supabase.rpc("marcar_mensagens_lidas", {
@@ -183,7 +226,7 @@ export function useChat(options: UseChatOptions) {
     } catch (error) {
       console.error("Erro ao carregar mensagens:", error);
     }
-  }, [tipoUsuario, carregarConversas]);
+  }, [tipoUsuario, carregarConversas, isOnline, getFromCache, saveToCache]);
 
   // ============================================
   // ABRIR CONVERSA
@@ -346,13 +389,42 @@ export function useChat(options: UseChatOptions) {
       audio_duracao: null,
       latitude: null,
       longitude: null,
-      status: "enviando",
+      status: isOnline ? "enviando" : "enviada",
       lida_at: null,
-      metadata: {}
+      metadata: isOnline ? {} : { offline: true }
     };
     
     // Adicionar mensagem otimista imediatamente
     setMensagens(prev => [...prev, mensagemOtimista]);
+    
+    // Atualizar cache local com a nova mensagem
+    const cacheKey = `${CACHE_KEYS.MENSAGENS_CHAT}_mensagens_${conversaAtiva.id}`;
+    const cachedMsgs = await getFromCache<ChatMensagem[]>(cacheKey) || [];
+    await saveToCache(cacheKey, [...cachedMsgs, mensagemOtimista], 24);
+    
+    // Se offline, enfileirar e retornar
+    if (!isOnline) {
+      console.log("[Chat] Enfileirando mensagem offline");
+      await queueOperation({
+        id: `chat-msg-${tempId}`,
+        type: "insert",
+        table: "chat_mensagens",
+        data: {
+          conversa_id: conversaAtiva.id,
+          remetente_tipo: tipoUsuario,
+          remetente_id: tipoUsuario === "torre" ? usuarioId : equipeId,
+          remetente_nome: tipoUsuario === "torre" ? usuarioNome : equipeCodigo,
+          tipo: "texto",
+          conteudo: conteudo.trim(),
+          status: "enviada"
+        },
+        timestamp: Date.now(),
+        retryCount: 0,
+      });
+      toast.success("Mensagem salva! Será enviada quando houver internet.", { duration: 2000 });
+      setEnviando(false);
+      return;
+    }
     
     try {
       const novaMensagem = {
@@ -389,7 +461,7 @@ export function useChat(options: UseChatOptions) {
     } finally {
       setEnviando(false);
     }
-  }, [conversaAtiva, tipoUsuario, usuarioId, usuarioNome, equipeId, equipeCodigo, carregarConversas]);
+  }, [conversaAtiva, tipoUsuario, usuarioId, usuarioNome, equipeId, equipeCodigo, carregarConversas, isOnline, queueOperation, getFromCache, saveToCache]);
 
   // ============================================
   // ENVIAR IMAGEM
@@ -397,6 +469,12 @@ export function useChat(options: UseChatOptions) {
 
   const enviarImagem = useCallback(async (file: File) => {
     if (!conversaAtiva) return;
+
+    // Imagens requerem upload - não suportado offline
+    if (!isOnline) {
+      toast.error("Não é possível enviar imagens offline. Aguarde conexão com internet.");
+      return;
+    }
 
     setEnviando(true);
     
@@ -497,7 +575,7 @@ export function useChat(options: UseChatOptions) {
       remetente_id: tipoUsuario === "torre" ? usuarioId || null : equipeId || null,
       remetente_nome: tipoUsuario === "torre" ? usuarioNome || null : equipeCodigo || null,
       tipo: "localizacao",
-      conteudo: "📍 Enviando localização...",
+      conteudo: "📍 Localização compartilhada",
       arquivo_url: null,
       arquivo_nome: null,
       arquivo_tipo: null,
@@ -505,12 +583,43 @@ export function useChat(options: UseChatOptions) {
       audio_duracao: null,
       latitude,
       longitude,
-      status: "enviando",
+      status: isOnline ? "enviando" : "enviada",
       lida_at: null,
-      metadata: {}
+      metadata: isOnline ? {} : { offline: true }
     };
     
     setMensagens(prev => [...prev, mensagemOtimista]);
+    
+    // Atualizar cache local com a nova mensagem
+    const cacheKey = `${CACHE_KEYS.MENSAGENS_CHAT}_mensagens_${conversaAtiva.id}`;
+    const cachedMsgs = await getFromCache<ChatMensagem[]>(cacheKey) || [];
+    await saveToCache(cacheKey, [...cachedMsgs, mensagemOtimista], 24);
+    
+    // Se offline, enfileirar e retornar
+    if (!isOnline) {
+      console.log("[Chat] Enfileirando localização offline");
+      await queueOperation({
+        id: `chat-loc-${tempId}`,
+        type: "insert",
+        table: "chat_mensagens",
+        data: {
+          conversa_id: conversaAtiva.id,
+          remetente_tipo: tipoUsuario,
+          remetente_id: tipoUsuario === "torre" ? usuarioId : equipeId,
+          remetente_nome: tipoUsuario === "torre" ? usuarioNome : equipeCodigo,
+          tipo: "localizacao",
+          conteudo: "📍 Localização compartilhada",
+          latitude,
+          longitude,
+          status: "enviada"
+        },
+        timestamp: Date.now(),
+        retryCount: 0,
+      });
+      toast.success("Localização salva! Será enviada quando houver internet.", { duration: 2000 });
+      setEnviando(false);
+      return;
+    }
     
     try {
       const novaMensagem = {
@@ -547,7 +656,7 @@ export function useChat(options: UseChatOptions) {
     } finally {
       setEnviando(false);
     }
-  }, [conversaAtiva, tipoUsuario, usuarioId, usuarioNome, equipeId, equipeCodigo, carregarConversas]);
+  }, [conversaAtiva, tipoUsuario, usuarioId, usuarioNome, equipeId, equipeCodigo, carregarConversas, isOnline, queueOperation, getFromCache, saveToCache]);
 
   // ============================================
   // ENVIAR ÁUDIO
@@ -555,6 +664,12 @@ export function useChat(options: UseChatOptions) {
 
   const enviarAudio = useCallback(async (audioBlob: Blob, duracao: number) => {
     if (!conversaAtiva) return;
+
+    // Áudios requerem upload - não suportado offline
+    if (!isOnline) {
+      toast.error("Não é possível enviar áudio offline. Aguarde conexão com internet.");
+      return;
+    }
 
     setEnviando(true);
     
