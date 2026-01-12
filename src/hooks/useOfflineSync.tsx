@@ -957,9 +957,19 @@ export function useOfflineSync() {
       const transaction = db.transaction(CACHE_STORE, "readwrite");
       const store = transaction.objectStore(CACHE_STORE);
       
+      // IMPORTANTE: Serializar e deserializar para garantir que objetos complexos
+      // (como os retornados pelo Supabase) sejam armazenados corretamente no IndexedDB
+      // Isso remove referências circulares e propriedades não serializáveis
+      let dataToStore = data;
+      try {
+        dataToStore = JSON.parse(JSON.stringify(data));
+      } catch (serializeError) {
+        console.warn(`[OfflineSync] Aviso: não foi possível serializar dados para ${key}, usando original:`, serializeError);
+      }
+      
       const entry: CacheEntry = {
         key,
-        data,
+        data: dataToStore,
         updated_at: new Date().toISOString(),
         expires_at: new Date(Date.now() + expiresInHours * 60 * 60 * 1000).toISOString(),
       };

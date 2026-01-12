@@ -277,7 +277,18 @@ export function useOfflineData() {
         if (ordensInvalidas > 0) {
           console.warn(`[OfflineData] ${ordensInvalidas} ordens ignoradas (sem ordens_servico válido)`);
         }
-        todasOrdens.push(...ordensValidas);
+        
+        // IMPORTANTE: Fazer deep clone para garantir serialização correta no IndexedDB
+        // Objetos do Supabase podem ter propriedades não serializáveis
+        ordensValidas.forEach(ordem => {
+          try {
+            const ordemClonada = JSON.parse(JSON.stringify(ordem));
+            todasOrdens.push(ordemClonada);
+          } catch (e) {
+            console.warn("[OfflineData] Erro ao clonar ordem, usando original:", e);
+            todasOrdens.push(ordem);
+          }
+        });
       }
       
       if (ordensAvulsasData) {
@@ -289,6 +300,15 @@ export function useOfflineData() {
               ? Math.max(...todasOrdens.map(o => o.ordem_na_rota || 0))
               : 0;
             
+            // Deep clone da OS avulsa também
+            let osClonada;
+            try {
+              osClonada = JSON.parse(JSON.stringify(osAvulsa));
+            } catch (e) {
+              console.warn("[OfflineData] Erro ao clonar OS avulsa, usando original:", e);
+              osClonada = osAvulsa;
+            }
+            
             todasOrdens.push({
               id: `avulsa-${osAvulsa.id}`,
               ordem_na_rota: maxOrdem + index + 1,
@@ -297,12 +317,16 @@ export function useOfflineData() {
               distancia_km: null,
               tempo_estimado_minutos: null,
               planejamento_id: "",
-              ordens_servico: osAvulsa,
+              ordens_servico: osClonada,
               planejamentos: null,
             });
           }
         });
       }
+
+      // Log detalhado dos IDs que serão salvos no cache
+      const idsParaSalvar = todasOrdens.map(o => o.ordens_servico?.id).filter(Boolean);
+      console.log("[OfflineData] IDs das ordens para salvar no cache:", idsParaSalvar.length, "IDs:", idsParaSalvar.slice(0, 10));
 
       await saveToCache(`${CACHE_KEYS.PLANEJAMENTO_DIA}_${equipeId}_${data}`, todasOrdens, 24);
       console.log("[OfflineData] Planejamento cacheado:", todasOrdens.length, "OSs válidas (incluindo avulsas)");
@@ -311,7 +335,14 @@ export function useOfflineData() {
       if (todasOrdens.length > 0) {
         const ordens = todasOrdens
           .filter(p => p.ordens_servico)
-          .map(p => p.ordens_servico);
+          .map(p => {
+            // Deep clone também aqui
+            try {
+              return JSON.parse(JSON.stringify(p.ordens_servico));
+            } catch {
+              return p.ordens_servico;
+            }
+          });
         await saveToCache(`${CACHE_KEYS.ORDENS_PLANEJADAS}_${equipeId}`, ordens, 24);
       }
     } catch (error) {

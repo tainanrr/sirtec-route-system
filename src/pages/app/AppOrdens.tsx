@@ -198,22 +198,43 @@ export default function AppOrdens() {
         
         try {
           const cachedPlanejamento = await getPlanejamentoFromCache(equipeIdParaUsar, dataFormatada);
-          console.log("[DEBUG AppOrdens] Resultado do cache:", cachedPlanejamento);
+          console.log("[DEBUG AppOrdens] Resultado do cache:", cachedPlanejamento?.length || 0, "items");
           
           if (cachedPlanejamento && Array.isArray(cachedPlanejamento) && cachedPlanejamento.length > 0) {
-            console.log("[DEBUG AppOrdens] ✅ Cache encontrado:", cachedPlanejamento.length, "ordens");
-            // Converter para o formato esperado
-            const ordensFromCache: OrdemPlanejada[] = (cachedPlanejamento as any[]).map((item, index) => ({
-              id: item.id || `cache-${index}`,
-              ordem_na_rota: item.ordem_na_rota || index + 1,
-              hora_inicio_estimada: item.hora_inicio_estimada,
-              hora_fim_estimada: item.hora_fim_estimada,
-              distancia_km: item.distancia_km,
-              tempo_estimado_minutos: item.tempo_estimado_minutos,
-              planejamento_id: item.planejamento_id || "",
-              ordens_servico: item.ordens_servico || null,
-              planejamentos: item.planejamentos || { id: "", data_planejamento: dataFormatada, status: "aberto" },
+            // Log detalhado dos IDs no cache
+            const idsNoCache = (cachedPlanejamento as any[]).map((item, i) => ({
+              index: i,
+              id: item.id,
+              osId: item.ordens_servico?.id,
+              hasOS: !!item.ordens_servico
             }));
+            console.log("[DEBUG AppOrdens] IDs no cache (primeiros 5):", idsNoCache.slice(0, 5));
+            
+            // Converter para o formato esperado, filtrando itens sem ordens_servico válido
+            const ordensFromCache: OrdemPlanejada[] = [];
+            
+            (cachedPlanejamento as any[]).forEach((item, index) => {
+              // Verificar se ordens_servico existe e tem id
+              const ordemServico = item.ordens_servico;
+              if (!ordemServico || !ordemServico.id) {
+                console.warn(`[DEBUG AppOrdens] ⚠️ Item ${index} sem ordens_servico válido (queryFn)`);
+                return;
+              }
+              
+              ordensFromCache.push({
+                id: item.id || `cache-${index}`,
+                ordem_na_rota: item.ordem_na_rota || index + 1,
+                hora_inicio_estimada: item.hora_inicio_estimada,
+                hora_fim_estimada: item.hora_fim_estimada,
+                distancia_km: item.distancia_km,
+                tempo_estimado_minutos: item.tempo_estimado_minutos,
+                planejamento_id: item.planejamento_id || "",
+                ordens_servico: ordemServico,
+                planejamentos: item.planejamentos || { id: "", data_planejamento: dataFormatada, status: "aberto" },
+              });
+            });
+            
+            console.log("[DEBUG AppOrdens] ✅ Cache encontrado:", ordensFromCache.length, "ordens válidas de", cachedPlanejamento.length);
             return ordensFromCache;
           }
           console.log("[DEBUG AppOrdens] ⚠️ Cache vazio ou não encontrado");
@@ -358,24 +379,48 @@ export default function AppOrdens() {
         
         try {
           const cachedData = await getPlanejamentoFromCache(equipeIdParaUsar, dataFormatada);
-          console.log("[DEBUG AppOrdens] Cache manual encontrado:", cachedData);
+          console.log("[DEBUG AppOrdens] Cache manual encontrado:", cachedData?.length || 0, "items");
           
           if (cachedData && Array.isArray(cachedData) && cachedData.length > 0) {
-            console.log("[DEBUG AppOrdens] ✅ Convertendo", cachedData.length, "ordens do cache");
-            const ordensFromCache: OrdemPlanejada[] = (cachedData as any[]).map((item, index) => ({
-              id: item.id || `cache-${index}`,
-              ordem_na_rota: item.ordem_na_rota || index + 1,
-              hora_inicio_estimada: item.hora_inicio_estimada,
-              hora_fim_estimada: item.hora_fim_estimada,
-              distancia_km: item.distancia_km,
-              tempo_estimado_minutos: item.tempo_estimado_minutos,
-              planejamento_id: item.planejamento_id || "",
-              equipe_id: item.equipe_id || equipeIdParaUsar,
-              ordens_servico: item.ordens_servico || item,
-              planejamentos: item.planejamentos || { id: "", data_planejamento: dataFormatada, status: "aberto" },
-            }));
-            setOrdensOfflineCache(ordensFromCache);
-            console.log("[DEBUG AppOrdens] ✅ ordensOfflineCache atualizado com", ordensFromCache.length, "ordens");
+            // Log detalhado dos IDs no cache para diagnóstico
+            const idsNoCache = (cachedData as any[]).map((item, i) => {
+              const osId = item.ordens_servico?.id;
+              return { index: i, id: item.id, osId, hasOS: !!item.ordens_servico };
+            });
+            console.log("[DEBUG AppOrdens] IDs no cache (primeiros 5):", idsNoCache.slice(0, 5));
+            
+            // Converter para o formato esperado, filtrando itens sem ordens_servico válido
+            const ordensFromCache: OrdemPlanejada[] = [];
+            
+            (cachedData as any[]).forEach((item, index) => {
+              // Verificar se ordens_servico existe e tem id
+              const ordemServico = item.ordens_servico;
+              if (!ordemServico || !ordemServico.id) {
+                console.warn(`[DEBUG AppOrdens] ⚠️ Item ${index} sem ordens_servico válido, ignorando`);
+                return;
+              }
+              
+              ordensFromCache.push({
+                id: item.id || `cache-${index}`,
+                ordem_na_rota: item.ordem_na_rota || index + 1,
+                hora_inicio_estimada: item.hora_inicio_estimada,
+                hora_fim_estimada: item.hora_fim_estimada,
+                distancia_km: item.distancia_km,
+                tempo_estimado_minutos: item.tempo_estimado_minutos,
+                planejamento_id: item.planejamento_id || "",
+                ordens_servico: ordemServico,
+                planejamentos: item.planejamentos || { id: "", data_planejamento: dataFormatada, status: "aberto" },
+              });
+            });
+            
+            console.log("[DEBUG AppOrdens] ✅ Convertidas", ordensFromCache.length, "ordens válidas de", cachedData.length, "no cache");
+            
+            if (ordensFromCache.length > 0) {
+              setOrdensOfflineCache(ordensFromCache);
+              console.log("[DEBUG AppOrdens] ✅ ordensOfflineCache atualizado com", ordensFromCache.length, "ordens");
+            } else {
+              console.log("[DEBUG AppOrdens] ⚠️ Nenhuma ordem válida encontrada no cache");
+            }
           } else {
             console.log("[DEBUG AppOrdens] ⚠️ Cache vazio ou inválido");
           }
@@ -386,7 +431,7 @@ export default function AppOrdens() {
     };
     
     buscarDoCache();
-  }, [isOnline, equipeIdParaUsar, selectedDate, ordensPlanejadas]);
+  }, [isOnline, equipeIdParaUsar, selectedDate, ordensPlanejadas, getPlanejamentoFromCache]);
 
   // Recarregar dados automaticamente quando a internet voltar
   // IMPORTANTE: Aguardar um tempo para a sincronização completar primeiro
