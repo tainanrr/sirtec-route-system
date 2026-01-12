@@ -6,6 +6,8 @@ import { useTecnico } from "@/contexts/TecnicoContext";
 import { useLocation, useNavigate } from "react-router-dom";
 import { getAppParentRoute } from "@/lib/appNavigation";
 import { usePageState } from "@/contexts/ScrollRestoreContext";
+import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
+import { useOfflineData, CACHE_KEYS } from "@/hooks/useOfflineData";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -119,6 +121,8 @@ export default function AppDevolucoes() {
   const { equipe: equipeAuth } = useEquipeAuth();
   const { equipe } = useTecnico();
   const equipeId = equipe?.id || equipeAuth?.id;
+  const { isOnline, saveToCache, getFromCache } = useOfflineSyncContext();
+  const { getEstoqueFromCache, getMateriaisSerializadosFromCache, getDevolucoesPendentesFromCache } = useOfflineData();
 
   const pageKey = "app-devolucoes";
   const { getState, saveState } = usePageState<{
@@ -217,9 +221,19 @@ export default function AppDevolucoes() {
   };
 
   const { data: devolucoes, isLoading: loadingDevolucoes } = useQuery({
-    queryKey: ["app-devolucoes", equipeId],
+    queryKey: ["app-devolucoes", equipeId, isOnline],
     enabled: !!equipeId,
     queryFn: async () => {
+      // Tentar buscar do cache se offline
+      if (!isOnline && equipeId) {
+        const cached = await getFromCache<Devolucao[]>(`devolucoes_${equipeId}`);
+        if (cached) {
+          console.log("[AppDevolucoes] Usando devoluções do cache:", cached.length);
+          return cached;
+        }
+        return [];
+      }
+
       const { data, error } = await (supabase as any)
         .from("materiais_devolucoes")
         .select("id, status, origem, observacao, created_at, data_conferencia, data_confirmacao_equipe")
@@ -227,6 +241,12 @@ export default function AppDevolucoes() {
         .order("created_at", { ascending: false })
         .limit(100);
       if (error) throw error;
+      
+      // Cachear para uso offline
+      if (data && equipeId) {
+        await saveToCache(`devolucoes_${equipeId}`, data, 24);
+      }
+      
       return (data || []) as Devolucao[];
     },
   });
@@ -271,9 +291,19 @@ export default function AppDevolucoes() {
   });
 
   const { data: estoqueEquipe } = useQuery({
-    queryKey: ["app-estoque-equipe", equipeId],
+    queryKey: ["app-estoque-equipe", equipeId, isOnline],
     enabled: !!equipeId,
     queryFn: async () => {
+      // Tentar buscar do cache se offline
+      if (!isOnline && equipeId) {
+        const cached = await getEstoqueFromCache(equipeId) as EstoqueItem[];
+        if (cached) {
+          console.log("[AppDevolucoes] Usando estoque do cache:", cached.length);
+          return cached;
+        }
+        return [];
+      }
+
       const { data, error } = await (supabase as any)
         .from("materiais_estoque")
         .select(`
@@ -292,10 +322,20 @@ export default function AppDevolucoes() {
   });
 
   const { data: serializadosEquipe } = useQuery({
-    queryKey: ["app-serializados-equipe", equipeId],
+    queryKey: ["app-serializados-equipe", equipeId, isOnline],
     enabled: !!equipeId,
     queryFn: async () => {
       if (!equipeId) return [];
+
+      // Tentar buscar do cache se offline
+      if (!isOnline) {
+        const cached = await getMateriaisSerializadosFromCache(equipeId) as SerializadoEquipe[];
+        if (cached) {
+          console.log("[AppDevolucoes] Usando serializados do cache:", cached.length);
+          return cached;
+        }
+        return [];
+      }
 
       // Mesmo padrão robusto do AppEstoque: basear em entregas confirmadas
       const { data: entregas, error: entregasError } = await (supabase as any)
