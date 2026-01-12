@@ -201,6 +201,15 @@ export default function AppEstoque() {
   const inputFotoRef = useRef<HTMLInputElement>(null);
 
   const equipeId = equipe?.id || equipeAuth?.id;
+  
+  // Debug - verificar estado
+  useEffect(() => {
+    console.log("[AppEstoque] 🔍 Estado atual:");
+    console.log("[AppEstoque]   - equipe?.id:", equipe?.id);
+    console.log("[AppEstoque]   - equipeAuth?.id:", equipeAuth?.id);
+    console.log("[AppEstoque]   - equipeId:", equipeId);
+    console.log("[AppEstoque]   - isOnline:", isOnline);
+  }, [equipe?.id, equipeAuth?.id, equipeId, isOnline]);
 
   // Persistir estado do Estoque (para voltar exatamente como estava)
   useEffect(() => {
@@ -280,6 +289,8 @@ export default function AppEstoque() {
   });
 
   // Query para estoque da equipe
+  console.log("[AppEstoque] 🎯 Configurando query - equipeId:", equipeId, "enabled:", !!equipeId);
+  
   const { data: estoqueEquipe, isLoading } = useQuery({
     queryKey: ["estoque-equipe", equipeId, refreshKey, isOnline],
     queryFn: async () => {
