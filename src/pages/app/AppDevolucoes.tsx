@@ -38,6 +38,7 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { ArrowLeft, Package, Plus, QrCode, Trash2, CheckCircle, Clock, XCircle, Search, ChevronDown, ChevronUp } from "lucide-react";
 import { SignatureFullScreen } from "@/components/app/SignatureFullScreen";
+import { cn } from "@/lib/utils";
 
 type DevolucaoStatus = "pendente" | "pendente_confirmacao_equipe" | "conferida" | "cancelada";
 
