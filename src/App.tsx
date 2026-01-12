@@ -104,6 +104,7 @@ const App = () => (
       <AuthProvider>
         <WebAuthProvider>
           <PermissoesProvider>
+          <OfflineSyncProvider>
           <TooltipProvider>
           <Toaster />
           <Sonner />
@@ -161,29 +162,24 @@ const App = () => (
             <Route path="/materiais/relatorios" element={<ProtectedRoute><RelatoriosMateriais /></ProtectedRoute>} />
 
             {/* Rotas do App Móvel */}
+            {/* IMPORTANTE: OfflineSyncProvider já está no nível global - NÃO duplicar aqui */}
             <Route path="/app/login" element={
               <EquipeAuthProvider>
-                <OfflineSyncProvider>
                 <AppLogin />
-                </OfflineSyncProvider>
               </EquipeAuthProvider>
             } />
             <Route path="/app/abrir-turno" element={
               <EquipeAuthProvider>
-                <OfflineSyncProvider>
                 <AppAbrirTurno />
-                </OfflineSyncProvider>
               </EquipeAuthProvider>
             } />
             <Route path="/app" element={
               <EquipeAuthProvider>
-                <OfflineSyncProvider>
                 <AppProtectedRoute>
                   <TecnicoProvider>
                     <AppLayout />
                   </TecnicoProvider>
                 </AppProtectedRoute>
-                </OfflineSyncProvider>
               </EquipeAuthProvider>
             }>
               <Route index element={<AppHome />} />
@@ -202,7 +198,8 @@ const App = () => (
             <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
-        </TooltipProvider>
+          </TooltipProvider>
+          </OfflineSyncProvider>
           </PermissoesProvider>
         </WebAuthProvider>
       </AuthProvider>

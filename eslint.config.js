@@ -21,6 +21,19 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
       "@typescript-eslint/no-unused-vars": "off",
+      // Prevenir conflito com window.Image
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "lucide-react",
+              importNames: ["Image"],
+              message: 'Use "Image as ImageIcon" para evitar conflito com window.Image. Sempre use window.Image para criar elementos de imagem.',
+            },
+          ],
+        },
+      ],
     },
   },
 );

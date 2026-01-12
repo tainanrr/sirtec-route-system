@@ -449,6 +449,62 @@ export default function AppResultados() {
 
           {/* Tab Resumo */}
           <TabsContent value="resumo" className="mt-4 space-y-4">
+            {/* Totais Acumulados até Hoje */}
+            <div className="grid grid-cols-2 gap-3">
+              <Card className="p-4 bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/50 dark:to-blue-900/30 border-blue-200 dark:border-blue-800">
+                <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 mb-2">
+                  <Target className="h-4 w-4" />
+                  <span className="text-xs font-medium">Meta Acumulada</span>
+                </div>
+                <p className="text-xl font-bold text-blue-700 dark:text-blue-300">
+                  {formatCurrency(dadosAteHoje.totalMeta)}
+                </p>
+                <p className="text-[10px] text-blue-600/70 dark:text-blue-400/70 mt-1">
+                  até {format(parseISO(periodoAteHoje.fim), "dd/MM", { locale: ptBR })}
+                </p>
+              </Card>
+              <Card className={cn(
+                "p-4 border",
+                dadosAteHoje.percentual >= 100 
+                  ? "bg-gradient-to-br from-green-50 to-green-100/50 dark:from-green-950/50 dark:to-green-900/30 border-green-200 dark:border-green-800"
+                  : dadosAteHoje.percentual >= 80
+                    ? "bg-gradient-to-br from-amber-50 to-amber-100/50 dark:from-amber-950/50 dark:to-amber-900/30 border-amber-200 dark:border-amber-800"
+                    : "bg-gradient-to-br from-red-50 to-red-100/50 dark:from-red-950/50 dark:to-red-900/30 border-red-200 dark:border-red-800"
+              )}>
+                <div className={cn(
+                  "flex items-center gap-2 mb-2",
+                  dadosAteHoje.percentual >= 100 
+                    ? "text-green-600 dark:text-green-400"
+                    : dadosAteHoje.percentual >= 80
+                      ? "text-amber-600 dark:text-amber-400"
+                      : "text-red-600 dark:text-red-400"
+                )}>
+                  <DollarSign className="h-4 w-4" />
+                  <span className="text-xs font-medium">Total Produzido</span>
+                </div>
+                <p className={cn(
+                  "text-xl font-bold",
+                  dadosAteHoje.percentual >= 100 
+                    ? "text-green-700 dark:text-green-300"
+                    : dadosAteHoje.percentual >= 80
+                      ? "text-amber-700 dark:text-amber-300"
+                      : "text-red-700 dark:text-red-300"
+                )}>
+                  {formatCurrency(dadosAteHoje.totalProducao)}
+                </p>
+                <p className={cn(
+                  "text-[10px] mt-1",
+                  dadosAteHoje.percentual >= 100 
+                    ? "text-green-600/70 dark:text-green-400/70"
+                    : dadosAteHoje.percentual >= 80
+                      ? "text-amber-600/70 dark:text-amber-400/70"
+                      : "text-red-600/70 dark:text-red-400/70"
+                )}>
+                  {dadosAteHoje.percentual.toFixed(0)}% da meta • até {format(parseISO(periodoAteHoje.fim), "dd/MM", { locale: ptBR })}
+                </p>
+              </Card>
+            </div>
+
             {/* Médias */}
             <div className="grid grid-cols-2 gap-3">
               <Card className="p-4">

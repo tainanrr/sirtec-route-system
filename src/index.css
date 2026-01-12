@@ -281,6 +281,15 @@
   z-index: 500 !important;
 }
 
+/* Garantir que o chat fique acima do mapa */
+[data-radix-dialog-overlay] {
+  z-index: 100001 !important;
+}
+
+[data-radix-dialog-content] {
+  z-index: 100002 !important;
+}
+
 /* V19.6: Animações para OS urgente fora do território */
 @keyframes bounce {
   0%, 100% {

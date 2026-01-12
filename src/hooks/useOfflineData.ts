@@ -68,10 +68,30 @@ export function useOfflineData() {
     }
 
     const dataHoje = format(new Date(), "yyyy-MM-dd");
+    
+    // Calcular período do ciclo atual (26 a 25)
+    const hoje = new Date();
+    const diaAtual = hoje.getDate();
+    let dataInicioCiclo: string;
+    let dataFimCiclo: string;
+    
+    if (diaAtual >= 26) {
+      const inicioDate = new Date(hoje.getFullYear(), hoje.getMonth(), 26);
+      const fimDate = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 25);
+      dataInicioCiclo = format(inicioDate, "yyyy-MM-dd");
+      dataFimCiclo = format(fimDate, "yyyy-MM-dd");
+    } else {
+      const inicioDate = new Date(hoje.getFullYear(), hoje.getMonth() - 1, 26);
+      const fimDate = new Date(hoje.getFullYear(), hoje.getMonth(), 25);
+      dataInicioCiclo = format(inicioDate, "yyyy-MM-dd");
+      dataFimCiclo = format(fimDate, "yyyy-MM-dd");
+    }
+    
     console.log("[OfflineData] ========================================");
     console.log("[OfflineData] Iniciando pré-carregamento de dados essenciais");
     console.log("[OfflineData] Equipe:", equipeId);
     console.log("[OfflineData] Data:", dataHoje);
+    console.log("[OfflineData] Ciclo:", dataInicioCiclo, "a", dataFimCiclo);
     console.log("[OfflineData] ========================================");
 
     try {
@@ -94,13 +114,16 @@ export function useOfflineData() {
         preloadColaboradores(),
         preloadProcedimentos(),
         preloadEstatisticasTecnico(equipeId),
+        preloadMetasCiclo(equipeId, dataInicioCiclo, dataFimCiclo),
+        preloadProducoesCiclo(equipeId, dataInicioCiclo, dataFimCiclo),
+        preloadMateriaisCatalogo(),
       ]);
 
       // Log de resultados
       const nomes = ['TiposIntervalo', 'Skills', 'RetornosCampo', 'PlanejamentoDia', 
                      'OrdensServico', 'IntervalosDia', 'ProducaoDia', 'MateriaisEstoque', 'Checklists', 'RetornosCampoCompleto',
                      'EntregasPendentes', 'DevolucoesPendentes', 'MovimentacoesEstoque', 'MateriaisSerializados',
-                     'Colaboradores', 'Procedimentos', 'EstatisticasTecnico'];
+                     'Colaboradores', 'Procedimentos', 'EstatisticasTecnico', 'MetasCiclo', 'ProducoesCiclo', 'MateriaisCatalogo'];
       results.forEach((result, index) => {
         if (result.status === 'rejected') {
           console.error(`[OfflineData] ❌ ${nomes[index]} falhou:`, result.reason);
@@ -248,7 +271,13 @@ export function useOfflineData() {
       const todasOrdens: any[] = [];
       
       if (ordensPlanejadasData) {
-        todasOrdens.push(...ordensPlanejadasData);
+        // IMPORTANTE: Filtrar ordens com ordens_servico válido (join pode falhar se OS foi deletada)
+        const ordensValidas = ordensPlanejadasData.filter(o => o.ordens_servico && o.ordens_servico.id);
+        const ordensInvalidas = ordensPlanejadasData.length - ordensValidas.length;
+        if (ordensInvalidas > 0) {
+          console.warn(`[OfflineData] ${ordensInvalidas} ordens ignoradas (sem ordens_servico válido)`);
+        }
+        todasOrdens.push(...ordensValidas);
       }
       
       if (ordensAvulsasData) {
@@ -276,7 +305,7 @@ export function useOfflineData() {
       }
 
       await saveToCache(`${CACHE_KEYS.PLANEJAMENTO_DIA}_${equipeId}_${data}`, todasOrdens, 24);
-      console.log("[OfflineData] Planejamento cacheado:", todasOrdens.length, "OSs (incluindo avulsas)");
+      console.log("[OfflineData] Planejamento cacheado:", todasOrdens.length, "OSs válidas (incluindo avulsas)");
       
       // Cachear também as ordens separadamente para acesso rápido
       if (todasOrdens.length > 0) {
@@ -293,14 +322,19 @@ export function useOfflineData() {
   // Pré-carregar ordens de serviço
   const preloadOrdensServico = useCallback(async (equipeId: string) => {
     try {
-      // Buscar OSs planejadas para a equipe (últimos 7 dias)
+      // Buscar OSs planejadas para a equipe (últimos 7 dias) - join com planejamentos para acessar data_planejamento
       const dataInicio = format(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), "yyyy-MM-dd");
       
       const { data: planejamentos, error } = await supabase
         .from("planejamento_ordens")
-        .select("ordem_servico_id")
+        .select(`
+          ordem_servico_id,
+          planejamentos!inner (
+            data_planejamento
+          )
+        `)
         .eq("equipe_id", equipeId)
-        .gte("data_planejamento", dataInicio);
+        .gte("planejamentos.data_planejamento", dataInicio);
       
       if (error) throw error;
       
@@ -586,6 +620,23 @@ export function useOfflineData() {
       console.log("[OfflineData] Colaboradores cacheados:", data?.length);
     } catch (error) {
       console.error("[OfflineData] Erro ao cachear colaboradores:", error);
+    }
+  }, [saveToCache]);
+
+  // Pré-carregar catálogo de materiais (todos os materiais ativos)
+  const preloadMateriaisCatalogo = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("materiais")
+        .select("id, codigo, nome, unidade, requer_serial, categoria, estoque_minimo")
+        .eq("ativo", true)
+        .order("codigo");
+      
+      if (error) throw error;
+      await saveToCache(CACHE_KEYS.MATERIAIS_CATALOGO, data, 168); // 7 dias
+      console.log("[OfflineData] Catálogo de materiais cacheado:", data?.length);
+    } catch (error) {
+      console.error("[OfflineData] Erro ao cachear catálogo de materiais:", error);
     }
   }, [saveToCache]);
 
@@ -942,6 +993,11 @@ export function useOfflineData() {
     return await getFromCache(`${CACHE_KEYS.MATERIAIS_SERIALIZADOS}_${equipeId}`);
   }, [getFromCache]);
 
+  // Obter catálogo de materiais do cache
+  const getMateriaisCatalogoFromCache = useCallback(async () => {
+    return await getFromCache(CACHE_KEYS.MATERIAIS_CATALOGO);
+  }, [getFromCache]);
+
   // Obter colaboradores disponíveis do cache
   const getColaboradoresDisponiveisFromCache = useCallback(async () => {
     return await getFromCache(CACHE_KEYS.COLABORADORES_DISPONIVEIS);
@@ -1055,6 +1111,7 @@ export function useOfflineData() {
     preloadMetasCiclo,
     preloadProducoesCiclo,
     preloadEstatisticasTecnico,
+    preloadMateriaisCatalogo,
     
     // Acesso ao cache
     getEquipeFromCache,
@@ -1076,6 +1133,7 @@ export function useOfflineData() {
     getDevolucoesPendentesFromCache,
     getMovimentacoesFromCache,
     getMateriaisSerializadosFromCache,
+    getMateriaisCatalogoFromCache,
     getColaboradoresDisponiveisFromCache,
     getProcedimentosFromCache,
     getMetasCicloFromCache,

@@ -263,7 +263,7 @@ export function ChatTorreControle() {
           <Button
             size="lg"
             className={cn(
-              "fixed bottom-6 right-6 z-50 h-14 px-4 rounded-full shadow-lg gap-2",
+              "fixed bottom-6 right-6 z-[100001] h-14 px-4 rounded-full shadow-lg gap-2",
               "bg-gradient-to-br from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800",
               "transition-all duration-300 hover:scale-105",
               totalNaoLidas > 0 && "animate-pulse"
@@ -283,7 +283,7 @@ export function ChatTorreControle() {
 
         <SheetContent 
           side="right" 
-          className="w-[450px] sm:w-[500px] p-0 flex flex-col"
+          className="w-[450px] sm:w-[500px] p-0 flex flex-col !z-[100002]"
         >
           {/* Se não tem conversa ativa, mostrar lista */}
           {!conversaAtiva ? (

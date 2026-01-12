@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   Camera,
-  Image,
+  Image as ImageIcon,
   ChevronLeft,
   ChevronRight,
   X,
@@ -413,7 +413,7 @@ export function FotoUploader({
               className="h-24 flex flex-col gap-2"
               onClick={handleGalleryClick}
             >
-              <Image className="h-8 w-8" />
+              <ImageIcon className="h-8 w-8" />
               <span className="text-sm">Galeria</span>
             </Button>
           </div>
@@ -521,7 +521,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   Camera,
-  Image,
+  Image as ImageIcon,
   ChevronLeft,
   ChevronRight,
   X,
@@ -924,7 +924,7 @@ export function FotoUploader({
               className="h-24 flex flex-col gap-2"
               onClick={handleGalleryClick}
             >
-              <Image className="h-8 w-8" />
+              <ImageIcon className="h-8 w-8" />
               <span className="text-sm">Galeria</span>
             </Button>
           </div>

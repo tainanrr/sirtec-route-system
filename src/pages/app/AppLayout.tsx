@@ -382,57 +382,7 @@ export default function AppLayout() {
           
           <div className="flex items-center gap-2">
             {/* Indicador de conexão e sincronização */}
-            <div className={cn(
-              "flex items-center gap-1.5 px-2 py-1 rounded-full text-xs cursor-pointer transition-colors",
-              isSyncing 
-                ? "bg-blue-500/20 text-blue-100" 
-                : isOnline 
-                  ? pendingCount > 0
-                    ? "bg-yellow-500/20 text-yellow-100"
-                    : "bg-green-500/20 text-green-100" 
-                  : "bg-red-500/20 text-red-100"
-            )}
-              onClick={() => pendingCount > 0 && isOnline && syncPendingOperations()}
-              title={
-                isSyncing 
-                  ? "Sincronizando..." 
-                  : isOnline 
-                    ? pendingCount > 0 
-                      ? `${pendingCount} pendentes - toque para sincronizar`
-                      : "Online" 
-                    : "Modo offline"
-              }
-            >
-              {isSyncing ? (
-                <>
-                  <RefreshCw className="h-3 w-3 animate-spin" />
-                  <span className="hidden sm:inline">Sincronizando</span>
-                </>
-              ) : isOnline ? (
-                pendingCount > 0 ? (
-                  <>
-                    <Cloud className="h-3 w-3" />
-                    <span className="font-medium">{pendingCount}</span>
-                    <span className="hidden sm:inline">pendente{pendingCount > 1 ? "s" : ""}</span>
-                  </>
-                ) : (
-                <>
-                  <Wifi className="h-3 w-3" />
-                  <span className="hidden sm:inline">Online</span>
-                </>
-                )
-              ) : (
-                <>
-                  <WifiOff className="h-3 w-3 animate-pulse" />
-                  <span className="hidden sm:inline">Offline</span>
-                  {pendingCount > 0 && (
-                    <Badge variant="secondary" className="h-4 px-1 text-[10px] bg-white/20 text-white">
-                      {pendingCount}
-                    </Badge>
-                  )}
-                </>
-              )}
-            </div>
+            <OfflineSyncIndicator className="text-xs" />
             
             {/* Indicador de login offline */}
             {isOfflineLogin && (
@@ -560,7 +510,7 @@ export default function AppLayout() {
 
       {/* Bottom Navigation */}
       <nav className="fixed bottom-0 left-0 right-0 bg-card/95 backdrop-blur border-t border-border z-40 safe-area-inset-bottom">
-        <div className="flex justify-around items-center h-16 max-w-md mx-auto">
+        <div className="flex justify-around items-center h-16 px-1">
           {navItems.map((item) => {
             const active = isActive(item.section);
             const to = getRememberedHref(item.section);
@@ -571,7 +521,7 @@ export default function AppLayout() {
                 key={item.section}
                 to={to}
                 className={cn(
-                  "flex flex-col items-center justify-center gap-1 px-6 py-2 rounded-xl transition-all relative",
+                  "flex flex-col items-center justify-center gap-0.5 px-2 py-1.5 rounded-lg transition-all relative flex-1 min-w-0",
                   active
                     ? "text-primary bg-primary/10"
                     : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
@@ -581,8 +531,8 @@ export default function AppLayout() {
                   <item.icon className={cn("h-5 w-5", active && "scale-110")} />
                   {showBadge && (
                     <span className={cn(
-                      "absolute -top-2 -right-2 min-w-[18px] h-[18px] flex items-center justify-center",
-                      "bg-red-500 text-white text-[10px] font-bold rounded-full px-1",
+                      "absolute -top-1.5 -right-1.5 min-w-[16px] h-[16px] flex items-center justify-center",
+                      "bg-red-500 text-white text-[9px] font-bold rounded-full px-0.5",
                       "animate-pulse shadow-lg"
                     )}>
                       {chatNaoLidas > 99 ? "99+" : chatNaoLidas}
@@ -590,7 +540,7 @@ export default function AppLayout() {
                   )}
                 </div>
                 <span className={cn(
-                  "text-xs font-medium",
+                  "text-[10px] font-medium truncate",
                   active && "font-semibold",
                   showBadge && !active && "text-red-500 font-semibold"
                 )}>

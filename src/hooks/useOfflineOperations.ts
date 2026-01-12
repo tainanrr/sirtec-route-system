@@ -63,7 +63,8 @@ export function useOfflineOperations() {
     osId: string,
     novoStatus: string,
     equipeId: string,
-    dadosAdicionais?: Partial<OrdemServico>
+    dadosAdicionais?: Partial<OrdemServico>,
+    numeroOs?: string // Número da OS para exibição no indicador de sincronização offline
   ): Promise<{ success: boolean; offline?: boolean }> => {
     const agora = new Date().toISOString();
     
@@ -92,11 +93,12 @@ export function useOfflineOperations() {
       
       try {
         // Enfileirar operação para sincronização
+        // Incluir numero_os para exibição no indicador de sincronização (será removido antes de enviar ao banco)
         await queueOperation(
           "update_os_status",
           "ordens_servico",
           "update",
-          { id: osId, ...updateData },
+          { id: osId, numero_os: numeroOs, ...updateData },
           1 // Alta prioridade
         );
 
@@ -130,7 +132,7 @@ export function useOfflineOperations() {
       
       // Se falhou por rede, tentar offline
       if (!navigator.onLine) {
-        return updateOSStatus(osId, novoStatus, equipeId, dadosAdicionais);
+        return updateOSStatus(osId, novoStatus, equipeId, dadosAdicionais, numeroOs);
       }
       
       toast.error("Erro ao atualizar ordem de serviço");
@@ -403,25 +405,34 @@ export function useOfflineOperations() {
     ordemServicoId: string,
     equipeId: string,
     respostas: any[],
-    respostaExistenteId?: string
+    respostaExistenteId?: string,
+    numeroOs?: string // Número da OS para exibição no indicador de sincronização offline
   ): Promise<{ success: boolean; id?: string; offline?: boolean }> => {
-    const respostaId = respostaExistenteId || `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-    const payload = {
-      id: respostaId,
+    // Para inserts, não incluir ID (banco gera UUID)
+    // Para updates, usar o ID existente
+    const payload: any = {
       checklist_id: checklistId,
       ordem_servico_id: ordemServicoId,
       equipe_id: equipeId,
       respostas: respostas,
       status: 'completo',
+      numero_os: numeroOs, // Para exibição no indicador offline (será removido antes de enviar ao banco)
     };
+
+    // Se for update, incluir o ID
+    if (respostaExistenteId) {
+      payload.id = respostaExistenteId;
+    }
+
+    // ID temporário apenas para cache local (não será enviado ao banco)
+    const tempId = respostaExistenteId || `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     // Se offline, salvar na fila
     if (!isOnline) {
       console.log("[OfflineOps] Salvando APR offline");
       
       try {
-        // Enfileirar para sincronização
+        // Enfileirar para sincronização (sem ID para inserts)
         await queueOperation(
           respostaExistenteId ? "update_apr" : "save_apr",
           "checklist_respostas",
@@ -430,16 +441,17 @@ export function useOfflineOperations() {
           1 // Alta prioridade
         );
 
-        // Salvar localmente no cache de APRs respondidas
+        // Salvar localmente no cache de APRs respondidas (com ID temporário para referência)
         const cacheKey = `apr_resposta_${ordemServicoId}`;
         await saveToCache(cacheKey, {
           ...payload,
+          id: tempId, // ID temporário apenas para cache
           created_at: new Date().toISOString(),
           pendente_sync: true
         }, 48);
 
         toast.info("APR salva localmente. Será sincronizada quando houver conexão.");
-        return { success: true, id: respostaId, offline: true };
+        return { success: true, id: tempId, offline: true };
       } catch (error) {
         console.error("[OfflineOps] Erro ao salvar APR offline:", error);
         toast.error("Erro ao salvar APR offline");

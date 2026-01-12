@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useOfflineSyncContext } from "./useOfflineSync";
+import { CACHE_KEYS } from "./useOfflineData";
 
 interface Atividade {
   id: string;
@@ -464,10 +465,12 @@ export function useRetornoCampo() {
   const atualizarOrdemComRetorno = useCallback(
     async (
       ordemServicoId: string,
-      retorno: RetornoCampoResult
+      retorno: RetornoCampoResult,
+      numeroOs?: string // Número da OS para exibição no indicador de sincronização offline
     ): Promise<boolean> => {
       const updateData = {
         id: ordemServicoId,
+        numero_os: numeroOs, // Para exibição no indicador offline (será removido antes de enviar ao banco)
         retorno_campo_id: retorno.retorno_campo_id,
         retorno_campo_codigo: retorno.retorno_codigo,
         retorno_campo_descricao: retorno.retorno_descricao,
@@ -517,7 +520,7 @@ export function useRetornoCampo() {
               "update_ordem_retorno",
               "ordens_servico",
               "update",
-              updateData,
+              { ...updateData, numero_os: numeroOs },
               1
             );
             return true;

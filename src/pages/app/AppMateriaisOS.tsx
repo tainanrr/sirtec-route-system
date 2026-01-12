@@ -99,7 +99,7 @@ export default function AppMateriaisOS() {
   const { equipe: equipeAuth } = useEquipeAuth();
   const { equipe } = useTecnico();
   const { isOnline, queueOperation, saveToCache, getFromCache } = useOfflineSyncContext();
-  const { getEstoqueFromCache, getMateriaisSerializadosFromCache, getOrdensFromCache } = useOfflineData();
+  const { getEstoqueFromCache, getMateriaisSerializadosFromCache, getOrdensFromCache, getMateriaisCatalogoFromCache } = useOfflineData();
 
   const pageKey = `app-materiais-os-${ordemId || "sem-id"}`;
   const { getState, saveState } = usePageState<{
@@ -275,8 +275,18 @@ export default function AppMateriaisOS() {
 
   // Query para todos os materiais (para retirar)
   const { data: todosMateriais } = useQuery({
-    queryKey: ["todos-materiais-ativos"],
+    queryKey: ["todos-materiais-ativos", isOnline],
     queryFn: async () => {
+      // Tentar buscar do cache se offline
+      if (!isOnline) {
+        const cached = await getMateriaisCatalogoFromCache();
+        if (cached) {
+          console.log("[AppMateriaisOS] Usando catálogo de materiais do cache:", (cached as any[]).length);
+          return cached as { id: string; codigo: string; nome: string; unidade: string; requer_serial: boolean }[];
+        }
+        return [];
+      }
+
       const { data, error } = await supabase
         .from("materiais")
         .select("id, codigo, nome, unidade, requer_serial")

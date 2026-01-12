@@ -143,7 +143,7 @@ export default function AppAPR() {
   const queryClient = useQueryClient();
   const { equipe: equipeAuth } = useEquipeAuth();
   const { equipe } = useTecnico();
-  const { isOnline } = useOfflineSyncContext();
+  const { isOnline, pendingOperations } = useOfflineSyncContext();
   const { getFromCache } = useOfflineData();
   const { salvarAPR: salvarAPROffline } = useOfflineOperations();
   
@@ -344,13 +344,45 @@ export default function AppAPR() {
   // Usar ordem do React Query ou do cache offline
   const ordem = ordemOnline || ordemOfflineCache;
   
+  // Verificar se há operação pendente de sincronização com status mais recente
+  // Isso é necessário porque o cache pode não ter sido atualizado ainda quando offline
+  const statusPendente = (() => {
+    if (!ordemId || pendingOperations.length === 0) return null;
+    
+    // Buscar a operação mais recente de update_os_status para esta ordem
+    const operacoesDestaOrdem = pendingOperations.filter(op => {
+      if (op.type !== "update_os_status") return false;
+      const payload = op.payload;
+      return payload && (payload.id === ordemId || payload.ordem_servico_id === ordemId);
+    });
+    
+    if (operacoesDestaOrdem.length === 0) return null;
+    
+    // Pegar a mais recente (última da lista)
+    const operacaoMaisRecente = operacoesDestaOrdem[operacoesDestaOrdem.length - 1];
+    const status = operacaoMaisRecente?.payload?.status;
+    
+    if (status) {
+      console.log("[APR] 📋 Status pendente de sincronização encontrado:", status);
+    }
+    
+    return status;
+  })();
+  
   // Verificar se a equipe já chegou no local (permitir APR apenas após chegada)
+  // Verificar tanto o status da ordem quanto operações pendentes de sincronização
   const chegouNoLocal = ordem?.chegada_local_at || 
     ordem?.status === "no_local" || 
     ordem?.status === "em_execucao" || 
     ordem?.status === "em_andamento" || 
     ordem?.status === "concluida" ||
-    ordem?.status === "pausada";
+    ordem?.status === "pausada" ||
+    // Verificar também operações pendentes (importante quando offline)
+    statusPendente === "no_local" ||
+    statusPendente === "em_execucao" ||
+    statusPendente === "em_andamento" ||
+    statusPendente === "concluida" ||
+    statusPendente === "pausada";
 
   // Verificar se já existe APR preenchida para esta OS
   const { data: respostaExistente } = useQuery({
@@ -528,54 +560,79 @@ export default function AppAPR() {
     coords: { latitude: number; longitude: number } | null
   ): Promise<string> => {
     return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext("2d");
-        
-        if (!ctx) {
-          resolve(imageDataUrl);
-          return;
+      let resolved = false;
+      
+      const resolveOnce = (result: string) => {
+        if (!resolved) {
+          resolved = true;
+          resolve(result);
         }
+      };
+      
+      // Timeout de segurança (10 segundos)
+      const timeout = setTimeout(() => {
+        console.warn("[APR] Timeout ao processar imagem com carimbo, usando imagem original");
+        resolveOnce(imageDataUrl);
+      }, 10000);
+      
+      const img = new window.Image();
+      img.onload = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext("2d");
+          
+          if (!ctx) {
+            clearTimeout(timeout);
+            resolveOnce(imageDataUrl);
+            return;
+          }
 
-        // Desenhar imagem original
-        ctx.drawImage(img, 0, 0);
+          // Desenhar imagem original
+          ctx.drawImage(img, 0, 0);
 
-        // Configurar estilo do texto
-        const fontSize = Math.max(14, Math.floor(img.width / 35));
-        ctx.font = `bold ${fontSize}px Arial`;
-        
-        // Preparar textos
-        const line1 = `📅 ${timestamp}`;
-        const line2 = coords ? `📍 ${coords.latitude.toFixed(6)}, ${coords.longitude.toFixed(6)}` : "📍 Sem GPS";
-        
-        // Medir textos
-        const metrics1 = ctx.measureText(line1);
-        const metrics2 = ctx.measureText(line2);
-        const maxWidth = Math.max(metrics1.width, metrics2.width);
-        const lineHeight = fontSize * 1.4;
-        const padding = fontSize * 0.6;
-        const boxHeight = lineHeight * 2 + padding * 2;
-        const boxWidth = maxWidth + padding * 2;
+          // Configurar estilo do texto
+          const fontSize = Math.max(14, Math.floor(img.width / 35));
+          ctx.font = `bold ${fontSize}px Arial`;
+          
+          // Preparar textos
+          const line1 = `📅 ${timestamp}`;
+          const line2 = coords ? `📍 ${coords.latitude.toFixed(6)}, ${coords.longitude.toFixed(6)}` : "📍 Sem GPS";
+          
+          // Medir textos
+          const metrics1 = ctx.measureText(line1);
+          const metrics2 = ctx.measureText(line2);
+          const maxWidth = Math.max(metrics1.width, metrics2.width);
+          const lineHeight = fontSize * 1.4;
+          const padding = fontSize * 0.6;
+          const boxHeight = lineHeight * 2 + padding * 2;
+          const boxWidth = maxWidth + padding * 2;
 
-        // Desenhar fundo semi-transparente no canto superior esquerdo
-        ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-        ctx.fillRect(0, 0, boxWidth, boxHeight);
+          // Desenhar fundo semi-transparente no canto superior esquerdo
+          ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+          ctx.fillRect(0, 0, boxWidth, boxHeight);
 
-        // Desenhar textos
-        ctx.fillStyle = "#ffffff";
-        ctx.fillText(line1, padding, padding + fontSize);
-        ctx.fillText(line2, padding, padding + fontSize + lineHeight);
+          // Desenhar textos
+          ctx.fillStyle = "#ffffff";
+          ctx.fillText(line1, padding, padding + fontSize);
+          ctx.fillText(line2, padding, padding + fontSize + lineHeight);
 
-        // Converter para base64
-        resolve(canvas.toDataURL("image/jpeg", 0.85));
+          // Converter para base64
+          const result = canvas.toDataURL("image/jpeg", 0.85);
+          clearTimeout(timeout);
+          resolveOnce(result);
+        } catch (error) {
+          console.error("[APR] Erro ao processar carimbo:", error);
+          clearTimeout(timeout);
+          resolveOnce(imageDataUrl);
+        }
       };
       
       img.onerror = () => {
         console.error("[APR] Erro ao carregar imagem para carimbo");
-        resolve(imageDataUrl);
+        clearTimeout(timeout);
+        resolveOnce(imageDataUrl);
       };
       
       img.src = imageDataUrl;
@@ -585,10 +642,38 @@ export default function AppAPR() {
   // Converter arquivo para base64
   const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
+      let resolved = false;
+      
+      const resolveOnce = (result: string) => {
+        if (!resolved) {
+          resolved = true;
+          resolve(result);
+        }
+      };
+      
+      const rejectOnce = (error: any) => {
+        if (!resolved) {
+          resolved = true;
+          reject(error);
+        }
+      };
+      
+      // Timeout de segurança (15 segundos)
+      const timeout = setTimeout(() => {
+        console.error("[APR] Timeout ao converter arquivo para base64");
+        rejectOnce(new Error("Timeout ao converter arquivo"));
+      }, 15000);
+      
       const reader = new FileReader();
       reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = (error) => reject(error);
+      reader.onload = () => {
+        clearTimeout(timeout);
+        resolveOnce(reader.result as string);
+      };
+      reader.onerror = (error) => {
+        clearTimeout(timeout);
+        rejectOnce(error);
+      };
     });
   };
 
@@ -612,43 +697,60 @@ export default function AppAPR() {
     
     try {
       // Obter localização
+      console.log("[APR] Obtendo localização...");
       const coords = await getCurrentLocation();
       console.log("[APR] Coordenadas obtidas:", coords);
 
       // Processar imagem com carimbo
+      console.log("[APR] Processando imagem com carimbo...");
       const { dataUrl: stampedImage, timestamp } = await processImageWithStamp(file, coords);
+      console.log("[APR] Imagem processada com sucesso, tamanho:", stampedImage.length);
       
-      toast.loading("Enviando foto...", { id: "foto-upload" });
-
-      // Converter dataUrl para blob
-      const response = await fetch(stampedImage);
-      const blob = await response.blob();
-
-      const fileName = `apr/${ordemId}/${perguntaId}_${Date.now()}.jpg`;
-
-      console.log("[APR] Tentando upload para Storage:", fileName);
-
-      // Tentar upload para Supabase Storage
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from("service-attachments")
-        .upload(fileName, blob, {
-          contentType: 'image/jpeg',
-          cacheControl: '3600',
-          upsert: true,
-        });
-
       let fotoUrl = stampedImage; // Fallback para base64
 
-      if (!uploadError && uploadData) {
-        console.log("[APR] Upload bem sucedido:", uploadData);
-        const { data: urlData } = supabase.storage
-          .from("service-attachments")
-          .getPublicUrl(fileName);
-        fotoUrl = urlData.publicUrl;
-        console.log("[APR] URL pública:", fotoUrl);
+      // Se online, tentar upload para Storage
+      if (isOnline) {
+        toast.loading("Enviando foto...", { id: "foto-upload" });
+
+        try {
+          // Converter dataUrl para blob
+          const response = await fetch(stampedImage);
+          const blob = await response.blob();
+
+          const fileName = `apr/${ordemId}/${perguntaId}_${Date.now()}.jpg`;
+
+          console.log("[APR] Tentando upload para Storage:", fileName);
+
+          // Tentar upload para Supabase Storage
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from("service-attachments")
+            .upload(fileName, blob, {
+              contentType: 'image/jpeg',
+              cacheControl: '3600',
+              upsert: true,
+            });
+
+          if (!uploadError && uploadData) {
+            console.log("[APR] Upload bem sucedido:", uploadData);
+            const { data: urlData } = supabase.storage
+              .from("service-attachments")
+              .getPublicUrl(fileName);
+            fotoUrl = urlData.publicUrl;
+            console.log("[APR] URL pública:", fotoUrl);
+          } else {
+            console.error("[APR] Erro no Storage, usando base64:", uploadError);
+            // Se deu erro mas ainda está online, continuar com base64
+          }
+        } catch (uploadError) {
+          console.error("[APR] Erro ao fazer upload, usando base64:", uploadError);
+          // Continuar com base64 se upload falhar
+        }
       } else {
-        console.error("[APR] Erro no Storage, usando base64:", uploadError);
+        console.log("[APR] Offline - usando base64 diretamente");
+        // Se offline, usar base64 diretamente sem tentar upload
       }
+
+      console.log("[APR] Criando objeto FotoData...");
 
       const novaFoto: FotoData = {
         url: fotoUrl,
@@ -656,6 +758,8 @@ export default function AppAPR() {
         longitude: coords?.longitude,
         data_hora: timestamp,
       };
+
+      console.log("[APR] Salvando foto no estado...");
 
       if (isMultiple) {
         // Adicionar às fotos existentes
@@ -686,6 +790,8 @@ export default function AppAPR() {
         });
       }
 
+      console.log("[APR] Foto salva no estado com sucesso");
+
       // Remover highlight de pendência
       setPendenciasHighlight(prev => {
         const newSet = new Set(prev);
@@ -693,14 +799,27 @@ export default function AppAPR() {
         return newSet;
       });
 
-      toast.success("Foto enviada!", { id: "foto-upload" });
+      // Mensagem diferente se offline
+      if (isOnline && fotoUrl.startsWith('http')) {
+        toast.success("Foto enviada!", { id: "foto-upload" });
+      } else {
+        toast.success("Foto salva localmente!", { id: "foto-upload" });
+      }
+      
+      console.log("[APR] Upload de foto concluído com sucesso");
     } catch (error: any) {
       console.error("[APR] Erro ao enviar foto:", error);
+      console.error("[APR] Stack trace:", error?.stack);
       
       // Fallback: salvar como base64
       try {
+        console.log("[APR] Tentando fallback - obtendo localização...");
         const coords = await getCurrentLocation();
+        console.log("[APR] Fallback - coordenadas obtidas:", coords);
+        
+        console.log("[APR] Fallback - processando imagem...");
         const { dataUrl: stampedImage, timestamp } = await processImageWithStamp(file, coords);
+        console.log("[APR] Fallback - imagem processada");
         
         const novaFoto: FotoData = {
           url: stampedImage,
@@ -709,6 +828,7 @@ export default function AppAPR() {
           data_hora: timestamp,
         };
 
+        console.log("[APR] Fallback - salvando no estado...");
         if (isMultiple) {
           setRespostas(prev => {
             const respostaAtual = prev[perguntaId] || { pergunta_id: perguntaId };
@@ -735,9 +855,11 @@ export default function AppAPR() {
           });
         }
 
+        console.log("[APR] Fallback - foto salva com sucesso");
         toast.success("Foto salva localmente!", { id: "foto-upload" });
       } catch (base64Error) {
         console.error("[APR] Erro ao converter para base64:", base64Error);
+        console.error("[APR] Stack trace do base64:", base64Error?.stack);
         toast.error("Erro ao salvar foto", { id: "foto-upload" });
       }
     }
@@ -781,35 +903,47 @@ export default function AppAPR() {
       const timestamp = format(new Date(), "dd/MM/yyyy HH:mm:ss");
       console.log("[APR] Coordenadas da assinatura:", coords);
 
-      toast.loading("Salvando assinatura...", { id: "assinatura-upload" });
-
-      // Tentar upload para Supabase Storage
-      const response = await fetch(dataUrl);
-      const blob = await response.blob();
-      
-      const fileName = `apr/${ordemId}/assinatura_${signaturePerguntaId}_${Date.now()}.png`;
-
-      console.log("[APR] Tentando upload de assinatura para Storage:", fileName);
-
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from("service-attachments")
-        .upload(fileName, blob, { 
-          contentType: 'image/png',
-          cacheControl: '3600',
-          upsert: true,
-        });
-
       let assinaturaUrl = dataUrl; // Fallback para base64
 
-      if (!uploadError && uploadData) {
-        console.log("[APR] Upload de assinatura bem sucedido:", uploadData);
-        const { data: urlData } = supabase.storage
-          .from("service-attachments")
-          .getPublicUrl(fileName);
-        assinaturaUrl = urlData.publicUrl;
-        console.log("[APR] URL pública da assinatura:", assinaturaUrl);
+      // Se online, tentar upload para Storage
+      if (isOnline) {
+        toast.loading("Salvando assinatura...", { id: "assinatura-upload" });
+
+        try {
+          // Tentar upload para Supabase Storage
+          const response = await fetch(dataUrl);
+          const blob = await response.blob();
+          
+          const fileName = `apr/${ordemId}/assinatura_${signaturePerguntaId}_${Date.now()}.png`;
+
+          console.log("[APR] Tentando upload de assinatura para Storage:", fileName);
+
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from("service-attachments")
+            .upload(fileName, blob, { 
+              contentType: 'image/png',
+              cacheControl: '3600',
+              upsert: true,
+            });
+
+          if (!uploadError && uploadData) {
+            console.log("[APR] Upload de assinatura bem sucedido:", uploadData);
+            const { data: urlData } = supabase.storage
+              .from("service-attachments")
+              .getPublicUrl(fileName);
+            assinaturaUrl = urlData.publicUrl;
+            console.log("[APR] URL pública da assinatura:", assinaturaUrl);
+          } else {
+            console.error("[APR] Erro no Storage para assinatura, usando base64:", uploadError);
+            // Se deu erro mas ainda está online, continuar com base64
+          }
+        } catch (uploadError) {
+          console.error("[APR] Erro ao fazer upload de assinatura, usando base64:", uploadError);
+          // Continuar com base64 se upload falhar
+        }
       } else {
-        console.error("[APR] Erro no Storage para assinatura, usando base64:", uploadError);
+        console.log("[APR] Offline - usando base64 diretamente para assinatura");
+        // Se offline, usar base64 diretamente sem tentar upload
       }
 
       // Atualiza assinatura_url, coordenadas e marca resposta como true
@@ -821,7 +955,12 @@ export default function AppAPR() {
         assinatura_data_hora: timestamp,
       });
       
-      toast.success("Assinatura salva!", { id: "assinatura-upload" });
+      // Mensagem diferente se offline
+      if (isOnline && assinaturaUrl.startsWith('http')) {
+        toast.success("Assinatura salva!", { id: "assinatura-upload" });
+      } else {
+        toast.success("Assinatura salva localmente!", { id: "assinatura-upload" });
+      }
     } catch (error: any) {
       console.error("[APR] Erro ao salvar assinatura:", error);
       
@@ -1023,12 +1162,14 @@ export default function AppAPR() {
       const respostasArray = Object.values(respostas);
 
       // Usar operação offline que funciona tanto online quanto offline
+      // Passar o número da OS para exibição no indicador de sincronização offline
       const resultado = await salvarAPROffline(
         checklist.id,
         ordemId!,
         equipeId,
         respostasArray,
-        respostaExistente && !aprConcluida ? respostaExistente.id : undefined
+        respostaExistente && !aprConcluida ? respostaExistente.id : undefined,
+        ordem?.numero
       );
 
       if (!resultado.success) {

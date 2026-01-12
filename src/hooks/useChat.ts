@@ -305,6 +305,28 @@ export function useChat(options: UseChatOptions) {
 
   const obterOuCriarConversa = useCallback(async (equipeDest: { id: string; codigo: string; nome: string }) => {
     try {
+      // Se offline, tentar usar conversa do cache
+      if (!isOnline) {
+        console.log("[Chat] Offline - buscando conversa do cache...");
+        const conversasCache = await getFromCache<ChatConversa[]>(`${CACHE_KEYS.MENSAGENS_CHAT}_conversas_${equipeDest.id}`);
+        if (conversasCache && conversasCache.length > 0) {
+          const conversaExistente = conversasCache.find(c => c.status === "ativo");
+          if (conversaExistente) {
+            console.log("[Chat] Conversa encontrada no cache:", conversaExistente.id);
+            const conversaCompleta = {
+              ...conversaExistente,
+              equipe: equipeDest
+            } as ChatConversa;
+            await abrirConversa(conversaCompleta);
+            return conversaCompleta;
+          }
+        }
+        
+        // Se não encontrou conversa no cache, informar ao usuário
+        toast.info("Chat disponível apenas com conexão à internet para primeira vez.", { duration: 4000 });
+        return null;
+      }
+
       // Verificar se já existe conversa ativa para esta equipe (qualquer tipo)
       const { data: existentes, error: searchError } = await supabase
         .from("chat_conversas")
@@ -357,10 +379,24 @@ export function useChat(options: UseChatOptions) {
 
     } catch (error) {
       console.error("Erro ao criar/obter conversa:", error);
-      toast.error("Erro ao iniciar conversa");
+      // Se falhou por causa de rede, tentar cache
+      if (!isOnline) {
+        const conversasCache = await getFromCache<ChatConversa[]>(`${CACHE_KEYS.MENSAGENS_CHAT}_conversas_${equipeDest.id}`);
+        if (conversasCache && conversasCache.length > 0) {
+          const conversaExistente = conversasCache.find(c => c.status === "ativo");
+          if (conversaExistente) {
+            const conversaCompleta = { ...conversaExistente, equipe: equipeDest } as ChatConversa;
+            await abrirConversa(conversaCompleta);
+            return conversaCompleta;
+          }
+        }
+        toast.info("Chat indisponível offline. Conversas anteriores serão exibidas quando houver conexão.");
+      } else {
+        toast.error("Erro ao iniciar conversa");
+      }
       return null;
     }
-  }, [abrirConversa, carregarConversas]);
+  }, [abrirConversa, carregarConversas, isOnline, getFromCache]);
 
   // ============================================
   // ENVIAR MENSAGEM DE TEXTO

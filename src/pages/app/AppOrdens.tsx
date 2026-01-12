@@ -102,7 +102,7 @@ export default function AppOrdens() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { equipe, isLoading: isLoadingEquipe } = useTecnico();
-  const { isOnline } = useOfflineSyncContext();
+  const { isOnline, pendingOperations } = useOfflineSyncContext();
   const { getPlanejamentoFromCache, getSkillsFromCache, saveToCache } = useOfflineData();
   const { getState, saveState } = usePageState<{
     searchTerm?: string;
@@ -891,6 +891,7 @@ const isOSUrgente = (prazo: string | null | undefined, regulada: boolean | null 
 
 function MapaRoteiro({ ordens, equipe }: MapaRoteiroProps) {
   const navigate = useNavigate();
+  const { pendingOperations } = useOfflineSyncContext(); // Para verificar operações pendentes de sincronização
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const markersRef = useRef<Map<string, any>>(new Map()); // Ref para armazenar marcadores por ordem_id
@@ -1484,12 +1485,29 @@ function MapaRoteiro({ ordens, equipe }: MapaRoteiroProps) {
                 const urgente = isOSUrgente(prazo, regulada);
                 const semCoordenadas = !ordem.ordens_servico?.latitude || !ordem.ordens_servico?.longitude;
                 
+                // Verificar se há operações pendentes de sincronização para esta OS
+                const osId = ordem.ordens_servico?.id;
+                const temPendenciaSync = osId && pendingOperations.some(op => {
+                  const payload = op.payload;
+                  if (!payload) return false;
+                  if (payload.ordem_servico_id === osId) return true;
+                  if (op.type === "update_os_status" && payload.id === osId) return true;
+                  if (op.type === "update_ordem_retorno" && payload.id === osId) return true;
+                  return false;
+                });
+                
                 let bgClass = "bg-gray-100 border-gray-300";
                 let badgeBg = "#000000"; // Preto para pendentes
                 
                 if (isConcluida) {
-                  bgClass = "bg-green-500/10 border-green-500/30";
-                  badgeBg = "#22c55e";
+                  // Se concluída mas tem pendência de sincronização, usar verde mais claro/amarelado
+                  if (temPendenciaSync) {
+                    bgClass = "bg-green-300/20 border-green-400/40";
+                    badgeBg = "#84cc16"; // Verde limão para indicar pendência
+                  } else {
+                    bgClass = "bg-green-500/10 border-green-500/30";
+                    badgeBg = "#22c55e";
+                  }
                 } else if (isCancelada) {
                   bgClass = "bg-red-500/10 border-red-500/30 line-through opacity-50";
                   badgeBg = "#ef4444";

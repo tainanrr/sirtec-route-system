@@ -60,13 +60,14 @@ import {
   ChevronRight,
   List,
   Phone,
-  Image,
+  Image as ImageIcon,
   MessageSquare,
   Info,
   Flag,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { processImageWithStamp, getCurrentLocation } from "@/lib/imageUtils";
 
 // Configuração de status simplificada
 const statusConfig: Record<string, { 
@@ -115,12 +116,12 @@ export default function AppOrdemDetalhe() {
   const queryClient = useQueryClient();
   const { equipe: equipeAuth } = useEquipeAuth();
   const { equipe } = useTecnico();
-  const { isOnline } = useOfflineSyncContext();
-  const { getFromCache } = useOfflineData();
+  const { isOnline, queueOperation, saveToCache, getFromCache, pendingOperations } = useOfflineSyncContext();
   const { updateOSStatus } = useOfflineOperations();
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [observacao, setObservacao] = useState("");
+  const [isUploadingFoto, setIsUploadingFoto] = useState(false);
   const { getState, saveState } = usePageState<{
     observacao?: string;
   }>(`app-ordem-detalhe-${id || "sem-id"}`);
@@ -212,8 +213,9 @@ export default function AppOrdemDetalhe() {
         console.log("[AppOrdemDetalhe] Cache key:", cacheKey, "ID procurado:", id);
         
         try {
+          // 1. Primeiro tentar buscar do cache de planejamento do dia
           const cachedPlanejamento = await getFromCache(cacheKey);
-          console.log("[AppOrdemDetalhe] Cache encontrado:", cachedPlanejamento?.length || 0, "items");
+          console.log("[AppOrdemDetalhe] Cache planejamento encontrado:", cachedPlanejamento?.length || 0, "items");
           
           if (cachedPlanejamento && Array.isArray(cachedPlanejamento)) {
             const ordemEncontrada = (cachedPlanejamento as any[]).find(
@@ -221,13 +223,44 @@ export default function AppOrdemDetalhe() {
             );
             
             if (ordemEncontrada?.ordens_servico) {
-              console.log("[AppOrdemDetalhe] ✅ Ordem encontrada no cache:", ordemEncontrada.ordens_servico.numero);
+              console.log("[AppOrdemDetalhe] ✅ Ordem encontrada no cache planejamento:", ordemEncontrada.ordens_servico.numero);
               setOrdemOfflineCache(ordemEncontrada.ordens_servico);
-            } else {
-              console.log("[AppOrdemDetalhe] ⚠️ Ordem não encontrada no cache. IDs disponíveis:", 
-                (cachedPlanejamento as any[]).map(p => p.ordens_servico?.id).slice(0, 5));
+              return;
             }
           }
+          
+          // 2. Se não encontrou, tentar o cache de ordens_planejadas (lista simples)
+          const cacheKeyOrdens = `${CACHE_KEYS.ORDENS_PLANEJADAS}_${equipeIdParaUsar}`;
+          const cachedOrdens = await getFromCache(cacheKeyOrdens);
+          console.log("[AppOrdemDetalhe] Cache ordens encontrado:", cachedOrdens?.length || 0, "items");
+          
+          if (cachedOrdens && Array.isArray(cachedOrdens)) {
+            const ordemEncontrada = (cachedOrdens as any[]).find(o => o.id === id);
+            if (ordemEncontrada) {
+              console.log("[AppOrdemDetalhe] ✅ Ordem encontrada no cache ordens:", ordemEncontrada.numero);
+              setOrdemOfflineCache(ordemEncontrada);
+              return;
+            }
+          }
+          
+          // 3. Último recurso: cache de todas as ordens (últimos 7 dias)
+          const cacheKeyAll = `${CACHE_KEYS.ORDENS_PLANEJADAS}_${equipeIdParaUsar}_all`;
+          const cachedOrdensAll = await getFromCache(cacheKeyAll);
+          console.log("[AppOrdemDetalhe] Cache ordens_all encontrado:", cachedOrdensAll?.length || 0, "items");
+          
+          if (cachedOrdensAll && Array.isArray(cachedOrdensAll)) {
+            const ordemEncontrada = (cachedOrdensAll as any[]).find(o => o.id === id);
+            if (ordemEncontrada) {
+              console.log("[AppOrdemDetalhe] ✅ Ordem encontrada no cache ordens_all:", ordemEncontrada.numero);
+              setOrdemOfflineCache(ordemEncontrada);
+              return;
+            }
+          }
+          
+          // Não encontrou em nenhum cache
+          console.log("[AppOrdemDetalhe] ⚠️ Ordem não encontrada em nenhum cache. IDs disponíveis no planejamento:", 
+            (cachedPlanejamento as any[] || []).map(p => p.ordens_servico?.id).filter(Boolean).slice(0, 5));
+            
         } catch (error) {
           console.error("[AppOrdemDetalhe] ❌ Erro ao buscar cache:", error);
         }
@@ -325,14 +358,33 @@ export default function AppOrdemDetalhe() {
 
   // Buscar anexos
   const { data: anexos } = useQuery({
-    queryKey: ["ordem-anexos", id],
+    queryKey: ["ordem-anexos", id, isOnline],
     queryFn: async () => {
+      // Se offline, buscar do cache
+      if (!isOnline) {
+        const cacheKey = `ordem_anexos_${id}`;
+        const cachedAnexos = await getFromCache<any[]>(cacheKey);
+        if (cachedAnexos) {
+          console.log("[AppOrdemDetalhe] Usando cache de anexos:", cachedAnexos.length);
+          return cachedAnexos;
+        }
+        return [];
+      }
+
       const { data, error } = await supabase
         .from("ordem_anexos")
         .select("*")
         .eq("ordem_servico_id", id)
         .order("created_at", { ascending: false });
+      
       if (error) throw error;
+      
+      // Salvar no cache para uso offline
+      if (data && data.length > 0) {
+        const cacheKey = `ordem_anexos_${id}`;
+        await saveToCache(cacheKey, data, 24);
+      }
+      
       return data;
     },
     enabled: !!id,
@@ -402,10 +454,24 @@ export default function AppOrdemDetalhe() {
   });
 
   // Verificar APR no cache offline quando não há internet
+  // Verificar se há APR pendente de sincronização para esta ordem
+  const temAprPendente = id && pendingOperations.some(op => {
+    if (op.type !== "save_apr" && op.type !== "update_apr") return false;
+    const payload = op.payload;
+    return payload && payload.ordem_servico_id === id;
+  });
+  
   useEffect(() => {
     const verificarAprOffline = async () => {
       if (!isOnline && id) {
         console.log("[AppOrdemDetalhe] 📦 Verificando APR no cache offline...");
+        
+        // Primeiro verificar se há operação pendente de save_apr
+        if (temAprPendente) {
+          console.log("[AppOrdemDetalhe] ✅ APR encontrada nas operações pendentes de sincronização");
+          setAprOfflineCache(true);
+          return;
+        }
         
         // Verificar cache específico de APR para esta ordem
         const cacheKey = `apr_resposta_${id}`;
@@ -423,7 +489,7 @@ export default function AppOrdemDetalhe() {
     };
     
     verificarAprOffline();
-  }, [isOnline, id, getFromCache]);
+  }, [isOnline, id, getFromCache, temAprPendente]); // Adiciona temAprPendente como dependência
 
   const temAprPreenchida = aprOfflineCache || checklistsPreenchidos?.some(
     (c: any) => c.checklists?.tipo === "apr" || c.checklists?.nome?.toLowerCase().includes("apr")
@@ -510,7 +576,8 @@ export default function AppOrdemDetalhe() {
         console.log("[AppOrdemDetalhe] Atualizando status:", newStatus, "online:", isOnline);
 
         // Usar o hook de operações offline que funciona tanto online quanto offline
-        const result = await updateOSStatus(id, newStatus, equipeId, dadosAdicionais);
+        // Passar o número da OS para exibição correta no indicador de sincronização offline
+        const result = await updateOSStatus(id, newStatus, equipeId, dadosAdicionais, ordem?.numero);
         
         if (result.success) {
           // Atualizar o estado local da ordem para refletir mudança imediatamente
@@ -572,38 +639,177 @@ export default function AppOrdemDetalhe() {
     }
   };
 
-  // Upload de foto
-  const uploadMutation = useMutation({
-    mutationFn: async (file: File) => {
-      const fileExt = file.name.split(".").pop();
-      const fileName = `${id}/${Date.now()}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage.from("service-attachments").upload(fileName, file);
-      if (uploadError) throw uploadError;
-      const { data: urlData } = supabase.storage.from("service-attachments").getPublicUrl(fileName);
-      const { error: insertError } = await supabase.from("ordem_anexos").insert({
+  // Funções auxiliares agora importadas de @/lib/imageUtils
+
+  // Upload de foto (agora suporta offline)
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !id) return;
+
+    setIsUploadingFoto(true);
+    console.log("[AppOrdemDetalhe] Iniciando upload de foto");
+    toast.loading("Obtendo localização e processando foto...", { id: "foto-upload" });
+    
+    try {
+      // Obter localização
+      console.log("[AppOrdemDetalhe] Obtendo localização...");
+      const coords = await getCurrentLocation();
+      console.log("[AppOrdemDetalhe] Coordenadas obtidas:", coords);
+
+      // Processar imagem com carimbo
+      console.log("[AppOrdemDetalhe] Processando imagem com carimbo...");
+      const { dataUrl: stampedImage, timestamp } = await processImageWithStamp(file, coords);
+      console.log("[AppOrdemDetalhe] Imagem processada com sucesso, tamanho:", stampedImage.length);
+      
+      let fotoUrl = stampedImage; // Fallback para base64
+      let storagePath: string | null = null;
+
+      // Se online, tentar upload para Storage
+      if (isOnline) {
+        toast.loading("Enviando foto...", { id: "foto-upload" });
+
+        try {
+          // Converter dataUrl para blob
+          const response = await fetch(stampedImage);
+          const blob = await response.blob();
+
+          const fileExt = file.name.split(".").pop() || "jpg";
+          const fileName = `${id}/${Date.now()}.${fileExt}`;
+
+          console.log("[AppOrdemDetalhe] Tentando upload para Storage:", fileName);
+
+          // Tentar upload para Supabase Storage
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from("service-attachments")
+            .upload(fileName, blob, {
+              contentType: 'image/jpeg',
+              cacheControl: '3600',
+              upsert: true,
+            });
+
+          if (!uploadError && uploadData) {
+            console.log("[AppOrdemDetalhe] Upload bem sucedido:", uploadData);
+            const { data: urlData } = supabase.storage
+              .from("service-attachments")
+              .getPublicUrl(fileName);
+            fotoUrl = urlData.publicUrl;
+            storagePath = fileName;
+            console.log("[AppOrdemDetalhe] URL pública:", fotoUrl);
+          } else {
+            console.error("[AppOrdemDetalhe] Erro no Storage, usando base64:", uploadError);
+            // Se deu erro mas ainda está online, continuar com base64
+          }
+        } catch (uploadError) {
+          console.error("[AppOrdemDetalhe] Erro ao fazer upload, usando base64:", uploadError);
+          // Continuar com base64 se upload falhar
+        }
+      } else {
+        console.log("[AppOrdemDetalhe] Offline - usando base64 diretamente");
+        // Se offline, usar base64 diretamente sem tentar upload
+      }
+
+      // Criar objeto de anexo
+      const anexoData = {
         ordem_servico_id: id,
         tipo: "foto",
-        url: urlData.publicUrl,
+        url: fotoUrl,
         descricao: `Foto - ${format(new Date(), "dd/MM HH:mm")}`,
-      });
-      if (insertError) throw insertError;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["ordem-anexos", id] });
-      toast.success("Foto enviada!");
-    },
-    onError: () => toast.error("Erro ao enviar foto"),
-  });
+        storage_path: storagePath,
+        latitude: coords?.latitude,
+        longitude: coords?.longitude,
+        data_captura: new Date().toISOString(),
+        numero_os: ordem?.numero, // Para exibição no indicador de sincronização offline (será removido antes de enviar ao banco)
+      };
+
+      console.log("[AppOrdemDetalhe] Salvando anexo...");
+
+      // Se online e upload foi bem-sucedido, inserir diretamente
+      if (isOnline && storagePath) {
+        try {
+          // Remover campo auxiliar numero_os antes de inserir no banco (não existe na tabela)
+          const { numero_os, ...anexoDataParaBanco } = anexoData;
+          
+          const { error: insertError } = await supabase.from("ordem_anexos").insert(anexoDataParaBanco);
+          if (insertError) throw insertError;
+          
+          queryClient.invalidateQueries({ queryKey: ["ordem-anexos", id, isOnline] });
+          toast.success("Foto enviada!", { id: "foto-upload" });
+          console.log("[AppOrdemDetalhe] Foto salva com sucesso");
+        } catch (error) {
+          console.error("[AppOrdemDetalhe] Erro ao inserir anexo, enfileirando:", error);
+          // Se falhar, enfileirar operação (mantém numero_os para exibição no indicador offline)
+          await queueOperation(
+            "save_foto",
+            "ordem_anexos",
+            "insert",
+            anexoData,
+            2 // Prioridade média
+          );
+          toast.success("Foto salva localmente!", { id: "foto-upload" });
+        }
+      } else {
+        // Se offline ou upload falhou, enfileirar operação
+        console.log("[AppOrdemDetalhe] Enfileirando operação de salvar foto");
+        await queueOperation(
+          "save_foto",
+          "ordem_anexos",
+          "insert",
+          anexoData,
+          2 // Prioridade média
+        );
+        
+        // Atualizar cache local de anexos
+        const cacheKey = `ordem_anexos_${id}`;
+        const anexosAtuais = await getFromCache<any[]>(cacheKey) || [];
+        const novoAnexo = {
+          id: `temp_${Date.now()}`,
+          ...anexoData,
+          created_at: new Date().toISOString(),
+        };
+        const anexosAtualizados = [novoAnexo, ...anexosAtuais]; // Novo anexo primeiro
+        await saveToCache(cacheKey, anexosAtualizados, 24);
+        
+        console.log("[AppOrdemDetalhe] Atualizando query com", anexosAtualizados.length, "anexos (isOnline:", isOnline, ")");
+        
+        // Atualizar query diretamente para mostrar na UI imediatamente
+        queryClient.setQueryData(["ordem-anexos", id, isOnline], anexosAtualizados);
+        
+        // Também invalidar para garantir que refetch quando voltar online
+        queryClient.invalidateQueries({ queryKey: ["ordem-anexos", id, isOnline] });
+        
+        toast.success("Foto salva localmente!", { id: "foto-upload" });
+        console.log("[AppOrdemDetalhe] Foto salva localmente com sucesso - Total de anexos:", anexosAtualizados.length);
+      }
+    } catch (error: any) {
+      console.error("[AppOrdemDetalhe] Erro ao enviar foto:", error);
+      toast.error("Erro ao processar foto", { id: "foto-upload" });
+    } finally {
+      setIsUploadingFoto(false);
+      // Limpar input
+      e.target.value = "";
+    }
+  };
 
   // Deletar foto
   const deleteFotoMutation = useMutation({
     mutationFn: async (anexoId: string) => {
-      const { error } = await supabase.from("ordem_anexos").delete().eq("id", anexoId);
-      if (error) throw error;
+      if (isOnline) {
+        const { error } = await supabase.from("ordem_anexos").delete().eq("id", anexoId);
+        if (error) throw error;
+      } else {
+        // Offline: remover do cache local
+        const cacheKey = `ordem_anexos_${id}`;
+        const anexosAtuais = await getFromCache<any[]>(cacheKey) || [];
+        const anexosAtualizados = anexosAtuais.filter(a => a.id !== anexoId);
+        await saveToCache(cacheKey, anexosAtualizados, 24);
+        
+        // Atualizar query diretamente
+        queryClient.setQueryData(["ordem-anexos", id, isOnline], anexosAtualizados);
+      }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["ordem-anexos", id] });
-      toast.success("Foto removida!");
+      queryClient.invalidateQueries({ queryKey: ["ordem-anexos", id, isOnline] });
+      toast.success(isOnline ? "Foto removida!" : "Foto removida localmente!");
     },
     onError: () => toast.error("Erro ao remover foto"),
   });
@@ -612,11 +818,6 @@ export default function AppOrdemDetalhe() {
     if (window.confirm("Deseja remover esta foto?")) {
       deleteFotoMutation.mutate(anexoId);
     }
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) uploadMutation.mutate(file);
   };
 
   const openNavigation = () => {
@@ -670,7 +871,7 @@ export default function AppOrdemDetalhe() {
         const equipeId = equipe?.id || equipeAuth?.id;
         if (equipeId && ordem?.id) {
           await registrarProducao(ordem.id, equipeId, retornoSelecionado);
-          await atualizarOrdemComRetorno(ordem.id, retornoSelecionado);
+          await atualizarOrdemComRetorno(ordem.id, retornoSelecionado, ordem?.numero);
           setRetornoSelecionado(null);
           updateStatusMutation.mutate("concluida");
         }
@@ -716,7 +917,7 @@ export default function AppOrdemDetalhe() {
     // registrarProducao e atualizarOrdemComRetorno já lidam com offline internamente
     try {
       await registrarProducao(ordem.id, equipeId, result);
-      await atualizarOrdemComRetorno(ordem.id, result);
+      await atualizarOrdemComRetorno(ordem.id, result, ordem?.numero);
     } catch (error) {
       console.warn("[AppOrdemDetalhe] Erro ao registrar produção (será sincronizado depois):", error);
     }
@@ -751,7 +952,33 @@ export default function AppOrdemDetalhe() {
     );
   }
 
-  const status = ordem.status as keyof typeof statusConfig;
+  // Verificar se há operação pendente de sincronização com status mais recente
+  // Isso é necessário porque o cache pode não ter sido atualizado ainda quando offline
+  const statusPendente = (() => {
+    if (!id || pendingOperations.length === 0) return null;
+    
+    // Buscar a operação mais recente de update_os_status para esta ordem
+    const operacoesDestaOrdem = pendingOperations.filter(op => {
+      if (op.type !== "update_os_status") return false;
+      const payload = op.payload;
+      return payload && (payload.id === id || payload.ordem_servico_id === id);
+    });
+    
+    if (operacoesDestaOrdem.length === 0) return null;
+    
+    // Pegar a mais recente (última da lista)
+    const operacaoMaisRecente = operacoesDestaOrdem[operacoesDestaOrdem.length - 1];
+    const statusOp = operacaoMaisRecente?.payload?.status;
+    
+    if (statusOp && statusOp !== ordem.status) {
+      console.log("[AppOrdemDetalhe] 📋 Status pendente de sincronização encontrado:", statusOp, "(atual no cache:", ordem.status, ")");
+    }
+    
+    return statusOp;
+  })();
+  
+  // Usar o status pendente se existir, senão usar o status da ordem
+  const status = (statusPendente || ordem.status) as keyof typeof statusConfig;
   const config = statusConfig[status] || statusConfig.pendente;
   const nextStatuses = statusFlow[status] || [];
   const primaryAction = nextStatuses[0];
@@ -832,10 +1059,10 @@ export default function AppOrdemDetalhe() {
             {/* Fotos */}
             <button
               onClick={() => fileInputRef.current?.click()}
-              disabled={uploadMutation.isPending}
+              disabled={isUploadingFoto}
               className="flex-1 flex flex-col items-center justify-center py-3 bg-white rounded-xl border shadow-sm"
             >
-              {uploadMutation.isPending ? (
+              {isUploadingFoto ? (
                 <Loader2 className="h-6 w-6 text-muted-foreground animate-spin" />
               ) : (
                 <Camera className="h-6 w-6 text-emerald-600" />
@@ -1020,7 +1247,7 @@ export default function AppOrdemDetalhe() {
           <div id="fotos-section" className="bg-white rounded-xl border p-4">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
-                <Image className="h-4 w-4 text-muted-foreground" />
+                <ImageIcon className="h-4 w-4 text-muted-foreground" />
                 <span className="text-sm font-medium">Fotos ({qtdFotos})</span>
               </div>
             </div>

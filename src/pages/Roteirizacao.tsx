@@ -336,6 +336,9 @@ const Roteirizacao = () => {
   const [centrosCustoEquipes, setCentrosCustoEquipes] = useState<{id: string; nome: string}[]>([]);
   const [equipesSelecionadasParaEditar, setEquipesSelecionadasParaEditar] = useState<Set<string>>(new Set());
   
+  // Estado para rastrear equipes offline (sem atividade há mais de 5 minutos)
+  const [equipesOfflineInfo, setEquipesOfflineInfo] = useState<Map<string, { turnoAberto: boolean; ultimaAtividade: Date | null; minutosOffline: number | null }>>(new Map());
+  
   // Estado para controlar se estamos editando um planejamento existente
   const [planejamentoEditandoId, setPlanejamentoEditandoId] = useState<string | null>(null);
 
@@ -553,6 +556,137 @@ const Roteirizacao = () => {
 
     fetchEquipes();
   }, []);
+
+  // Monitorar equipes offline (sem atividade há mais de 5 minutos)
+  // Busca turnos abertos e última atividade a cada 30 segundos
+  useEffect(() => {
+    const MINUTOS_PARA_OFFLINE = 5;
+    
+    const verificarEquipesOffline = async () => {
+      if (equipes.length === 0) return;
+      
+      const hoje = new Date();
+      const dataHoje = hoje.toISOString().split('T')[0];
+      
+      try {
+        // Buscar turnos abertos hoje (sem hora_fim)
+        const { data: turnosAbertos, error: turnosError } = await supabase
+          .from("turnos")
+          .select("equipe_id, hora_inicio")
+          .gte("hora_inicio", dataHoje)
+          .is("hora_fim", null);
+        
+        if (turnosError) {
+          console.error("Erro ao buscar turnos:", turnosError);
+          return;
+        }
+        
+        const turnosMap = new Map<string, Date>();
+        (turnosAbertos || []).forEach((t: any) => {
+          turnosMap.set(t.equipe_id, new Date(t.hora_inicio));
+        });
+        
+        // Buscar última atividade de cada equipe com turno aberto
+        // (última alteração de status de OS ou último intervalo)
+        const equipesComTurno = Array.from(turnosMap.keys());
+        
+        if (equipesComTurno.length === 0) {
+          setEquipesOfflineInfo(new Map());
+          return;
+        }
+        
+        // Buscar última atividade de ordens de serviço
+        const { data: ultimasAtividades, error: atividadesError } = await supabase
+          .from("planejamento_ordens")
+          .select(`
+            equipe_id,
+            ordens_servico!inner(
+              updated_at,
+              status
+            )
+          `)
+          .in("equipe_id", equipesComTurno)
+          .gte("data_planejamento", dataHoje)
+          .order("ordens_servico(updated_at)", { ascending: false });
+        
+        if (atividadesError) {
+          console.error("Erro ao buscar atividades:", atividadesError);
+        }
+        
+        // Buscar últimos intervalos
+        const { data: ultimosIntervalos, error: intervalosError } = await supabase
+          .from("intervalos_equipe")
+          .select("equipe_id, hora_inicio, hora_fim")
+          .in("equipe_id", equipesComTurno)
+          .gte("hora_inicio", dataHoje)
+          .order("hora_inicio", { ascending: false });
+        
+        if (intervalosError) {
+          console.error("Erro ao buscar intervalos:", intervalosError);
+        }
+        
+        // Calcular última atividade para cada equipe
+        const novoMapaOffline = new Map<string, { turnoAberto: boolean; ultimaAtividade: Date | null; minutosOffline: number | null }>();
+        const agora = new Date();
+        
+        equipesComTurno.forEach(equipeId => {
+          let ultimaAtividade: Date | null = null;
+          
+          // Verificar última atividade de OS
+          const atividadesEquipe = (ultimasAtividades || []).filter((a: any) => a.equipe_id === equipeId);
+          atividadesEquipe.forEach((a: any) => {
+            const dataOS = new Date(a.ordens_servico?.updated_at);
+            if (!ultimaAtividade || dataOS > ultimaAtividade) {
+              ultimaAtividade = dataOS;
+            }
+          });
+          
+          // Verificar último intervalo
+          const intervalosEquipe = (ultimosIntervalos || []).filter((i: any) => i.equipe_id === equipeId);
+          intervalosEquipe.forEach((i: any) => {
+            const dataIntervalo = new Date(i.hora_fim || i.hora_inicio);
+            if (!ultimaAtividade || dataIntervalo > ultimaAtividade) {
+              ultimaAtividade = dataIntervalo;
+            }
+          });
+          
+          // Se não houver atividade, usar hora de abertura do turno
+          if (!ultimaAtividade) {
+            ultimaAtividade = turnosMap.get(equipeId) || null;
+          }
+          
+          // Calcular minutos offline
+          let minutosOffline: number | null = null;
+          if (ultimaAtividade) {
+            const diffMs = agora.getTime() - ultimaAtividade.getTime();
+            minutosOffline = Math.floor(diffMs / 60000);
+          }
+          
+          novoMapaOffline.set(equipeId, {
+            turnoAberto: true,
+            ultimaAtividade,
+            minutosOffline: minutosOffline && minutosOffline >= MINUTOS_PARA_OFFLINE ? minutosOffline : null,
+          });
+        });
+        
+        setEquipesOfflineInfo(novoMapaOffline);
+      } catch (error) {
+        console.error("Erro ao verificar equipes offline:", error);
+      }
+    };
+    
+    // Executar imediatamente
+    verificarEquipesOffline();
+    
+    // Executar a cada 30 segundos (apenas quando estiver editando um planejamento)
+    const interval = setInterval(() => {
+      if (planejamentoEditandoId) {
+        verificarEquipesOffline();
+      }
+    }, 30000);
+    
+    return () => clearInterval(interval);
+  }, [equipes, planejamentoEditandoId]);
 
   // Carregar nomes e grupos das skills para exibição
   useEffect(() => {
@@ -2068,17 +2202,52 @@ const Roteirizacao = () => {
         console.log("[PLANEJAMENTO] Atualizando OSs...");
         const osIds = Array.from(osUpdates.keys());
         
-        // Atualizar todas as OSs de uma vez
+        // Buscar o status atual de cada OS para não sobrescrever OSs já iniciadas/concluídas
+        const { data: osAtuais } = await supabase
+          .from("ordens_servico")
+          .select("id, status")
+          .in("id", osIds);
+        
+        // Status que NÃO devem ser alterados (OS já foi iniciada ou concluída)
+        const statusProtegidos = [
+          "em_deslocamento",
+          "no_local", 
+          "em_execucao",
+          "em_andamento",
+          "concluida",
+          "cancelada",
+          "retornada"
+        ];
+        
+        // Criar mapa de status atuais
+        const statusAtualMap = new Map<string, string>();
+        osAtuais?.forEach(os => statusAtualMap.set(os.id, os.status));
+        
+        // Atualizar cada OS de forma inteligente
         for (const osId of osIds) {
           const update = osUpdates.get(osId);
           if (update) {
+            const statusAtual = statusAtualMap.get(osId) || "aberta";
+            const osJaIniciada = statusProtegidos.includes(statusAtual);
+            
+            // Se a OS já foi iniciada/concluída, NÃO mudar o status
+            // Apenas atualizar equipe e data se necessário
+            const updateData: any = {
+              equipe_planejada_id: update.equipe_id,
+              data_planejada: update.data_planejada,
+            };
+            
+            // Só mudar status para "planejada" se a OS ainda não foi iniciada
+            if (!osJaIniciada) {
+              updateData.status = "planejada";
+              console.log(`[PLANEJAMENTO] OS ${osId}: status ${statusAtual} -> planejada`);
+            } else {
+              console.log(`[PLANEJAMENTO] OS ${osId}: mantendo status "${statusAtual}" (já iniciada/concluída)`);
+            }
+            
             const { error: erroUpdate } = await supabase
               .from("ordens_servico")
-              .update({
-                status: "planejada",
-                equipe_planejada_id: update.equipe_id,
-                data_planejada: update.data_planejada,
-              })
+              .update(updateData)
               .eq("id", osId);
 
             if (erroUpdate) {
@@ -4212,6 +4381,10 @@ const Roteirizacao = () => {
                   Ociosa
                 </span>
                 <span className="flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-gray-500 border border-dashed border-gray-600"></span>
+                  Offline (&gt;5min)
+                </span>
+                <span className="flex items-center gap-1">
                   <span className="h-2 w-2 rounded-full bg-gray-500"></span>
                   Finalizada
                 </span>
@@ -4229,6 +4402,11 @@ const Roteirizacao = () => {
                   const tempoOcioso = statusEq?.tempoOciosidadeMin;
                   const ociosidadeCritica = tempoOcioso !== null && tempoOcioso >= 10;
                   
+                  // Verificar se equipe está offline (sem atividade há mais de 5 minutos)
+                  const offlineInfo = equipesOfflineInfo.get(rota.equipe.id);
+                  const isOffline = offlineInfo?.minutosOffline !== null && offlineInfo?.minutosOffline !== undefined;
+                  const minutosOffline = offlineInfo?.minutosOffline || 0;
+                  
                   return (
                     <div
                       key={rota.equipe.id}
@@ -4238,40 +4416,56 @@ const Roteirizacao = () => {
                       }}
                       className={cn(
                         "flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all min-w-[140px]",
-                        isOciosa && !ociosidadeCritica && "bg-amber-50 dark:bg-amber-950/50 border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900",
-                        isOciosa && ociosidadeCritica && "bg-red-50 dark:bg-red-950/50 border-red-400 dark:border-red-600 hover:bg-red-100 dark:hover:bg-red-900 border-2",
-                        isTrabalhando && "bg-green-50 dark:bg-green-950/50 border-green-300 dark:border-green-700 hover:bg-green-100 dark:hover:bg-green-900",
-                        isFinalizada && "bg-gray-50 dark:bg-gray-900/50 border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 opacity-60",
-                        !isOciosa && !isTrabalhando && !isFinalizada && "bg-card border-border hover:bg-muted/50",
+                        // Offline tem prioridade visual
+                        isOffline && "bg-gray-200 dark:bg-gray-800 border-gray-500 dark:border-gray-500 hover:bg-gray-300 dark:hover:bg-gray-700 border-2 border-dashed",
+                        !isOffline && isOciosa && !ociosidadeCritica && "bg-amber-50 dark:bg-amber-950/50 border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900",
+                        !isOffline && isOciosa && ociosidadeCritica && "bg-red-50 dark:bg-red-950/50 border-red-400 dark:border-red-600 hover:bg-red-100 dark:hover:bg-red-900 border-2",
+                        !isOffline && isTrabalhando && "bg-green-50 dark:bg-green-950/50 border-green-300 dark:border-green-700 hover:bg-green-100 dark:hover:bg-green-900",
+                        !isOffline && isFinalizada && "bg-gray-50 dark:bg-gray-900/50 border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 opacity-60",
+                        !isOffline && !isOciosa && !isTrabalhando && !isFinalizada && "bg-card border-border hover:bg-muted/50",
                         isSelected && "ring-2 ring-primary ring-offset-2",
-                        isOciosa && "animate-pulse"
+                        !isOffline && isOciosa && "animate-pulse"
                       )}
+                      title={isOffline ? `Equipe sem atividade há ${minutosOffline} minutos - possível problema de conexão` : undefined}
                     >
                       <div
                         className={cn(
                           "h-9 w-9 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0",
-                          isOciosa && !ociosidadeCritica && "ring-2 ring-amber-400",
-                          ociosidadeCritica && "ring-2 ring-red-500"
+                          isOffline && "ring-2 ring-gray-600 dark:ring-gray-400",
+                          !isOffline && isOciosa && !ociosidadeCritica && "ring-2 ring-amber-400",
+                          !isOffline && ociosidadeCritica && "ring-2 ring-red-500"
                         )}
                         style={{ 
-                          backgroundColor: ociosidadeCritica ? '#dc2626' : (isOciosa ? '#f59e0b' : (isTrabalhando ? '#22c55e' : (isFinalizada ? '#6b7280' : (rota.equipe.color || '#3b82f6'))))
+                          backgroundColor: isOffline ? '#6b7280' : (ociosidadeCritica ? '#dc2626' : (isOciosa ? '#f59e0b' : (isTrabalhando ? '#22c55e' : (isFinalizada ? '#6b7280' : (rota.equipe.color || '#3b82f6')))))
                         }}
                       >
-                        {isOciosa ? '🕐' : isTrabalhando ? '⚡' : isFinalizada ? '✓' : '⏳'}
+                        {isOffline ? '📡' : (isOciosa ? '🕐' : isTrabalhando ? '⚡' : isFinalizada ? '✓' : '⏳')}
                       </div>
                       <div className="flex flex-col min-w-0">
-                        <span className="text-xs font-bold truncate" title={rota.equipe.codigo}>
-                          {rota.equipe.codigo}
-                        </span>
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs font-bold truncate" title={rota.equipe.codigo}>
+                            {rota.equipe.codigo}
+                          </span>
+                          {isOffline && (
+                            <span className="text-[9px] px-1 py-0.5 rounded bg-gray-500 text-white font-bold">
+                              OFFLINE
+                            </span>
+                          )}
+                        </div>
                         <div className="flex items-center gap-1">
                           <span className={cn(
                             "text-[10px] font-medium",
-                            ociosidadeCritica && "text-red-600 dark:text-red-400",
-                            isOciosa && !ociosidadeCritica && "text-amber-600 dark:text-amber-400",
-                            isTrabalhando && "text-green-600 dark:text-green-400",
-                            isFinalizada && "text-gray-600 dark:text-gray-400"
+                            isOffline && "text-gray-600 dark:text-gray-400",
+                            !isOffline && ociosidadeCritica && "text-red-600 dark:text-red-400",
+                            !isOffline && isOciosa && !ociosidadeCritica && "text-amber-600 dark:text-amber-400",
+                            !isOffline && isTrabalhando && "text-green-600 dark:text-green-400",
+                            !isOffline && isFinalizada && "text-gray-600 dark:text-gray-400"
                           )}>
-                            {isOciosa ? (
+                            {isOffline ? (
+                              <span className="font-bold">
+                                📡 {minutosOffline}min sem atividade
+                              </span>
+                            ) : isOciosa ? (
                               tempoOcioso !== null ? (
                                 <span className={cn(ociosidadeCritica && "font-bold")}>
                                   🕐 {tempoOcioso}min
@@ -4514,28 +4708,42 @@ const Roteirizacao = () => {
                         const isOciosa = statusEq?.status === 'ociosa';
                         const isTrabalhando = statusEq?.status === 'trabalhando';
                         const isFinalizada = statusEq?.status === 'finalizada';
+                        
+                        // Verificar se equipe está offline
+                        const offlineInfo = equipesOfflineInfo.get(rota.equipe.id);
+                        const isOffline = offlineInfo?.minutosOffline !== null && offlineInfo?.minutosOffline !== undefined;
+                        const minutosOffline = offlineInfo?.minutosOffline || 0;
+                        
                         return (
                           <SelectItem key={rota.equipe.id} value={rota.equipe.id}>
                             <div className="flex items-center gap-2">
                               <div
-                                className="h-3 w-3 rounded-full"
-                                style={{ backgroundColor: rota.equipe.color || "#3b82f6" }}
+                                className={cn(
+                                  "h-3 w-3 rounded-full",
+                                  isOffline && "opacity-50"
+                                )}
+                                style={{ backgroundColor: isOffline ? "#6b7280" : (rota.equipe.color || "#3b82f6") }}
                               />
                               <span>{rota.equipe.codigo}</span>
                               <span className="text-muted-foreground text-xs">
                                 ({servicosValidos.length} OSs)
                               </span>
-                              {isOciosa && (
+                              {isOffline && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200 font-bold">
+                                  📡 OFFLINE ({minutosOffline}min)
+                                </span>
+                              )}
+                              {!isOffline && isOciosa && (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200 font-medium">
                                   🕐 OCIOSA
                                 </span>
                               )}
-                              {isTrabalhando && (
+                              {!isOffline && isTrabalhando && (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 font-medium">
                                   ⚡ {statusEq?.osAtualNumero}
                                 </span>
                               )}
-                              {isFinalizada && (
+                              {!isOffline && isFinalizada && (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200 font-medium">
                                   ✓ FIM
                                 </span>
