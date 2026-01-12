@@ -52,37 +52,42 @@ export default function AppLayout() {
     }
   }, [isOnline, equipe?.id, temTurnoAberto, hasPreloaded, preloadEssentialData]);
 
+  // Rastrear se estávamos offline e se já sincronizamos
+  const [pendingRefreshAfterSync, setPendingRefreshAfterSync] = useState(false);
+  
   // Recarregar dados quando a internet voltar (após ter ficado offline)
-  // IMPORTANTE: Aguardar a sincronização terminar antes de atualizar o cache
+  // IMPORTANTE: Aguardar a sincronização terminar COMPLETAMENTE antes de atualizar o cache
   useEffect(() => {
     if (!isOnline) {
       setWasOffline(true);
     } else if (wasOffline && equipe?.id && temTurnoAberto) {
-      console.log("[AppLayout] Internet restaurada - aguardando sincronização...");
+      console.log("[AppLayout] Internet restaurada - iniciando sincronização...");
       setWasOffline(false);
+      setPendingRefreshAfterSync(true);
       
-      // Aguardar a sincronização terminar antes de recarregar dados do servidor
-      // Isso evita que os dados do servidor (desatualizados) sobrescrevam as operações pendentes
-      const aguardarSincronizacao = async () => {
-        // Primeiro, disparar a sincronização
-        await syncPendingOperations();
-        
-        // Aguardar um pouco para garantir que a sincronização completou
-        // e que os dados foram persistidos no servidor
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        
-        console.log("[AppLayout] Sincronização concluída - atualizando dados do servidor...");
-        
-        // Agora sim, recarregar dados atualizados do servidor
+      // Disparar a sincronização (não esperar aqui pois o debounce pode retornar cedo)
+      syncPendingOperations();
+    }
+  }, [isOnline, wasOffline, equipe?.id, temTurnoAberto, syncPendingOperations]);
+
+  // Efeito separado para detectar quando a sincronização REALMENTE terminou
+  // (quando pendingOperations.length === 0) e só então buscar dados do servidor
+  useEffect(() => {
+    if (pendingRefreshAfterSync && pendingOperations.length === 0 && isOnline && equipe?.id) {
+      console.log("[AppLayout] ✅ Sincronização completada (0 operações pendentes) - atualizando dados do servidor...");
+      setPendingRefreshAfterSync(false);
+      
+      // Pequeno delay para garantir que o servidor processou os dados
+      const timeoutId = setTimeout(async () => {
         const success = await preloadEssentialData(equipe.id);
         if (success) {
-          console.log("[AppLayout] Dados atualizados após reconexão!");
+          console.log("[AppLayout] ✅ Dados atualizados após reconexão!");
         }
-      };
+      }, 500);
       
-      aguardarSincronizacao();
+      return () => clearTimeout(timeoutId);
     }
-  }, [isOnline, wasOffline, equipe?.id, temTurnoAberto, preloadEssentialData, syncPendingOperations]);
+  }, [pendingRefreshAfterSync, pendingOperations.length, isOnline, equipe?.id, preloadEssentialData]);
 
   // Verificar se o turno é de um dia anterior (desatualizado)
   const turnoDesatualizado = useMemo(() => {

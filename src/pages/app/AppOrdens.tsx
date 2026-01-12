@@ -444,21 +444,32 @@ export default function AppOrdens() {
     buscarDoCache();
   }, [isOnline, equipeIdParaUsar, selectedDate, ordensPlanejadas, getPlanejamentoFromCache]);
 
+  // Estado para rastrear se precisamos atualizar após sincronização
+  const [pendingRefreshAfterSync, setPendingRefreshAfterSync] = useState(false);
+  
   // Recarregar dados automaticamente quando a internet voltar
-  // IMPORTANTE: Aguardar um tempo para a sincronização completar primeiro
+  // IMPORTANTE: Aguardar a sincronização COMPLETAR (pendingOperations === 0) antes de buscar dados
   useEffect(() => {
     const wasOffline = !previousOnlineRef.current;
     const isNowOnline = isOnline;
     previousOnlineRef.current = isOnline;
     
-    // Se estava offline e agora está online, recarregar dados APÓS sincronização
+    // Se estava offline e agora está online, marcar que precisamos atualizar após sincronização
     if (wasOffline && isNowOnline && (equipe?.id || equipeAuth?.id)) {
-      console.log("[AppOrdens] Internet restaurada - aguardando sincronização antes de atualizar...");
+      console.log("[AppOrdens] Internet restaurada - aguardando sincronização completar...");
+      setPendingRefreshAfterSync(true);
+    }
+  }, [isOnline, equipe?.id, equipeAuth?.id]);
+
+  // Efeito separado para detectar quando a sincronização REALMENTE terminou
+  // (quando pendingOperations.length === 0) e só então buscar dados do servidor
+  useEffect(() => {
+    if (pendingRefreshAfterSync && pendingOperations.length === 0 && isOnline) {
+      console.log("[AppOrdens] ✅ Sincronização completada (0 operações pendentes) - recarregando dados...");
+      setPendingRefreshAfterSync(false);
       
-      // Aguardar 3 segundos para a sincronização completar antes de buscar dados atualizados
-      // Isso evita buscar dados desatualizados do servidor enquanto a sincronização ainda está em andamento
+      // Pequeno delay para garantir que o servidor processou os dados
       const timeoutId = setTimeout(() => {
-        console.log("[AppOrdens] Sincronização deve ter terminado - recarregando dados...");
         // Limpar cache offline
         setOrdensOfflineCache([]);
         // Invalidar cache do react-query para forçar nova busca
@@ -468,11 +479,11 @@ export default function AppOrdens() {
         }).catch(err => {
           console.error("[AppOrdens] Erro ao atualizar dados:", err);
         });
-      }, 3000); // 3 segundos de delay para sincronização
+      }, 500);
       
       return () => clearTimeout(timeoutId);
     }
-  }, [isOnline, equipe?.id, equipeAuth?.id, refetch, queryClient]);
+  }, [pendingRefreshAfterSync, pendingOperations.length, isOnline, refetch, queryClient]);
 
   // Realtime subscription
   useEffect(() => {
