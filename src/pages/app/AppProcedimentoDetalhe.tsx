@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -148,9 +148,11 @@ export default function AppProcedimentoDetalhe() {
   const { 
     isSupported: offlineSupported, 
     isInCache, 
+    isInCacheAsync,
     removeFromCache, 
     getFromCache,
     getCachedByProcedimento,
+    refreshCache,
   } = useOfflineCache();
   const { isOnline } = useOfflineSyncContext();
   const { getProcedimentosFromCache, saveToCache, getFromCache: getDataFromCache } = useOfflineData();
@@ -158,6 +160,14 @@ export default function AppProcedimentoDetalhe() {
   const [pdfViewerUrl, setPdfViewerUrl] = useState<string | null>(null);
   const [pdfViewerTitle, setPdfViewerTitle] = useState("");
   const [showFullContent, setShowFullContent] = useState(false);
+
+  // Atualizar cache quando componente montar ou quando ficar offline
+  // para garantir que temos a lista atualizada de arquivos em cache
+  useEffect(() => {
+    if (!isOnline && offlineSupported) {
+      refreshCache();
+    }
+  }, [isOnline, offlineSupported, refreshCache]);
 
   // Buscar procedimento
   const { data: procedimento, isLoading, error } = useQuery({

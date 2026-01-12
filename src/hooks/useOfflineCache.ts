@@ -198,10 +198,32 @@ export function useOfflineCache() {
     }
   }, []);
 
-  // Verificar se arquivo está em cache
+  // Verificar se arquivo está em cache (síncrono - usa estado)
   const isInCache = useCallback((id: string): boolean => {
     return cachedFiles.some((f) => f.id === id);
   }, [cachedFiles]);
+
+  // Verificar se arquivo está em cache (assíncrono - verifica direto no IndexedDB)
+  const isInCacheAsync = useCallback(async (id: string): Promise<boolean> => {
+    try {
+      const db = await openDB();
+      const transaction = db.transaction(STORE_NAME, "readonly");
+      const store = transaction.objectStore(STORE_NAME);
+
+      return new Promise((resolve) => {
+        const request = store.get(id);
+        request.onsuccess = () => {
+          resolve(!!request.result);
+        };
+        request.onerror = () => {
+          resolve(false);
+        };
+      });
+    } catch (error) {
+      console.error("Erro ao verificar cache:", error);
+      return false;
+    }
+  }, []);
 
   // Verificar se procedimento tem arquivos em cache
   const hasCachedFiles = useCallback((procedimentoId: string): boolean => {
@@ -286,6 +308,7 @@ export function useOfflineCache() {
     removeFromCache,
     getFromCache,
     isInCache,
+    isInCacheAsync,
     hasCachedFiles,
     getCachedByProcedimento,
     clearCache,
