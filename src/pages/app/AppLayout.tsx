@@ -83,11 +83,16 @@ export default function AppLayout() {
         if (success) {
           console.log("[AppLayout] ✅ Dados atualizados após reconexão!");
         }
+        
+        // Também recarregar mensagens não lidas do chat
+        // (mensagens que chegaram durante período offline não disparam eventos Realtime)
+        console.log("[AppLayout] 🔔 Recarregando mensagens não lidas do chat após reconexão...");
+        carregarMensagensNaoLidas();
       }, 500);
       
       return () => clearTimeout(timeoutId);
     }
-  }, [pendingRefreshAfterSync, pendingOperations.length, isOnline, equipe?.id, preloadEssentialData]);
+  }, [pendingRefreshAfterSync, pendingOperations.length, isOnline, equipe?.id, preloadEssentialData, carregarMensagensNaoLidas]);
 
   // Verificar se o turno é de um dia anterior (desatualizado)
   const turnoDesatualizado = useMemo(() => {
