@@ -6,6 +6,8 @@ import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
 import { usePageState } from "@/contexts/ScrollRestoreContext";
 import { getAppParentRoute } from "@/lib/appNavigation";
+import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
+import { useOfflineData, CACHE_KEYS } from "@/hooks/useOfflineData";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -96,6 +98,8 @@ export default function AppMateriaisOS() {
   const queryClient = useQueryClient();
   const { equipe: equipeAuth } = useEquipeAuth();
   const { equipe } = useTecnico();
+  const { isOnline, queueOperation, saveToCache, getFromCache } = useOfflineSyncContext();
+  const { getEstoqueFromCache, getMateriaisSerializadosFromCache, getOrdensFromCache } = useOfflineData();
 
   const pageKey = `app-materiais-os-${ordemId || "sem-id"}`;
   const { getState, saveState } = usePageState<{
@@ -162,8 +166,21 @@ export default function AppMateriaisOS() {
 
   // Query para dados da OS
   const { data: ordem } = useQuery({
-    queryKey: ["ordem-materiais", ordemId],
+    queryKey: ["ordem-materiais", ordemId, isOnline],
     queryFn: async () => {
+      // Tentar buscar do cache se offline
+      if (!isOnline && equipeId) {
+        const ordens = await getOrdensFromCache(equipeId) as any[];
+        if (ordens) {
+          const ordemCached = ordens.find((o: any) => o.id === ordemId);
+          if (ordemCached) {
+            console.log("[AppMateriaisOS] Usando ordem do cache");
+            return ordemCached;
+          }
+        }
+        return null;
+      }
+
       const { data, error } = await supabase
         .from("ordens_servico")
         .select("numero, tipo, endereco, cliente_nome")
@@ -178,8 +195,18 @@ export default function AppMateriaisOS() {
 
   // Query para materiais aplicados/retirados na OS
   const { data: materiaisOS, isLoading: loadingMateriaisOS } = useQuery({
-    queryKey: ["materiais-os", ordemId],
+    queryKey: ["materiais-os", ordemId, isOnline],
     queryFn: async () => {
+      // Tentar buscar do cache se offline
+      if (!isOnline) {
+        const cached = await getFromCache<MaterialAplicado[]>(`materiais_os_${ordemId}`);
+        if (cached) {
+          console.log("[AppMateriaisOS] Usando materiais da OS do cache:", cached.length);
+          return cached;
+        }
+        return [];
+      }
+
       const { data, error } = await supabase
         .from("materiais_aplicados_os")
         .select(`
@@ -196,6 +223,12 @@ export default function AppMateriaisOS() {
         .order("created_at", { ascending: false });
 
       if (error) throw error;
+      
+      // Cachear para uso offline
+      if (data) {
+        await saveToCache(`materiais_os_${ordemId}`, data, 24);
+      }
+      
       return data as MaterialAplicado[];
     },
     enabled: !!ordemId,
@@ -203,9 +236,19 @@ export default function AppMateriaisOS() {
 
   // Query para estoque da equipe
   const { data: estoqueEquipe } = useQuery({
-    queryKey: ["estoque-equipe-os", equipeId],
+    queryKey: ["estoque-equipe-os", equipeId, isOnline],
     queryFn: async () => {
       if (!equipeId) return [];
+
+      // Tentar buscar do cache se offline
+      if (!isOnline) {
+        const cached = await getEstoqueFromCache(equipeId) as EstoqueItem[];
+        if (cached) {
+          console.log("[AppMateriaisOS] Usando estoque do cache:", cached.length);
+          return cached;
+        }
+        return [];
+      }
 
       const { data, error } = await supabase
         .from("materiais_estoque")
@@ -248,9 +291,19 @@ export default function AppMateriaisOS() {
   // Query para TODOS os rastros disponíveis da equipe (materiais serializados)
   // Usa a mesma lógica do AppEstoque - busca via entregas confirmadas
   const { data: rastrosDisponiveis } = useQuery({
-    queryKey: ["rastros-disponiveis-equipe", equipeId],
+    queryKey: ["rastros-disponiveis-equipe", equipeId, isOnline],
     queryFn: async () => {
       if (!equipeId) return [];
+
+      // Tentar buscar do cache se offline
+      if (!isOnline) {
+        const cached = await getMateriaisSerializadosFromCache(equipeId) as RastroDisponivel[];
+        if (cached) {
+          console.log("[AppMateriaisOS] Usando rastros do cache:", cached.length);
+          return cached;
+        }
+        return [];
+      }
 
       // Primeiro, buscar entregas confirmadas da equipe
       const { data: entregas, error: entregasError } = await supabase
