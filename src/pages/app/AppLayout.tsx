@@ -26,7 +26,7 @@ export default function AppLayout() {
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   
   // Sistema de sincronização offline
-  const { isOnline, pendingCount, isSyncing, syncPendingOperations } = useOfflineSyncContext();
+  const { isOnline, pendingCount, isSyncing, syncPendingOperations, pendingOperations } = useOfflineSyncContext();
   const { preloadEssentialData } = useOfflineData();
   const [hasPreloaded, setHasPreloaded] = useState(false);
   
