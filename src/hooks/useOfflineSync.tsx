@@ -143,12 +143,46 @@ export function useOfflineSync() {
     };
   }, []);
 
+  // Chave para backup de operações no localStorage
+  const BACKUP_KEY = "sirtec_pending_ops_backup";
+
+  // Salvar backup das operações no localStorage (fallback para quando IndexedDB falhar)
+  const saveBackupToLocalStorage = useCallback((operations: SyncOperation[]) => {
+    try {
+      localStorage.setItem(BACKUP_KEY, JSON.stringify(operations));
+    } catch (e) {
+      console.warn("[OfflineSync] Erro ao salvar backup no localStorage:", e);
+    }
+  }, []);
+
+  // Carregar backup do localStorage
+  const loadBackupFromLocalStorage = useCallback((): SyncOperation[] => {
+    try {
+      const backup = localStorage.getItem(BACKUP_KEY);
+      if (backup) {
+        return JSON.parse(backup) as SyncOperation[];
+      }
+    } catch (e) {
+      console.warn("[OfflineSync] Erro ao carregar backup do localStorage:", e);
+    }
+    return [];
+  }, []);
+
+  // Limpar backup do localStorage
+  const clearBackupFromLocalStorage = useCallback(() => {
+    try {
+      localStorage.removeItem(BACKUP_KEY);
+    } catch (e) {
+      console.warn("[OfflineSync] Erro ao limpar backup do localStorage:", e);
+    }
+  }, []);
+
   // Carregar operações pendentes ao iniciar
   useEffect(() => {
     loadPendingOperations();
   }, []);
 
-  // Carregar operações pendentes do IndexedDB
+  // Carregar operações pendentes do IndexedDB (com fallback para localStorage)
   const loadPendingOperations = useCallback(async () => {
     try {
       const db = await openDB();
@@ -157,7 +191,32 @@ export function useOfflineSync() {
       const request = store.getAll();
 
       request.onsuccess = () => {
-        const operations = request.result as SyncOperation[];
+        let operations = request.result as SyncOperation[];
+        
+        // Se IndexedDB estiver vazio, tentar carregar do backup do localStorage
+        if (operations.length === 0) {
+          const backup = loadBackupFromLocalStorage();
+          if (backup.length > 0) {
+            console.log(`[OfflineSync] IndexedDB vazio, carregando ${backup.length} operações do backup localStorage`);
+            operations = backup;
+            
+            // Tentar re-persistir no IndexedDB em background
+            (async () => {
+              try {
+                const writeDb = await openDB();
+                const writeTx = writeDb.transaction(QUEUE_STORE, "readwrite");
+                const writeStore = writeTx.objectStore(QUEUE_STORE);
+                for (const op of backup) {
+                  writeStore.put(op);
+                }
+                console.log(`[OfflineSync] ${backup.length} operações re-persistidas no IndexedDB`);
+              } catch (e) {
+                console.warn("[OfflineSync] Falha ao re-persistir no IndexedDB:", e);
+              }
+            })();
+          }
+        }
+        
         // Ordenar por prioridade e data
         operations.sort((a, b) => {
           if (a.priority !== b.priority) return a.priority - b.priority;
@@ -167,9 +226,16 @@ export function useOfflineSync() {
         console.log(`[OfflineSync] ${operations.length} operações pendentes carregadas`);
       };
     } catch (error) {
-      console.error("[OfflineSync] Erro ao carregar operações:", error);
+      console.error("[OfflineSync] Erro ao carregar operações do IndexedDB:", error);
+      
+      // Fallback: carregar do localStorage
+      const backup = loadBackupFromLocalStorage();
+      if (backup.length > 0) {
+        console.log(`[OfflineSync] Usando backup do localStorage: ${backup.length} operações`);
+        setPendingOperations(backup);
+      }
     }
-  }, []);
+  }, [loadBackupFromLocalStorage]);
 
   // Adicionar operação à fila
   const queueOperation = useCallback(async (
@@ -191,7 +257,12 @@ export function useOfflineSync() {
     };
 
     // Primeiro adicionar ao estado local (garante que estará disponível mesmo se IndexedDB falhar)
-    setPendingOperations(prev => [...prev, operation]);
+    setPendingOperations(prev => {
+      const newOps = [...prev, operation];
+      // IMPORTANTE: Salvar backup no localStorage SEMPRE (para quando IndexedDB falhar)
+      saveBackupToLocalStorage(newOps);
+      return newOps;
+    });
 
     try {
       const db = await openDB();
@@ -222,8 +293,8 @@ export function useOfflineSync() {
           setTimeout(() => reject(new Error("Transaction timeout")), 5000)
         )
       ]).catch(err => {
-        // Se deu timeout ou erro, a operação já está no estado local, então continuar
-        console.warn(`[OfflineSync] Aviso na transação (operação já está no estado local):`, err.message);
+        // Se deu timeout ou erro, a operação já está no estado local E no localStorage backup
+        console.warn(`[OfflineSync] Aviso na transação (operação salva em backup):`, err.message);
       });
 
       console.log(`[OfflineSync] Operação enfileirada: ${type}`, operation.id);
@@ -236,11 +307,11 @@ export function useOfflineSync() {
       return operation.id;
     } catch (error) {
       console.error("[OfflineSync] Erro ao enfileirar operação:", error);
-      // Mesmo se falhar no IndexedDB, a operação está no estado local
-      console.warn("[OfflineSync] Operação salva apenas no estado local:", operation.id);
+      // A operação está no estado local E no localStorage backup
+      console.warn("[OfflineSync] Operação salva no backup localStorage:", operation.id);
       return operation.id;
     }
-  }, []);
+  }, [saveBackupToLocalStorage]);
 
   // Remover operação da fila
   const removeOperation = useCallback(async (id: string) => {
@@ -255,11 +326,29 @@ export function useOfflineSync() {
         request.onerror = () => reject(request.error);
       });
 
-      setPendingOperations(prev => prev.filter(op => op.id !== id));
+      setPendingOperations(prev => {
+        const newOps = prev.filter(op => op.id !== id);
+        // Atualizar backup no localStorage
+        saveBackupToLocalStorage(newOps);
+        // Se não tem mais operações, limpar o backup
+        if (newOps.length === 0) {
+          clearBackupFromLocalStorage();
+        }
+        return newOps;
+      });
     } catch (error) {
       console.error("[OfflineSync] Erro ao remover operação:", error);
+      // Mesmo se falhar no IndexedDB, remover do estado e backup
+      setPendingOperations(prev => {
+        const newOps = prev.filter(op => op.id !== id);
+        saveBackupToLocalStorage(newOps);
+        if (newOps.length === 0) {
+          clearBackupFromLocalStorage();
+        }
+        return newOps;
+      });
     }
-  }, []);
+  }, [saveBackupToLocalStorage, clearBackupFromLocalStorage]);
 
   // Atualizar operação na fila (após erro)
   const updateOperation = useCallback(async (operation: SyncOperation) => {
@@ -689,46 +778,70 @@ export function useOfflineSync() {
     setIsSyncing(true);
     
     try {
-      // Primeiro recarregar as operações do estado local (que foram adicionadas durante offline)
+      // Primeiro verificar todas as fontes de operações
       console.log(`[OfflineSync] Estado local tem ${pendingOperations.length} operações`);
+      
+      // Verificar backup do localStorage
+      const backupOps = loadBackupFromLocalStorage();
+      console.log(`[OfflineSync] Backup localStorage tem ${backupOps.length} operações`);
       
       const db = await openDB();
       const transaction = db.transaction(QUEUE_STORE, "readonly");
       const store = transaction.objectStore(QUEUE_STORE);
       
-      const operations = await new Promise<SyncOperation[]>((resolve, reject) => {
+      let operations = await new Promise<SyncOperation[]>((resolve, reject) => {
         const request = store.getAll();
         request.onsuccess = () => {
           console.log(`[OfflineSync] IndexedDB retornou ${request.result?.length || 0} operações`);
-          resolve(request.result);
+          resolve(request.result || []);
         };
         request.onerror = () => reject(request.error);
       });
 
-      // Se o IndexedDB está vazio mas temos operações no estado local, usar o estado local
-      // Isso pode acontecer se o IndexedDB não persistiu corretamente
-      if (operations.length === 0 && pendingOperations.length > 0) {
-        console.warn(`[OfflineSync] ⚠️ IndexedDB vazio mas estado local tem ${pendingOperations.length} operações! Tentando re-persistir...`);
-        
-        // Tentar re-persistir as operações do estado local
+      // Combinar operações de todas as fontes (sem duplicatas)
+      const allOpsMap = new Map<string, SyncOperation>();
+      
+      // Primeiro adicionar do IndexedDB
+      for (const op of operations) {
+        allOpsMap.set(op.id, op);
+      }
+      
+      // Depois adicionar do estado local (pode ter mais recentes)
+      for (const op of pendingOperations) {
+        if (!allOpsMap.has(op.id)) {
+          allOpsMap.set(op.id, op);
+        }
+      }
+      
+      // Por fim, adicionar do backup localStorage (fallback)
+      for (const op of backupOps) {
+        if (!allOpsMap.has(op.id)) {
+          allOpsMap.set(op.id, op);
+        }
+      }
+      
+      operations = Array.from(allOpsMap.values());
+      console.log(`[OfflineSync] Total combinado: ${operations.length} operações únicas`);
+      
+      // Se encontramos operações que não estavam no IndexedDB, tentar re-persistir
+      if (operations.length > 0 && allOpsMap.size > (await new Promise<number>((resolve) => {
+        const countTx = db.transaction(QUEUE_STORE, "readonly");
+        const countStore = countTx.objectStore(QUEUE_STORE);
+        const countReq = countStore.count();
+        countReq.onsuccess = () => resolve(countReq.result);
+        countReq.onerror = () => resolve(0);
+      }))) {
+        console.log(`[OfflineSync] Re-persistindo operações no IndexedDB...`);
         const writeTransaction = db.transaction(QUEUE_STORE, "readwrite");
         const writeStore = writeTransaction.objectStore(QUEUE_STORE);
         
-        for (const op of pendingOperations) {
+        for (const op of operations) {
           try {
-            await new Promise<void>((resolve, reject) => {
-              const req = writeStore.put(op);
-              req.onsuccess = () => resolve();
-              req.onerror = () => reject(req.error);
-            });
-            console.log(`[OfflineSync] Re-persistida operação: ${op.type} ${op.id}`);
+            writeStore.put(op);
           } catch (e) {
-            console.error(`[OfflineSync] Erro ao re-persistir operação ${op.id}:`, e);
+            console.warn(`[OfflineSync] Erro ao re-persistir operação ${op.id}:`, e);
           }
         }
-        
-        // Usar operações do estado local
-        operations.push(...pendingOperations);
       }
 
       // Ordenar por prioridade e data

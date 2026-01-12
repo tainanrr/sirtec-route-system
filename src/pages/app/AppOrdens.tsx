@@ -738,22 +738,43 @@ export default function AppOrdens() {
             const isEmAndamento = statusAtualizado === "em_deslocamento" || statusAtualizado === "em_andamento" || statusAtualizado === "em_execucao" || statusAtualizado === "no_local";
             const isAvulsa = ordem.ordens_servico.avulsa || ordem.ordens_servico.numero.startsWith("AVL-");
             
+            // Verificar se tem pendência de sincronização para esta OS
+            const temPendenciaSync = pendingOperations.some(op => {
+              const payload = op.payload;
+              if (!payload) return false;
+              if (payload.ordem_servico_id === ordem.ordens_servico?.id) return true;
+              if (payload.id === ordem.ordens_servico?.id) return true;
+              return false;
+            });
+            
+            // Determinar classe de estilo - concluída pendente tem cor diferente (verde-limão)
+            const getCardClass = () => {
+              if (isEmAndamento) {
+                return "border-2 border-orange-500 bg-gradient-to-r from-orange-100 to-amber-50 shadow-lg shadow-orange-200/50 animate-pulse ring-2 ring-orange-400";
+              }
+              if (isConcluida) {
+                // Concluída mas pendente de sincronização = verde-limão com indicador visual
+                if (temPendenciaSync) {
+                  return "border-l-4 border-l-lime-500 bg-gradient-to-r from-lime-50 to-green-50 ring-1 ring-lime-300";
+                }
+                return "border-l-4 border-l-green-500 bg-green-50/50";
+              }
+              if (isCancelada) {
+                return "border-l-4 border-l-gray-400 bg-gray-50/50 opacity-60";
+              }
+              if (isAvulsa) {
+                return "border-l-4 border-l-violet-500 bg-violet-50/30";
+              }
+              if (ordem.ordens_servico?.regulada) {
+                return "border-l-4 border-l-red-500";
+              }
+              return "";
+            };
+            
             return (
             <Card
               key={ordem.id}
-                className={`cursor-pointer hover:shadow-md transition-all ${
-                  isEmAndamento
-                    ? "border-2 border-orange-500 bg-gradient-to-r from-orange-100 to-amber-50 shadow-lg shadow-orange-200/50 animate-pulse ring-2 ring-orange-400"
-                    : isConcluida 
-                      ? "border-l-4 border-l-green-500 bg-green-50/50" 
-                      : isCancelada
-                        ? "border-l-4 border-l-gray-400 bg-gray-50/50 opacity-60"
-                        : isAvulsa
-                          ? "border-l-4 border-l-violet-500 bg-violet-50/30"
-                          : ordem.ordens_servico.regulada 
-                            ? "border-l-4 border-l-red-500" 
-                            : ""
-                }`}
+                className={`cursor-pointer hover:shadow-md transition-all ${getCardClass()}`}
                 onClick={() => navigate(`/app/ordens/${ordem.ordens_servico!.id}`)}
             >
               <CardContent className="p-4">
@@ -776,6 +797,11 @@ export default function AppOrdens() {
                         {isAvulsa && (
                           <Badge className="text-xs bg-violet-600 hover:bg-violet-700">
                             AVULSA
+                          </Badge>
+                        )}
+                        {temPendenciaSync && (
+                          <Badge className="text-xs bg-lime-600 hover:bg-lime-700 animate-pulse">
+                            ⏳ Sincronizando
                           </Badge>
                         )}
                       </div>
