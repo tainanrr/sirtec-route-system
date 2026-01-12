@@ -711,8 +711,16 @@ export default function AppOrdemDetalhe() {
       setRetornoCampoOpen(false);
       return;
     }
-    await registrarProducao(ordem.id, equipeId, result);
-    await atualizarOrdemComRetorno(ordem.id, result);
+    
+    // Se offline, os dados serão enfileirados
+    // registrarProducao e atualizarOrdemComRetorno já lidam com offline internamente
+    try {
+      await registrarProducao(ordem.id, equipeId, result);
+      await atualizarOrdemComRetorno(ordem.id, result);
+    } catch (error) {
+      console.warn("[AppOrdemDetalhe] Erro ao registrar produção (será sincronizado depois):", error);
+    }
+    
     updateStatusMutation.mutate("concluida");
   };
 

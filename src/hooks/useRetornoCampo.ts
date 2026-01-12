@@ -2,7 +2,6 @@ import { useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useOfflineSyncContext } from "./useOfflineSync";
-import { useOfflineData, CACHE_KEYS } from "./useOfflineData";
 
 interface Atividade {
   id: string;
@@ -36,7 +35,7 @@ interface ProducaoRegistrada {
 
 export function useRetornoCampo() {
   const [loading, setLoading] = useState(false);
-  const { isOnline, getFromCache } = useOfflineSyncContext();
+  const { isOnline, getFromCache, queueOperation } = useOfflineSyncContext();
 
   /**
    * Busca skill no cache offline
@@ -253,6 +252,82 @@ export function useRetornoCampo() {
   );
 
   /**
+   * Registra produção offline (enfileira para sincronização)
+   */
+  const registrarProducaoOffline = useCallback(
+    async (
+      ordemServicoId: string,
+      equipeId: string,
+      retorno: RetornoCampoResult
+    ): Promise<ProducaoRegistrada | null> => {
+      console.log("[useRetornoCampo] 📦 Registrando produção OFFLINE");
+      
+      // Calcular valor total com valores disponíveis
+      let valorTotal = 0;
+      const atividadesComValor = retorno.atividades.map(atv => {
+        const valorUnit = atv.atividade.valor_unitario || 0;
+        const subtotal = valorUnit * atv.quantidade;
+        valorTotal += subtotal;
+        return {
+          ...atv,
+          atividade: { ...atv.atividade, valor_unitario: valorUnit }
+        };
+      });
+      
+      // Criar ID temporário para a produção
+      const producaoId = `offline_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Preparar dados para enfileirar
+      const producaoData = {
+        id: producaoId,
+        ordem_servico_id: ordemServicoId,
+        equipe_id: equipeId,
+        retorno_campo_id: retorno.retorno_campo_id,
+        retorno_codigo: retorno.retorno_codigo,
+        retorno_descricao: retorno.retorno_descricao,
+        gera_producao: retorno.gera_producao,
+        valor_total: valorTotal,
+        data_registro: new Date().toISOString(),
+        atividades: atividadesComValor.map(atv => ({
+          atividade_id: atv.atividade_id,
+          atividade_codigo: atv.atividade.codigo,
+          atividade_descricao: atv.atividade.descricao,
+          quantidade: atv.quantidade,
+          valor_unitario: atv.atividade.valor_unitario || 0,
+          valor_total: (atv.atividade.valor_unitario || 0) * atv.quantidade,
+          qtd_min_fotos: atv.qtd_min_fotos,
+        })),
+        pendente_sync: true,
+      };
+      
+      // Enfileirar operação
+      try {
+        await queueOperation(
+          "register_producao_completa",
+          "producao_equipes",
+          "insert",
+          producaoData,
+          1 // Alta prioridade
+        );
+        
+        toast.info("Produção registrada localmente. Será sincronizada quando houver conexão.");
+        
+        return {
+          id: producaoId,
+          ordem_servico_id: ordemServicoId,
+          retorno_campo_id: retorno.retorno_campo_id,
+          valor_total: valorTotal,
+        };
+      } catch (error) {
+        console.error("[useRetornoCampo] Erro ao enfileirar produção:", error);
+        toast.error("Erro ao salvar produção offline");
+        return null;
+      }
+    },
+    [queueOperation]
+  );
+
+  /**
    * Registra a produção da equipe com base no retorno de campo selecionado
    */
   const registrarProducao = useCallback(
@@ -261,6 +336,11 @@ export function useRetornoCampo() {
       equipeId: string,
       retorno: RetornoCampoResult
     ): Promise<ProducaoRegistrada | null> => {
+      // Se offline, usar função específica
+      if (!isOnline) {
+        return registrarProducaoOffline(ordemServicoId, equipeId, retorno);
+      }
+
       setLoading(true);
       try {
         console.log("[useRetornoCampo] Registrando produção:", {
@@ -334,6 +414,10 @@ export function useRetornoCampo() {
             console.warn("Tabela producao_equipes não existe ainda");
             return null;
           }
+          // Se offline, tentar modo offline
+          if (!navigator.onLine) {
+            return registrarProducaoOffline(ordemServicoId, equipeId, retorno);
+          }
           throw producaoError;
         }
 
@@ -382,6 +466,33 @@ export function useRetornoCampo() {
       ordemServicoId: string,
       retorno: RetornoCampoResult
     ): Promise<boolean> => {
+      const updateData = {
+        id: ordemServicoId,
+        retorno_campo_id: retorno.retorno_campo_id,
+        retorno_campo_codigo: retorno.retorno_codigo,
+        retorno_campo_descricao: retorno.retorno_descricao,
+        gera_producao: retorno.gera_producao,
+        updated_at: new Date().toISOString(),
+      };
+
+      // Se offline, enfileirar operação
+      if (!isOnline) {
+        console.log("[useRetornoCampo] 📦 Enfileirando atualização de retorno (offline)");
+        try {
+          await queueOperation(
+            "update_ordem_retorno",
+            "ordens_servico",
+            "update",
+            updateData,
+            1 // Alta prioridade
+          );
+          return true;
+        } catch (error) {
+          console.error("[useRetornoCampo] Erro ao enfileirar atualização:", error);
+          return false;
+        }
+      }
+
       try {
         const { error } = await supabase
           .from("ordens_servico")
@@ -400,6 +511,17 @@ export function useRetornoCampo() {
             console.warn("Colunas de retorno de campo não existem na tabela ordens_servico");
             return true;
           }
+          // Se offline, enfileirar
+          if (!navigator.onLine) {
+            await queueOperation(
+              "update_ordem_retorno",
+              "ordens_servico",
+              "update",
+              updateData,
+              1
+            );
+            return true;
+          }
           throw error;
         }
 
@@ -409,7 +531,7 @@ export function useRetornoCampo() {
         return false;
       }
     },
-    []
+    [isOnline, queueOperation]
   );
 
   return {
