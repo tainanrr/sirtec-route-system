@@ -14,6 +14,7 @@ import { ptBR } from "date-fns/locale";
 import { OfflineSyncIndicator, OfflineStatusBanner } from "@/components/app/OfflineSyncIndicator";
 import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
 import { useOfflineData } from "@/hooks/useOfflineData";
+import { useSyncProcedimentos } from "@/hooks/useSyncProcedimentos";
 
 type AppSection = "home" | "ordens" | "estoque" | "chat" | "docs" | "resultados";
 
@@ -28,6 +29,7 @@ export default function AppLayout() {
   // Sistema de sincronização offline
   const { isOnline, pendingCount, isSyncing, syncPendingOperations, pendingOperations } = useOfflineSyncContext();
   const { preloadEssentialData } = useOfflineData();
+  const { syncAll: syncProcedimentos } = useSyncProcedimentos(equipe?.contrato_id);
   const [hasPreloaded, setHasPreloaded] = useState(false);
   
   // Estado para contador de ociosidade
@@ -43,14 +45,21 @@ export default function AppLayout() {
   useEffect(() => {
     if (isOnline && equipe?.id && temTurnoAberto && !hasPreloaded) {
       console.log("[AppLayout] Iniciando pré-carregamento de dados...");
-      preloadEssentialData(equipe.id).then((success) => {
+      preloadEssentialData(equipe.id).then(async (success) => {
         if (success) {
           setHasPreloaded(true);
           console.log("[AppLayout] Dados pré-carregados com sucesso!");
+          
+          // Também sincronizar procedimentos/documentos para acesso offline
+          console.log("[AppLayout] 📄 Iniciando sync de documentos/procedimentos...");
+          const syncResult = await syncProcedimentos(true); // forceSync para garantir
+          if (syncResult.success) {
+            console.log("[AppLayout] 📄 Documentos sincronizados:", syncResult.message);
+          }
         }
       });
     }
-  }, [isOnline, equipe?.id, temTurnoAberto, hasPreloaded, preloadEssentialData]);
+  }, [isOnline, equipe?.id, temTurnoAberto, hasPreloaded, preloadEssentialData, syncProcedimentos]);
 
   // Rastrear se estávamos offline e se já sincronizamos
   const [pendingRefreshAfterSync, setPendingRefreshAfterSync] = useState(false);
@@ -83,6 +92,10 @@ export default function AppLayout() {
         if (success) {
           console.log("[AppLayout] ✅ Dados atualizados após reconexão!");
         }
+        
+        // Sincronizar documentos/procedimentos para acesso offline
+        console.log("[AppLayout] 📄 Sincronizando documentos após reconexão...");
+        await syncProcedimentos();
         
         // Também recarregar mensagens não lidas do chat
         // (mensagens que chegaram durante período offline não disparam eventos Realtime)

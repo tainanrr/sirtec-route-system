@@ -750,229 +750,272 @@ export default function AppDevolucoes() {
         </Card>
       )}
 
-      {/* Dialog Nova devolução */}
-      <Dialog open={dialogNova} onOpenChange={setDialogNova}>
-        <DialogContent className="max-w-[95vw] max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Nova devolução</DialogTitle>
-          </DialogHeader>
+      {/* Tela Nova Devolução - Full Screen */}
+      {dialogNova && (
+        <div className="fixed inset-0 z-50 bg-background flex flex-col">
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b bg-background/95 backdrop-blur">
+            <div className="flex items-center gap-3">
+              <Button variant="ghost" size="icon" onClick={() => setDialogNova(false)}>
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+              <div>
+                <h1 className="text-lg font-semibold">Nova Devolução</h1>
+                <p className="text-xs text-muted-foreground">
+                  {itens.length === 0 ? "Selecione os materiais" : `${itens.length} item(ns) selecionado(s)`}
+                </p>
+              </div>
+            </div>
+            {itens.length > 0 && (
+              <Badge className="bg-primary text-primary-foreground">
+                {itens.reduce((sum, it) => sum + it.quantidade, 0)} un
+              </Badge>
+            )}
+          </div>
 
-          <Tabs defaultValue="selecionar" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="selecionar">Selecionar itens</TabsTrigger>
-              <TabsTrigger value="itens">Itens ({itens.length})</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="selecionar" className="mt-4 space-y-4">
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto">
+            <div className="p-4 space-y-4">
+              {/* Observação */}
               <div className="space-y-2">
-                <Label>Observação (opcional)</Label>
+                <Label className="text-sm font-medium">Observação (opcional)</Label>
                 <Textarea
                   value={observacao}
                   onChange={(e) => setObservacao(e.target.value)}
-                  placeholder="Ex: devolução de sobra de obra, material com defeito, etc."
+                  placeholder="Ex: sobra de obra, material com defeito..."
                   rows={2}
+                  className="resize-none"
                 />
               </div>
 
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Adicionar itens</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label>Buscar material</Label>
-                      {!buscaMaterial.trim() && materiaisDisponiveis.length > 6 && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2"
-                          onClick={() => setMostrarTodosMateriais((p) => !p)}
-                        >
-                          {mostrarTodosMateriais ? (
-                            <>
-                              <ChevronUp className="h-4 w-4 mr-1" /> Menos
-                            </>
-                          ) : (
-                            <>
-                              <ChevronDown className="h-4 w-4 mr-1" /> Mostrar todos
-                            </>
-                          )}
-                        </Button>
-                      )}
-                    </div>
-                    <Input
-                      value={buscaMaterial}
-                      onChange={(e) => {
-                        setBuscaMaterial(e.target.value);
-                        if (e.target.value.trim()) setMostrarTodosMateriais(true);
-                      }}
-                      placeholder="Digite código ou nome..."
-                    />
-                  </div>
+              {/* Busca de Material */}
+              <div className="space-y-3">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    value={buscaMaterial}
+                    onChange={(e) => {
+                      setBuscaMaterial(e.target.value);
+                      setMaterialSelecionadoId("");
+                    }}
+                    placeholder="Buscar material por código ou nome..."
+                    className="pl-10"
+                  />
+                </div>
 
-                  <div className="border rounded-lg overflow-hidden">
-                    <div className="max-h-56 overflow-y-auto p-2 space-y-2">
-                      {materiaisParaListar.map((m) => {
-                        const selected = materialSelecionadoId === m.material_id;
-                        return (
-                          <Button
-                            key={m.material_id}
-                            type="button"
-                            variant={selected ? "default" : "outline"}
-                            className="w-full justify-between h-auto py-2"
-                            onClick={() => {
-                              setMaterialSelecionadoId(m.material_id);
-                              setQuantidadeTemp(1);
-                              setSearchSerial("");
-                              setSerialsSelecionados([]);
-                            }}
-                          >
-                            <div className="text-left min-w-0">
-                              <p className="text-sm font-medium">{m.codigo}</p>
-                              <p className="text-xs text-muted-foreground line-clamp-1">{m.nome}</p>
-                            </div>
-                            <div className="text-right">
-                              {m.requer_serial ? (
-                                <Badge variant="outline" className="text-xs">
-                                  <QrCode className="h-3 w-3 mr-1" /> {m.disponivel}
-                                </Badge>
-                              ) : (
-                                <Badge variant="outline" className="text-xs">
-                                  {m.disponivel} {m.unidade}
-                                </Badge>
+                {/* Lista de Materiais */}
+                <div className="space-y-2">
+                  {materiaisParaListar.slice(0, buscaMaterial ? 20 : 8).map((m) => {
+                    const isSelected = materialSelecionadoId === m.material_id;
+                    const jaAdicionado = itens.some(it => it.material_id === m.material_id);
+                    
+                    return (
+                      <div
+                        key={m.material_id}
+                        onClick={() => {
+                          if (!jaAdicionado) {
+                            setMaterialSelecionadoId(isSelected ? "" : m.material_id);
+                            setQuantidadeTemp(1);
+                            setSearchSerial("");
+                            setSerialsSelecionados([]);
+                          }
+                        }}
+                        className={cn(
+                          "p-3 rounded-xl border-2 transition-all",
+                          jaAdicionado 
+                            ? "bg-green-50 border-green-200 dark:bg-green-950/30 dark:border-green-800" 
+                            : isSelected 
+                              ? "bg-primary/5 border-primary shadow-sm" 
+                              : "bg-card border-border hover:border-primary/50 cursor-pointer"
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-semibold text-sm">{m.codigo}</span>
+                              {jaAdicionado && (
+                                <CheckCircle className="h-4 w-4 text-green-600" />
                               )}
                             </div>
-                          </Button>
-                        );
-                      })}
-                      {!materiaisParaListar.length && (
-                        <div className="text-xs text-muted-foreground p-2">
-                          Nenhum material encontrado.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {materialSelecionado && (
-                    <div className="border rounded-lg p-3 space-y-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium">{materialSelecionado.codigo}</p>
-                          <p className="text-xs text-muted-foreground line-clamp-1">{materialSelecionado.nome}</p>
-                        </div>
-                        <Badge variant="outline" className="text-xs shrink-0">
-                          Disp: {materialSelecionado.disponivel}
-                        </Badge>
-                      </div>
-
-                      {materialSelecionado.requer_serial ? (
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <Label>Rastros/seriais</Label>
-                            <Badge variant="outline" className="text-xs">
-                              Selecionados: {serialsSelecionados.length}
-                            </Badge>
+                            <p className="text-sm text-muted-foreground truncate mt-0.5">{m.nome}</p>
                           </div>
-                          <Input
-                            placeholder="Buscar serial..."
-                            value={searchSerial}
-                            onChange={(e) => setSearchSerial(e.target.value)}
-                          />
-                          <div className="space-y-2 max-h-40 overflow-y-auto border rounded-md p-2">
-                            {serialsDisponiveisMaterial.map((s) => {
-                              const checked = serialsSelecionados.includes(s.numero_serie);
-                              return (
-                                <div key={s.numero_serie} className="flex items-center justify-between gap-2">
-                                  <div className="flex items-center gap-2">
-                                    <Checkbox
-                                      checked={checked}
-                                      onCheckedChange={(v) => toggleSerial(s.numero_serie, Boolean(v))}
-                                    />
-                                    <span className="font-mono text-sm">{s.numero_serie}</span>
-                                  </div>
+                          <Badge variant={m.requer_serial ? "secondary" : "outline"} className="shrink-0">
+                            {m.requer_serial ? (
+                              <><QrCode className="h-3 w-3 mr-1" />{m.disponivel}</>
+                            ) : (
+                              <>{m.disponivel} {m.unidade}</>
+                            )}
+                          </Badge>
+                        </div>
+
+                        {/* Expandido quando selecionado */}
+                        {isSelected && !jaAdicionado && (
+                          <div className="mt-3 pt-3 border-t space-y-3">
+                            {m.requer_serial ? (
+                              <>
+                                <div className="flex items-center justify-between">
+                                  <span className="text-sm font-medium">Selecione os seriais:</span>
+                                  <Badge variant="outline">{serialsSelecionados.length} selecionado(s)</Badge>
                                 </div>
-                              );
-                            })}
-                            {!serialsDisponiveisMaterial.length && (
-                              <div className="text-xs text-muted-foreground">
-                                Nenhum serial disponível para este material.
+                                <Input
+                                  placeholder="Filtrar serial..."
+                                  value={searchSerial}
+                                  onChange={(e) => setSearchSerial(e.target.value)}
+                                  className="h-9"
+                                />
+                                <div className="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto">
+                                  {serialsDisponiveisMaterial.map((s) => {
+                                    const checked = serialsSelecionados.includes(s.numero_serie);
+                                    return (
+                                      <div
+                                        key={s.numero_serie}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          toggleSerial(s.numero_serie, !checked);
+                                        }}
+                                        className={cn(
+                                          "flex items-center gap-3 p-2 rounded-lg border cursor-pointer transition-colors",
+                                          checked 
+                                            ? "bg-primary/10 border-primary" 
+                                            : "bg-muted/50 border-transparent hover:bg-muted"
+                                        )}
+                                      >
+                                        <Checkbox checked={checked} />
+                                        <span className="font-mono text-sm">{s.numero_serie}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </>
+                            ) : (
+                              <div className="flex items-center justify-between gap-4">
+                                <span className="text-sm font-medium">Quantidade:</span>
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-10 w-10"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setQuantidadeTemp(Math.max(1, quantidadeTemp - 1));
+                                    }}
+                                  >
+                                    -
+                                  </Button>
+                                  <Input
+                                    type="number"
+                                    min={1}
+                                    max={m.disponivel}
+                                    value={quantidadeTemp}
+                                    onChange={(e) => setQuantidadeTemp(Math.min(m.disponivel, Math.max(1, Number(e.target.value || 1))))}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="w-20 text-center h-10 font-semibold"
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-10 w-10"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setQuantidadeTemp(Math.min(m.disponivel, quantidadeTemp + 1));
+                                    }}
+                                  >
+                                    +
+                                  </Button>
+                                </div>
                               </div>
                             )}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="space-y-1">
-                            <Label>Quantidade</Label>
-                            <p className="text-xs text-muted-foreground">Máx: {materialSelecionado.disponivel}</p>
-                          </div>
-                          <Input
-                            type="number"
-                            min={1}
-                            max={materialSelecionado.disponivel}
-                            value={quantidadeTemp}
-                            onChange={(e) => setQuantidadeTemp(Number(e.target.value || 1))}
-                            className="w-28 text-center"
-                          />
-                        </div>
-                      )}
 
-                      <Button type="button" onClick={addItem} className="w-full">
-                        <Plus className="h-4 w-4 mr-2" />
-                        Adicionar item
-                      </Button>
+                            <Button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                addItem();
+                              }}
+                              className="w-full"
+                              disabled={m.requer_serial && serialsSelecionados.length === 0}
+                            >
+                              <Plus className="h-4 w-4 mr-2" />
+                              Adicionar à devolução
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {materiaisParaListar.length === 0 && (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <Package className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                      <p>Nenhum material encontrado</p>
                     </div>
                   )}
-                </CardContent>
-              </Card>
-            </TabsContent>
+                </div>
+              </div>
 
-            <TabsContent value="itens" className="mt-4 space-y-4">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Itens da devolução</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {itens.length ? (
-                    itens.map((it) => (
-                      <div key={it.material_id} className="flex items-center justify-between gap-2 p-2 border rounded">
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium">{it.codigo}</p>
-                          <p className="text-xs text-muted-foreground line-clamp-1">{it.nome}</p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {it.requer_serial ? `${it.serials.length} rastro(s)` : `${it.quantidade} ${it.unidade}`}
+              {/* Resumo dos Itens Adicionados */}
+              {itens.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-sm">Itens para devolver</h3>
+                    <Badge variant="secondary">{itens.length} item(ns)</Badge>
+                  </div>
+                  <div className="space-y-2">
+                    {itens.map((it) => (
+                      <div
+                        key={it.material_id}
+                        className="flex items-center justify-between gap-3 p-3 rounded-xl bg-green-50 border border-green-200 dark:bg-green-950/30 dark:border-green-800"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle className="h-4 w-4 text-green-600 shrink-0" />
+                            <span className="font-mono font-semibold text-sm">{it.codigo}</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground truncate mt-0.5">{it.nome}</p>
+                          <p className="text-xs font-medium text-green-700 dark:text-green-400 mt-1">
+                            {it.requer_serial ? `${it.serials.length} serial(is)` : `${it.quantidade} ${it.unidade}`}
                           </p>
                         </div>
                         <Button
-                          variant="outline"
-                          size="sm"
+                          variant="ghost"
+                          size="icon"
                           onClick={() => removeItem(it.material_id)}
-                          className="text-destructive"
+                          className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
-                    ))
-                  ) : (
-                    <div className="text-sm text-muted-foreground">Nenhum item adicionado ainda.</div>
-                  )}
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
 
-          <DialogFooter className="flex-col-reverse gap-2">
-            <Button type="button" variant="outline" onClick={() => setDialogNova(false)} disabled={criarDevolucaoMutation.isPending}>
-              Fechar
+          {/* Footer Fixo */}
+          <div className="border-t bg-background p-4 space-y-3">
+            <Button
+              onClick={() => criarDevolucaoMutation.mutate()}
+              disabled={itens.length === 0 || criarDevolucaoMutation.isPending}
+              className="w-full h-12 text-base font-semibold"
+            >
+              {criarDevolucaoMutation.isPending ? (
+                <>Enviando...</>
+              ) : (
+                <>
+                  <CheckCircle className="h-5 w-5 mr-2" />
+                  Enviar para conferência
+                </>
+              )}
             </Button>
-            <Button onClick={() => criarDevolucaoMutation.mutate()} disabled={criarDevolucaoMutation.isPending}>
-              {criarDevolucaoMutation.isPending ? "Enviando..." : "Enviar para conferência"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <p className="text-xs text-center text-muted-foreground">
+              O almoxarifado irá conferir os materiais
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Cancelar devolução */}
       <AlertDialog open={cancelDialog} onOpenChange={setCancelDialog}>

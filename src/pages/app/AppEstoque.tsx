@@ -1374,7 +1374,18 @@ export default function AppEstoque() {
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between gap-3">
                   <CardTitle className="text-base">Materiais</CardTitle>
-                  <Button size="sm" onClick={() => navigate("/app/estoque/devolucoes")}>
+                  <Button 
+                    size="sm" 
+                    onClick={() => {
+                      if (!isOnline) {
+                        toast.error("Você precisa estar online para criar devoluções");
+                        return;
+                      }
+                      navigate("/app/estoque/devolucoes");
+                    }}
+                    variant={isOnline ? "default" : "outline"}
+                    className={!isOnline ? "opacity-60" : ""}
+                  >
                     <Package className="h-4 w-4 mr-2" />
                     Devolver
                   </Button>
