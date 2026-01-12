@@ -827,15 +827,29 @@ export default function AppOrdemDetalhe() {
   };
 
   const openNavigation = () => {
-    // Usar geo: intent para abrir o seletor de apps de navegação
+    // Detectar se é mobile ou desktop
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    
     if (ordem?.latitude && ordem?.longitude) {
-      // geo: URI scheme abre o seletor de apps de navegação no mobile
-      const geoUri = `geo:${ordem.latitude},${ordem.longitude}?q=${ordem.latitude},${ordem.longitude}`;
-      window.location.href = geoUri;
+      if (isMobile) {
+        // geo: URI scheme abre o seletor de apps de navegação no mobile
+        const geoUri = `geo:${ordem.latitude},${ordem.longitude}?q=${ordem.latitude},${ordem.longitude}`;
+        window.location.href = geoUri;
+      } else {
+        // No desktop, abrir Google Maps em nova aba
+        const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${ordem.latitude},${ordem.longitude}`;
+        window.open(googleMapsUrl, '_blank');
+      }
     } else if (ordem?.endereco) {
-      // Para endereço, usar geo: com query
-      const geoUri = `geo:0,0?q=${encodeURIComponent(ordem.endereco)}`;
-      window.location.href = geoUri;
+      if (isMobile) {
+        // Para endereço, usar geo: com query
+        const geoUri = `geo:0,0?q=${encodeURIComponent(ordem.endereco)}`;
+        window.location.href = geoUri;
+      } else {
+        // No desktop, abrir Google Maps com endereço
+        const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(ordem.endereco)}`;
+        window.open(googleMapsUrl, '_blank');
+      }
     }
   };
 
