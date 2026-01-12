@@ -430,12 +430,40 @@ export function useOfflineData() {
 
   // Atualizar ordem de serviço localmente (para refletir mudanças offline)
   const updateOrdemLocal = useCallback(async (equipeId: string, ordemId: string, updates: any) => {
+    const dataHoje = format(new Date(), "yyyy-MM-dd");
+    
+    // Atualizar cache de ordens planejadas
     const ordens = await getFromCache<any[]>(`${CACHE_KEYS.ORDENS_PLANEJADAS}_${equipeId}`);
     if (ordens) {
       const updatedOrdens = ordens.map(o => 
         o.id === ordemId ? { ...o, ...updates } : o
       );
       await saveToCache(`${CACHE_KEYS.ORDENS_PLANEJADAS}_${equipeId}`, updatedOrdens, 24);
+    }
+    
+    // IMPORTANTE: Atualizar também o cache de planejamento do dia
+    // Este cache tem estrutura { ordens_servico: {...}, ordem_na_rota: ... }
+    const planejamento = await getFromCache<any[]>(`${CACHE_KEYS.PLANEJAMENTO_DIA}_${equipeId}_${dataHoje}`);
+    if (planejamento) {
+      const updatedPlanejamento = planejamento.map(p => {
+        // Verificar se é a ordem correta (pode estar em ordens_servico ou direto)
+        const ordemAtual = p.ordens_servico || p;
+        const ordemIdAtual = ordemAtual.id || p.ordem_servico_id || p.id;
+        
+        if (ordemIdAtual === ordemId) {
+          // Atualizar a estrutura correta
+          if (p.ordens_servico) {
+            return {
+              ...p,
+              ordens_servico: { ...p.ordens_servico, ...updates }
+            };
+          }
+          return { ...p, ...updates };
+        }
+        return p;
+      });
+      await saveToCache(`${CACHE_KEYS.PLANEJAMENTO_DIA}_${equipeId}_${dataHoje}`, updatedPlanejamento, 24);
+      console.log("[OfflineData] Cache de planejamento atualizado para ordem:", ordemId);
     }
   }, [getFromCache, saveToCache]);
 
