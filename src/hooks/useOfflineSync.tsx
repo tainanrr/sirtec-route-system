@@ -1050,6 +1050,7 @@ export function useOfflineSync() {
   // Obter dados do cache
   const getFromCache = useCallback(async <T,>(key: string): Promise<T | null> => {
     try {
+      console.log(`[OfflineSync] 📖 Buscando cache: ${key}`);
       const db = await openDB();
       const transaction = db.transaction(CACHE_STORE, "readonly");
       const store = transaction.objectStore(CACHE_STORE);
@@ -1060,14 +1061,19 @@ export function useOfflineSync() {
         request.onerror = () => reject(request.error);
       });
 
-      if (!entry) return null;
+      if (!entry) {
+        console.log(`[OfflineSync] ❌ Cache não encontrado: ${key}`);
+        return null;
+      }
 
       // Verificar expiração
       if (entry.expires_at && new Date(entry.expires_at) < new Date()) {
-        console.log(`[OfflineSync] Cache expirado: ${key}`);
+        console.log(`[OfflineSync] ⚠️ Cache expirado: ${key}`);
         // Não remover, pode ser útil offline
       }
 
+      const dataLength = Array.isArray(entry.data) ? entry.data.length : (entry.data ? 1 : 0);
+      console.log(`[OfflineSync] ✅ Cache encontrado: ${key} (${dataLength} itens)`);
       return entry.data as T;
     } catch (error) {
       console.error(`[OfflineSync] Erro ao obter cache ${key}:`, error);

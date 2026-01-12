@@ -283,15 +283,23 @@ export default function AppEstoque() {
   const { data: estoqueEquipe, isLoading } = useQuery({
     queryKey: ["estoque-equipe", equipeId, refreshKey, isOnline],
     queryFn: async () => {
-      if (!equipeId) return [];
+      console.log("[AppEstoque] queryFn executando - equipeId:", equipeId, "isOnline:", isOnline);
+      
+      if (!equipeId) {
+        console.log("[AppEstoque] ❌ equipeId não disponível");
+        return [];
+      }
 
       // Tentar buscar do cache se offline
       if (!isOnline) {
+        console.log("[AppEstoque] 📦 Offline - buscando do cache...");
         const cached = await getEstoqueFromCache(equipeId) as EstoqueItem[];
-        if (cached) {
-          console.log("[AppEstoque] Usando estoque do cache:", cached.length, "itens");
+        console.log("[AppEstoque] Resultado do cache:", cached ? `${cached.length} itens` : "null/undefined");
+        if (cached && cached.length > 0) {
+          console.log("[AppEstoque] ✅ Usando estoque do cache:", cached.length, "itens");
           return cached;
         }
+        console.log("[AppEstoque] ❌ Cache vazio ou não encontrado");
         return [];
       }
 
