@@ -356,13 +356,14 @@ export default function AppOrdemDetalhe() {
     enabled: !!id,
   });
 
-  // Buscar anexos
+  // Buscar anexos - NÃO incluir isOnline na queryKey para manter os dados quando a conexão mudar
   const { data: anexos } = useQuery({
-    queryKey: ["ordem-anexos", id, isOnline],
+    queryKey: ["ordem-anexos", id],
     queryFn: async () => {
+      const cacheKey = `ordem_anexos_${id}`;
+      
       // Se offline, buscar do cache
       if (!isOnline) {
-        const cacheKey = `ordem_anexos_${id}`;
         const cachedAnexos = await getFromCache<any[]>(cacheKey);
         if (cachedAnexos) {
           console.log("[AppOrdemDetalhe] Usando cache de anexos:", cachedAnexos.length);
@@ -381,13 +382,14 @@ export default function AppOrdemDetalhe() {
       
       // Salvar no cache para uso offline
       if (data && data.length > 0) {
-        const cacheKey = `ordem_anexos_${id}`;
         await saveToCache(cacheKey, data, 24);
       }
       
       return data;
     },
     enabled: !!id,
+    // Não refetch automaticamente quando reconectar - manter dados em cache
+    refetchOnReconnect: false,
   });
 
   // Buscar intervalo ativo (para bloquear início de serviço durante intervalo)
@@ -732,7 +734,7 @@ export default function AppOrdemDetalhe() {
           const { error: insertError } = await supabase.from("ordem_anexos").insert(anexoDataParaBanco);
           if (insertError) throw insertError;
           
-          queryClient.invalidateQueries({ queryKey: ["ordem-anexos", id, isOnline] });
+          queryClient.invalidateQueries({ queryKey: ["ordem-anexos", id] });
           toast.success("Foto enviada!", { id: "foto-upload" });
           console.log("[AppOrdemDetalhe] Foto salva com sucesso");
         } catch (error) {
@@ -763,7 +765,7 @@ export default function AppOrdemDetalhe() {
         
         // IMPORTANTE: Buscar do cache E do estado atual da query para evitar sobrescrever dados
         const cachedAnexos = await getFromCache<any[]>(cacheKey) || [];
-        const queryAnexos = queryClient.getQueryData<any[]>(["ordem-anexos", id, isOnline]) || [];
+        const queryAnexos = queryClient.getQueryData<any[]>(["ordem-anexos", id]) || [];
         
         // Usar o array que tiver mais itens (mais atualizado)
         const anexosAtuais = cachedAnexos.length >= queryAnexos.length ? cachedAnexos : queryAnexos;
@@ -781,7 +783,7 @@ export default function AppOrdemDetalhe() {
         console.log("[AppOrdemDetalhe] Cache salvo com", anexosAtualizados.length, "anexos");
         
         // Atualizar query diretamente para mostrar na UI imediatamente (NÃO usar invalidateQueries quando offline!)
-        queryClient.setQueryData(["ordem-anexos", id, isOnline], anexosAtualizados);
+        queryClient.setQueryData(["ordem-anexos", id], anexosAtualizados);
         
         toast.success("Foto salva localmente!", { id: "foto-upload" });
         console.log("[AppOrdemDetalhe] Foto salva localmente com sucesso - Total de anexos:", anexosAtualizados.length);
@@ -810,11 +812,11 @@ export default function AppOrdemDetalhe() {
         await saveToCache(cacheKey, anexosAtualizados, 24);
         
         // Atualizar query diretamente
-        queryClient.setQueryData(["ordem-anexos", id, isOnline], anexosAtualizados);
+        queryClient.setQueryData(["ordem-anexos", id], anexosAtualizados);
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["ordem-anexos", id, isOnline] });
+      queryClient.invalidateQueries({ queryKey: ["ordem-anexos", id] });
       toast.success(isOnline ? "Foto removida!" : "Foto removida localmente!");
     },
     onError: () => toast.error("Erro ao remover foto"),
