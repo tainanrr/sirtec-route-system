@@ -569,6 +569,275 @@ export function useOfflineOperations() {
     }
   }, [isOnline, queueOperation, getFromCache, saveToCache]);
 
+  // ============ OPERAÇÕES DE MATERIAIS ============
+
+  // Aplicar material em OS
+  const aplicarMaterialOS = useCallback(async (
+    ordemServicoId: string,
+    materialId: string,
+    quantidade: number,
+    equipeId: string,
+    numeroSerie?: string
+  ): Promise<{ success: boolean; id?: string; offline?: boolean }> => {
+    const itemId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    const payload = {
+      id: itemId,
+      ordem_servico_id: ordemServicoId,
+      material_id: materialId,
+      quantidade,
+      numero_serie: numeroSerie,
+      equipe_id: equipeId,
+      created_at: new Date().toISOString(),
+    };
+
+    if (!isOnline) {
+      console.log("[OfflineOps] Aplicando material offline");
+      
+      try {
+        await queueOperation(
+          "aplicar_material_os",
+          "ordens_servico_materiais",
+          "insert",
+          payload,
+          2
+        );
+
+        // Salvar localmente
+        const cacheKey = `materiais_os_${ordemServicoId}`;
+        const materiaisAtuais = await getFromCache<any[]>(cacheKey) || [];
+        materiaisAtuais.push({ ...payload, pendente: true });
+        await saveToCache(cacheKey, materiaisAtuais, 24);
+
+        toast.info("Material aplicado localmente. Será sincronizado quando houver conexão.");
+        return { success: true, id: itemId, offline: true };
+      } catch (error) {
+        console.error("[OfflineOps] Erro ao aplicar material offline:", error);
+        toast.error("Erro ao aplicar material offline");
+        return { success: false, offline: true };
+      }
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from("ordens_servico_materiais")
+        .insert({
+          ordem_servico_id: ordemServicoId,
+          material_id: materialId,
+          quantidade,
+          numero_serie: numeroSerie,
+        })
+        .select("id")
+        .single();
+
+      if (error) throw error;
+      return { success: true, id: data.id, offline: false };
+    } catch (error) {
+      console.error("[OfflineOps] Erro ao aplicar material:", error);
+      if (!navigator.onLine) {
+        return aplicarMaterialOS(ordemServicoId, materialId, quantidade, equipeId, numeroSerie);
+      }
+      toast.error("Erro ao aplicar material");
+      return { success: false, offline: false };
+    }
+  }, [isOnline, queueOperation, getFromCache, saveToCache]);
+
+  // Remover material de OS
+  const removerMaterialOS = useCallback(async (
+    itemId: string,
+    ordemServicoId: string
+  ): Promise<{ success: boolean; offline?: boolean }> => {
+    if (!isOnline) {
+      console.log("[OfflineOps] Removendo material offline:", itemId);
+      
+      try {
+        await queueOperation(
+          "remover_material_os",
+          "ordens_servico_materiais",
+          "delete",
+          { id: itemId },
+          2
+        );
+
+        // Atualizar cache local
+        const cacheKey = `materiais_os_${ordemServicoId}`;
+        const materiaisAtuais = await getFromCache<any[]>(cacheKey) || [];
+        const materiaisAtualizados = materiaisAtuais.filter(m => m.id !== itemId);
+        await saveToCache(cacheKey, materiaisAtualizados, 24);
+
+        toast.info("Material removido localmente. Será sincronizado quando houver conexão.");
+        return { success: true, offline: true };
+      } catch (error) {
+        console.error("[OfflineOps] Erro ao remover material offline:", error);
+        toast.error("Erro ao remover material offline");
+        return { success: false, offline: true };
+      }
+    }
+
+    try {
+      const { error } = await supabase
+        .from("ordens_servico_materiais")
+        .delete()
+        .eq("id", itemId);
+
+      if (error) throw error;
+      return { success: true, offline: false };
+    } catch (error) {
+      console.error("[OfflineOps] Erro ao remover material:", error);
+      if (!navigator.onLine) {
+        return removerMaterialOS(itemId, ordemServicoId);
+      }
+      toast.error("Erro ao remover material");
+      return { success: false, offline: false };
+    }
+  }, [isOnline, queueOperation, getFromCache, saveToCache]);
+
+  // ============ OPERAÇÕES DE DEVOLUÇÃO ============
+
+  // Criar solicitação de devolução
+  const criarDevolucao = useCallback(async (
+    equipeId: string,
+    itens: { material_id: string; quantidade: number; numero_serie?: string }[],
+    observacao?: string
+  ): Promise<{ success: boolean; id?: string; offline?: boolean }> => {
+    const devolucaoId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    const payload = {
+      id: devolucaoId,
+      equipe_id: equipeId,
+      status: "pendente",
+      observacao,
+      created_at: new Date().toISOString(),
+      itens,
+    };
+
+    if (!isOnline) {
+      console.log("[OfflineOps] Criando devolução offline");
+      
+      try {
+        await queueOperation(
+          "criar_devolucao",
+          "materiais_devolucoes",
+          "insert",
+          payload,
+          2
+        );
+
+        // Salvar localmente
+        const cacheKey = `devolucoes_${equipeId}`;
+        const devolucoesAtuais = await getFromCache<any[]>(cacheKey) || [];
+        devolucoesAtuais.push({ ...payload, pendente: true });
+        await saveToCache(cacheKey, devolucoesAtuais, 24);
+
+        toast.info("Devolução criada localmente. Será sincronizada quando houver conexão.");
+        return { success: true, id: devolucaoId, offline: true };
+      } catch (error) {
+        console.error("[OfflineOps] Erro ao criar devolução offline:", error);
+        toast.error("Erro ao criar devolução offline");
+        return { success: false, offline: true };
+      }
+    }
+
+    try {
+      // Criar devolução
+      const { data: devolucao, error: devolucaoError } = await supabase
+        .from("materiais_devolucoes")
+        .insert({
+          equipe_id: equipeId,
+          status: "pendente",
+          observacao,
+        })
+        .select("id")
+        .single();
+
+      if (devolucaoError) throw devolucaoError;
+
+      // Criar itens da devolução
+      const itensPayload = itens.map(item => ({
+        devolucao_id: devolucao.id,
+        material_id: item.material_id,
+        quantidade: item.quantidade,
+        numero_serie: item.numero_serie,
+      }));
+
+      const { error: itensError } = await supabase
+        .from("materiais_devolucoes_itens")
+        .insert(itensPayload);
+
+      if (itensError) throw itensError;
+
+      return { success: true, id: devolucao.id, offline: false };
+    } catch (error) {
+      console.error("[OfflineOps] Erro ao criar devolução:", error);
+      if (!navigator.onLine) {
+        return criarDevolucao(equipeId, itens, observacao);
+      }
+      toast.error("Erro ao criar devolução");
+      return { success: false, offline: false };
+    }
+  }, [isOnline, queueOperation, getFromCache, saveToCache]);
+
+  // Confirmar recebimento de materiais
+  const confirmarRecebimento = useCallback(async (
+    entregaId: string,
+    equipeId: string,
+    checklistRespostas?: any[]
+  ): Promise<{ success: boolean; offline?: boolean }> => {
+    const payload = {
+      id: entregaId,
+      status: "confirmado",
+      data_confirmacao: new Date().toISOString(),
+      checklist_respostas: checklistRespostas,
+    };
+
+    if (!isOnline) {
+      console.log("[OfflineOps] Confirmando recebimento offline:", entregaId);
+      
+      try {
+        await queueOperation(
+          "confirmar_recebimento",
+          "materiais_entregas",
+          "update",
+          payload,
+          2
+        );
+
+        // Atualizar cache local
+        const cacheKey = `entregas_pendentes_${equipeId}`;
+        const entregasAtuais = await getFromCache<any[]>(cacheKey) || [];
+        const entregasAtualizadas = entregasAtuais.filter(e => e.id !== entregaId);
+        await saveToCache(cacheKey, entregasAtualizadas, 24);
+
+        toast.info("Recebimento confirmado localmente. Será sincronizado quando houver conexão.");
+        return { success: true, offline: true };
+      } catch (error) {
+        console.error("[OfflineOps] Erro ao confirmar recebimento offline:", error);
+        toast.error("Erro ao confirmar recebimento offline");
+        return { success: false, offline: true };
+      }
+    }
+
+    try {
+      const { error } = await supabase
+        .from("materiais_entregas")
+        .update({
+          status: "confirmado",
+          data_confirmacao: new Date().toISOString(),
+        })
+        .eq("id", entregaId);
+
+      if (error) throw error;
+      return { success: true, offline: false };
+    } catch (error) {
+      console.error("[OfflineOps] Erro ao confirmar recebimento:", error);
+      if (!navigator.onLine) {
+        return confirmarRecebimento(entregaId, equipeId, checklistRespostas);
+      }
+      toast.error("Erro ao confirmar recebimento");
+      return { success: false, offline: false };
+    }
+  }, [isOnline, queueOperation, getFromCache, saveToCache]);
+
   return {
     // Verificação de status
     isOnline,
@@ -591,6 +860,14 @@ export function useOfflineOperations() {
     
     // Operações de APR/Checklist
     salvarAPR,
+    
+    // Operações de materiais
+    aplicarMaterialOS,
+    removerMaterialOS,
+    
+    // Operações de devolução
+    criarDevolucao,
+    confirmarRecebimento,
   };
 }
 
