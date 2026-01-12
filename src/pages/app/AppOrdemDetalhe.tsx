@@ -677,6 +677,18 @@ export default function AppOrdemDetalhe() {
         return;
       }
       
+      // Se offline, pular retorno de campo (não temos os dados completos)
+      if (!isOnline) {
+        console.log("[AppOrdemDetalhe] Offline - pulando retorno de campo");
+        setConfirmDialog({
+          open: true,
+          status: newStatus,
+          title: "Concluir Serviço (Offline)",
+          description: "O serviço será concluído sem retorno de campo. Quando voltar online, você poderá atualizar os dados.",
+        });
+        return;
+      }
+
       if (ordem?.tipo) {
         const foundSkillId = await buscarSkillId(ordem.tipo);
         if (foundSkillId) {

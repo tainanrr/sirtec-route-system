@@ -1,6 +1,8 @@
 import { useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useOfflineSyncContext } from "./useOfflineSync";
+import { useOfflineData, CACHE_KEYS } from "./useOfflineData";
 
 interface Atividade {
   id: string;
@@ -34,12 +36,87 @@ interface ProducaoRegistrada {
 
 export function useRetornoCampo() {
   const [loading, setLoading] = useState(false);
+  const { isOnline, getFromCache } = useOfflineSyncContext();
+
+  /**
+   * Busca skill no cache offline
+   */
+  const buscarSkillOffline = useCallback(async (tipoServico: string): Promise<string | null> => {
+    try {
+      const skillsCache = await getFromCache<any[]>(CACHE_KEYS.SKILLS);
+      
+      if (!skillsCache || skillsCache.length === 0) {
+        console.log("[useRetornoCampo] Cache de skills vazio");
+        return null;
+      }
+
+      // Normalizar o tipo para buscar
+      const tipoNormalizado = tipoServico
+        .toUpperCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, "_")
+        .trim();
+
+      const tipoLower = tipoServico.toLowerCase().trim();
+      const tipoUpper = tipoServico.toUpperCase().trim();
+
+      // Buscar por código (várias variações)
+      let skill = skillsCache.find((s: any) => {
+        if (!s.ativo) return false;
+        const codigo = (s.codigo || "").toUpperCase().trim();
+        return codigo === tipoNormalizado ||
+               codigo === tipoUpper ||
+               codigo === tipoNormalizado.replace(/_/g, " ") ||
+               codigo === tipoNormalizado.replace(/_/g, "");
+      });
+
+      // Se não encontrou pelo código, buscar pelo nome
+      if (!skill) {
+        skill = skillsCache.find((s: any) => {
+          if (!s.ativo) return false;
+          const nome = (s.nome || "").toLowerCase();
+          return nome.includes(tipoLower) || tipoLower.includes(nome);
+        });
+      }
+
+      // Busca parcial por palavras
+      if (!skill) {
+        const palavras = tipoServico.toLowerCase().split(/\s+/).filter(p => p.length >= 3);
+        for (const palavra of palavras) {
+          skill = skillsCache.find((s: any) => {
+            if (!s.ativo) return false;
+            const nome = (s.nome || "").toLowerCase();
+            return nome.includes(palavra);
+          });
+          if (skill) break;
+        }
+      }
+
+      if (skill) {
+        console.log(`[useRetornoCampo] ✅ Skill encontrada no cache: ${skill.id} (${skill.nome})`);
+        return skill.id;
+      }
+
+      console.log(`[useRetornoCampo] ❌ Skill não encontrada no cache para: ${tipoServico}`);
+      return null;
+    } catch (error) {
+      console.error("[useRetornoCampo] Erro ao buscar skill do cache:", error);
+      return null;
+    }
+  }, [getFromCache]);
 
   /**
    * Busca o skill_id baseado no código do tipo de serviço
    * Verifica também se há retornos de campo configurados
    */
   const buscarSkillId = useCallback(async (tipoServico: string): Promise<string | null> => {
+    // Se offline, buscar do cache
+    if (!isOnline) {
+      console.log("[useRetornoCampo] Offline - buscando skill do cache...");
+      return buscarSkillOffline(tipoServico);
+    }
+
     try {
       // Normalizar o tipo para buscar
       const tipoNormalizado = tipoServico
@@ -129,9 +206,13 @@ export function useRetornoCampo() {
       return skillId;
     } catch (error) {
       console.error("Erro ao buscar skill:", error);
+      // Se falhou por rede, tentar offline
+      if (!navigator.onLine) {
+        return buscarSkillOffline(tipoServico);
+      }
       return null;
     }
-  }, []);
+  }, [isOnline, buscarSkillOffline]);
 
   /**
    * Busca o valor de uma atividade na precificação do contrato
