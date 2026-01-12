@@ -1797,8 +1797,9 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
           }
           
           // Ícone de status para adicionar ao marcador
-          // ⚡ = em execução, ✓ = concluída sucesso, ✗ = impedida, ⚠ = parcial
-          const iconeStatus = isEmExecucao ? '⚡' : isImpedida ? '✗' : isParcial ? '⚠' : isConcluida ? '✓' : '';
+          // ⚡ = em execução, número = concluída (sucesso ou impedida), ⚠ = parcial
+          // Para execução e impedimento, mostrar o número da sequência em vez de ícones
+          const iconeStatus = isEmExecucao ? '⚡' : (isImpedida || isConcluidaSucesso) ? servico.ordemNaRota : isParcial ? '⚠' : '';
           
           const iconSVG = `
             <div style="
