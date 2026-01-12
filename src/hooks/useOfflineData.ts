@@ -29,9 +29,16 @@ export const CACHE_KEYS = {
   TIPO_SERVICO_RETORNO_ATIVIDADES: "tipo_servico_retorno_atividades",
   ATIVIDADES: "atividades",
   
-  // Dados da equipe
+  // Dados da equipe - Estoque
   MATERIAIS_ESTOQUE: "materiais_estoque",
   HISTORICO_PRODUCAO: "historico_producao",
+  ENTREGAS_PENDENTES: "entregas_pendentes",
+  DEVOLUCOES_PENDENTES: "devolucoes_pendentes",
+  MOVIMENTACOES_ESTOQUE: "movimentacoes_estoque",
+  MATERIAIS_SERIALIZADOS: "materiais_serializados",
+  
+  // Chat
+  MENSAGENS_CHAT: "mensagens_chat",
 };
 
 // Hook para gerenciar dados offline
@@ -67,11 +74,16 @@ export function useOfflineData() {
         preloadMateriaisEstoque(equipeId),
         preloadChecklists(),
         preloadRetornosCampoCompleto(),
+        preloadEntregasPendentes(equipeId),
+        preloadDevolucoesPendentes(equipeId),
+        preloadMovimentacoesEstoque(equipeId),
+        preloadMateriaisSerializados(equipeId),
       ]);
 
       // Log de resultados
       const nomes = ['TiposIntervalo', 'Skills', 'RetornosCampo', 'PlanejamentoDia', 
-                     'OrdensServico', 'IntervalosDia', 'ProducaoDia', 'MateriaisEstoque', 'Checklists', 'RetornosCampoCompleto'];
+                     'OrdensServico', 'IntervalosDia', 'ProducaoDia', 'MateriaisEstoque', 'Checklists', 'RetornosCampoCompleto',
+                     'EntregasPendentes', 'DevolucoesPendentes', 'MovimentacoesEstoque', 'MateriaisSerializados'];
       results.forEach((result, index) => {
         if (result.status === 'rejected') {
           console.error(`[OfflineData] ❌ ${nomes[index]} falhou:`, result.reason);
@@ -454,6 +466,179 @@ export function useOfflineData() {
     }
   }, [saveToCache]);
 
+  // Pré-carregar entregas pendentes da equipe
+  const preloadEntregasPendentes = useCallback(async (equipeId: string) => {
+    try {
+      // Buscar entregas pendentes
+      const { data: entregas, error } = await supabase
+        .from("materiais_entregas")
+        .select(`
+          id,
+          data_entrega,
+          status,
+          observacao
+        `)
+        .eq("equipe_id", equipeId)
+        .eq("status", "pendente")
+        .order("created_at", { ascending: false });
+      
+      if (error) throw error;
+      
+      // Buscar itens de cada entrega
+      const entregasComItens = await Promise.all(
+        (entregas || []).map(async (entrega: any) => {
+          const { data: itens } = await supabase
+            .from("materiais_entregas_itens")
+            .select(`
+              material_id,
+              quantidade,
+              numero_serie,
+              materiais (codigo, nome, unidade)
+            `)
+            .eq("entrega_id", entrega.id);
+
+          return {
+            ...entrega,
+            itens: itens || [],
+          };
+        })
+      );
+      
+      await saveToCache(`${CACHE_KEYS.ENTREGAS_PENDENTES}_${equipeId}`, entregasComItens, 24);
+      console.log("[OfflineData] Entregas pendentes cacheadas:", entregasComItens?.length);
+    } catch (error) {
+      console.error("[OfflineData] Erro ao cachear entregas pendentes:", error);
+    }
+  }, [saveToCache]);
+
+  // Pré-carregar devoluções pendentes de confirmação
+  const preloadDevolucoesPendentes = useCallback(async (equipeId: string) => {
+    try {
+      const { data, error } = await (supabase as any)
+        .from("materiais_devolucoes")
+        .select("id, status, created_at, observacao")
+        .eq("equipe_id", equipeId)
+        .eq("status", "pendente_confirmacao_equipe")
+        .order("created_at", { ascending: false })
+        .limit(10);
+      
+      if (error) throw error;
+      await saveToCache(`${CACHE_KEYS.DEVOLUCOES_PENDENTES}_${equipeId}`, data || [], 24);
+      console.log("[OfflineData] Devoluções pendentes cacheadas:", data?.length);
+    } catch (error) {
+      console.error("[OfflineData] Erro ao cachear devoluções pendentes:", error);
+    }
+  }, [saveToCache]);
+
+  // Pré-carregar movimentações de estoque
+  const preloadMovimentacoesEstoque = useCallback(async (equipeId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("materiais_movimentacoes")
+        .select(`
+          id,
+          tipo,
+          quantidade,
+          observacao,
+          created_at,
+          materiais (codigo, nome, unidade)
+        `)
+        .or(`local_origem_id.eq.${equipeId},local_destino_id.eq.${equipeId}`)
+        .order("created_at", { ascending: false })
+        .limit(20);
+      
+      if (error) throw error;
+      await saveToCache(`${CACHE_KEYS.MOVIMENTACOES_ESTOQUE}_${equipeId}`, data || [], 24);
+      console.log("[OfflineData] Movimentações de estoque cacheadas:", data?.length);
+    } catch (error) {
+      console.error("[OfflineData] Erro ao cachear movimentações:", error);
+    }
+  }, [saveToCache]);
+
+  // Pré-carregar materiais serializados da equipe
+  const preloadMateriaisSerializados = useCallback(async (equipeId: string) => {
+    try {
+      // Buscar entregas confirmadas da equipe
+      const { data: entregas, error: entregasError } = await supabase
+        .from("materiais_entregas")
+        .select("id, data_entrega, data_confirmacao")
+        .eq("equipe_id", equipeId)
+        .eq("status", "confirmado");
+
+      if (entregasError) throw entregasError;
+      if (!entregas || entregas.length === 0) {
+        await saveToCache(`${CACHE_KEYS.MATERIAIS_SERIALIZADOS}_${equipeId}`, [], 24);
+        console.log("[OfflineData] Nenhum material serializado para cachear");
+        return;
+      }
+
+      // Buscar itens das entregas que têm número de série
+      const entregaIds = entregas.map((e: any) => e.id);
+      const { data: itensEntrega, error: itensError } = await supabase
+        .from("materiais_entregas_itens")
+        .select(`
+          id,
+          entrega_id,
+          numero_serie,
+          material_id,
+          materiais (
+            codigo,
+            nome,
+            dias_alerta_retencao
+          )
+        `)
+        .in("entrega_id", entregaIds)
+        .not("numero_serie", "is", null);
+
+      if (itensError) throw itensError;
+      if (!itensEntrega || itensEntrega.length === 0) {
+        await saveToCache(`${CACHE_KEYS.MATERIAIS_SERIALIZADOS}_${equipeId}`, [], 24);
+        console.log("[OfflineData] Nenhum item serializado para cachear");
+        return;
+      }
+
+      // Verificar quais materiais ainda estão com a equipe
+      const numerosSerieEntregues = itensEntrega.map((i: any) => i.numero_serie).filter(Boolean);
+      
+      const { data: serializados, error: serializadosError } = await supabase
+        .from("materiais_serializados")
+        .select("numero_serie, status")
+        .in("numero_serie", numerosSerieEntregues);
+
+      if (serializadosError) throw serializadosError;
+
+      const serializadosMap = new Map(
+        (serializados || []).map((s: any) => [s.numero_serie, s.status])
+      );
+
+      const entregasMap = new Map(
+        entregas.map((e: any) => [e.id, e])
+      );
+
+      const materiaisSerializados = itensEntrega
+        .filter((item: any) => {
+          const status = serializadosMap.get(item.numero_serie);
+          return !status || status === "em_estoque" || status === "com_equipe";
+        })
+        .map((item: any) => {
+          const entrega = entregasMap.get(item.entrega_id);
+          return {
+            id: item.id,
+            numero_serie: item.numero_serie,
+            data_entrega_equipe: entrega?.data_confirmacao || entrega?.data_entrega,
+            created_at: entrega?.data_entrega,
+            updated_at: entrega?.data_confirmacao,
+            materiais: item.materiais,
+          };
+        });
+
+      await saveToCache(`${CACHE_KEYS.MATERIAIS_SERIALIZADOS}_${equipeId}`, materiaisSerializados, 24);
+      console.log("[OfflineData] Materiais serializados cacheados:", materiaisSerializados?.length);
+    } catch (error) {
+      console.error("[OfflineData] Erro ao cachear materiais serializados:", error);
+    }
+  }, [saveToCache]);
+
   // ============ FUNÇÕES DE ACESSO AO CACHE ============
 
   // Obter equipe do cache
@@ -541,6 +726,26 @@ export function useOfflineData() {
     return await getFromCache(`${CACHE_KEYS.INTERVALOS_DIA}_${equipeId}_${data}`);
   }, [getFromCache]);
 
+  // Obter entregas pendentes do cache
+  const getEntregasPendentesFromCache = useCallback(async (equipeId: string) => {
+    return await getFromCache(`${CACHE_KEYS.ENTREGAS_PENDENTES}_${equipeId}`);
+  }, [getFromCache]);
+
+  // Obter devoluções pendentes do cache
+  const getDevolucoesPendentesFromCache = useCallback(async (equipeId: string) => {
+    return await getFromCache(`${CACHE_KEYS.DEVOLUCOES_PENDENTES}_${equipeId}`);
+  }, [getFromCache]);
+
+  // Obter movimentações de estoque do cache
+  const getMovimentacoesFromCache = useCallback(async (equipeId: string) => {
+    return await getFromCache(`${CACHE_KEYS.MOVIMENTACOES_ESTOQUE}_${equipeId}`);
+  }, [getFromCache]);
+
+  // Obter materiais serializados do cache
+  const getMateriaisSerializadosFromCache = useCallback(async (equipeId: string) => {
+    return await getFromCache(`${CACHE_KEYS.MATERIAIS_SERIALIZADOS}_${equipeId}`);
+  }, [getFromCache]);
+
   // ============ FUNÇÕES DE ATUALIZAÇÃO LOCAL ============
 
   // Atualizar ordem de serviço localmente (para refletir mudanças offline)
@@ -620,6 +825,10 @@ export function useOfflineData() {
     preloadMateriaisEstoque,
     preloadChecklists,
     preloadRetornosCampoCompleto,
+    preloadEntregasPendentes,
+    preloadDevolucoesPendentes,
+    preloadMovimentacoesEstoque,
+    preloadMateriaisSerializados,
     
     // Acesso ao cache
     getEquipeFromCache,
@@ -637,6 +846,10 @@ export function useOfflineData() {
     getTipoServicoRetornosFromCache,
     getRetornoAtividadesFromCache,
     getAtividadesFromCache,
+    getEntregasPendentesFromCache,
+    getDevolucoesPendentesFromCache,
+    getMovimentacoesFromCache,
+    getMateriaisSerializadosFromCache,
     
     // Atualizações locais
     updateOrdemLocal,

@@ -4,6 +4,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
 import { logApp } from "@/lib/logUtils";
+import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
+import { useOfflineData } from "@/hooks/useOfflineData";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -151,6 +153,15 @@ export default function AppEstoque() {
   const queryClient = useQueryClient();
   const { equipe: equipeAuth } = useEquipeAuth();
   const { equipe } = useTecnico();
+  const { isOnline, queueOperation } = useOfflineSyncContext();
+  const { 
+    getEstoqueFromCache, 
+    getEntregasPendentesFromCache, 
+    getDevolucoesPendentesFromCache, 
+    getMovimentacoesFromCache,
+    getMateriaisSerializadosFromCache,
+    getChecklistsFromCache,
+  } = useOfflineData();
   const pageKey = "app-estoque";
   const { getState, saveState } = usePageState<{
     activeTab?: "estoque" | "serializados" | "historico";
@@ -222,8 +233,26 @@ export default function AppEstoque() {
 
   // Query para checklist de recebimento
   const { data: checklistRecebimento } = useQuery({
-    queryKey: ["checklist-recebimento"],
+    queryKey: ["checklist-recebimento", isOnline],
     queryFn: async () => {
+      // Tentar buscar do cache se offline
+      if (!isOnline) {
+        const checklists = await getChecklistsFromCache() as any[];
+        if (checklists) {
+          const checklist = checklists.find(c => c.tipo === "recebimento_materiais" && c.ativo);
+          if (checklist) {
+            let perguntas: Pergunta[] = [];
+            if (checklist.grupos && Array.isArray(checklist.grupos) && checklist.grupos.length > 0) {
+              perguntas = (checklist.grupos as GrupoPerguntas[]).flatMap(g => g.perguntas);
+            } else if (checklist.perguntas && Array.isArray(checklist.perguntas)) {
+              perguntas = checklist.perguntas as Pergunta[];
+            }
+            return { ...checklist, perguntasNormalizadas: perguntas } as ChecklistRecebimento & { perguntasNormalizadas: Pergunta[] };
+          }
+        }
+        return null;
+      }
+
       const { data, error } = await supabase
         .from("checklists")
         .select("*")
@@ -252,9 +281,19 @@ export default function AppEstoque() {
 
   // Query para estoque da equipe
   const { data: estoqueEquipe, isLoading } = useQuery({
-    queryKey: ["estoque-equipe", equipeId, refreshKey],
+    queryKey: ["estoque-equipe", equipeId, refreshKey, isOnline],
     queryFn: async () => {
       if (!equipeId) return [];
+
+      // Tentar buscar do cache se offline
+      if (!isOnline) {
+        const cached = await getEstoqueFromCache(equipeId) as EstoqueItem[];
+        if (cached) {
+          console.log("[AppEstoque] Usando estoque do cache:", cached.length, "itens");
+          return cached;
+        }
+        return [];
+      }
 
       const { data, error } = await supabase
         .from("materiais_estoque")
@@ -285,9 +324,19 @@ export default function AppEstoque() {
 
   // Query para movimentações recentes
   const { data: movimentacoesRecentes } = useQuery({
-    queryKey: ["movimentacoes-equipe", equipeId, refreshKey],
+    queryKey: ["movimentacoes-equipe", equipeId, refreshKey, isOnline],
     queryFn: async () => {
       if (!equipeId) return [];
+
+      // Tentar buscar do cache se offline
+      if (!isOnline) {
+        const cached = await getMovimentacoesFromCache(equipeId) as MovimentacaoRecente[];
+        if (cached) {
+          console.log("[AppEstoque] Usando movimentações do cache:", cached.length);
+          return cached;
+        }
+        return [];
+      }
 
       const { data, error } = await supabase
         .from("materiais_movimentacoes")
@@ -311,9 +360,19 @@ export default function AppEstoque() {
 
   // Query para entregas pendentes com itens
   const { data: entregasPendentes } = useQuery({
-    queryKey: ["entregas-pendentes-equipe", equipeId, refreshKey],
+    queryKey: ["entregas-pendentes-equipe", equipeId, refreshKey, isOnline],
     queryFn: async () => {
       if (!equipeId) return [];
+
+      // Tentar buscar do cache se offline
+      if (!isOnline) {
+        const cached = await getEntregasPendentesFromCache(equipeId) as EntregaPendente[];
+        if (cached) {
+          console.log("[AppEstoque] Usando entregas pendentes do cache:", cached.length);
+          return cached;
+        }
+        return [];
+      }
 
       const { data, error } = await supabase
         .from("materiais_entregas")
@@ -356,9 +415,20 @@ export default function AppEstoque() {
 
   // Query para devoluções pendentes de confirmação (solicitadas pelo almoxarifado)
   const { data: devolucoesPendentesConfirmacao } = useQuery({
-    queryKey: ["devolucoes-pendentes-confirmacao-equipe", equipeId, refreshKey],
+    queryKey: ["devolucoes-pendentes-confirmacao-equipe", equipeId, refreshKey, isOnline],
     queryFn: async () => {
       if (!equipeId) return [];
+      
+      // Tentar buscar do cache se offline
+      if (!isOnline) {
+        const cached = await getDevolucoesPendentesFromCache(equipeId) as any[];
+        if (cached) {
+          console.log("[AppEstoque] Usando devoluções pendentes do cache:", cached.length);
+          return cached;
+        }
+        return [];
+      }
+      
       const { data, error } = await (supabase as any)
         .from("materiais_devolucoes")
         .select("id, status, created_at, observacao")
@@ -375,9 +445,19 @@ export default function AppEstoque() {
   // Query para materiais serializados (com rastro) da equipe
   // Busca materiais que foram entregues para a equipe e ainda não foram aplicados/devolvidos
   const { data: materiaisSerializados } = useQuery({
-    queryKey: ["materiais-serializados-equipe", equipeId, refreshKey],
+    queryKey: ["materiais-serializados-equipe", equipeId, refreshKey, isOnline],
     queryFn: async () => {
       if (!equipeId) return [];
+
+      // Tentar buscar do cache se offline
+      if (!isOnline) {
+        const cached = await getMateriaisSerializadosFromCache(equipeId) as any[];
+        if (cached) {
+          console.log("[AppEstoque] Usando materiais serializados do cache:", cached.length);
+          return cached;
+        }
+        return [];
+      }
 
       // Primeiro, buscar entregas confirmadas da equipe
       const { data: entregas, error: entregasError } = await supabase
@@ -469,6 +549,46 @@ export default function AppEstoque() {
         : null;
 
       const dataConfirmacao = new Date().toISOString();
+
+      // Se offline, enfileirar operação
+      if (!isOnline) {
+        console.log("[AppEstoque] Enfileirando confirmação de recebimento offline");
+        
+        // Enfileirar atualização da entrega
+        await queueOperation({
+          id: `confirmar-recebimento-${data.entrega_id}-${Date.now()}`,
+          type: "update",
+          table: "materiais_entregas",
+          data: {
+            status: "confirmado",
+            foto_recebimento: fotoPrincipal,
+            assinatura_recebimento: assinaturaResposta?.assinatura_url || null,
+            coordenadas_recebimento: coordenadas,
+            data_confirmacao: dataConfirmacao,
+          },
+          filters: { id: data.entrega_id },
+          timestamp: Date.now(),
+          retryCount: 0,
+        });
+        
+        // Enfileirar registro no checklist
+        await queueOperation({
+          id: `checklist-resposta-${data.checklist_id}-${Date.now()}`,
+          type: "insert",
+          table: "checklist_respostas",
+          data: {
+            checklist_id: data.checklist_id,
+            equipe_id: equipeId,
+            status: "completo",
+            respostas: data.respostas,
+          },
+          timestamp: Date.now(),
+          retryCount: 0,
+        });
+        
+        toast.success("Confirmação salva! Será sincronizada quando houver internet.");
+        return;
+      }
 
       // Atualizar status da entrega
       const { error } = await supabase
