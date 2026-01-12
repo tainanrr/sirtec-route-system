@@ -321,6 +321,16 @@ export default function AppLayout() {
         if (section === "home") {
           if (remembered === "/app") return "/app";
         } else {
+          // IMPORTANTE: Quando offline e na seção "ordens", NÃO navegar para detalhes
+          // de ordens que podem não estar no cache - ir direto para a lista
+          if (section === "ordens" && !isOnline) {
+            // Se a URL salva é um detalhe de ordem (tem UUID no path), ir para a lista
+            const isDetalhePage = /\/app\/ordens\/[0-9a-f-]{36}$/i.test(remembered);
+            if (isDetalhePage) {
+              console.log("[AppLayout] Offline - ignorando URL de detalhe salva, indo para lista");
+              return base;
+            }
+          }
           if (remembered.startsWith(base)) return remembered;
         }
       }

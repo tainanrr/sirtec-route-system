@@ -562,6 +562,18 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
         
         setTurno(turnoData);
         localStorage.setItem("turno_auth", JSON.stringify(turnoData));
+        
+        // Limpar histórico de navegação das seções para evitar navegar para URLs de ordens antigas
+        try {
+          sessionStorage.removeItem("app_last_route_ordens");
+          sessionStorage.removeItem("app_last_route_estoque");
+          sessionStorage.removeItem("app_last_route_chat");
+          sessionStorage.removeItem("app_last_route_docs");
+          sessionStorage.removeItem("app_last_route_resultados");
+          console.log("[EquipeAuth] Histórico de navegação limpo ao abrir novo turno");
+        } catch {
+          // ignore
+        }
         setColaboradoresPendentes([]);
         
         // Salvar dados offline atualizados

@@ -99,6 +99,9 @@ const statusConfig: Record<string, { label: string; variant: "default" | "second
 };
 
 export default function AppOrdens() {
+  // Log imediato para confirmar que o componente está sendo montado
+  console.log("[DEBUG AppOrdens] 🚀 Componente AppOrdens montando...");
+  
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { equipe, isLoading: isLoadingEquipe } = useTecnico();
@@ -126,6 +129,14 @@ export default function AppOrdens() {
   const previousOnlineRef = useRef(isOnline);
   const [showMap, setShowMap] = useState(() => Boolean(initialState?.showMap));
   const [showCriarAvulsa, setShowCriarAvulsa] = useState(false);
+  
+  // Log de montagem do componente
+  useEffect(() => {
+    console.log("[DEBUG AppOrdens] ✅ Componente montado - isOnline:", isOnline, "isLoadingEquipe:", isLoadingEquipe);
+    return () => {
+      console.log("[DEBUG AppOrdens] 🔚 Componente desmontando...");
+    };
+  }, []);
 
   // Persistir estado de UI desta tela (além do scroll)
   useEffect(() => {
