@@ -7,6 +7,8 @@ import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
 import { logApp } from "@/lib/logUtils";
 import { usePageState } from "@/contexts/ScrollRestoreContext";
+import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
+import { useOfflineData, CACHE_KEYS } from "@/hooks/useOfflineData";
 import { getAppParentRoute } from "@/lib/appNavigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -140,6 +142,8 @@ export default function AppAPR() {
   const queryClient = useQueryClient();
   const { equipe: equipeAuth } = useEquipeAuth();
   const { equipe } = useTecnico();
+  const { isOnline } = useOfflineSyncContext();
+  const { getFromCache } = useOfflineData();
   
   const [respostas, setRespostas] = useState<Record<string, Resposta>>({});
   const [gruposExpandidos, setGruposExpandidos] = useState<Set<string>>(new Set());
@@ -150,6 +154,9 @@ export default function AppAPR() {
   const [pendenciasHighlight, setPendenciasHighlight] = useState<Set<string>>(new Set());
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [fotoViewer, setFotoViewer] = useState<{ open: boolean; fotos: FotoData[]; index: number }>({ open: false, fotos: [], index: 0 });
+  
+  // Estado para checklist offline
+  const [checklistOfflineCache, setChecklistOfflineCache] = useState<Checklist | null>(null);
   
   // Refs para scroll
   const perguntaRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -163,8 +170,8 @@ export default function AppAPR() {
   }>(pageKey);
   const hasRestoredDraftRef = useRef(false);
 
-  // Buscar checklist de APR ativo
-  const { data: checklist, isLoading: loadingChecklist } = useQuery({
+  // Buscar checklist de APR ativo (só online)
+  const { data: checklistOnline, isLoading: loadingChecklist } = useQuery({
     queryKey: ["checklist-apr"],
     queryFn: async () => {
       console.log("[APR] Buscando checklist APR ativo...");
@@ -208,10 +215,63 @@ export default function AppAPR() {
       }
       return null;
     },
+    enabled: isOnline,
   });
 
-  // Buscar ordem de serviço (incluindo status para verificar chegada)
-  const { data: ordem } = useQuery({
+  // Buscar checklist do cache quando offline
+  useEffect(() => {
+    const buscarChecklistDoCache = async () => {
+      if (!isOnline && !checklistOfflineCache) {
+        console.log("[APR] 📦 Buscando checklists do cache...");
+        try {
+          const cachedChecklists = await getFromCache(CACHE_KEYS.CHECKLISTS);
+          if (cachedChecklists && Array.isArray(cachedChecklists) && cachedChecklists.length > 0) {
+            console.log("[APR] Cache encontrado:", cachedChecklists.length, "checklists");
+            // Buscar o checklist de tipo APR
+            const aprChecklist = cachedChecklists.find((c: any) => c.tipo === "apr" && c.ativo);
+            if (aprChecklist) {
+              console.log("[APR] ✅ APR encontrada no cache:", aprChecklist.nome);
+              
+              let grupos: GrupoPerguntas[] = [];
+              if (aprChecklist.grupos && Array.isArray(aprChecklist.grupos) && aprChecklist.grupos.length > 0) {
+                grupos = aprChecklist.grupos as GrupoPerguntas[];
+                console.log("[APR] Usando estrutura de grupos:", grupos.length, "grupos");
+              } else if (aprChecklist.perguntas && Array.isArray(aprChecklist.perguntas) && aprChecklist.perguntas.length > 0) {
+                const perguntas = aprChecklist.perguntas as Pergunta[];
+                grupos = [{
+                  id: "grupo-unico",
+                  nome: "Perguntas",
+                  ordem: 1,
+                  perguntas: perguntas,
+                }];
+                console.log("[APR] Usando estrutura antiga de perguntas:", perguntas.length, "perguntas");
+              }
+              
+              if (grupos.length > 0) {
+                setGruposExpandidos(new Set([grupos[0].id]));
+              }
+              
+              setChecklistOfflineCache({ ...aprChecklist, grupos } as Checklist);
+            } else {
+              console.log("[APR] ❌ Nenhuma APR encontrada no cache");
+            }
+          }
+        } catch (error) {
+          console.error("[APR] ❌ Erro ao buscar do cache:", error);
+        }
+      }
+    };
+    buscarChecklistDoCache();
+  }, [isOnline, checklistOfflineCache, getFromCache]);
+
+  // Usar checklist do React Query ou do cache offline
+  const checklist = checklistOnline || checklistOfflineCache;
+
+  // Estado para ordem offline
+  const [ordemOfflineCache, setOrdemOfflineCache] = useState<any>(null);
+
+  // Buscar ordem de serviço (só online)
+  const { data: ordemOnline } = useQuery({
     queryKey: ["ordem-apr", ordemId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -223,8 +283,44 @@ export default function AppAPR() {
       if (error) throw error;
       return data;
     },
-    enabled: !!ordemId,
+    enabled: !!ordemId && isOnline,
   });
+
+  // Buscar ordem do cache quando offline
+  useEffect(() => {
+    const buscarOrdemDoCache = async () => {
+      if (!isOnline && !ordemOfflineCache && ordemId) {
+        console.log("[APR] 📦 Buscando ordem do cache...");
+        const equipeId = equipe?.id || equipeAuth?.id;
+        if (!equipeId) return;
+        
+        const dataHoje = format(new Date(), "yyyy-MM-dd");
+        const cacheKey = `planejamento_dia_${equipeId}_${dataHoje}`;
+        
+        try {
+          const cachedOrdens = await getFromCache(cacheKey);
+          if (cachedOrdens && Array.isArray(cachedOrdens) && cachedOrdens.length > 0) {
+            const ordemEncontrada = cachedOrdens.find((o: any) => {
+              const id = o.id || o.ordem_servico_id || (o.ordens_servico && o.ordens_servico.id);
+              return id === ordemId;
+            });
+            
+            if (ordemEncontrada) {
+              const dados = ordemEncontrada.ordens_servico || ordemEncontrada;
+              console.log("[APR] ✅ Ordem encontrada no cache:", dados.numero);
+              setOrdemOfflineCache(dados);
+            }
+          }
+        } catch (error) {
+          console.error("[APR] ❌ Erro ao buscar ordem do cache:", error);
+        }
+      }
+    };
+    buscarOrdemDoCache();
+  }, [isOnline, ordemOfflineCache, ordemId, equipe?.id, equipeAuth?.id, getFromCache]);
+
+  // Usar ordem do React Query ou do cache offline
+  const ordem = ordemOnline || ordemOfflineCache;
   
   // Verificar se a equipe já chegou no local (permitir APR apenas após chegada)
   const chegouNoLocal = ordem?.chegada_local_at || 
