@@ -198,17 +198,32 @@ export function useOfflineSync() {
       const transaction = db.transaction(QUEUE_STORE, "readwrite");
       const store = transaction.objectStore(QUEUE_STORE);
       
+      // Criar promise que resolve quando a transação completar (registrar ANTES do put)
+      const transactionPromise = new Promise<void>((resolve, reject) => {
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(new Error("Transaction aborted"));
+      });
+      
       // Usar put em vez de add para evitar erros se já existir
-      await new Promise<void>((resolve, reject) => {
+      const putPromise = new Promise<void>((resolve, reject) => {
         const request = store.put(operation);
         request.onsuccess = () => resolve();
         request.onerror = () => reject(request.error);
       });
       
-      // Aguardar a transação completar
-      await new Promise<void>((resolve, reject) => {
-        transaction.oncomplete = () => resolve();
-        transaction.onerror = () => reject(transaction.error);
+      // Aguardar o put completar
+      await putPromise;
+      
+      // Aguardar a transação completar (com timeout para evitar travamento)
+      await Promise.race([
+        transactionPromise,
+        new Promise<void>((_, reject) => 
+          setTimeout(() => reject(new Error("Transaction timeout")), 5000)
+        )
+      ]).catch(err => {
+        // Se deu timeout ou erro, a operação já está no estado local, então continuar
+        console.warn(`[OfflineSync] Aviso na transação (operação já está no estado local):`, err.message);
       });
 
       console.log(`[OfflineSync] Operação enfileirada: ${type}`, operation.id);
