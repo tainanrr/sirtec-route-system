@@ -53,20 +53,36 @@ export default function AppLayout() {
   }, [isOnline, equipe?.id, temTurnoAberto, hasPreloaded, preloadEssentialData]);
 
   // Recarregar dados quando a internet voltar (após ter ficado offline)
+  // IMPORTANTE: Aguardar a sincronização terminar antes de atualizar o cache
   useEffect(() => {
     if (!isOnline) {
       setWasOffline(true);
     } else if (wasOffline && equipe?.id && temTurnoAberto) {
-      console.log("[AppLayout] Internet restaurada - atualizando dados...");
+      console.log("[AppLayout] Internet restaurada - aguardando sincronização...");
       setWasOffline(false);
-      // Recarregar dados para ter versão mais atual
-      preloadEssentialData(equipe.id).then((success) => {
+      
+      // Aguardar a sincronização terminar antes de recarregar dados do servidor
+      // Isso evita que os dados do servidor (desatualizados) sobrescrevam as operações pendentes
+      const aguardarSincronizacao = async () => {
+        // Primeiro, disparar a sincronização
+        await syncPendingOperations();
+        
+        // Aguardar um pouco para garantir que a sincronização completou
+        // e que os dados foram persistidos no servidor
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        console.log("[AppLayout] Sincronização concluída - atualizando dados do servidor...");
+        
+        // Agora sim, recarregar dados atualizados do servidor
+        const success = await preloadEssentialData(equipe.id);
         if (success) {
           console.log("[AppLayout] Dados atualizados após reconexão!");
         }
-      });
+      };
+      
+      aguardarSincronizacao();
     }
-  }, [isOnline, wasOffline, equipe?.id, temTurnoAberto, preloadEssentialData]);
+  }, [isOnline, wasOffline, equipe?.id, temTurnoAberto, preloadEssentialData, syncPendingOperations]);
 
   // Verificar se o turno é de um dia anterior (desatualizado)
   const turnoDesatualizado = useMemo(() => {

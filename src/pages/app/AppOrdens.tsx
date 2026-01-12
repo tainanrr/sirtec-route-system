@@ -389,23 +389,32 @@ export default function AppOrdens() {
   }, [isOnline, equipeIdParaUsar, selectedDate, ordensPlanejadas]);
 
   // Recarregar dados automaticamente quando a internet voltar
+  // IMPORTANTE: Aguardar um tempo para a sincronização completar primeiro
   useEffect(() => {
     const wasOffline = !previousOnlineRef.current;
     const isNowOnline = isOnline;
     previousOnlineRef.current = isOnline;
     
-    // Se estava offline e agora está online, recarregar dados
+    // Se estava offline e agora está online, recarregar dados APÓS sincronização
     if (wasOffline && isNowOnline && (equipe?.id || equipeAuth?.id)) {
-      console.log("[AppOrdens] Internet restaurada - recarregando dados automaticamente...");
-      // Limpar cache offline
-      setOrdensOfflineCache([]);
-      // Invalidar cache do react-query para forçar nova busca
-      queryClient.invalidateQueries({ queryKey: ["ordens-planejadas"] });
-      refetch().then(() => {
-        toast.success("Dados da rota atualizados!");
-      }).catch(err => {
-        console.error("[AppOrdens] Erro ao atualizar dados:", err);
-      });
+      console.log("[AppOrdens] Internet restaurada - aguardando sincronização antes de atualizar...");
+      
+      // Aguardar 3 segundos para a sincronização completar antes de buscar dados atualizados
+      // Isso evita buscar dados desatualizados do servidor enquanto a sincronização ainda está em andamento
+      const timeoutId = setTimeout(() => {
+        console.log("[AppOrdens] Sincronização deve ter terminado - recarregando dados...");
+        // Limpar cache offline
+        setOrdensOfflineCache([]);
+        // Invalidar cache do react-query para forçar nova busca
+        queryClient.invalidateQueries({ queryKey: ["ordens-planejadas"] });
+        refetch().then(() => {
+          toast.success("Dados da rota atualizados!");
+        }).catch(err => {
+          console.error("[AppOrdens] Erro ao atualizar dados:", err);
+        });
+      }, 3000); // 3 segundos de delay para sincronização
+      
+      return () => clearTimeout(timeoutId);
     }
   }, [isOnline, equipe?.id, equipeAuth?.id, refetch, queryClient]);
 
