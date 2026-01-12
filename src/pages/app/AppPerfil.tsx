@@ -2,6 +2,8 @@ import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
+import { useOfflineData } from "@/hooks/useOfflineData";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -31,6 +33,8 @@ import { usePageState } from "@/contexts/ScrollRestoreContext";
 export default function AppPerfil() {
   const { equipe: equipeAuth, logout } = useEquipeAuth();
   const { equipe, isLoading: isLoadingEquipe, refetch: refetchEquipe } = useTecnico();
+  const { isOnline } = useOfflineSyncContext();
+  const { getEstatisticasTecnicoFromCache } = useOfflineData();
   const { getState, saveState } = usePageState<{ isRefreshing?: boolean }>("app-perfil");
   const initialState = getState();
   const [isRefreshing, setIsRefreshing] = useState(Boolean(initialState?.isRefreshing));
@@ -45,9 +49,19 @@ export default function AppPerfil() {
 
   // Buscar estatísticas do mês
   const { data: estatisticas, isLoading: isLoadingStats, refetch: refetchStats } = useQuery({
-    queryKey: ["estatisticas-tecnico", equipe?.id],
+    queryKey: ["estatisticas-tecnico", equipe?.id, isOnline],
     queryFn: async () => {
       if (!equipe?.id) return null;
+
+      // Se offline, buscar do cache
+      if (!isOnline) {
+        const cached = await getEstatisticasTecnicoFromCache(equipe.id);
+        if (cached) {
+          console.log("[Perfil] Usando cache offline de estatísticas");
+          return cached as any;
+        }
+        return null;
+      }
 
       const inicioMes = startOfMonth(new Date());
       const fimMes = endOfMonth(new Date());

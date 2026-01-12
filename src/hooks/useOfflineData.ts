@@ -39,6 +39,19 @@ export const CACHE_KEYS = {
   
   // Chat
   MENSAGENS_CHAT: "mensagens_chat",
+  
+  // Procedimentos
+  PROCEDIMENTOS_LISTA: "procedimentos_lista",
+  
+  // Resultados e Metas
+  METAS_CICLO: "metas_ciclo",
+  PRODUCOES_CICLO: "producoes_ciclo",
+  
+  // Colaboradores
+  COLABORADORES_DISPONIVEIS: "colaboradores_disponiveis",
+  
+  // Estatísticas do perfil
+  ESTATISTICAS_TECNICO: "estatisticas_tecnico",
 };
 
 // Hook para gerenciar dados offline
@@ -78,12 +91,16 @@ export function useOfflineData() {
         preloadDevolucoesPendentes(equipeId),
         preloadMovimentacoesEstoque(equipeId),
         preloadMateriaisSerializados(equipeId),
+        preloadColaboradores(),
+        preloadProcedimentos(),
+        preloadEstatisticasTecnico(equipeId),
       ]);
 
       // Log de resultados
       const nomes = ['TiposIntervalo', 'Skills', 'RetornosCampo', 'PlanejamentoDia', 
                      'OrdensServico', 'IntervalosDia', 'ProducaoDia', 'MateriaisEstoque', 'Checklists', 'RetornosCampoCompleto',
-                     'EntregasPendentes', 'DevolucoesPendentes', 'MovimentacoesEstoque', 'MateriaisSerializados'];
+                     'EntregasPendentes', 'DevolucoesPendentes', 'MovimentacoesEstoque', 'MateriaisSerializados',
+                     'Colaboradores', 'Procedimentos', 'EstatisticasTecnico'];
       results.forEach((result, index) => {
         if (result.status === 'rejected') {
           console.error(`[OfflineData] ❌ ${nomes[index]} falhou:`, result.reason);
@@ -555,6 +572,185 @@ export function useOfflineData() {
     }
   }, [saveToCache]);
 
+  // Pré-carregar colaboradores disponíveis (para abertura de turno)
+  const preloadColaboradores = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("colaboradores")
+        .select("id, cpf, nome, cargo")
+        .eq("ativo", true)
+        .order("nome");
+      
+      if (error) throw error;
+      await saveToCache(CACHE_KEYS.COLABORADORES_DISPONIVEIS, data, 24);
+      console.log("[OfflineData] Colaboradores cacheados:", data?.length);
+    } catch (error) {
+      console.error("[OfflineData] Erro ao cachear colaboradores:", error);
+    }
+  }, [saveToCache]);
+
+  // Pré-carregar procedimentos
+  const preloadProcedimentos = useCallback(async (contratoId?: string) => {
+    try {
+      let query = supabase
+        .from("procedimentos")
+        .select(`
+          id,
+          titulo,
+          descricao,
+          categoria,
+          visivel_app,
+          ativo,
+          ordem,
+          created_at,
+          updated_at,
+          procedimentos_anexos(count)
+        `)
+        .eq("ativo", true)
+        .eq("visivel_app", true)
+        .order("ordem", { ascending: true })
+        .order("titulo", { ascending: true });
+
+      if (contratoId) {
+        query = query.or(`contrato_id.is.null,contrato_id.eq.${contratoId}`);
+      } else {
+        query = query.is("contrato_id", null);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      
+      const procedimentos = (data || []).map((p: any) => ({
+        ...p,
+        anexos_count: p.procedimentos_anexos?.[0]?.count || 0,
+      }));
+      
+      await saveToCache(CACHE_KEYS.PROCEDIMENTOS_LISTA, procedimentos, 24);
+      console.log("[OfflineData] Procedimentos cacheados:", procedimentos?.length);
+    } catch (error) {
+      console.error("[OfflineData] Erro ao cachear procedimentos:", error);
+    }
+  }, [saveToCache]);
+
+  // Pré-carregar metas do ciclo
+  const preloadMetasCiclo = useCallback(async (equipeId: string, dataInicio: string, dataFim: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("metas")
+        .select("*")
+        .eq("equipe_id", equipeId)
+        .gte("data", dataInicio)
+        .lte("data", dataFim);
+      
+      if (error) throw error;
+      await saveToCache(`${CACHE_KEYS.METAS_CICLO}_${equipeId}_${dataInicio}_${dataFim}`, data, 24);
+      console.log("[OfflineData] Metas cacheadas:", data?.length);
+    } catch (error) {
+      console.error("[OfflineData] Erro ao cachear metas:", error);
+    }
+  }, [saveToCache]);
+
+  // Pré-carregar produções do ciclo
+  const preloadProducoesCiclo = useCallback(async (equipeId: string, dataInicio: string, dataFim: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("producao_equipes")
+        .select(`
+          *,
+          retornos_campo:retorno_campo_id (id, codigo, descricao, tipo),
+          ordens_servico:ordem_servico_id (tipo)
+        `)
+        .eq("equipe_id", equipeId)
+        .gte("created_at", dataInicio + "T00:00:00")
+        .lte("created_at", dataFim + "T23:59:59");
+      
+      if (error) throw error;
+      await saveToCache(`${CACHE_KEYS.PRODUCOES_CICLO}_${equipeId}_${dataInicio}_${dataFim}`, data, 24);
+      console.log("[OfflineData] Produções do ciclo cacheadas:", data?.length);
+    } catch (error) {
+      console.error("[OfflineData] Erro ao cachear produções do ciclo:", error);
+    }
+  }, [saveToCache]);
+
+  // Pré-carregar estatísticas do técnico
+  const preloadEstatisticasTecnico = useCallback(async (equipeId: string) => {
+    try {
+      const inicioMes = format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), "yyyy-MM-dd");
+      const fimMes = format(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0), "yyyy-MM-dd");
+      const hoje = format(new Date(), "yyyy-MM-dd");
+
+      // Buscar ordens do mês
+      const { data: ordensConcluidasData, error: ordensError } = await supabase
+        .from("planejamento_ordens")
+        .select(`
+          id,
+          ordens_servico:ordem_servico_id (
+            id,
+            status,
+            concluido_at,
+            tempo_total_minutos,
+            valor
+          )
+        `)
+        .eq("equipe_id", equipeId)
+        .gte("created_at", inicioMes + "T00:00:00")
+        .lte("created_at", fimMes + "T23:59:59");
+
+      if (ordensError) throw ordensError;
+
+      const ordensConcluidas = ordensConcluidasData?.filter(
+        (o: any) => o.ordens_servico?.status === "concluida"
+      ) || [];
+
+      const totalOrdens = ordensConcluidasData?.length || 0;
+      const totalConcluidas = ordensConcluidas.length;
+      const tempoTotal = ordensConcluidas.reduce(
+        (acc: number, o: any) => acc + (o.ordens_servico?.tempo_total_minutos || 0),
+        0
+      );
+      const valorTotal = ordensConcluidas.reduce(
+        (acc: number, o: any) => acc + (o.ordens_servico?.valor || 0),
+        0
+      );
+
+      // Buscar ordens de hoje
+      const { data: ordensHojeData } = await supabase
+        .from("planejamento_ordens")
+        .select(`
+          id,
+          ordens_servico:ordem_servico_id (
+            id,
+            status
+          ),
+          planejamentos!inner (
+            data_planejamento
+          )
+        `)
+        .eq("equipe_id", equipeId)
+        .eq("planejamentos.data_planejamento", hoje);
+
+      const ordensHoje = ordensHojeData?.length || 0;
+      const concluidasHoje = ordensHojeData?.filter(
+        (o: any) => o.ordens_servico?.status === "concluida"
+      ).length || 0;
+
+      const estatisticas = {
+        totalOrdens,
+        totalConcluidas,
+        tempoTotalMinutos: tempoTotal,
+        valorTotal,
+        ordensHoje,
+        concluidasHoje,
+        taxaConclusao: totalOrdens > 0 ? Math.round((totalConcluidas / totalOrdens) * 100) : 0,
+      };
+
+      await saveToCache(`${CACHE_KEYS.ESTATISTICAS_TECNICO}_${equipeId}`, estatisticas, 24);
+      console.log("[OfflineData] Estatísticas do técnico cacheadas:", estatisticas);
+    } catch (error) {
+      console.error("[OfflineData] Erro ao cachear estatísticas:", error);
+    }
+  }, [saveToCache]);
+
   // Pré-carregar materiais serializados da equipe
   const preloadMateriaisSerializados = useCallback(async (equipeId: string) => {
     try {
@@ -746,6 +942,31 @@ export function useOfflineData() {
     return await getFromCache(`${CACHE_KEYS.MATERIAIS_SERIALIZADOS}_${equipeId}`);
   }, [getFromCache]);
 
+  // Obter colaboradores disponíveis do cache
+  const getColaboradoresDisponiveisFromCache = useCallback(async () => {
+    return await getFromCache(CACHE_KEYS.COLABORADORES_DISPONIVEIS);
+  }, [getFromCache]);
+
+  // Obter procedimentos do cache
+  const getProcedimentosFromCache = useCallback(async () => {
+    return await getFromCache(CACHE_KEYS.PROCEDIMENTOS_LISTA);
+  }, [getFromCache]);
+
+  // Obter metas do ciclo do cache
+  const getMetasCicloFromCache = useCallback(async (equipeId: string, dataInicio: string, dataFim: string) => {
+    return await getFromCache(`${CACHE_KEYS.METAS_CICLO}_${equipeId}_${dataInicio}_${dataFim}`);
+  }, [getFromCache]);
+
+  // Obter produções do ciclo do cache
+  const getProducoesCicloFromCache = useCallback(async (equipeId: string, dataInicio: string, dataFim: string) => {
+    return await getFromCache(`${CACHE_KEYS.PRODUCOES_CICLO}_${equipeId}_${dataInicio}_${dataFim}`);
+  }, [getFromCache]);
+
+  // Obter estatísticas do técnico do cache
+  const getEstatisticasTecnicoFromCache = useCallback(async (equipeId: string) => {
+    return await getFromCache(`${CACHE_KEYS.ESTATISTICAS_TECNICO}_${equipeId}`);
+  }, [getFromCache]);
+
   // ============ FUNÇÕES DE ATUALIZAÇÃO LOCAL ============
 
   // Atualizar ordem de serviço localmente (para refletir mudanças offline)
@@ -829,6 +1050,11 @@ export function useOfflineData() {
     preloadDevolucoesPendentes,
     preloadMovimentacoesEstoque,
     preloadMateriaisSerializados,
+    preloadColaboradores,
+    preloadProcedimentos,
+    preloadMetasCiclo,
+    preloadProducoesCiclo,
+    preloadEstatisticasTecnico,
     
     // Acesso ao cache
     getEquipeFromCache,
@@ -850,6 +1076,11 @@ export function useOfflineData() {
     getDevolucoesPendentesFromCache,
     getMovimentacoesFromCache,
     getMateriaisSerializadosFromCache,
+    getColaboradoresDisponiveisFromCache,
+    getProcedimentosFromCache,
+    getMetasCicloFromCache,
+    getProducoesCicloFromCache,
+    getEstatisticasTecnicoFromCache,
     
     // Atualizações locais
     updateOrdemLocal,

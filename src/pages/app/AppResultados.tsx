@@ -3,6 +3,8 @@ import { useTecnico } from "@/contexts/TecnicoContext";
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
+import { useOfflineData } from "@/hooks/useOfflineData";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -96,6 +98,8 @@ const calcularPeriodoAteHoje = (dataRef: Date = new Date(), offsetMeses: number 
 export default function AppResultados() {
   const { equipe: equipeAuth } = useEquipeAuth();
   const { equipe, isLoading: isLoadingEquipe, refetch: refetchEquipe } = useTecnico();
+  const { isOnline } = useOfflineSyncContext();
+  const { getMetasCicloFromCache, getProducoesCicloFromCache } = useOfflineData();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState("resumo");
   const [filtroTipoServico, setFiltroTipoServico] = useState("todos");
@@ -122,9 +126,19 @@ export default function AppResultados() {
 
   // Buscar metas da equipe
   const { data: metas, isLoading: isLoadingMetas, refetch: refetchMetas } = useQuery({
-    queryKey: ["metas-equipe", equipe?.id, dataInicio, dataFim, cicloOffset],
+    queryKey: ["metas-equipe", equipe?.id, dataInicio, dataFim, cicloOffset, isOnline],
     queryFn: async () => {
       if (!equipe?.id) return [];
+      
+      // Se offline, buscar do cache
+      if (!isOnline) {
+        const cached = await getMetasCicloFromCache(equipe.id, dataInicio, dataFim);
+        if (cached) {
+          console.log("[Resultados] Usando cache offline de metas:", cached.length);
+          return cached as any[];
+        }
+        return [];
+      }
       
       const { data, error } = await supabase
         .from("metas")
@@ -141,9 +155,19 @@ export default function AppResultados() {
 
   // Buscar produções da equipe
   const { data: producoes, isLoading: isLoadingProducoes, refetch: refetchProducoes } = useQuery({
-    queryKey: ["producoes-equipe", equipe?.id, dataInicio, dataFim, cicloOffset],
+    queryKey: ["producoes-equipe", equipe?.id, dataInicio, dataFim, cicloOffset, isOnline],
     queryFn: async () => {
       if (!equipe?.id) return [];
+      
+      // Se offline, buscar do cache
+      if (!isOnline) {
+        const cached = await getProducoesCicloFromCache(equipe.id, dataInicio, dataFim);
+        if (cached) {
+          console.log("[Resultados] Usando cache offline de produções:", cached.length);
+          return cached as any[];
+        }
+        return [];
+      }
       
       const { data, error } = await supabase
         .from("producao_equipes")

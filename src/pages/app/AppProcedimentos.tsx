@@ -4,6 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useOfflineCache, formatCacheSize } from "@/hooks/useOfflineCache";
+import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
+import { useOfflineData } from "@/hooks/useOfflineData";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -118,14 +120,26 @@ export default function AppProcedimentos() {
   const navigate = useNavigate();
   const { equipe } = useEquipeAuth();
   const { hasCachedFiles, totalCacheSize, isSupported: offlineSupported } = useOfflineCache();
+  const { isOnline } = useOfflineSyncContext();
+  const { getProcedimentosFromCache } = useOfflineData();
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategoria, setSelectedCategoria] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Buscar procedimentos
   const { data: procedimentos, isLoading, refetch, error } = useQuery({
-    queryKey: ["procedimentos-app", equipe?.contrato_id],
+    queryKey: ["procedimentos-app", equipe?.contrato_id, isOnline],
     queryFn: async () => {
+      // Se offline, buscar do cache
+      if (!isOnline) {
+        const cached = await getProcedimentosFromCache();
+        if (cached) {
+          console.log("[Procedimentos] Usando cache offline:", cached.length);
+          return cached as Procedimento[];
+        }
+        return [];
+      }
+
       let query = supabase
         .from("procedimentos")
         .select(`

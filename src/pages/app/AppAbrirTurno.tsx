@@ -22,7 +22,8 @@ import {
   Trash2,
   AlertTriangle,
   Phone,
-  X
+  X,
+  WifiOff
 } from "lucide-react";
 import {
   Dialog,
@@ -33,6 +34,8 @@ import {
 } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { ColaboradorEquipe } from "@/lib/authUtils";
+import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
+import { useOfflineData } from "@/hooks/useOfflineData";
 
 interface ColaboradorDisponivel {
   id: string;
@@ -44,6 +47,8 @@ interface ColaboradorDisponivel {
 export default function AppAbrirTurno() {
   const navigate = useNavigate();
   const { equipe, colaboradoresPendentes, iniciarTurno, isLoading, logout } = useEquipeAuth();
+  const { isOnline } = useOfflineSyncContext();
+  const { getColaboradoresDisponiveisFromCache } = useOfflineData();
   
   // Lista local de colaboradores do turno (pendentes + adicionados manualmente)
   const [colaboradoresTurno, setColaboradoresTurno] = useState<ColaboradorEquipe[]>([]);
@@ -78,13 +83,26 @@ export default function AppAbrirTurno() {
   const fetchColaboradoresDisponiveis = async () => {
     setLoadingColaboradores(true);
     try {
-      const { data, error } = await supabase
-        .from("colaboradores")
-        .select("id, cpf, nome, cargo")
-        .eq("ativo", true)
-        .order("nome");
+      let data: ColaboradorDisponivel[] | null = null;
+      
+      // Se offline, buscar do cache
+      if (!isOnline) {
+        const cached = await getColaboradoresDisponiveisFromCache();
+        if (cached) {
+          console.log("[AbrirTurno] Usando cache offline de colaboradores:", cached.length);
+          data = cached as ColaboradorDisponivel[];
+        }
+      } else {
+        // Se online, buscar do Supabase
+        const { data: supabaseData, error } = await supabase
+          .from("colaboradores")
+          .select("id, cpf, nome, cargo")
+          .eq("ativo", true)
+          .order("nome");
 
-      if (error) throw error;
+        if (error) throw error;
+        data = supabaseData;
+      }
       
       // Filtrar os que já estão na lista do turno
       const idsJaNaLista = colaboradoresTurno.map(c => c.id);
@@ -92,6 +110,10 @@ export default function AppAbrirTurno() {
       setColaboradoresDisponiveis(disponiveis);
     } catch (error) {
       console.error("Erro ao carregar colaboradores:", error);
+      // Se offline e sem cache, mostrar mensagem
+      if (!isOnline) {
+        toast.error("Colaboradores não disponíveis offline");
+      }
     } finally {
       setLoadingColaboradores(false);
     }
