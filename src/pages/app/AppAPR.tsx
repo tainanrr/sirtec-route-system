@@ -274,8 +274,11 @@ export default function AppAPR() {
   // Usar checklist do React Query ou do cache offline
   const checklist = checklistOnline || checklistOfflineCache;
 
-  // Estado para ordem offline
+  // Estado para ordem offline/cache
   const [ordemOfflineCache, setOrdemOfflineCache] = useState<any>(null);
+  
+  // Estado para guardar o status do cache local (fonte de verdade durante e após sincronização)
+  const [statusDoCache, setStatusDoCache] = useState<string | null>(null);
 
   // Buscar ordem de serviço (só online)
   const { data: ordemOnline } = useQuery({
@@ -293,58 +296,67 @@ export default function AppAPR() {
     enabled: !!ordemId && isOnline,
   });
 
-  // Buscar ordem do cache quando offline - SEMPRE busca para ter dados atualizados
+  // Buscar ordem do cache - SEMPRE busca (não apenas offline) para ter dados atualizados
+  // O cache local é a fonte de verdade durante e após a sincronização
   useEffect(() => {
     const buscarOrdemDoCache = async () => {
-      if (!isOnline && ordemId) {
-        console.log("[APR] 📦 Buscando ordem do cache para:", ordemId);
-        const equipeId = equipe?.id || equipeAuth?.id;
-        console.log("[APR] equipeId disponível:", equipeId);
+      if (!ordemId) return;
+      
+      const equipeId = equipe?.id || equipeAuth?.id;
+      
+      if (!equipeId) {
+        console.log("[APR] ⚠️ equipeId não disponível, tentando novamente...");
+        return;
+      }
+      
+      // Sempre buscar do cache para ter o status mais recente
+      console.log("[APR] 📦 Buscando ordem do cache para:", ordemId, "(isOnline:", isOnline, ")");
+      
+      const dataHoje = format(new Date(), "yyyy-MM-dd");
+      const cacheKey = `planejamento_dia_${equipeId}_${dataHoje}`;
+      console.log("[APR] Cache key:", cacheKey);
+      
+      try {
+        const cachedOrdens = await getFromCache(cacheKey);
+        console.log("[APR] Resultado getFromCache:", cachedOrdens ? `${cachedOrdens.length} items` : "null/undefined");
         
-        if (!equipeId) {
-          console.log("[APR] ⚠️ equipeId não disponível, tentando novamente...");
-          return;
-        }
-        
-        const dataHoje = format(new Date(), "yyyy-MM-dd");
-        const cacheKey = `planejamento_dia_${equipeId}_${dataHoje}`;
-        console.log("[APR] Cache key:", cacheKey);
-        
-        try {
-          const cachedOrdens = await getFromCache(cacheKey);
-          console.log("[APR] Resultado getFromCache:", cachedOrdens ? `${cachedOrdens.length} items` : "null/undefined");
+        if (cachedOrdens && Array.isArray(cachedOrdens) && cachedOrdens.length > 0) {
+          // Buscar a ordem - pode estar em diferentes estruturas
+          const ordemEncontrada = cachedOrdens.find((o: any) => {
+            const osData = o.ordens_servico || o;
+            const osId = osData.id || o.ordem_servico_id;
+            return osId === ordemId;
+          });
           
-          if (cachedOrdens && Array.isArray(cachedOrdens) && cachedOrdens.length > 0) {
-            // Buscar a ordem - pode estar em diferentes estruturas
-            const ordemEncontrada = cachedOrdens.find((o: any) => {
-              const osData = o.ordens_servico || o;
-              const osId = osData.id || o.ordem_servico_id;
-              return osId === ordemId;
-            });
+          if (ordemEncontrada) {
+            // Pegar os dados da ordem (pode estar em ordens_servico ou direto)
+            const dados = ordemEncontrada.ordens_servico || ordemEncontrada;
+            console.log("[APR] ✅ Ordem encontrada no cache:", dados.numero, "status:", dados.status, "chegada_local_at:", dados.chegada_local_at);
             
-            if (ordemEncontrada) {
-              // Pegar os dados da ordem (pode estar em ordens_servico ou direto)
-              const dados = ordemEncontrada.ordens_servico || ordemEncontrada;
-              console.log("[APR] ✅ Ordem encontrada:", dados.numero, "status:", dados.status, "chegada_local_at:", dados.chegada_local_at);
+            // Guardar o status do cache (fonte de verdade)
+            setStatusDoCache(dados.status);
+            
+            // Se offline, usar os dados completos do cache
+            if (!isOnline) {
               setOrdemOfflineCache(dados);
-            } else {
-              console.log("[APR] ❌ Ordem não encontrada no cache. IDs disponíveis:", 
-                cachedOrdens.slice(0, 5).map((o: any) => {
-                  const osData = o.ordens_servico || o;
-                  return osData.id || o.ordem_servico_id;
-                })
-              );
             }
           } else {
-            console.log("[APR] ❌ Cache vazio ou não é array");
+            console.log("[APR] ❌ Ordem não encontrada no cache. IDs disponíveis:", 
+              cachedOrdens.slice(0, 5).map((o: any) => {
+                const osData = o.ordens_servico || o;
+                return osData.id || o.ordem_servico_id;
+              })
+            );
           }
-        } catch (error) {
-          console.error("[APR] ❌ Erro ao buscar ordem do cache:", error);
+        } else {
+          console.log("[APR] ❌ Cache vazio ou não é array");
         }
+      } catch (error) {
+        console.error("[APR] ❌ Erro ao buscar ordem do cache:", error);
       }
     };
     buscarOrdemDoCache();
-  }, [isOnline, ordemId, equipe?.id, equipeAuth?.id, getFromCache]);
+  }, [isOnline, ordemId, equipe?.id, equipeAuth?.id, getFromCache, pendingOperations.length]);
 
   // Usar ordem do React Query ou do cache offline
   const ordem = ordemOnline || ordemOfflineCache;
@@ -401,20 +413,27 @@ export default function AppAPR() {
   }, [pendingOperations.length, isOnline]);
   
   // Verificar se a equipe já chegou no local (permitir APR apenas após chegada)
-  // Verificar tanto o status da ordem quanto operações pendentes de sincronização
+  // Verificar múltiplas fontes: ordem do servidor, cache local, e operações pendentes
   const chegouNoLocal = ordem?.chegada_local_at || 
+    // Status da ordem do servidor
     ordem?.status === "no_local" || 
     ordem?.status === "em_execucao" || 
     ordem?.status === "em_andamento" || 
     ordem?.status === "concluida" ||
     ordem?.status === "pausada" ||
-    // Verificar também operações pendentes (importante quando offline ou durante sincronização)
+    // Status do cache local (fonte de verdade durante e após sincronização)
+    statusDoCache === "no_local" ||
+    statusDoCache === "em_execucao" ||
+    statusDoCache === "em_andamento" ||
+    statusDoCache === "concluida" ||
+    statusDoCache === "pausada" ||
+    // Verificar também operações pendentes (importante quando offline)
     statusPendente === "no_local" ||
     statusPendente === "em_execucao" ||
     statusPendente === "em_andamento" ||
     statusPendente === "concluida" ||
     statusPendente === "pausada" ||
-    // Durante período de transição após sincronização, assumir que chegou no local
+    // Durante período de transição após sincronização
     syncJustCompleted;
 
   // Verificar se já existe APR preenchida para esta OS
