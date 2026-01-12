@@ -164,6 +164,7 @@ export default function AppOrdemDetalhe() {
     }>;
   } | null>(null);
   const [tentouIniciarSemApr, setTentouIniciarSemApr] = useState(false);
+  const [aprOfflineCache, setAprOfflineCache] = useState<boolean>(false);
   const { buscarSkillId, registrarProducao, atualizarOrdemComRetorno } = useRetornoCampo();
   
   // Estado para diálogo de OS em andamento
@@ -387,7 +388,7 @@ export default function AppOrdemDetalhe() {
     refetchInterval: 10000,
   });
 
-  // Buscar checklists/APRs
+  // Buscar checklists/APRs (só quando online)
   const { data: checklistsPreenchidos } = useQuery({
     queryKey: ["ordem-checklists", id],
     queryFn: async () => {
@@ -397,10 +398,34 @@ export default function AppOrdemDetalhe() {
         .eq("ordem_servico_id", id);
       return data || [];
     },
-    enabled: !!id,
+    enabled: !!id && isOnline,
   });
 
-  const temAprPreenchida = checklistsPreenchidos?.some(
+  // Verificar APR no cache offline quando não há internet
+  useEffect(() => {
+    const verificarAprOffline = async () => {
+      if (!isOnline && id) {
+        console.log("[AppOrdemDetalhe] 📦 Verificando APR no cache offline...");
+        
+        // Verificar cache específico de APR para esta ordem
+        const cacheKey = `apr_resposta_${id}`;
+        const aprCache = await getFromCache(cacheKey);
+        
+        if (aprCache) {
+          console.log("[AppOrdemDetalhe] ✅ APR encontrada no cache offline");
+          setAprOfflineCache(true);
+          return;
+        }
+        
+        console.log("[AppOrdemDetalhe] ❌ APR não encontrada no cache offline");
+        setAprOfflineCache(false);
+      }
+    };
+    
+    verificarAprOffline();
+  }, [isOnline, id, getFromCache]);
+
+  const temAprPreenchida = aprOfflineCache || checklistsPreenchidos?.some(
     (c: any) => c.checklists?.tipo === "apr" || c.checklists?.nome?.toLowerCase().includes("apr")
   ) || false;
 
