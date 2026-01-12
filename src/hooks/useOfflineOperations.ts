@@ -299,11 +299,12 @@ export function useOfflineOperations() {
       
       try {
         // Enfileirar para sincronização
+        // Incluir equipe_id para permitir busca do intervalo caso o ID seja temporário
         await queueOperation(
           "end_intervalo",
           "intervalos_equipe",
           "update",
-          { id: intervaloId, hora_fim: agora },
+          { id: intervaloId, hora_fim: agora, equipe_id: equipeId },
           2 // Prioridade média
         );
 
