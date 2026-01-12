@@ -299,8 +299,9 @@ export default function AppHome() {
   const OCIOSIDADE_KEY = `ociosidade_inicio_${equipe?.id}`;
 
   // Gerenciar início da ociosidade com localStorage (persistente entre telas)
+  // Só inicia a contagem quando há turno aberto (temTurnoAberto)
   useEffect(() => {
-    if (!equipe?.id) return;
+    if (!equipe?.id || !temTurnoAberto) return;
     
     if (estaOcioso) {
       // Verificar se já tem um início salvo
@@ -312,11 +313,12 @@ export default function AppHome() {
       localStorage.removeItem(OCIOSIDADE_KEY);
       setTempoOcioso(0);
     }
-  }, [estaOcioso, equipe?.id, OCIOSIDADE_KEY]);
+  }, [estaOcioso, equipe?.id, temTurnoAberto, OCIOSIDADE_KEY]);
 
   // Atualizar contador de ociosidade a cada segundo (lê do localStorage)
+  // Só começa a mostrar após 1 minuto (60 segundos) de ociosidade
   useEffect(() => {
-    if (!estaOcioso || !equipe?.id) return;
+    if (!estaOcioso || !equipe?.id || !temTurnoAberto) return;
     
     const atualizarTempo = () => {
       const inicioSalvo = localStorage.getItem(OCIOSIDADE_KEY);
@@ -324,7 +326,13 @@ export default function AppHome() {
         const inicio = new Date(inicioSalvo);
         const agora = new Date();
         const diffMs = agora.getTime() - inicio.getTime();
-        setTempoOcioso(Math.floor(diffMs / 1000));
+        const segundos = Math.floor(diffMs / 1000);
+        // Só atualiza se passou de 60 segundos (1 minuto)
+        if (segundos >= 60) {
+          setTempoOcioso(segundos - 60); // Conta a partir do primeiro minuto
+        } else {
+          setTempoOcioso(0);
+        }
       }
     };
     
@@ -332,7 +340,7 @@ export default function AppHome() {
     const interval = setInterval(atualizarTempo, 1000);
     
     return () => clearInterval(interval);
-  }, [estaOcioso, equipe?.id, OCIOSIDADE_KEY]);
+  }, [estaOcioso, equipe?.id, temTurnoAberto, OCIOSIDADE_KEY]);
 
   // Formatar tempo de ociosidade
   const formatarTempoOcioso = (segundos: number) => {
@@ -637,8 +645,8 @@ export default function AppHome() {
           </div>
         </Card>
 
-        {/* Card de Ociosidade - Contador com destaque */}
-        {estaOcioso && (
+        {/* Card de Ociosidade - Contador com destaque - só mostra após 1 minuto */}
+        {estaOcioso && tempoOcioso > 0 && (
           <Card className={cn(
             "overflow-hidden border-0 shadow-md transition-all",
             tempoOcioso > 300 
@@ -700,32 +708,6 @@ export default function AppHome() {
             </div>
           </Card>
         )}
-
-        {/* Card Ciclo Resumido */}
-        <Card className="p-4 bg-muted/50">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Target className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">Ciclo {format(parseISO(periodoCiclo.inicio), "dd/MM")} - {format(parseISO(periodoCiclo.fimAteHoje), "dd/MM")}</span>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="text-right">
-                <p className="text-xs text-muted-foreground">Produzido</p>
-                <p className="font-bold text-sm">{formatCurrency(producaoCiclo?.valor || 0)}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-xs text-muted-foreground">Meta</p>
-                <p className="font-medium text-sm">{formatCurrency(producaoCiclo?.meta || 0)}</p>
-              </div>
-              <Badge variant={percentualCiclo >= 100 ? "default" : "outline"} className={cn(
-                "text-sm",
-                percentualCiclo >= 100 ? "bg-green-500" : ""
-              )}>
-                {percentualCiclo.toFixed(0)}%
-              </Badge>
-            </div>
-          </div>
-        </Card>
 
         {/* Controle de Intervalo */}
         <Card className={cn(

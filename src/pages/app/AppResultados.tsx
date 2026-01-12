@@ -430,125 +430,6 @@ export default function AppResultados() {
 
       {/* Conteúdo */}
       <div className="flex-1 p-4 space-y-4 pb-24">
-        {/* Card Principal - Meta vs Produção */}
-        <Card className="overflow-hidden border-0 shadow-lg">
-          <div className={cn(
-            "p-4",
-            dadosAteHoje.percentual >= 100 
-              ? "bg-gradient-to-br from-green-500 to-green-600"
-              : dadosAteHoje.percentual >= 80
-                ? "bg-gradient-to-br from-amber-500 to-amber-600"
-                : "bg-gradient-to-br from-red-500 to-red-600"
-          )}>
-            <div className="flex items-center justify-between text-white mb-2">
-              <div className="flex items-center gap-2">
-                <Target className="h-5 w-5" />
-                <span className="font-medium">
-                  {isCicloPassado ? "Resultado Final" : "Até Hoje"}
-                </span>
-              </div>
-              {dadosAteHoje.percentual >= 100 ? (
-                <Award className="h-6 w-6" />
-              ) : dadosAteHoje.percentual >= 80 ? (
-                <TrendingUp className="h-6 w-6" />
-              ) : (
-                <TrendingDown className="h-6 w-6" />
-              )}
-            </div>
-            
-            <div className="text-center py-4">
-              <div className="text-5xl font-bold text-white mb-1">
-                {dadosAteHoje.percentual.toFixed(0)}%
-              </div>
-              <p className="text-white/80 text-sm">
-                {isCicloPassado ? (
-                  dadosAteHoje.percentual >= 100 
-                    ? "🎉 Meta atingida neste ciclo!" 
-                    : `Meta não atingida (${(100 - dadosAteHoje.percentual).toFixed(0)}% faltou)`
-                ) : (
-                  dadosAteHoje.percentual >= 100 
-                    ? "🎉 Meta atingida!" 
-                    : dadosAteHoje.percentual >= 80 
-                      ? "Quase lá!"
-                      : "Continue focado!"
-                )}
-              </p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4 mt-4">
-              <div className="bg-white/20 rounded-lg p-3 text-center">
-                <p className="text-white/70 text-xs">Meta</p>
-                <p className="text-white font-bold text-lg">
-                  {formatCurrency(dadosAteHoje.totalMeta)}
-                </p>
-              </div>
-              <div className="bg-white/20 rounded-lg p-3 text-center">
-                <p className="text-white/70 text-xs">Produzido</p>
-                <p className="text-white font-bold text-lg">
-                  {formatCurrency(dadosAteHoje.totalProducao)}
-                </p>
-              </div>
-            </div>
-
-            {dadosAteHoje.diferenca !== 0 && (
-              <div className="mt-3 text-center">
-                <span className={cn(
-                  "inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium",
-                  dadosAteHoje.diferenca >= 0 ? "bg-white/30" : "bg-black/20"
-                )}>
-                  {dadosAteHoje.diferenca >= 0 ? (
-                    <ArrowUp className="h-4 w-4" />
-                  ) : (
-                    <ArrowDown className="h-4 w-4" />
-                  )}
-                  <span className="text-white">
-                    {formatCurrency(Math.abs(dadosAteHoje.diferenca))}
-                    {dadosAteHoje.diferenca >= 0 ? " acima" : " faltando"}
-                  </span>
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Barra de progresso */}
-          <div className="p-4 bg-card">
-            <div className="flex justify-between text-xs text-muted-foreground mb-2">
-              <span>Progresso até hoje</span>
-              <span>{dadosAteHoje.diasComMeta} dias com meta</span>
-            </div>
-            <Progress 
-              value={Math.min(dadosAteHoje.percentual, 100)} 
-              className="h-2"
-            />
-          </div>
-        </Card>
-
-        {/* Card do Ciclo Completo (visão adicional) - Apenas para ciclo atual */}
-        {isCicloAtual && (
-          <Card className="p-3 bg-muted/50">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Calendar className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">
-                  Projeção ciclo: {format(parseISO(periodoCiclo.inicio), "dd/MM")} - {format(parseISO(periodoCiclo.fim), "dd/MM")}
-                </span>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="text-right">
-                  <p className="text-xs text-muted-foreground">Meta Total</p>
-                  <p className="font-medium text-sm">{formatCurrency(dadosCiclo.totalMeta)}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs text-muted-foreground">Projeção</p>
-                  <p className={cn("font-medium text-sm", getPercentualColor(dadosCiclo.percentual))}>
-                    {dadosCiclo.percentual.toFixed(0)}%
-                  </p>
-                </div>
-              </div>
-            </div>
-          </Card>
-        )}
-
         {/* Tabs de navegação */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid grid-cols-3 w-full">
@@ -556,13 +437,13 @@ export default function AppResultados() {
               <BarChart3 className="h-4 w-4 mr-1" />
               Resumo
             </TabsTrigger>
-            <TabsTrigger value="assertividade" className="text-xs">
-              <Zap className="h-4 w-4 mr-1" />
-              Assertividade
-            </TabsTrigger>
             <TabsTrigger value="diario" className="text-xs">
               <Calendar className="h-4 w-4 mr-1" />
               Diário
+            </TabsTrigger>
+            <TabsTrigger value="assertividade" className="text-xs">
+              <Zap className="h-4 w-4 mr-1" />
+              Assertividade
             </TabsTrigger>
           </TabsList>
 

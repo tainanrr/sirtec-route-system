@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
-import { Home, Route, LogOut, Wifi, WifiOff, Package, MessageCircle, BarChart3, Timer, AlertTriangle, X, Cloud, CloudOff, RefreshCw } from "lucide-react";
+import { Home, Route, LogOut, Wifi, WifiOff, Package, MessageCircle, BarChart3, Timer, AlertTriangle, X, Cloud, CloudOff, RefreshCw, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
@@ -15,7 +15,7 @@ import { OfflineSyncIndicator, OfflineStatusBanner } from "@/components/app/Offl
 import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
 import { useOfflineData } from "@/hooks/useOfflineData";
 
-type AppSection = "home" | "ordens" | "estoque" | "chat" | "resultados";
+type AppSection = "home" | "ordens" | "estoque" | "chat" | "docs" | "resultados";
 
 export default function AppLayout() {
   const location = useLocation();
@@ -139,8 +139,9 @@ export default function AppLayout() {
   const OCIOSIDADE_KEY = `ociosidade_inicio_${equipe?.id}`;
 
   // Gerenciar início da ociosidade com localStorage
+  // Só inicia a contagem quando há turno aberto (temTurnoAberto)
   useEffect(() => {
-    if (!equipe?.id) return;
+    if (!equipe?.id || !temTurnoAberto) return;
     
     if (estaOcioso) {
       // Verificar se já tem um início salvo
@@ -154,11 +155,12 @@ export default function AppLayout() {
       localStorage.removeItem(OCIOSIDADE_KEY);
       setTempoOcioso(0);
     }
-  }, [estaOcioso, equipe?.id, OCIOSIDADE_KEY]);
+  }, [estaOcioso, equipe?.id, temTurnoAberto, OCIOSIDADE_KEY]);
 
   // Atualizar contador de ociosidade a cada segundo
+  // Só começa a mostrar após 1 minuto (60 segundos) de ociosidade
   useEffect(() => {
-    if (!estaOcioso || !equipe?.id) return;
+    if (!estaOcioso || !equipe?.id || !temTurnoAberto) return;
     
     const atualizarTempo = () => {
       const inicioSalvo = localStorage.getItem(OCIOSIDADE_KEY);
@@ -166,7 +168,13 @@ export default function AppLayout() {
         const inicio = new Date(inicioSalvo);
         const agora = new Date();
         const diffMs = agora.getTime() - inicio.getTime();
-        setTempoOcioso(Math.floor(diffMs / 1000));
+        const segundos = Math.floor(diffMs / 1000);
+        // Só atualiza se passou de 60 segundos (1 minuto)
+        if (segundos >= 60) {
+          setTempoOcioso(segundos - 60); // Conta a partir do primeiro minuto
+        } else {
+          setTempoOcioso(0);
+        }
       }
     };
     
@@ -177,7 +185,7 @@ export default function AppLayout() {
     const interval = setInterval(atualizarTempo, 1000);
     
     return () => clearInterval(interval);
-  }, [estaOcioso, equipe?.id, OCIOSIDADE_KEY]);
+  }, [estaOcioso, equipe?.id, temTurnoAberto, OCIOSIDADE_KEY]);
 
   // Formatar tempo de ociosidade
   const formatarTempoOcioso = (segundos: number) => {
@@ -266,6 +274,7 @@ export default function AppLayout() {
     if (pathname.startsWith("/app/ordens")) return "ordens";
     if (pathname.startsWith("/app/estoque")) return "estoque";
     if (pathname.startsWith("/app/chat")) return "chat";
+    if (pathname.startsWith("/app/procedimentos")) return "docs";
     if (pathname.startsWith("/app/resultados")) return "resultados";
     return null;
   };
@@ -280,6 +289,8 @@ export default function AppLayout() {
         return "/app/estoque";
       case "chat":
         return "/app/chat";
+      case "docs":
+        return "/app/procedimentos";
       case "resultados":
         return "/app/resultados";
     }
@@ -323,6 +334,7 @@ export default function AppLayout() {
       sessionStorage.removeItem(sectionKey("ordens"));
       sessionStorage.removeItem(sectionKey("estoque"));
       sessionStorage.removeItem(sectionKey("chat"));
+      sessionStorage.removeItem(sectionKey("docs"));
       sessionStorage.removeItem(sectionKey("resultados"));
     } catch {
       // ignore
@@ -335,6 +347,7 @@ export default function AppLayout() {
     { icon: Route, label: "Rota", section: "ordens" as const },
     { icon: Package, label: "Estoque", section: "estoque" as const },
     { icon: MessageCircle, label: "Chat", section: "chat" as const },
+    { icon: FileText, label: "Docs", section: "docs" as const },
     { icon: BarChart3, label: "Resultados", section: "resultados" as const },
   ];
 
@@ -497,8 +510,8 @@ export default function AppLayout() {
         </div>
       )}
 
-      {/* Alerta de Ociosidade - Global sutil */}
-      {estaOcioso && (
+      {/* Alerta de Ociosidade - Global sutil - só mostra após 1 minuto */}
+      {estaOcioso && tempoOcioso > 0 && (
         <div className={cn(
           "px-4 py-1.5 text-center border-b transition-colors",
           tempoOcioso > 300 
