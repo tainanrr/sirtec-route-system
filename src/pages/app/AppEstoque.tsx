@@ -201,15 +201,6 @@ export default function AppEstoque() {
   const inputFotoRef = useRef<HTMLInputElement>(null);
 
   const equipeId = equipe?.id || equipeAuth?.id;
-  
-  // Debug - verificar estado
-  useEffect(() => {
-    console.log("[AppEstoque] 🔍 Estado atual:");
-    console.log("[AppEstoque]   - equipe?.id:", equipe?.id);
-    console.log("[AppEstoque]   - equipeAuth?.id:", equipeAuth?.id);
-    console.log("[AppEstoque]   - equipeId:", equipeId);
-    console.log("[AppEstoque]   - isOnline:", isOnline);
-  }, [equipe?.id, equipeAuth?.id, equipeId, isOnline]);
 
   // Persistir estado do Estoque (para voltar exatamente como estava)
   useEffect(() => {
@@ -242,7 +233,7 @@ export default function AppEstoque() {
 
   // Query para checklist de recebimento
   const { data: checklistRecebimento } = useQuery({
-    queryKey: ["checklist-recebimento", isOnline],
+    queryKey: ["checklist-recebimento"],
     queryFn: async () => {
       // Tentar buscar do cache se offline
       if (!isOnline) {
@@ -288,29 +279,19 @@ export default function AppEstoque() {
     },
   });
 
-  // Query para estoque da equipe
-  console.log("[AppEstoque] 🎯 Configurando query - equipeId:", equipeId, "enabled:", !!equipeId);
-  
+  // Query para estoque da equipe - NÃO incluir isOnline na queryKey para manter dados ao ficar offline
   const { data: estoqueEquipe, isLoading } = useQuery({
-    queryKey: ["estoque-equipe", equipeId, refreshKey, isOnline],
+    queryKey: ["estoque-equipe", equipeId, refreshKey],
     queryFn: async () => {
-      console.log("[AppEstoque] queryFn executando - equipeId:", equipeId, "isOnline:", isOnline);
-      
-      if (!equipeId) {
-        console.log("[AppEstoque] ❌ equipeId não disponível");
-        return [];
-      }
+      if (!equipeId) return [];
 
       // Tentar buscar do cache se offline
       if (!isOnline) {
-        console.log("[AppEstoque] 📦 Offline - buscando do cache...");
         const cached = await getEstoqueFromCache(equipeId) as EstoqueItem[];
-        console.log("[AppEstoque] Resultado do cache:", cached ? `${cached.length} itens` : "null/undefined");
         if (cached && cached.length > 0) {
-          console.log("[AppEstoque] ✅ Usando estoque do cache:", cached.length, "itens");
+          console.log("[AppEstoque] Usando estoque do cache:", cached.length, "itens");
           return cached;
         }
-        console.log("[AppEstoque] ❌ Cache vazio ou não encontrado");
         return [];
       }
 
@@ -343,7 +324,7 @@ export default function AppEstoque() {
 
   // Query para movimentações recentes
   const { data: movimentacoesRecentes } = useQuery({
-    queryKey: ["movimentacoes-equipe", equipeId, refreshKey, isOnline],
+    queryKey: ["movimentacoes-equipe", equipeId, refreshKey],
     queryFn: async () => {
       if (!equipeId) return [];
 
@@ -379,7 +360,7 @@ export default function AppEstoque() {
 
   // Query para entregas pendentes com itens
   const { data: entregasPendentes } = useQuery({
-    queryKey: ["entregas-pendentes-equipe", equipeId, refreshKey, isOnline],
+    queryKey: ["entregas-pendentes-equipe", equipeId, refreshKey],
     queryFn: async () => {
       if (!equipeId) return [];
 
@@ -434,7 +415,7 @@ export default function AppEstoque() {
 
   // Query para devoluções pendentes de confirmação (solicitadas pelo almoxarifado)
   const { data: devolucoesPendentesConfirmacao } = useQuery({
-    queryKey: ["devolucoes-pendentes-confirmacao-equipe", equipeId, refreshKey, isOnline],
+    queryKey: ["devolucoes-pendentes-confirmacao-equipe", equipeId, refreshKey],
     queryFn: async () => {
       if (!equipeId) return [];
       
@@ -464,7 +445,7 @@ export default function AppEstoque() {
   // Query para materiais serializados (com rastro) da equipe
   // Busca materiais que foram entregues para a equipe e ainda não foram aplicados/devolvidos
   const { data: materiaisSerializados } = useQuery({
-    queryKey: ["materiais-serializados-equipe", equipeId, refreshKey, isOnline],
+    queryKey: ["materiais-serializados-equipe", equipeId, refreshKey],
     queryFn: async () => {
       if (!equipeId) return [];
 
