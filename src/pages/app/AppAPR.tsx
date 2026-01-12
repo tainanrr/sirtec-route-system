@@ -286,30 +286,50 @@ export default function AppAPR() {
     enabled: !!ordemId && isOnline,
   });
 
-  // Buscar ordem do cache quando offline
+  // Buscar ordem do cache quando offline - SEMPRE busca para ter dados atualizados
   useEffect(() => {
     const buscarOrdemDoCache = async () => {
-      if (!isOnline && !ordemOfflineCache && ordemId) {
-        console.log("[APR] 📦 Buscando ordem do cache...");
+      if (!isOnline && ordemId) {
+        console.log("[APR] 📦 Buscando ordem do cache para:", ordemId);
         const equipeId = equipe?.id || equipeAuth?.id;
-        if (!equipeId) return;
+        console.log("[APR] equipeId disponível:", equipeId);
+        
+        if (!equipeId) {
+          console.log("[APR] ⚠️ equipeId não disponível, tentando novamente...");
+          return;
+        }
         
         const dataHoje = format(new Date(), "yyyy-MM-dd");
         const cacheKey = `planejamento_dia_${equipeId}_${dataHoje}`;
+        console.log("[APR] Cache key:", cacheKey);
         
         try {
           const cachedOrdens = await getFromCache(cacheKey);
+          console.log("[APR] Resultado getFromCache:", cachedOrdens ? `${cachedOrdens.length} items` : "null/undefined");
+          
           if (cachedOrdens && Array.isArray(cachedOrdens) && cachedOrdens.length > 0) {
+            // Buscar a ordem - pode estar em diferentes estruturas
             const ordemEncontrada = cachedOrdens.find((o: any) => {
-              const id = o.id || o.ordem_servico_id || (o.ordens_servico && o.ordens_servico.id);
-              return id === ordemId;
+              const osData = o.ordens_servico || o;
+              const osId = osData.id || o.ordem_servico_id;
+              return osId === ordemId;
             });
             
             if (ordemEncontrada) {
+              // Pegar os dados da ordem (pode estar em ordens_servico ou direto)
               const dados = ordemEncontrada.ordens_servico || ordemEncontrada;
-              console.log("[APR] ✅ Ordem encontrada no cache:", dados.numero);
+              console.log("[APR] ✅ Ordem encontrada:", dados.numero, "status:", dados.status, "chegada_local_at:", dados.chegada_local_at);
               setOrdemOfflineCache(dados);
+            } else {
+              console.log("[APR] ❌ Ordem não encontrada no cache. IDs disponíveis:", 
+                cachedOrdens.slice(0, 5).map((o: any) => {
+                  const osData = o.ordens_servico || o;
+                  return osData.id || o.ordem_servico_id;
+                })
+              );
             }
+          } else {
+            console.log("[APR] ❌ Cache vazio ou não é array");
           }
         } catch (error) {
           console.error("[APR] ❌ Erro ao buscar ordem do cache:", error);
@@ -317,7 +337,7 @@ export default function AppAPR() {
       }
     };
     buscarOrdemDoCache();
-  }, [isOnline, ordemOfflineCache, ordemId, equipe?.id, equipeAuth?.id, getFromCache]);
+  }, [isOnline, ordemId, equipe?.id, equipeAuth?.id, getFromCache]);
 
   // Usar ordem do React Query ou do cache offline
   const ordem = ordemOnline || ordemOfflineCache;
