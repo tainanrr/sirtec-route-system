@@ -396,6 +396,14 @@ const Roteirizacao = () => {
     osStatus: string;
   } | null>(null);
   const [confirmacaoRemocaoDialogOpen, setConfirmacaoRemocaoDialogOpen] = useState(false);
+  
+  // Estado local para armazenar pendências de remoção - só serão salvas ao "Confirmar alterações"
+  const [osPendentesRemocaoLocal, setOsPendentesRemocaoLocal] = useState<{
+    osId: string;
+    osNumero: string;
+    osStatus: string;
+    equipeId: string;
+  }[]>([]);
 
   // Buscar OSs em andamento para destacar na lista
   // Polling otimizado: 60 segundos + staleTime para evitar refetch desnecessário
@@ -2365,6 +2373,53 @@ const Roteirizacao = () => {
         }
       }
 
+      // Criar pendências de remoção que estavam aguardando (para rotas do dia atual)
+      if (osPendentesRemocaoLocal.length > 0 && isRotaDoDiaAtual()) {
+        console.log(`[PLANEJAMENTO] Criando ${osPendentesRemocaoLocal.length} pendências de remoção...`);
+        
+        for (const pendencia of osPendentesRemocaoLocal) {
+          try {
+            // Buscar o ID do planejamento_ordens para esta OS
+            const { data: planejamentoOrdem, error: erroBuscarPO } = await supabase
+              .from("planejamento_ordens")
+              .select("id")
+              .eq("planejamento_id", planejamento.id)
+              .eq("ordem_servico_id", pendencia.osId)
+              .single();
+
+            // Se não encontrou, a OS foi removida da rota - ainda assim criar a pendência
+            const pendenciaData = {
+              planejamento_id: planejamento.id,
+              planejamento_ordem_id: planejamentoOrdem?.id || null,
+              ordem_servico_id: pendencia.osId,
+              equipe_id: pendencia.equipeId,
+              os_numero: pendencia.osNumero,
+              os_status_original: pendencia.osStatus,
+              status: "aguardando_sinal",
+              solicitado_por: user.id,
+            };
+
+            const { error: erroPendencia } = await supabase
+              .from("os_pendentes_remocao")
+              .insert(pendenciaData);
+
+            if (erroPendencia) {
+              console.error(`[PLANEJAMENTO] Erro ao criar pendência para OS ${pendencia.osNumero}:`, erroPendencia);
+            } else {
+              console.log(`[PLANEJAMENTO] Pendência criada para OS ${pendencia.osNumero}`);
+            }
+          } catch (erroPend: any) {
+            console.error(`[PLANEJAMENTO] Erro ao criar pendência para OS ${pendencia.osNumero}:`, erroPend);
+          }
+        }
+        
+        // Limpar estado local de pendências
+        setOsPendentesRemocaoLocal([]);
+        
+        // Recarregar lista de pendências na web
+        fetchOsPendentesRemocao();
+      }
+
       console.log("[PLANEJAMENTO] Salvamento concluído com sucesso!");
       // Corrigir timezone na exibição
       const dataExibicao = new Date(dataPlanejamentoFormatada + 'T12:00:00');
@@ -3407,7 +3462,7 @@ const Roteirizacao = () => {
           equipe:equipe_id (codigo, nome),
           usuario_solicitante:solicitado_por (nome, email)
         `)
-        .in("status", ["aguardando_sinal", "cancelado_em_execucao", "cancelado_concluida"])
+        .in("status", ["aguardando_sinal", "confirmado_remocao", "cancelado_em_execucao", "cancelado_concluida"])
         .order("solicitado_at", { ascending: false });
 
       if (error) throw error;
@@ -3468,80 +3523,45 @@ const Roteirizacao = () => {
     toast.success(`OS ${osNumero} removida`);
   };
 
-  // Função para criar pendência de remoção (planejamento do dia atual já confirmado)
+  // Função para adicionar pendência de remoção ao estado local (será salva ao confirmar alterações)
   const handleCriarPendenciaRemocao = async () => {
     if (!osParaRemoverComConfirmacao || !planejamentoEditandoId) return;
 
-    try {
-      // Buscar o registro de planejamento_ordens
-      const servicoParaRemover = osParaRemoverComConfirmacao.servicos[osParaRemoverComConfirmacao.indiceRemover];
-      const osId = servicoParaRemover?.ordemServico?.id;
+    const servicoParaRemover = osParaRemoverComConfirmacao.servicos[osParaRemoverComConfirmacao.indiceRemover];
+    const osId = servicoParaRemover?.ordemServico?.id;
 
-      if (!osId) {
-        toast.error("Erro: OS não encontrada");
-        return;
-      }
-
-      const { data: planejamentoOrdem, error: erroBuscar } = await supabase
-        .from("planejamento_ordens")
-        .select("id")
-        .eq("planejamento_id", planejamentoEditandoId)
-        .eq("ordem_servico_id", osId)
-        .single();
-
-      if (erroBuscar || !planejamentoOrdem) {
-        // Se não encontrou, pode ser que ainda não foi salvo - remover localmente
-        removerOSDaRotaEfetivo(
-          osParaRemoverComConfirmacao.equipeId,
-          osParaRemoverComConfirmacao.servicos,
-          osParaRemoverComConfirmacao.indiceRemover,
-          osParaRemoverComConfirmacao.osNumero
-        );
-        setConfirmacaoRemocaoDialogOpen(false);
-        setOsParaRemoverComConfirmacao(null);
-        return;
-      }
-
-      // Obter ID do usuário logado
-      const sessionStr = localStorage.getItem("usuario_web_session");
-      const usuarioId = sessionStr ? JSON.parse(sessionStr)?.id : null;
-
-      // Criar registro de pendência
-      const { error: erroPendencia } = await supabase
-        .from("os_pendentes_remocao")
-        .insert({
-          planejamento_id: planejamentoEditandoId,
-          planejamento_ordem_id: planejamentoOrdem.id,
-          ordem_servico_id: osId,
-          equipe_id: osParaRemoverComConfirmacao.equipeId,
-          os_numero: osParaRemoverComConfirmacao.osNumero,
-          os_status_original: osParaRemoverComConfirmacao.osStatus,
-          status: "aguardando_sinal",
-          solicitado_por: usuarioId,
-        });
-
-      if (erroPendencia) throw erroPendencia;
-
-      toast.success(`Solicitação de remoção criada para OS ${osParaRemoverComConfirmacao.osNumero}`, {
-        description: "Aguardando sinal do app para confirmar que a OS não está em andamento.",
-        duration: 5000,
-      });
-
-      // Remover localmente da rota (visualização)
-      removerOSDaRotaEfetivo(
-        osParaRemoverComConfirmacao.equipeId,
-        osParaRemoverComConfirmacao.servicos,
-        osParaRemoverComConfirmacao.indiceRemover,
-        osParaRemoverComConfirmacao.osNumero
-      );
-      
-      setConfirmacaoRemocaoDialogOpen(false);
-      setOsParaRemoverComConfirmacao(null);
-      fetchOsPendentesRemocao();
-    } catch (error: any) {
-      console.error("Erro ao criar pendência:", error);
-      toast.error(`Erro: ${error.message}`);
+    if (!osId) {
+      toast.error("Erro: OS não encontrada");
+      return;
     }
+
+    // Adicionar à lista local de pendências (será salva ao "Confirmar alterações")
+    setOsPendentesRemocaoLocal(prev => {
+      // Evitar duplicatas
+      if (prev.some(p => p.osId === osId)) return prev;
+      return [...prev, {
+        osId,
+        osNumero: osParaRemoverComConfirmacao.osNumero,
+        osStatus: osParaRemoverComConfirmacao.osStatus,
+        equipeId: osParaRemoverComConfirmacao.equipeId,
+      }];
+    });
+
+    toast.info(`OS ${osParaRemoverComConfirmacao.osNumero} marcada para remoção`, {
+      description: "A pendência será criada ao clicar em 'Confirmar alterações'.",
+      duration: 4000,
+    });
+
+    // Remover localmente da rota (visualização)
+    removerOSDaRotaEfetivo(
+      osParaRemoverComConfirmacao.equipeId,
+      osParaRemoverComConfirmacao.servicos,
+      osParaRemoverComConfirmacao.indiceRemover,
+      osParaRemoverComConfirmacao.osNumero
+    );
+    
+    setConfirmacaoRemocaoDialogOpen(false);
+    setOsParaRemoverComConfirmacao(null);
   };
 
   // Função para remover OS da rota - com verificação de regras
@@ -7708,14 +7728,18 @@ const Roteirizacao = () => {
           </AlertDialogHeader>
           
           <Tabs defaultValue="pendentes" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="pendentes" className="flex items-center gap-2">
                 <WifiOff className="h-4 w-4" />
-                Aguardando Sinal ({osPendentesRemocao.filter(p => p.status === "aguardando_sinal").length})
+                Aguardando ({osPendentesRemocao.filter(p => p.status === "aguardando_sinal").length})
+              </TabsTrigger>
+              <TabsTrigger value="confirmadas" className="flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4" />
+                Confirmadas ({osPendentesRemocao.filter(p => p.status === "confirmado_remocao").length})
               </TabsTrigger>
               <TabsTrigger value="historico" className="flex items-center gap-2">
                 <Ban className="h-4 w-4" />
-                Não Efetivadas ({osPendentesRemocao.filter(p => p.status.startsWith("cancelado")).length})
+                Canceladas ({osPendentesRemocao.filter(p => p.status.startsWith("cancelado")).length})
               </TabsTrigger>
             </TabsList>
             
@@ -7775,11 +7799,58 @@ const Roteirizacao = () => {
               </ScrollArea>
             </TabsContent>
             
+            <TabsContent value="confirmadas" className="mt-4">
+              <ScrollArea className="h-[300px]">
+                {osPendentesRemocao.filter(p => p.status === "confirmado_remocao").length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <CheckCircle2 className="h-12 w-12 mx-auto mb-2 opacity-20" />
+                    <p>Nenhuma remoção confirmada recentemente</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {osPendentesRemocao
+                      .filter(p => p.status === "confirmado_remocao")
+                      .map(pendente => (
+                        <Card key={pendente.id} className="border-green-200 bg-green-50/50">
+                          <CardContent className="p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-3 flex-1 min-w-0">
+                                <div className="p-2 rounded-full bg-green-100 shrink-0">
+                                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="font-medium">OS {pendente.os_numero}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    Equipe: <span className="font-medium text-foreground">{pendente.equipe?.codigo || "N/A"}</span>
+                                    {pendente.equipe?.nome && ` - ${pendente.equipe.nome}`}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    Solicitado por: <span className="font-medium text-foreground">{pendente.usuario_solicitante?.nome || "N/A"}</span>
+                                  </p>
+                                  {pendente.confirmado_at && (
+                                    <p className="text-xs text-muted-foreground">
+                                      Confirmado em {new Date(pendente.confirmado_at).toLocaleString("pt-BR")}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                              <Badge variant="outline" className="bg-green-100 text-green-700 border-green-300 shrink-0">
+                                Remoção OK
+                              </Badge>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                  </div>
+                )}
+              </ScrollArea>
+            </TabsContent>
+            
             <TabsContent value="historico" className="mt-4">
               <ScrollArea className="h-[300px]">
                 {osPendentesRemocao.filter(p => p.status.startsWith("cancelado")).length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
-                    <CheckCircle2 className="h-12 w-12 mx-auto mb-2 opacity-20" />
+                    <Ban className="h-12 w-12 mx-auto mb-2 opacity-20" />
                     <p>Nenhuma remoção cancelada</p>
                   </div>
                 ) : (
