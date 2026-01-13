@@ -213,53 +213,47 @@ export default function AppHome() {
     refetchInterval: isOnline ? 30000 : false, // Não atualizar automaticamente quando offline
   });
 
-  // Buscar todos os intervalos do turno atual
+  // Buscar todos os intervalos do turno atual (só se tiver turno aberto)
   const { data: intervalosTurno, refetch: refetchIntervalosTurno } = useQuery({
-    queryKey: ["intervalos-turno", equipe?.id, turno?.id, dataHoje],
+    queryKey: ["intervalos-turno", equipe?.id, turno?.id],
     queryFn: async () => {
-      if (!equipe?.id) return [];
+      if (!equipe?.id || !turno?.id) return [];
       
-      // Se offline, buscar do cache
+      // Se offline, buscar do cache (filtrando pelo turno_id)
       if (!isOnline) {
         const intervalosCached = await getIntervalosFromCache(equipe.id, dataHoje);
         if (intervalosCached && Array.isArray(intervalosCached)) {
-          // Adicionar dados do tipo de intervalo do cache
+          // Adicionar dados do tipo de intervalo do cache e filtrar pelo turno atual
           const tiposIntervaloCache = await getTiposIntervaloFromCache();
-          return intervalosCached.map((i: any) => {
-            if (tiposIntervaloCache && Array.isArray(tiposIntervaloCache)) {
-              const tipoIntervalo = tiposIntervaloCache.find((t: any) => t.id === i.tipo_intervalo_id);
-              return { ...i, tipo_intervalo: tipoIntervalo };
-            }
-            return i;
-          }).sort((a: any, b: any) => new Date(b.hora_inicio).getTime() - new Date(a.hora_inicio).getTime());
+          return intervalosCached
+            .filter((i: any) => i.turno_id === turno.id)
+            .map((i: any) => {
+              if (tiposIntervaloCache && Array.isArray(tiposIntervaloCache)) {
+                const tipoIntervalo = tiposIntervaloCache.find((t: any) => t.id === i.tipo_intervalo_id);
+                return { ...i, tipo_intervalo: tipoIntervalo };
+              }
+              return i;
+            })
+            .sort((a: any, b: any) => new Date(b.hora_inicio).getTime() - new Date(a.hora_inicio).getTime());
         }
         return [];
       }
       
-      // Buscar do turno atual se tiver, senão do dia
-      const query = supabase
+      // Buscar apenas do turno atual
+      const { data, error } = await supabase
         .from("intervalos_equipe")
         .select(`
           *,
           tipo_intervalo:tipo_intervalo_id (*)
         `)
         .eq("equipe_id", equipe.id)
+        .eq("turno_id", turno.id)
         .order("hora_inicio", { ascending: false });
-      
-      if (turno?.id) {
-        query.eq("turno_id", turno.id);
-      } else {
-        // Fallback para buscar do dia se não tiver turno_id
-        query.gte("hora_inicio", dataHoje + "T00:00:00")
-             .lte("hora_inicio", dataHoje + "T23:59:59");
-      }
-      
-      const { data, error } = await query;
       
       if (error) throw error;
       return data || [];
     },
-    enabled: !!equipe?.id,
+    enabled: !!equipe?.id && !!turno?.id,
     refetchInterval: isOnline ? 30000 : false,
   });
 
@@ -921,91 +915,91 @@ export default function AppHome() {
 
       </div>
 
-      {/* Dialog de Intervalo */}
+      {/* Dialog de Intervalo - Redesenhado para ser mais compacto */}
       <Dialog open={intervaloDialogOpen} onOpenChange={setIntervaloDialogOpen}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Iniciar Intervalo</DialogTitle>
-            <DialogDescription>
-              Selecione o tipo de intervalo
-            </DialogDescription>
-          </DialogHeader>
+        <DialogContent className="max-w-[340px] p-0 gap-0 overflow-hidden">
+          {/* Header compacto */}
+          <div className="px-4 py-3 border-b bg-gradient-to-r from-amber-50 to-orange-50">
+            <DialogTitle className="text-base flex items-center gap-2">
+              <Coffee className="h-4 w-4 text-amber-600" />
+              Intervalo
+            </DialogTitle>
+            {intervalosTurno && intervalosTurno.length > 0 && (
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                {intervalosTurno.length} intervalo(s) hoje • {(() => {
+                  const total = intervalosTurno.reduce((acc: number, i: any) => {
+                    if (i.hora_fim) return acc + differenceInMinutes(parseISO(i.hora_fim), parseISO(i.hora_inicio));
+                    return acc;
+                  }, 0);
+                  return `${Math.floor(total / 60)}h ${total % 60}min`;
+                })()}
+              </p>
+            )}
+          </div>
           
-          <div className="space-y-4 py-4">
-            {/* Intervalos Padrão */}
-            {intervalosPadrao.length > 0 && (
-              <div>
-                <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
-                  <CheckCircle2 className="h-3 w-3 text-green-500" />
-                  Intervalos Padrão
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  {intervalosPadrao.map(tipo => (
-                    <Button
-                      key={tipo.id}
-                      variant={selectedIntervalo === tipo.id ? "default" : "outline"}
-                      className={cn(
-                        "h-auto py-3 flex-col",
-                        selectedIntervalo === tipo.id && "ring-2 ring-primary"
-                      )}
-                      onClick={() => setSelectedIntervalo(tipo.id)}
-                    >
-                      <Coffee className="h-5 w-5 mb-1" style={{ color: tipo.cor || undefined }} />
-                      <span className="text-sm">{tipo.nome}</span>
-                      {tipo.tempo_minutos > 0 && (
-                        <span className="text-[10px] text-muted-foreground">{tipo.tempo_minutos} min</span>
-                      )}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Intervalos Não Padrão */}
-            {intervalosNaoPadrao.length > 0 && (
-              <div>
-                <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
-                  <Wrench className="h-3 w-3 text-amber-500" />
-                  Intervalos de Exceção
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  {intervalosNaoPadrao.map(tipo => (
-                    <Button
-                      key={tipo.id}
-                      variant={selectedIntervalo === tipo.id ? "default" : "outline"}
-                      className={cn(
-                        "h-auto py-3 flex-col border-dashed",
-                        selectedIntervalo === tipo.id && "ring-2 ring-amber-500 border-solid"
-                      )}
-                      onClick={() => setSelectedIntervalo(tipo.id)}
-                    >
-                      <Wrench className="h-5 w-5 mb-1" style={{ color: tipo.cor || undefined }} />
-                      <span className="text-sm">{tipo.nome}</span>
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Observação */}
-            <div className="space-y-2">
-              <Label>Observação (opcional)</Label>
-              <Textarea
-                placeholder="Descreva o motivo se necessário..."
-                value={intervaloObs}
-                onChange={(e) => setIntervaloObs(e.target.value)}
-                rows={2}
-              />
+          <div className="p-4 space-y-3 max-h-[60vh] overflow-y-auto">
+            {/* Tipos de Intervalo - Grid compacto */}
+            <div className="grid grid-cols-3 gap-1.5">
+              {intervalosPadrao.map(tipo => (
+                <button
+                  key={tipo.id}
+                  onClick={() => setSelectedIntervalo(tipo.id)}
+                  className={cn(
+                    "p-2 rounded-lg border text-center transition-all",
+                    selectedIntervalo === tipo.id 
+                      ? "bg-amber-500 text-white border-amber-500 shadow-md" 
+                      : "bg-white hover:bg-amber-50 border-gray-200"
+                  )}
+                >
+                  <div 
+                    className={cn(
+                      "h-6 w-6 mx-auto rounded-full flex items-center justify-center mb-1",
+                      selectedIntervalo === tipo.id ? "bg-white/20" : "bg-amber-100"
+                    )}
+                  >
+                    <Coffee className="h-3.5 w-3.5" style={{ color: selectedIntervalo === tipo.id ? "white" : (tipo.cor || "#d97706") }} />
+                  </div>
+                  <p className="text-[10px] font-medium leading-tight">{tipo.nome}</p>
+                </button>
+              ))}
+              {intervalosNaoPadrao.map(tipo => (
+                <button
+                  key={tipo.id}
+                  onClick={() => setSelectedIntervalo(tipo.id)}
+                  className={cn(
+                    "p-2 rounded-lg border border-dashed text-center transition-all",
+                    selectedIntervalo === tipo.id 
+                      ? "bg-orange-500 text-white border-orange-500 shadow-md border-solid" 
+                      : "bg-white hover:bg-orange-50 border-gray-300"
+                  )}
+                >
+                  <div 
+                    className={cn(
+                      "h-6 w-6 mx-auto rounded-full flex items-center justify-center mb-1",
+                      selectedIntervalo === tipo.id ? "bg-white/20" : "bg-orange-100"
+                    )}
+                  >
+                    <Wrench className="h-3.5 w-3.5" style={{ color: selectedIntervalo === tipo.id ? "white" : (tipo.cor || "#ea580c") }} />
+                  </div>
+                  <p className="text-[10px] font-medium leading-tight">{tipo.nome}</p>
+                </button>
+              ))}
             </div>
 
-            {/* Histórico de intervalos do turno */}
+            {/* Observação compacta */}
+            <input
+              type="text"
+              placeholder="Observação (opcional)"
+              value={intervaloObs}
+              onChange={(e) => setIntervaloObs(e.target.value)}
+              className="w-full px-3 py-2 text-sm border rounded-lg bg-gray-50 focus:bg-white focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none"
+            />
+
+            {/* Histórico compacto - linha única por intervalo */}
             {intervalosTurno && intervalosTurno.length > 0 && (
-              <div className="border-t pt-4 mt-4">
-                <p className="text-xs font-medium text-muted-foreground mb-3 flex items-center gap-1">
-                  <Clock className="h-3 w-3" />
-                  Intervalos do Turno ({intervalosTurno.length})
-                </p>
-                <div className="max-h-40 overflow-y-auto space-y-2">
+              <div className="bg-gray-50 rounded-lg p-2">
+                <p className="text-[10px] font-semibold text-gray-500 uppercase mb-1.5 px-1">Histórico do Turno</p>
+                <div className="space-y-1 max-h-24 overflow-y-auto">
                   {intervalosTurno.map((intervalo: any) => {
                     const duracao = intervalo.hora_fim 
                       ? differenceInMinutes(parseISO(intervalo.hora_fim), parseISO(intervalo.hora_inicio))
@@ -1016,77 +1010,63 @@ export default function AppHome() {
                       <div 
                         key={intervalo.id} 
                         className={cn(
-                          "flex items-center justify-between p-2 rounded-lg border text-sm",
-                          emAndamento ? "bg-amber-50 border-amber-200" : "bg-gray-50"
+                          "flex items-center justify-between px-2 py-1.5 rounded text-xs",
+                          emAndamento ? "bg-amber-100" : "bg-white"
                         )}
                       >
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
                           <div 
-                            className="h-2 w-2 rounded-full" 
+                            className="h-1.5 w-1.5 rounded-full" 
                             style={{ backgroundColor: intervalo.tipo_intervalo?.cor || "#888" }}
                           />
-                          <div>
-                            <p className="font-medium text-xs">
-                              {intervalo.tipo_intervalo?.nome || "Intervalo"}
-                            </p>
-                            <p className="text-[10px] text-muted-foreground">
-                              {format(parseISO(intervalo.hora_inicio), "HH:mm")}
-                              {intervalo.hora_fim && ` - ${format(parseISO(intervalo.hora_fim), "HH:mm")}`}
-                            </p>
-                          </div>
+                          <span className="font-medium">{intervalo.tipo_intervalo?.nome || "Intervalo"}</span>
                         </div>
-                        <div className="text-right">
-                          {emAndamento ? (
-                            <span className="text-[10px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-medium">
-                              Em andamento
-                            </span>
+                        <div className="flex items-center gap-1.5 text-muted-foreground">
+                          <span>{format(parseISO(intervalo.hora_inicio), "HH:mm")}</span>
+                          {intervalo.hora_fim ? (
+                            <>
+                              <span>→</span>
+                              <span>{format(parseISO(intervalo.hora_fim), "HH:mm")}</span>
+                              <span className="text-gray-400">({duracao}m)</span>
+                            </>
                           ) : (
-                            <span className="text-xs text-muted-foreground">
-                              {duracao}min
-                            </span>
+                            <span className="text-amber-600 font-medium">⏱ Agora</span>
                           )}
                         </div>
                       </div>
                     );
                   })}
                 </div>
-                {/* Total de tempo em intervalos */}
-                <div className="mt-2 pt-2 border-t flex justify-between text-xs text-muted-foreground">
-                  <span>Tempo total:</span>
-                  <span className="font-medium">
-                    {Math.floor(intervalosTurno.reduce((acc: number, i: any) => {
-                      if (i.hora_fim) {
-                        return acc + differenceInMinutes(parseISO(i.hora_fim), parseISO(i.hora_inicio));
-                      }
-                      return acc;
-                    }, 0) / 60)}h {intervalosTurno.reduce((acc: number, i: any) => {
-                      if (i.hora_fim) {
-                        return acc + differenceInMinutes(parseISO(i.hora_fim), parseISO(i.hora_inicio));
-                      }
-                      return acc;
-                    }, 0) % 60}min
-                  </span>
-                </div>
               </div>
             )}
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIntervaloDialogOpen(false)}>
+          {/* Footer fixo */}
+          <div className="px-4 py-3 border-t bg-gray-50 flex gap-2">
+            <Button 
+              variant="outline" 
+              onClick={() => setIntervaloDialogOpen(false)}
+              className="flex-1"
+              size="sm"
+            >
               Cancelar
             </Button>
             <Button 
               onClick={handleIniciarIntervalo}
               disabled={!selectedIntervalo || isStartingIntervalo}
+              className="flex-1 bg-amber-500 hover:bg-amber-600"
+              size="sm"
             >
               {isStartingIntervalo ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                <Pause className="h-4 w-4 mr-2" />
+                <>
+                  <Pause className="h-4 w-4 mr-1" />
+                  Iniciar
+                </>
               )}
-              Iniciar Intervalo
             </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
