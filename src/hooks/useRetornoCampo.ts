@@ -27,6 +27,29 @@ interface RetornoCampoResult {
   atividades: AtividadeSelecionada[];
 }
 
+// Função auxiliar para extrair apenas o código da atividade (sem descrição)
+// Ex: "SDCLU6013II - INSTALAR RAMAL DE LIG-MONO-BT" -> "SDCLU6013II"
+function extrairCodigoAtividade(codigoCompleto: string): string {
+  if (!codigoCompleto) return "";
+  // Se contém " - ", extrair apenas a parte antes
+  const partes = codigoCompleto.split(" - ");
+  const codigo = partes[0].trim();
+  // Limitar a 50 caracteres para caber no VARCHAR(50) do banco
+  return codigo.substring(0, 50);
+}
+
+// Função auxiliar para extrair a descrição da atividade
+// Ex: "SDCLU6013II - INSTALAR RAMAL DE LIG-MONO-BT" -> "INSTALAR RAMAL DE LIG-MONO-BT"
+function extrairDescricaoAtividade(codigoCompleto: string, descricaoOriginal?: string): string {
+  if (descricaoOriginal) return descricaoOriginal.substring(0, 255);
+  if (!codigoCompleto) return "";
+  const partes = codigoCompleto.split(" - ");
+  if (partes.length > 1) {
+    return partes.slice(1).join(" - ").trim().substring(0, 255);
+  }
+  return codigoCompleto.substring(0, 255);
+}
+
 interface ProducaoRegistrada {
   id: string;
   ordem_servico_id: string;
@@ -326,8 +349,10 @@ export function useRetornoCampo() {
         data_registro: new Date().toISOString(),
         atividades: atividadesComValor.map(atv => ({
           atividade_id: atv.atividade_id,
-          atividade_codigo: atv.atividade.codigo,
-          atividade_descricao: atv.atividade.descricao,
+          // Extrair apenas o código (antes do " - ") para caber no VARCHAR(50)
+          atividade_codigo: extrairCodigoAtividade(atv.atividade.codigo),
+          // Usar descrição da atividade ou extrair do código completo
+          atividade_descricao: extrairDescricaoAtividade(atv.atividade.codigo, atv.atividade.descricao),
           quantidade: atv.quantidade,
           valor_unitario: atv.atividade.valor_unitario || 0,
           valor_total: (atv.atividade.valor_unitario || 0) * atv.quantidade,
@@ -472,13 +497,21 @@ export function useRetornoCampo() {
           const atividadesParaInserir = atividadesComValor.map((atv) => ({
             producao_id: producao.id,
             atividade_id: atv.atividade_id,
-            atividade_codigo: atv.atividade.codigo,
-            atividade_descricao: atv.atividade.descricao,
+            // Extrair apenas o código (antes do " - ") para caber no VARCHAR(50)
+            atividade_codigo: extrairCodigoAtividade(atv.atividade.codigo),
+            // Usar descrição da atividade ou extrair do código completo
+            atividade_descricao: extrairDescricaoAtividade(atv.atividade.codigo, atv.atividade.descricao),
             quantidade: atv.quantidade,
             valor_unitario: atv.atividade.valor_unitario || 0,
             valor_total: (atv.atividade.valor_unitario || 0) * atv.quantidade,
             qtd_min_fotos: atv.qtd_min_fotos,
           }));
+
+          console.log("[useRetornoCampo] Inserindo atividades:", atividadesParaInserir.map(a => ({
+            codigo: a.atividade_codigo,
+            descricao: a.atividade_descricao?.substring(0, 30),
+            valor: a.valor_total
+          })));
 
           const { error: atividadesError } = await supabase
             .from("producao_atividades")

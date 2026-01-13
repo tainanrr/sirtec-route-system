@@ -931,16 +931,40 @@ export function useOfflineSync() {
           // Se houver atividades para inserir, inserir na tabela producao_atividades
           if (atividadesParaInserir && result?.data) {
             const producaoId = result.data.id;
+            
+            // Função auxiliar para extrair apenas o código (antes do " - ")
+            const extrairCodigo = (codigo: string): string => {
+              if (!codigo) return "";
+              const partes = codigo.split(" - ");
+              return partes[0].trim().substring(0, 50); // VARCHAR(50)
+            };
+            
+            // Função auxiliar para extrair/limitar descrição
+            const extrairDescricao = (codigo: string, descricao?: string): string => {
+              if (descricao) return descricao.substring(0, 255); // VARCHAR(255)
+              if (!codigo) return "";
+              const partes = codigo.split(" - ");
+              if (partes.length > 1) {
+                return partes.slice(1).join(" - ").trim().substring(0, 255);
+              }
+              return codigo.substring(0, 255);
+            };
+            
             const atividadesPayload = atividadesParaInserir.map((atv: any) => ({
               producao_id: producaoId,
               atividade_id: atv.atividade_id,
-              atividade_codigo: atv.atividade_codigo,
-              atividade_descricao: atv.atividade_descricao,
+              // Garantir que o código cabe no VARCHAR(50) do banco
+              atividade_codigo: extrairCodigo(atv.atividade_codigo),
+              // Garantir que a descrição cabe no VARCHAR(255) do banco
+              atividade_descricao: extrairDescricao(atv.atividade_codigo, atv.atividade_descricao),
               quantidade: atv.quantidade,
               valor_unitario: atv.valor_unitario || 0,
               valor_total: atv.valor_total || 0,
               qtd_min_fotos: atv.qtd_min_fotos || 0,
             }));
+            
+            console.log(`[OfflineSync] Inserindo ${atividadesPayload.length} atividades:`, 
+              atividadesPayload.map(a => ({ codigo: a.atividade_codigo, valor: a.valor_total })));
             
             const { error: atividadesError } = await supabase
               .from("producao_atividades")
