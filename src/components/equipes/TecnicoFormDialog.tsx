@@ -219,13 +219,15 @@ export function TecnicoFormDialog({
       const { data, error } = await supabase
         .from("contratos")
         .select("id, codigo, nome")
-        .eq("ativo", true)
+        .eq("status", "ativo")
         .order("codigo");
 
       if (error) throw error;
       setContratos(data || []);
+      console.log("[TecnicoFormDialog] Contratos carregados:", data?.length || 0);
     } catch (error) {
       console.error("Erro ao carregar contratos:", error);
+      toast.error("Erro ao carregar contratos");
     }
   };
 

@@ -15,6 +15,7 @@ COMMENT ON COLUMN public.tecnicos.contrato_padrao_avulsas IS 'Contrato padrão u
 DO $$
 DECLARE
     contrato_id_valor UUID;
+    equipes_atualizadas INTEGER;
 BEGIN
     -- Buscar o ID do contrato pelo código
     SELECT id INTO contrato_id_valor
@@ -22,15 +23,16 @@ BEGIN
     WHERE codigo = '4600079169'
     LIMIT 1;
     
-    -- Se encontrou o contrato, atualizar todas as equipes
+    -- Se encontrou o contrato, atualizar todas as equipes (mesmo as que já têm valor)
     IF contrato_id_valor IS NOT NULL THEN
         UPDATE public.tecnicos
-        SET contrato_padrao_avulsas = contrato_id_valor
-        WHERE contrato_padrao_avulsas IS NULL;
+        SET contrato_padrao_avulsas = contrato_id_valor;
         
-        RAISE NOTICE 'Atualizadas todas as equipes com contrato padrão: %', contrato_id_valor;
+        GET DIAGNOSTICS equipes_atualizadas = ROW_COUNT;
+        
+        RAISE NOTICE 'Atualizadas % equipe(s) com contrato padrão: % (ID: %)', equipes_atualizadas, '4600079169', contrato_id_valor;
     ELSE
-        RAISE WARNING 'Contrato 4600079169 não encontrado. Atualize manualmente as equipes.';
+        RAISE WARNING 'Contrato 4600079169 não encontrado. Verifique se o código está correto na tabela contratos.';
     END IF;
 END $$;
 
