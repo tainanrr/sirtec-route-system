@@ -421,6 +421,49 @@ export function useOfflineSync() {
     return obj;
   };
 
+  // Função auxiliar para substituir IDs recursivamente em objetos
+  const replaceIdRecursively = (obj: any, oldId: string, newId: string): { result: any; changed: boolean } => {
+    if (obj === null || obj === undefined) {
+      return { result: obj, changed: false };
+    }
+
+    // Se for string e igual ao oldId, substituir
+    if (typeof obj === 'string' && obj === oldId) {
+      return { result: newId, changed: true };
+    }
+
+    // Se for array, processar cada item
+    if (Array.isArray(obj)) {
+      let hasChanges = false;
+      const newArray = obj.map(item => {
+        const { result, changed } = replaceIdRecursively(item, oldId, newId);
+        if (changed) hasChanges = true;
+        return result;
+      });
+      return { result: newArray, changed: hasChanges };
+    }
+
+    // Se for objeto, processar cada campo
+    if (typeof obj === 'object') {
+      let hasChanges = false;
+      const newObj: any = {};
+      
+      for (const key of Object.keys(obj)) {
+        const { result, changed } = replaceIdRecursively(obj[key], oldId, newId);
+        newObj[key] = result;
+        if (changed) {
+          hasChanges = true;
+          console.log(`[OfflineSync] 📝 Campo "${key}" atualizado: ${oldId} → ${newId}`);
+        }
+      }
+      
+      return { result: newObj, changed: hasChanges };
+    }
+
+    // Outros tipos (number, boolean, etc) retornam sem mudança
+    return { result: obj, changed: false };
+  };
+
   // Função para atualizar operações pendentes com novo ID de OS
   // Usada quando uma OS criada offline recebe um ID real do servidor
   const updatePendingOperationsWithNewOsId = async (osIdLocal: string, osIdReal: string): Promise<void> => {
@@ -438,30 +481,16 @@ export function useOfflineSync() {
         request.onerror = () => reject(request.error);
       });
       
+      console.log(`[OfflineSync] 📋 Verificando ${allOps.length} operações para atualização de ID`);
+      
       let updatedCount = 0;
       
       for (const op of allOps) {
-        let needsUpdate = false;
-        const updatedPayload = { ...op.payload };
-        
-        // Atualizar campos que podem ter o ID da OS
-        const fieldsToCheck = ['ordem_servico_id', 'osId', 'id'];
-        
-        for (const field of fieldsToCheck) {
-          if (updatedPayload[field] === osIdLocal) {
-            updatedPayload[field] = osIdReal;
-            needsUpdate = true;
-            console.log(`[OfflineSync] Atualizando campo ${field} na operação ${op.id}`);
-          }
-        }
-        
-        // Também verificar dentro de objetos aninhados comuns
-        if (updatedPayload.metadata?.osIdLocal === osIdLocal) {
-          updatedPayload.metadata.osIdLocal = osIdReal;
-          needsUpdate = true;
-        }
+        // Aplicar substituição recursiva no payload
+        const { result: updatedPayload, changed: needsUpdate } = replaceIdRecursively(op.payload, osIdLocal, osIdReal);
         
         if (needsUpdate) {
+          console.log(`[OfflineSync] ✏️ Atualizando operação ${op.type} (${op.id})`);
           const updatedOp = { ...op, payload: updatedPayload };
           
           await new Promise<void>((resolve, reject) => {
@@ -479,19 +508,12 @@ export function useOfflineSync() {
       // Também atualizar no localStorage backup
       const backupOps = loadBackupFromLocalStorage();
       const updatedBackupOps = backupOps.map(op => {
-        const updatedPayload = { ...op.payload };
-        const fieldsToCheck = ['ordem_servico_id', 'osId', 'id'];
-        
-        for (const field of fieldsToCheck) {
-          if (updatedPayload[field] === osIdLocal) {
-            updatedPayload[field] = osIdReal;
-          }
-        }
-        
+        const { result: updatedPayload } = replaceIdRecursively(op.payload, osIdLocal, osIdReal);
         return { ...op, payload: updatedPayload };
       });
       
       saveBackupToLocalStorage(updatedBackupOps);
+      console.log(`[OfflineSync] ✅ Backup localStorage também atualizado`);
       
     } catch (error) {
       console.error("[OfflineSync] Erro ao atualizar operações com novo ID:", error);
@@ -499,7 +521,8 @@ export function useOfflineSync() {
   };
 
   // Executar uma operação no Supabase
-  const executeOperation = async (operation: SyncOperation): Promise<boolean> => {
+  // Retorna: true = sucesso, false = erro, "reload" = precisa recarregar operações (ex: após criar OS avulsa)
+  const executeOperation = async (operation: SyncOperation): Promise<boolean | "reload"> => {
     try {
       console.log(`[OfflineSync] Executando operação: ${operation.type}`, operation.id);
       
@@ -585,6 +608,16 @@ export function useOfflineSync() {
         // Atualizar todas as operações pendentes que usam o ID local
         if (osIdLocal && novoIdReal) {
           await updatePendingOperationsWithNewOsId(osIdLocal, novoIdReal);
+          
+          // Após atualizar os IDs, precisamos recarregar as operações
+          // porque o loop de sincronização tem uma cópia antiga em memória
+          console.log("[OfflineSync] 🔄 Sinalizando necessidade de recarregar operações após mapeamento de ID");
+          
+          // Remover esta operação da fila (foi executada com sucesso)
+          await removeOperation(operation.id);
+          
+          // Retornar "reload" para sinalizar que o loop deve recarregar operações
+          return "reload";
         }
         
         result = { data: novaOS, error: null };
@@ -1151,6 +1184,7 @@ export function useOfflineSync() {
       
       let successCount = 0;
       let errorCount = 0;
+      let needsReload = false;
 
       for (const operation of uniqueOperations) {
         if (!navigator.onLine) {
@@ -1158,14 +1192,39 @@ export function useOfflineSync() {
           break;
         }
 
-        const success = await executeOperation(operation);
+        const result = await executeOperation(operation);
         
-        if (success) {
+        if (result === "reload") {
+          // Operação create_os_avulsa foi executada e atualizou IDs
+          // Precisamos recarregar as operações e recomeçar o loop
+          console.log("[OfflineSync] 🔄 Recarregando operações após mapeamento de ID...");
+          successCount++;
+          needsReload = true;
+          break; // Sair do loop para recarregar
+        } else if (result === true) {
           await removeOperation(operation.id);
           successCount++;
         } else {
           errorCount++;
         }
+      }
+
+      // Se precisa recarregar operações (após criar OS avulsa), reiniciar sincronização
+      if (needsReload) {
+        console.log("[OfflineSync] 🔄 Reiniciando sincronização com operações atualizadas...");
+        setIsSyncing(false);
+        syncInProgress.current = false;
+        releaseSyncLock();
+        
+        // Resetar o debounce para permitir chamada imediata
+        lastSyncAttempt.current = 0;
+        
+        // Pequeno delay para garantir que as atualizações no IndexedDB foram persistidas
+        await new Promise(resolve => setTimeout(resolve, 200));
+        
+        // Chamar sincronização novamente para processar operações restantes
+        syncPendingOperations();
+        return;
       }
 
       setLastSyncTime(new Date());
