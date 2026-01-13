@@ -154,6 +154,9 @@ export function useOfflineSync() {
 
   // Chave para backup de operações no localStorage
   const BACKUP_KEY = "sirtec_pending_ops_backup";
+  
+  // Chave para mapeamento de IDs locais → reais (persistente)
+  const ID_MAP_KEY = "sirtec_local_id_map";
 
   // Salvar backup das operações no localStorage (fallback para quando IndexedDB falhar)
   const saveBackupToLocalStorage = useCallback((operations: SyncOperation[]) => {
@@ -186,9 +189,77 @@ export function useOfflineSync() {
     }
   }, []);
 
-  // Carregar operações pendentes ao iniciar
+  // ============ MAPEAMENTO DE IDs LOCAIS → REAIS ============
+  
+  // Salvar mapeamento de ID local → real
+  const saveIdMapping = useCallback((localId: string, realId: string) => {
+    try {
+      const mapStr = localStorage.getItem(ID_MAP_KEY);
+      const map = mapStr ? JSON.parse(mapStr) : {};
+      map[localId] = { realId, timestamp: Date.now() };
+      localStorage.setItem(ID_MAP_KEY, JSON.stringify(map));
+      console.log(`[OfflineSync] 🗺️ Mapeamento salvo: ${localId} → ${realId}`);
+    } catch (e) {
+      console.warn("[OfflineSync] Erro ao salvar mapeamento de ID:", e);
+    }
+  }, []);
+
+  // Buscar ID real a partir de ID local
+  const resolveLocalId = useCallback((id: string): string => {
+    // Se não começa com "local_", é um ID real
+    if (!id || !id.startsWith("local_")) {
+      return id;
+    }
+    
+    try {
+      const mapStr = localStorage.getItem(ID_MAP_KEY);
+      if (!mapStr) return id;
+      
+      const map = JSON.parse(mapStr);
+      const mapping = map[id];
+      
+      if (mapping && mapping.realId) {
+        console.log(`[OfflineSync] 🗺️ ID local resolvido: ${id} → ${mapping.realId}`);
+        return mapping.realId;
+      }
+    } catch (e) {
+      console.warn("[OfflineSync] Erro ao buscar mapeamento de ID:", e);
+    }
+    
+    // Se não encontrou mapeamento, retorna o ID original
+    return id;
+  }, []);
+
+  // Limpar mapeamentos antigos (mais de 7 dias)
+  const cleanOldIdMappings = useCallback(() => {
+    try {
+      const mapStr = localStorage.getItem(ID_MAP_KEY);
+      if (!mapStr) return;
+      
+      const map = JSON.parse(mapStr);
+      const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+      let cleaned = 0;
+      
+      for (const localId of Object.keys(map)) {
+        if (map[localId].timestamp < sevenDaysAgo) {
+          delete map[localId];
+          cleaned++;
+        }
+      }
+      
+      if (cleaned > 0) {
+        localStorage.setItem(ID_MAP_KEY, JSON.stringify(map));
+        console.log(`[OfflineSync] 🧹 ${cleaned} mapeamentos antigos removidos`);
+      }
+    } catch (e) {
+      console.warn("[OfflineSync] Erro ao limpar mapeamentos antigos:", e);
+    }
+  }, []);
+
+  // Carregar operações pendentes ao iniciar e limpar mapeamentos antigos
   useEffect(() => {
     loadPendingOperations();
+    cleanOldIdMappings();
   }, []);
 
   // Carregar operações pendentes do IndexedDB (com fallback para localStorage)
@@ -468,6 +539,9 @@ export function useOfflineSync() {
   // Usada quando uma OS criada offline recebe um ID real do servidor
   const updatePendingOperationsWithNewOsId = async (osIdLocal: string, osIdReal: string): Promise<void> => {
     console.log(`[OfflineSync] 🔄 Atualizando operações pendentes: ${osIdLocal} → ${osIdReal}`);
+    
+    // IMPORTANTE: Salvar mapeamento de ID para operações futuras (ex: APR salva enquanto online)
+    saveIdMapping(osIdLocal, osIdReal);
     
     try {
       const db = await openDB();
@@ -1430,6 +1504,9 @@ export function useOfflineSync() {
     getFromCache,
     removeFromCache,
     clearCache,
+    
+    // Mapeamento de IDs
+    resolveLocalId,
     
     // Refresh
     refreshPendingOperations: loadPendingOperations,

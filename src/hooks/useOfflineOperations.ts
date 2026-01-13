@@ -54,7 +54,7 @@ interface Producao {
 
 // Hook para operações offline
 export function useOfflineOperations() {
-  const { isOnline, queueOperation, saveToCache, getFromCache } = useOfflineSyncContext();
+  const { isOnline, queueOperation, saveToCache, getFromCache, resolveLocalId } = useOfflineSyncContext();
   const { updateOrdemLocal, addProducaoLocal, addIntervaloLocal, updateIntervaloLocal } = useOfflineData();
 
   // ============ OPERAÇÕES DE ORDEM DE SERVIÇO ============
@@ -67,6 +67,13 @@ export function useOfflineOperations() {
     dadosAdicionais?: Partial<OrdemServico>,
     numeroOs?: string // Número da OS para exibição no indicador de sincronização offline
   ): Promise<{ success: boolean; offline?: boolean }> => {
+    // IMPORTANTE: Resolver ID local para real (caso a OS tenha sido criada offline)
+    const osIdResolvido = resolveLocalId(osId);
+    
+    if (osIdResolvido !== osId) {
+      console.log(`[OfflineOps] 🗺️ UpdateOSStatus: ID da OS resolvido de ${osId} para ${osIdResolvido}`);
+    }
+    
     const agora = new Date().toISOString();
     
     // Preparar dados de atualização
@@ -90,7 +97,7 @@ export function useOfflineOperations() {
 
     // Se offline, salvar na fila e atualizar localmente
     if (!isOnline) {
-      console.log("[OfflineOps] Atualizando OS offline:", osId, novoStatus);
+      console.log("[OfflineOps] Atualizando OS offline:", osIdResolvido, novoStatus);
       
       try {
         // Enfileirar operação para sincronização
@@ -99,12 +106,12 @@ export function useOfflineOperations() {
           "update_os_status",
           "ordens_servico",
           "update",
-          { id: osId, numero_os: numeroOs, ...updateData },
+          { id: osIdResolvido, numero_os: numeroOs, ...updateData },
           1 // Alta prioridade
         );
 
         // Atualizar dados locais
-        await updateOrdemLocal(equipeId, osId, updateData);
+        await updateOrdemLocal(equipeId, osIdResolvido, updateData);
 
         toast.info("Status atualizado localmente. Será sincronizado quando houver conexão.");
         return { success: true, offline: true };
@@ -120,12 +127,12 @@ export function useOfflineOperations() {
       const { error } = await supabase
         .from("ordens_servico")
         .update(updateData)
-        .eq("id", osId);
+        .eq("id", osIdResolvido);
 
       if (error) throw error;
 
       // Atualizar dados locais também (cache)
-      await updateOrdemLocal(equipeId, osId, updateData);
+      await updateOrdemLocal(equipeId, osIdResolvido, updateData);
 
       return { success: true, offline: false };
     } catch (error) {
@@ -139,7 +146,7 @@ export function useOfflineOperations() {
       toast.error("Erro ao atualizar ordem de serviço");
       return { success: false, offline: false };
     }
-  }, [isOnline, queueOperation, updateOrdemLocal]);
+  }, [isOnline, queueOperation, updateOrdemLocal, resolveLocalId]);
 
   // ============ OPERAÇÕES DE PRODUÇÃO ============
 
@@ -413,11 +420,18 @@ export function useOfflineOperations() {
     respostaExistenteId?: string,
     numeroOs?: string // Número da OS para exibição no indicador de sincronização offline
   ): Promise<{ success: boolean; id?: string; offline?: boolean }> => {
+    // IMPORTANTE: Resolver ID local para real (caso a OS tenha sido criada offline)
+    const ordemServicoIdResolvido = resolveLocalId(ordemServicoId);
+    
+    if (ordemServicoIdResolvido !== ordemServicoId) {
+      console.log(`[OfflineOps] 🗺️ APR: ID da OS resolvido de ${ordemServicoId} para ${ordemServicoIdResolvido}`);
+    }
+    
     // Para inserts, não incluir ID (banco gera UUID)
     // Para updates, usar o ID existente
     const payload: any = {
       checklist_id: checklistId,
-      ordem_servico_id: ordemServicoId,
+      ordem_servico_id: ordemServicoIdResolvido,
       equipe_id: equipeId,
       respostas: respostas,
       status: 'completo',
@@ -447,7 +461,7 @@ export function useOfflineOperations() {
         );
 
         // Salvar localmente no cache de APRs respondidas (com ID temporário para referência)
-        const cacheKey = `apr_resposta_${ordemServicoId}`;
+        const cacheKey = `apr_resposta_${ordemServicoIdResolvido}`;
         await saveToCache(cacheKey, {
           ...payload,
           id: tempId, // ID temporário apenas para cache
@@ -471,7 +485,7 @@ export function useOfflineOperations() {
           .from("checklist_respostas")
           .update({
             checklist_id: checklistId,
-            ordem_servico_id: ordemServicoId,
+            ordem_servico_id: ordemServicoIdResolvido,
             equipe_id: equipeId,
             respostas: respostas,
             status: 'completo',
@@ -485,7 +499,7 @@ export function useOfflineOperations() {
           .from("checklist_respostas")
           .insert({
             checklist_id: checklistId,
-            ordem_servico_id: ordemServicoId,
+            ordem_servico_id: ordemServicoIdResolvido,
             equipe_id: equipeId,
             respostas: respostas,
             status: 'completo',
@@ -507,7 +521,7 @@ export function useOfflineOperations() {
       toast.error("Erro ao salvar APR");
       return { success: false, offline: false };
     }
-  }, [isOnline, queueOperation, saveToCache]);
+  }, [isOnline, queueOperation, saveToCache, resolveLocalId]);
 
   // ============ OPERAÇÕES DE CHAT ============
 
@@ -596,11 +610,18 @@ export function useOfflineOperations() {
     equipeId: string,
     numeroSerie?: string
   ): Promise<{ success: boolean; id?: string; offline?: boolean }> => {
+    // IMPORTANTE: Resolver ID local para real (caso a OS tenha sido criada offline)
+    const ordemServicoIdResolvido = resolveLocalId(ordemServicoId);
+    
+    if (ordemServicoIdResolvido !== ordemServicoId) {
+      console.log(`[OfflineOps] 🗺️ AplicarMaterial: ID da OS resolvido de ${ordemServicoId} para ${ordemServicoIdResolvido}`);
+    }
+    
     const itemId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     const payload = {
       id: itemId,
-      ordem_servico_id: ordemServicoId,
+      ordem_servico_id: ordemServicoIdResolvido,
       material_id: materialId,
       quantidade,
       numero_serie: numeroSerie,
@@ -621,7 +642,7 @@ export function useOfflineOperations() {
         );
 
         // Salvar localmente
-        const cacheKey = `materiais_os_${ordemServicoId}`;
+        const cacheKey = `materiais_os_${ordemServicoIdResolvido}`;
         const materiaisAtuais = await getFromCache<any[]>(cacheKey) || [];
         materiaisAtuais.push({ ...payload, pendente: true });
         await saveToCache(cacheKey, materiaisAtuais, 24);
@@ -639,7 +660,7 @@ export function useOfflineOperations() {
       const { data, error } = await supabase
         .from("ordens_servico_materiais")
         .insert({
-          ordem_servico_id: ordemServicoId,
+          ordem_servico_id: ordemServicoIdResolvido,
           material_id: materialId,
           quantidade,
           numero_serie: numeroSerie,
@@ -657,13 +678,20 @@ export function useOfflineOperations() {
       toast.error("Erro ao aplicar material");
       return { success: false, offline: false };
     }
-  }, [isOnline, queueOperation, getFromCache, saveToCache]);
+  }, [isOnline, queueOperation, getFromCache, saveToCache, resolveLocalId]);
 
   // Remover material de OS
   const removerMaterialOS = useCallback(async (
     itemId: string,
     ordemServicoId: string
   ): Promise<{ success: boolean; offline?: boolean }> => {
+    // IMPORTANTE: Resolver ID local para real (caso a OS tenha sido criada offline)
+    const ordemServicoIdResolvido = resolveLocalId(ordemServicoId);
+    
+    if (ordemServicoIdResolvido !== ordemServicoId) {
+      console.log(`[OfflineOps] 🗺️ RemoverMaterial: ID da OS resolvido de ${ordemServicoId} para ${ordemServicoIdResolvido}`);
+    }
+    
     if (!isOnline) {
       console.log("[OfflineOps] Removendo material offline:", itemId);
       
@@ -677,7 +705,7 @@ export function useOfflineOperations() {
         );
 
         // Atualizar cache local
-        const cacheKey = `materiais_os_${ordemServicoId}`;
+        const cacheKey = `materiais_os_${ordemServicoIdResolvido}`;
         const materiaisAtuais = await getFromCache<any[]>(cacheKey) || [];
         const materiaisAtualizados = materiaisAtuais.filter(m => m.id !== itemId);
         await saveToCache(cacheKey, materiaisAtualizados, 24);
@@ -707,7 +735,7 @@ export function useOfflineOperations() {
       toast.error("Erro ao remover material");
       return { success: false, offline: false };
     }
-  }, [isOnline, queueOperation, getFromCache, saveToCache]);
+  }, [isOnline, queueOperation, getFromCache, saveToCache, resolveLocalId]);
 
   // ============ OPERAÇÕES DE DEVOLUÇÃO ============
 
