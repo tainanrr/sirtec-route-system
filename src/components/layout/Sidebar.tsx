@@ -55,14 +55,14 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { useWebAuth } from "@/contexts/WebAuthContext";
 
-interface NavChild {
+export interface NavChild {
   icon: React.ElementType;
   label: string;
   href: string;
   permission?: string; // Permissão necessária
 }
 
-interface NavItem {
+export interface NavItem {
   icon: React.ElementType;
   label: string;
   href?: string;
@@ -75,7 +75,7 @@ interface NavItem {
 
 // Definição dos itens de navegação com permissões
 // NOTA: Os códigos de permissão devem corresponder aos cadastrados em Admin > Permissões
-const navItemsConfig: NavItem[] = [
+export const navItemsConfig: NavItem[] = [
   // Dashboards - grupo expansível
   {
     icon: BarChart3,
