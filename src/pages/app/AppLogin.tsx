@@ -132,7 +132,7 @@ export default function AppLogin() {
       {/* Logo */}
       <div className="flex flex-col items-center justify-center mb-8">
         <img 
-          src="/logo-sirtec.svg" 
+          src="/logo-sirtec.png" 
           alt="Sirtec" 
           className="h-24 w-auto"
         />

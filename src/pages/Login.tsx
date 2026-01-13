@@ -117,7 +117,7 @@ const Login = () => {
         <div className="relative z-10 flex flex-col justify-center items-center w-full p-12 text-center">
           <div className="flex items-center justify-center mb-8">
             <img 
-              src="/logo-sirtec.svg" 
+              src="/logo-sirtec.png" 
               alt="Sirtec" 
               className="h-20 w-auto brightness-0 invert"
             />
@@ -175,7 +175,7 @@ const Login = () => {
           <div className="lg:hidden text-center mb-8">
             <div className="flex items-center justify-center mx-auto mb-4">
               <img 
-                src="/logo-sirtec.svg" 
+                src="/logo-sirtec.png" 
                 alt="Sirtec" 
                 className="h-16 w-auto"
               />

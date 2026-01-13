@@ -271,7 +271,7 @@ export function Sidebar({ isDark, setIsDark, collapsed = false }: SidebarProps) 
         collapsed ? "justify-center px-2" : "px-4"
       )}>
         <img 
-          src="/logo-sirtec.svg" 
+          src="/logo-sirtec.png" 
           alt="Sirtec" 
           className={cn(
             "transition-all",

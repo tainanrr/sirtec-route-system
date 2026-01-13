@@ -468,7 +468,7 @@ export default function AppLayout() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img 
-              src="/logo-sirtec.svg" 
+              src="/logo-sirtec.png" 
               alt="Sirtec" 
               className="h-9 w-auto brightness-0 invert"
             />
