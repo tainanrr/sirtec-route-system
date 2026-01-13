@@ -291,22 +291,18 @@ export default function CriarOSAvulsaDialog({
         await saveToCache(cacheKey, planejamentoCache, 24);
         console.log("[CriarOSAvulsa] ✅ OS salva no cache local:", numeroOS);
         
-        // Enfileirar operação para sincronização
-        await queueOperation({
-          type: "create_os_avulsa",
-          payload: {
+        // Enfileirar operação para sincronização (prioridade 0 = muito alta, executa primeiro)
+        await queueOperation(
+          "create_os_avulsa",
+          "ordens_servico",
+          "insert",
+          {
             ...novaOSData,
             id: undefined, // Remove ID local para o servidor gerar um novo
-            osIdLocal, // Mantém referência ao ID local
+            osIdLocal, // Mantém referência ao ID local para atualizar outras operações
           },
-          metadata: {
-            equipeId,
-            turnoId,
-            dataHoje,
-            tipoSelecionadoCodigo: tipoSelecionado.codigo,
-            tipoSelecionadoNome: tipoSelecionado.nome,
-          },
-        });
+          0 // Prioridade muito alta - deve ser executada ANTES das outras operações
+        );
         
         console.log("[CriarOSAvulsa] ✅ Operação enfileirada para sincronização");
         

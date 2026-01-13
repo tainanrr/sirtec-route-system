@@ -28,7 +28,8 @@ export type OperationType =
   | "aplicar_material_os"
   | "remover_material_os"
   | "confirmar_recebimento"
-  | "criar_devolucao";
+  | "criar_devolucao"
+  | "create_os_avulsa";
 
 export interface SyncOperation {
   id: string;
@@ -420,6 +421,83 @@ export function useOfflineSync() {
     return obj;
   };
 
+  // Função para atualizar operações pendentes com novo ID de OS
+  // Usada quando uma OS criada offline recebe um ID real do servidor
+  const updatePendingOperationsWithNewOsId = async (osIdLocal: string, osIdReal: string): Promise<void> => {
+    console.log(`[OfflineSync] 🔄 Atualizando operações pendentes: ${osIdLocal} → ${osIdReal}`);
+    
+    try {
+      const db = await openDB();
+      const transaction = db.transaction(QUEUE_STORE, "readwrite");
+      const store = transaction.objectStore(QUEUE_STORE);
+      
+      // Buscar todas as operações pendentes
+      const allOps = await new Promise<SyncOperation[]>((resolve, reject) => {
+        const request = store.getAll();
+        request.onsuccess = () => resolve(request.result || []);
+        request.onerror = () => reject(request.error);
+      });
+      
+      let updatedCount = 0;
+      
+      for (const op of allOps) {
+        let needsUpdate = false;
+        const updatedPayload = { ...op.payload };
+        
+        // Atualizar campos que podem ter o ID da OS
+        const fieldsToCheck = ['ordem_servico_id', 'osId', 'id'];
+        
+        for (const field of fieldsToCheck) {
+          if (updatedPayload[field] === osIdLocal) {
+            updatedPayload[field] = osIdReal;
+            needsUpdate = true;
+            console.log(`[OfflineSync] Atualizando campo ${field} na operação ${op.id}`);
+          }
+        }
+        
+        // Também verificar dentro de objetos aninhados comuns
+        if (updatedPayload.metadata?.osIdLocal === osIdLocal) {
+          updatedPayload.metadata.osIdLocal = osIdReal;
+          needsUpdate = true;
+        }
+        
+        if (needsUpdate) {
+          const updatedOp = { ...op, payload: updatedPayload };
+          
+          await new Promise<void>((resolve, reject) => {
+            const request = store.put(updatedOp);
+            request.onsuccess = () => resolve();
+            request.onerror = () => reject(request.error);
+          });
+          
+          updatedCount++;
+        }
+      }
+      
+      console.log(`[OfflineSync] ✅ ${updatedCount} operações atualizadas com novo ID`);
+      
+      // Também atualizar no localStorage backup
+      const backupOps = loadBackupFromLocalStorage();
+      const updatedBackupOps = backupOps.map(op => {
+        const updatedPayload = { ...op.payload };
+        const fieldsToCheck = ['ordem_servico_id', 'osId', 'id'];
+        
+        for (const field of fieldsToCheck) {
+          if (updatedPayload[field] === osIdLocal) {
+            updatedPayload[field] = osIdReal;
+          }
+        }
+        
+        return { ...op, payload: updatedPayload };
+      });
+      
+      saveBackupToLocalStorage(updatedBackupOps);
+      
+    } catch (error) {
+      console.error("[OfflineSync] Erro ao atualizar operações com novo ID:", error);
+    }
+  };
+
   // Executar uma operação no Supabase
   const executeOperation = async (operation: SyncOperation): Promise<boolean> => {
     try {
@@ -478,6 +556,38 @@ export function useOfflineSync() {
         
         // Inserir na tabela
         result = await supabase.from(operation.table).insert(cleanFotoPayload);
+      } else if (operation.type === "create_os_avulsa") {
+        // Tratamento especial para criar OS avulsa offline
+        // Precisa criar a OS primeiro e depois atualizar outras operações com o novo ID
+        console.log("[OfflineSync] 🚀 Criando OS avulsa offline...");
+        
+        const payload = operation.payload;
+        const osIdLocal = payload.osIdLocal;
+        
+        // Remover campos que não devem ir para o banco
+        const { osIdLocal: _, id: __, pendente_sync: ___, ...insertData } = payload;
+        
+        // Criar a OS no servidor
+        const { data: novaOS, error: erroOS } = await supabase
+          .from("ordens_servico")
+          .insert(insertData)
+          .select("id")
+          .single();
+        
+        if (erroOS) {
+          console.error("[OfflineSync] Erro ao criar OS avulsa:", erroOS);
+          throw erroOS;
+        }
+        
+        const novoIdReal = novaOS.id;
+        console.log(`[OfflineSync] ✅ OS avulsa criada com ID real: ${novoIdReal} (local: ${osIdLocal})`);
+        
+        // Atualizar todas as operações pendentes que usam o ID local
+        if (osIdLocal && novoIdReal) {
+          await updatePendingOperationsWithNewOsId(osIdLocal, novoIdReal);
+        }
+        
+        result = { data: novaOS, error: null };
       } else if (operation.action === "rpc") {
         // Chamada RPC
         result = await supabase.rpc(operation.table, operation.payload);
