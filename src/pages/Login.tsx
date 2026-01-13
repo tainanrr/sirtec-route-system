@@ -165,20 +165,6 @@ const Login = () => {
             </svg>
           </div>
           
-          <div className="mt-12 grid grid-cols-3 gap-8 text-white/80">
-            <div className="text-center">
-              <div className="text-3xl font-bold text-white">98%</div>
-              <div className="text-sm">Eficiência</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-white">24/7</div>
-              <div className="text-sm">Disponível</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-white">500+</div>
-              <div className="text-sm">Rotas/dia</div>
-            </div>
-          </div>
         </div>
       </div>
 

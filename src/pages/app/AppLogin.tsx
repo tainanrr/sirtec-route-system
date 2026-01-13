@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Loader2, Smartphone, Car, Users, Clock, AlertTriangle, Calendar, Wifi, WifiOff, CloudOff } from "lucide-react";
+import { Loader2, Car, Users, Clock, AlertTriangle, Calendar, Wifi, WifiOff, CloudOff } from "lucide-react";
 import { TurnoExistente } from "@/lib/authUtils";
 import { format, parseISO, isToday, isBefore, startOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -129,22 +129,15 @@ export default function AppLogin() {
         )}
       </div>
 
-      {/* Logo e Título */}
-      <div className="text-center mb-8">
-        <div className="inline-flex items-center justify-center mb-4">
-          <img 
-            src="/logo-sirtec.svg" 
-            alt="Sirtec" 
-            className="h-20 w-auto"
-          />
-        </div>
-        <h1 className="text-3xl font-bold text-foreground">SirtecRoute</h1>
-        <p className="text-muted-foreground mt-1 flex items-center justify-center gap-2">
-          <Smartphone className="h-4 w-4" />
-          App do Técnico
-        </p>
+      {/* Logo */}
+      <div className="flex flex-col items-center justify-center mb-8">
+        <img 
+          src="/logo-sirtec.svg" 
+          alt="Sirtec" 
+          className="h-24 w-auto"
+        />
         {/* Status de conexão */}
-        <div className={`mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs ${
+        <div className={`mt-4 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs ${
           isOnline 
             ? "bg-green-100 text-green-700" 
             : "bg-amber-100 text-amber-700"
