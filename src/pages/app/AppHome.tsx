@@ -346,11 +346,11 @@ export default function AppHome() {
   useEffect(() => {
     if (!equipe?.id) return;
     
-    // Limpar todas as chaves de ociosidade antigas da equipe
+    // Limpar todas as chaves de ociosidade antigas da equipe (incluindo formato antigo sem turno_id)
     const keysToRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && key.startsWith(`ociosidade_inicio_${equipe.id}_`) && key !== OCIOSIDADE_KEY) {
+      if (key && key.startsWith(`ociosidade_inicio_${equipe.id}`) && key !== OCIOSIDADE_KEY) {
         keysToRemove.push(key);
       }
     }

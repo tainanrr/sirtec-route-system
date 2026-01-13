@@ -186,13 +186,28 @@ export default function AppLayout() {
     return temTurnoAberto && !intervaloAtivo && !osEmAndamento;
   }, [temTurnoAberto, intervaloAtivo, osEmAndamento]);
 
-  // Chave para localStorage do início da ociosidade
-  const OCIOSIDADE_KEY = `ociosidade_inicio_${equipe?.id}`;
+  // Chave para localStorage do início da ociosidade (inclui turno_id para ser único por turno)
+  const OCIOSIDADE_KEY = turno?.id ? `ociosidade_inicio_${equipe?.id}_${turno.id}` : null;
+
+  // Limpar ociosidade de turnos antigos quando um novo turno é aberto
+  useEffect(() => {
+    if (!equipe?.id) return;
+    
+    // Limpar todas as chaves de ociosidade antigas da equipe (incluindo formato antigo sem turno_id)
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(`ociosidade_inicio_${equipe.id}`) && key !== OCIOSIDADE_KEY) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach(key => localStorage.removeItem(key));
+  }, [equipe?.id, OCIOSIDADE_KEY]);
 
   // Gerenciar início da ociosidade com localStorage
-  // Só inicia a contagem quando há turno aberto (temTurnoAberto)
+  // Só inicia a contagem quando há turno aberto (temTurnoAberto) e temos OCIOSIDADE_KEY
   useEffect(() => {
-    if (!equipe?.id || !temTurnoAberto) return;
+    if (!equipe?.id || !temTurnoAberto || !OCIOSIDADE_KEY) return;
     
     if (estaOcioso) {
       // Verificar se já tem um início salvo
@@ -208,10 +223,18 @@ export default function AppLayout() {
     }
   }, [estaOcioso, equipe?.id, temTurnoAberto, OCIOSIDADE_KEY]);
 
+  // Limpar ociosidade quando o turno é encerrado
+  useEffect(() => {
+    if (!temTurnoAberto && OCIOSIDADE_KEY) {
+      localStorage.removeItem(OCIOSIDADE_KEY);
+      setTempoOcioso(0);
+    }
+  }, [temTurnoAberto, OCIOSIDADE_KEY]);
+
   // Atualizar contador de ociosidade a cada segundo
   // Só começa a mostrar após 1 minuto (60 segundos) de ociosidade
   useEffect(() => {
-    if (!estaOcioso || !equipe?.id || !temTurnoAberto) return;
+    if (!estaOcioso || !equipe?.id || !temTurnoAberto || !OCIOSIDADE_KEY) return;
     
     const atualizarTempo = () => {
       const inicioSalvo = localStorage.getItem(OCIOSIDADE_KEY);
