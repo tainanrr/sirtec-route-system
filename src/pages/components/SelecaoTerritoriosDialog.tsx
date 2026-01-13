@@ -5,13 +5,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Territorio } from "@/types/territorios";
 import { Equipe } from "@/data/mockData";
-import { MapPin, CheckCircle2, Edit, Users } from "lucide-react";
+import { MapPin, CheckCircle2, Edit, Users, AlertTriangle } from "lucide-react";
 import { useState, useEffect } from "react";
 import { salvarTerritorio, atualizarTerritoriosOSs } from "@/types/territorios";
 
@@ -37,6 +47,15 @@ export default function SelecaoTerritoriosDialog({
   const [selecionados, setSelecionados] = useState<string[]>(territoriosSelecionados);
   const [editandoEquipes, setEditandoEquipes] = useState<string | null>(null);
   const [equipesEditando, setEquipesEditando] = useState<string[]>([]);
+  
+  // Estado para o dialog de confirmação de troca de equipe
+  const [confirmacaoTroca, setConfirmacaoTroca] = useState<{
+    aberto: boolean;
+    equipeId: string;
+    equipeNome: string;
+    territorioAtualId: string;
+    territorioAtualNome: string;
+  } | null>(null);
 
   useEffect(() => {
     setSelecionados(territoriosSelecionados);
@@ -46,6 +65,72 @@ export default function SelecaoTerritoriosDialog({
   const territoriosAtivos = territorios.filter(t => t.ativo && t.poligono.length >= 3);
   // Territórios prontos para roteirização (com equipes vinculadas)
   const territoriosProntosParaRoteirizacao = territoriosAtivos.filter(t => t.equipeIds && t.equipeIds.length > 0);
+
+  // Função para verificar se uma equipe já está em outro território ativo
+  const verificarEquipeEmOutroTerritorio = (equipeId: string, territorioAtualId: string): Territorio | null => {
+    return territoriosAtivos.find(t => 
+      t.id !== territorioAtualId && 
+      t.equipeIds && 
+      t.equipeIds.includes(equipeId)
+    ) || null;
+  };
+
+  // Função para confirmar a troca de equipe de território
+  const handleConfirmarTrocaTerritorio = async () => {
+    if (!confirmacaoTroca) return;
+
+    const { equipeId, territorioAtualId } = confirmacaoTroca;
+    
+    // Remover a equipe do território anterior
+    const territorioAnterior = territorios.find(t => t.id === territorioAtualId);
+    if (territorioAnterior) {
+      const territorioAnteriorAtualizado = {
+        ...territorioAnterior,
+        equipeIds: territorioAnterior.equipeIds.filter(id => id !== equipeId),
+        atualizadoEm: new Date()
+      };
+      await salvarTerritorio(territorioAnteriorAtualizado);
+    }
+
+    // Adicionar a equipe ao território que está sendo editado
+    setEquipesEditando(prev => [...prev, equipeId]);
+    
+    // Fechar o dialog de confirmação
+    setConfirmacaoTroca(null);
+    
+    // Recarregar a lista de territórios
+    if (onTerritoriosUpdate) {
+      const { carregarTerritorios } = await import("@/types/territorios");
+      const updated = await carregarTerritorios();
+      onTerritoriosUpdate(updated);
+    }
+  };
+
+  // Função para lidar com a seleção de equipe
+  const handleToggleEquipe = (equipe: Equipe, checked: boolean) => {
+    if (checked && editandoEquipes) {
+      // Verificar se a equipe já está em outro território
+      const outroTerritorio = verificarEquipeEmOutroTerritorio(equipe.id, editandoEquipes);
+      
+      if (outroTerritorio) {
+        // Abrir dialog de confirmação
+        setConfirmacaoTroca({
+          aberto: true,
+          equipeId: equipe.id,
+          equipeNome: `${equipe.codigo} - ${equipe.tecnico}`,
+          territorioAtualId: outroTerritorio.id,
+          territorioAtualNome: outroTerritorio.nome
+        });
+        return;
+      }
+      
+      // Se não está em outro território, adicionar normalmente
+      setEquipesEditando(prev => [...prev, equipe.id]);
+    } else {
+      // Remover da lista
+      setEquipesEditando(prev => prev.filter(id => id !== equipe.id));
+    }
+  };
 
   const handleToggleTerritorio = (territorioId: string) => {
     setSelecionados(prev => {
@@ -222,23 +307,26 @@ export default function SelecaoTerritoriosDialog({
                             <div className="space-y-1 max-h-[120px] overflow-y-auto">
                               {equipes.map((equipe) => {
                                 const selecionada = equipesEditando.includes(equipe.id);
+                                const emOutroTerritorio = verificarEquipeEmOutroTerritorio(equipe.id, territorio.id);
+                                
                                 return (
                                   <label
                                     key={equipe.id}
-                                    className="flex items-center gap-2 text-xs cursor-pointer hover:bg-muted/50 p-1 rounded"
+                                    className={`flex items-center gap-2 text-xs cursor-pointer hover:bg-muted/50 p-1 rounded ${
+                                      emOutroTerritorio && !selecionada ? 'opacity-70' : ''
+                                    }`}
                                     onClick={(e) => e.stopPropagation()}
                                   >
                                     <Checkbox
                                       checked={selecionada}
-                                      onCheckedChange={(checked) => {
-                                        if (checked) {
-                                          setEquipesEditando([...equipesEditando, equipe.id]);
-                                        } else {
-                                          setEquipesEditando(equipesEditando.filter(id => id !== equipe.id));
-                                        }
-                                      }}
+                                      onCheckedChange={(checked) => handleToggleEquipe(equipe, !!checked)}
                                     />
-                                    <span>{equipe.codigo} - {equipe.tecnico}</span>
+                                    <span className="flex-1">{equipe.codigo} - {equipe.tecnico}</span>
+                                    {emOutroTerritorio && !selecionada && (
+                                      <Badge variant="outline" className="text-[10px] px-1 py-0 border-amber-500 text-amber-600">
+                                        {emOutroTerritorio.nome}
+                                      </Badge>
+                                    )}
                                   </label>
                                 );
                               })}
@@ -319,6 +407,42 @@ export default function SelecaoTerritoriosDialog({
           </>
         )}
       </DialogContent>
+
+      {/* Dialog de confirmação para troca de território da equipe */}
+      <AlertDialog 
+        open={confirmacaoTroca?.aberto ?? false} 
+        onOpenChange={(open) => !open && setConfirmacaoTroca(null)}
+      >
+        <AlertDialogContent className="z-[100100]">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              Equipe já vinculada a outro território
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-left">
+              A equipe <strong className="text-foreground">{confirmacaoTroca?.equipeNome}</strong> já está 
+              vinculada ao território <strong className="text-foreground">"{confirmacaoTroca?.territorioAtualNome}"</strong>.
+              <br /><br />
+              Deseja <strong>mover</strong> esta equipe para o território atual?
+              <br />
+              <span className="text-xs text-muted-foreground mt-2 block">
+                A equipe será removida do território "{confirmacaoTroca?.territorioAtualNome}" e adicionada ao território que você está editando.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setConfirmacaoTroca(null)}>
+              Não, manter onde está
+            </AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleConfirmarTrocaTerritorio}
+              className="bg-amber-600 hover:bg-amber-700"
+            >
+              Sim, mover equipe
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

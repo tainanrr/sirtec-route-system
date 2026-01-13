@@ -404,7 +404,7 @@ export default function Checklists() {
           if (vinculosError) {
             console.error("Erro ao salvar vínculos:", vinculosError);
             toast.error("Checklist salvo, mas erro ao salvar vínculos");
-          }
+      }
         }
       }
 

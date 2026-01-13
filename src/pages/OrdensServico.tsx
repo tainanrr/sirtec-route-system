@@ -44,7 +44,11 @@ import {
   Calendar,
   Users,
   RotateCcw,
+  CheckSquare,
+  Square,
+  AlertTriangle,
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { OrdemServicoFormDialog } from "@/components/ordens/OrdemServicoFormDialog";
@@ -65,6 +69,19 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 
 const statusLabels: Record<string, string> = {
   pendente: "Pendente",
@@ -100,8 +117,8 @@ const OrdensServico = () => {
   const { logCriar, logEditar, logExcluir } = useLogSistema();
 
   const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [tipoFilter, setTipoFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [tipoFilter, setTipoFilter] = useState<string[]>([]);
   const [ordens, setOrdens] = useState<OrdemWithTecnico[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -112,23 +129,56 @@ const OrdensServico = () => {
   const [clearAllDialogOpen, setClearAllDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   
-  // Filtros avançados
+  // Estados para seleção de OSs
+  const [selectedOsIds, setSelectedOsIds] = useState<Set<string>>(new Set());
+  const [cancelConfirmText, setCancelConfirmText] = useState("");
+  
+  // Filtros avançados (arrays para multi-seleção)
   const [showFilters, setShowFilters] = useState(false);
   const [execucaoInicio, setExecucaoInicio] = useState("");
   const [execucaoFim, setExecucaoFim] = useState("");
   const [prazoInicio, setPrazoInicio] = useState("");
   const [prazoFim, setPrazoFim] = useState("");
-  const [equipeFilter, setEquipeFilter] = useState<string>("all");
-  const [retornoFilter, setRetornoFilter] = useState<string>("all");
+  const [equipeFilter, setEquipeFilter] = useState<string[]>([]);
+  const [retornoFilter, setRetornoFilter] = useState<string[]>([]);
   const [coordenadasFilter, setCoordenadasFilter] = useState<string>("all");
   const [producaoFilter, setProducaoFilter] = useState<string>("all");
-  const [territorioFilter, setTerritorioFilter] = useState<string>("all");
+  const [territorioFilter, setTerritorioFilter] = useState<string[]>([]);
+  const [centroCustoFilter, setCentroCustoFilter] = useState<string[]>([]);
+  const [coordenadorFilter, setCoordenadorFilter] = useState<string[]>([]);
+  const [supervisorFilter, setSupervisorFilter] = useState<string[]>([]);
+  const [municipioFilter, setMunicipioFilter] = useState<string[]>([]);
+  const [bairroFilter, setBairroFilter] = useState<string[]>([]);
+  
+  // Estados para controlar popovers dos filtros
+  const [statusFilterOpen, setStatusFilterOpen] = useState(false);
+  const [tipoFilterOpen, setTipoFilterOpen] = useState(false);
+  const [equipeFilterOpen, setEquipeFilterOpen] = useState(false);
+  const [retornoFilterOpen, setRetornoFilterOpen] = useState(false);
+  const [territorioFilterOpen, setTerritorioFilterOpen] = useState(false);
+  const [centroCustoFilterOpen, setCentroCustoFilterOpen] = useState(false);
+  const [coordenadorFilterOpen, setCoordenadorFilterOpen] = useState(false);
+  const [supervisorFilterOpen, setSupervisorFilterOpen] = useState(false);
+  const [municipioFilterOpen, setMunicipioFilterOpen] = useState(false);
+  const [bairroFilterOpen, setBairroFilterOpen] = useState(false);
+  
+  // Opções dinâmicas para filtros
+  const [availableMunicipios, setAvailableMunicipios] = useState<string[]>([]);
+  const [availableBairros, setAvailableBairros] = useState<string[]>([]);
+  const [availableStatus, setAvailableStatus] = useState<string[]>([]);
+  const [availableTipos, setAvailableTipos] = useState<string[]>([]);
+  const [availableRetornos, setAvailableRetornos] = useState<string[]>([]);
+  const [availableTerritorios, setAvailableTerritorios] = useState<string[]>([]);
+  const [loadingFilterOptions, setLoadingFilterOptions] = useState(false);
   
   // Dados para filtros
-  const [equipes, setEquipes] = useState<{ id: string; codigo: string; nome: string }[]>([]);
+  const [equipes, setEquipes] = useState<{ id: string; codigo: string; nome: string; supervisor_id?: string; coordenador_id?: string; centro_custo_id?: string }[]>([]);
   const [retornos, setRetornos] = useState<{ id: string; codigo: string; descricao: string; tipo: string }[]>([]);
   const [skills, setSkills] = useState<{ codigo: string; nome: string }[]>([]);
   const [territorios, setTerritorios] = useState<{ id: string; nome: string; cor: string }[]>([]);
+  const [centrosCusto, setCentrosCusto] = useState<{ id: string; codigo: string; nome: string }[]>([]);
+  const [coordenadores, setCoordenadores] = useState<{ id: string; codigo: string; nome: string }[]>([]);
+  const [supervisores, setSupervisores] = useState<{ id: string; codigo: string; nome: string; coordenador_id?: string }[]>([]);
   
   // Paginação e contagem
   const [totalCount, setTotalCount] = useState(0);
@@ -205,14 +255,14 @@ const OrdensServico = () => {
 
   // Aplicar filtros na query do Supabase
   const applyFiltersToQuery = (query: any) => {
-    // Status
-    if (statusFilter !== "all") {
-      query = query.eq("status", statusFilter);
+    // Status (multi-select)
+    if (statusFilter.length > 0) {
+      query = query.in("status", statusFilter);
     }
     
-    // Tipo
-    if (tipoFilter !== "all") {
-      query = query.eq("tipo", tipoFilter);
+    // Tipo (multi-select)
+    if (tipoFilter.length > 0) {
+      query = query.in("tipo", tipoFilter);
     }
     
     // Prazo - início
@@ -242,22 +292,44 @@ const OrdensServico = () => {
       query = query.or("latitude.is.null,longitude.is.null");
     }
     
-    // Retorno de campo
-    if (retornoFilter === "sem_retorno") {
-      query = query.is("retorno_campo_id", null);
-    } else if (retornoFilter !== "all") {
-      query = query.eq("retorno_campo_id", retornoFilter);
+    // Retorno de campo (multi-select)
+    if (retornoFilter.length > 0) {
+      if (retornoFilter.includes("sem_retorno")) {
+        const outrosRetornos = retornoFilter.filter(r => r !== "sem_retorno");
+        if (outrosRetornos.length > 0) {
+          query = query.or(`retorno_campo_id.is.null,retorno_campo_id.in.(${outrosRetornos.join(",")})`);
+        } else {
+          query = query.is("retorno_campo_id", null);
+        }
+      } else {
+        query = query.in("retorno_campo_id", retornoFilter);
+      }
     }
     
-    // Busca textual (aplicada via ilike em múltiplos campos)
+    // Busca textual
     if (debouncedSearchTerm) {
       const term = `%${debouncedSearchTerm}%`;
       query = query.or(`numero.ilike.${term},endereco.ilike.${term},cliente_nome.ilike.${term},cliente_cpf.ilike.${term},instalacao.ilike.${term}`);
     }
     
-    // Território (filtra OSs que contém o território selecionado no array)
-    if (territorioFilter !== "all") {
-      query = query.contains("territorios", [territorioFilter]);
+    // Território (multi-select)
+    if (territorioFilter.length > 0) {
+      query = query.overlaps("territorios", territorioFilter);
+    }
+    
+    // Município (multi-select)
+    if (municipioFilter.length > 0) {
+      query = query.in("municipio", municipioFilter);
+    }
+    
+    // Bairro (multi-select)
+    if (bairroFilter.length > 0) {
+      query = query.in("bairro", bairroFilter);
+    }
+    
+    // Centro de Custos (multi-select) - campo direto na tabela ordens_servico
+    if (centroCustoFilter.length > 0) {
+      query = query.in("centro_custo_id", centroCustoFilter);
     }
     
     return query;
@@ -409,11 +481,53 @@ const OrdensServico = () => {
 
     // Aplicar filtros que dependem de dados relacionados (equipe e produção)
     // Esses filtros são aplicados após o processamento porque dependem de joins
-    const activeEquipeFilter = equipeFilterParam || equipeFilter;
+    const activeEquipeFilter = equipeFilterParam !== undefined ? equipeFilterParam : equipeFilter;
     const activeProducaoFilter = producaoFilterParam || producaoFilter;
     
-    if (activeEquipeFilter !== "all") {
-      ordensComProducao = ordensComProducao.filter(os => os.tecnicos?.codigo === activeEquipeFilter);
+    // Filtro de equipe (multi-select array)
+    if (Array.isArray(activeEquipeFilter) && activeEquipeFilter.length > 0) {
+      ordensComProducao = ordensComProducao.filter(os => 
+        os.tecnicos?.codigo && activeEquipeFilter.includes(os.tecnicos.codigo)
+      );
+    }
+    
+    // Filtro por Coordenador (filtra equipes que têm o coordenador selecionado)
+    if (coordenadorFilter.length > 0) {
+      // Buscar os IDs das equipes que têm os coordenadores selecionados
+      // A relação pode ser direta (coordenador_id) ou via supervisor (supervisor -> coordenador_id)
+      const equipesComCoordenador = equipes.filter(eq => 
+        // Equipe tem coordenador direto selecionado
+        eq.coordenador_id && coordenadorFilter.includes(eq.coordenador_id) ||
+        // Ou equipe tem supervisor que está vinculado a um coordenador selecionado
+        (eq.supervisor_id && supervisores.find(sup => 
+          sup.id === eq.supervisor_id && sup.coordenador_id && coordenadorFilter.includes(sup.coordenador_id)
+        ))
+      ).map(eq => eq.codigo);
+      
+      if (equipesComCoordenador.length > 0) {
+        ordensComProducao = ordensComProducao.filter(os => 
+          os.tecnicos?.codigo && equipesComCoordenador.includes(os.tecnicos.codigo)
+        );
+      } else {
+        // Se nenhuma equipe tem o coordenador, retorna vazio
+        ordensComProducao = [];
+      }
+    }
+    
+    // Filtro por Supervisor (filtra equipes que têm o supervisor selecionado)
+    if (supervisorFilter.length > 0) {
+      const equipesComSupervisor = equipes.filter(eq => 
+        eq.supervisor_id && supervisorFilter.includes(eq.supervisor_id)
+      ).map(eq => eq.codigo);
+      
+      if (equipesComSupervisor.length > 0) {
+        ordensComProducao = ordensComProducao.filter(os => 
+          os.tecnicos?.codigo && equipesComSupervisor.includes(os.tecnicos.codigo)
+        );
+      } else {
+        // Se nenhuma equipe tem o supervisor, retorna vazio
+        ordensComProducao = [];
+      }
     }
     
     if (activeProducaoFilter !== "all") {
@@ -437,17 +551,143 @@ const OrdensServico = () => {
 
   // Buscar dados para os filtros
   const fetchFilterData = async () => {
-    const [equipesRes, retornosRes, skillsRes, territoriosRes] = await Promise.all([
-      supabase.from("tecnicos").select("id, codigo, nome").neq("status", "offline").order("codigo"),
+    const [equipesRes, retornosRes, skillsRes, territoriosRes, centrosCustoRes, coordSupRes] = await Promise.all([
+      supabase.from("tecnicos").select("id, codigo, nome, supervisor_id, coordenador_id, centro_custo_id").neq("status", "offline").order("codigo"),
       supabase.from("retornos_campo").select("id, codigo, descricao, tipo").eq("ativo", true).order("descricao"),
       supabase.from("skills").select("codigo, nome").eq("ativo", true).order("nome"),
       supabase.from("territorios").select("id, nome, cor").eq("ativo", true).order("nome"),
+      supabase.from("centros_custo").select("id, codigo, nome").eq("ativo", true).order("nome"),
+      supabase.from("coordenadores_supervisores").select("id, codigo, nome, tipo, coordenador_id").eq("ativo", true).order("nome"),
     ]);
     
     if (equipesRes.data) setEquipes(equipesRes.data);
     if (retornosRes.data) setRetornos(retornosRes.data);
     if (skillsRes.data) setSkills(skillsRes.data);
     if (territoriosRes.data) setTerritorios(territoriosRes.data);
+    if (centrosCustoRes.data) setCentrosCusto(centrosCustoRes.data);
+    if (coordSupRes.data) {
+      setCoordenadores(coordSupRes.data.filter((cs: any) => cs.tipo === "coordenador"));
+      setSupervisores(coordSupRes.data.filter((cs: any) => cs.tipo === "supervisor"));
+    }
+  };
+
+  // Helper para aplicar filtros básicos
+  const applyBasicFilters = (query: any) => {
+    if (prazoInicio) query = query.gte("prazo", prazoInicio);
+    if (prazoFim) query = query.lte("prazo", prazoFim + "T23:59:59");
+    if (execucaoInicio) query = query.gte("concluido_at", execucaoInicio);
+    if (execucaoFim) query = query.lte("concluido_at", execucaoFim + "T23:59:59");
+    if (coordenadasFilter === "com") query = query.not("latitude", "is", null).not("longitude", "is", null);
+    else if (coordenadasFilter === "sem") query = query.or("latitude.is.null,longitude.is.null");
+    if (debouncedSearchTerm) {
+      const term = `%${debouncedSearchTerm}%`;
+      query = query.or(`numero.ilike.${term},endereco.ilike.${term},cliente_nome.ilike.${term},cliente_cpf.ilike.${term},instalacao.ilike.${term}`);
+    }
+    return query;
+  };
+
+  // Buscar opções dinâmicas para filtros (cada filtro NÃO aplica ele mesmo)
+  const fetchDynamicFilterOptions = async () => {
+    setLoadingFilterOptions(true);
+    try {
+      const QUERY_LIMIT = 50000;
+      
+      // Município (aplica todos EXCETO município)
+      let queryMunicipio = supabase.from("ordens_servico").select("municipio").limit(QUERY_LIMIT);
+      queryMunicipio = applyBasicFilters(queryMunicipio);
+      if (statusFilter.length > 0) queryMunicipio = queryMunicipio.in("status", statusFilter);
+      if (tipoFilter.length > 0) queryMunicipio = queryMunicipio.in("tipo", tipoFilter);
+      if (retornoFilter.length > 0 && !retornoFilter.includes("sem_retorno")) queryMunicipio = queryMunicipio.in("retorno_campo_id", retornoFilter);
+      if (territorioFilter.length > 0) queryMunicipio = queryMunicipio.overlaps("territorios", territorioFilter);
+      
+      // Bairro (aplica todos EXCETO bairro, MAS inclui município)
+      let queryBairro = supabase.from("ordens_servico").select("bairro").limit(QUERY_LIMIT);
+      queryBairro = applyBasicFilters(queryBairro);
+      if (statusFilter.length > 0) queryBairro = queryBairro.in("status", statusFilter);
+      if (tipoFilter.length > 0) queryBairro = queryBairro.in("tipo", tipoFilter);
+      if (retornoFilter.length > 0 && !retornoFilter.includes("sem_retorno")) queryBairro = queryBairro.in("retorno_campo_id", retornoFilter);
+      if (territorioFilter.length > 0) queryBairro = queryBairro.overlaps("territorios", territorioFilter);
+      if (municipioFilter.length > 0) queryBairro = queryBairro.in("municipio", municipioFilter);
+      
+      // Status (aplica todos EXCETO status)
+      let queryStatus = supabase.from("ordens_servico").select("status").limit(QUERY_LIMIT);
+      queryStatus = applyBasicFilters(queryStatus);
+      if (tipoFilter.length > 0) queryStatus = queryStatus.in("tipo", tipoFilter);
+      if (retornoFilter.length > 0 && !retornoFilter.includes("sem_retorno")) queryStatus = queryStatus.in("retorno_campo_id", retornoFilter);
+      if (territorioFilter.length > 0) queryStatus = queryStatus.overlaps("territorios", territorioFilter);
+      if (municipioFilter.length > 0) queryStatus = queryStatus.in("municipio", municipioFilter);
+      if (bairroFilter.length > 0) queryStatus = queryStatus.in("bairro", bairroFilter);
+      
+      // Tipo (aplica todos EXCETO tipo)
+      let queryTipo = supabase.from("ordens_servico").select("tipo").limit(QUERY_LIMIT);
+      queryTipo = applyBasicFilters(queryTipo);
+      if (statusFilter.length > 0) queryTipo = queryTipo.in("status", statusFilter);
+      if (retornoFilter.length > 0 && !retornoFilter.includes("sem_retorno")) queryTipo = queryTipo.in("retorno_campo_id", retornoFilter);
+      if (territorioFilter.length > 0) queryTipo = queryTipo.overlaps("territorios", territorioFilter);
+      if (municipioFilter.length > 0) queryTipo = queryTipo.in("municipio", municipioFilter);
+      if (bairroFilter.length > 0) queryTipo = queryTipo.in("bairro", bairroFilter);
+      
+      // Retorno (aplica todos EXCETO retorno)
+      let queryRetorno = supabase.from("ordens_servico").select("retorno_campo_id").limit(QUERY_LIMIT);
+      queryRetorno = applyBasicFilters(queryRetorno);
+      if (statusFilter.length > 0) queryRetorno = queryRetorno.in("status", statusFilter);
+      if (tipoFilter.length > 0) queryRetorno = queryRetorno.in("tipo", tipoFilter);
+      if (territorioFilter.length > 0) queryRetorno = queryRetorno.overlaps("territorios", territorioFilter);
+      if (municipioFilter.length > 0) queryRetorno = queryRetorno.in("municipio", municipioFilter);
+      if (bairroFilter.length > 0) queryRetorno = queryRetorno.in("bairro", bairroFilter);
+      
+      // Território (aplica todos EXCETO território)
+      let queryTerritorio = supabase.from("ordens_servico").select("territorios").limit(QUERY_LIMIT);
+      queryTerritorio = applyBasicFilters(queryTerritorio);
+      if (statusFilter.length > 0) queryTerritorio = queryTerritorio.in("status", statusFilter);
+      if (tipoFilter.length > 0) queryTerritorio = queryTerritorio.in("tipo", tipoFilter);
+      if (retornoFilter.length > 0 && !retornoFilter.includes("sem_retorno")) queryTerritorio = queryTerritorio.in("retorno_campo_id", retornoFilter);
+      if (municipioFilter.length > 0) queryTerritorio = queryTerritorio.in("municipio", municipioFilter);
+      if (bairroFilter.length > 0) queryTerritorio = queryTerritorio.in("bairro", bairroFilter);
+
+      const [resMunicipio, resBairro, resStatus, resTipo, resRetorno, resTerritorio] = await Promise.all([
+        queryMunicipio, queryBairro, queryStatus, queryTipo, queryRetorno, queryTerritorio
+      ]);
+
+      if (resMunicipio.data) {
+        const set = new Set<string>();
+        resMunicipio.data.forEach((os: any) => { if (os.municipio) set.add(os.municipio); });
+        setAvailableMunicipios(Array.from(set).sort());
+      }
+      if (resBairro.data) {
+        const set = new Set<string>();
+        resBairro.data.forEach((os: any) => { if (os.bairro) set.add(os.bairro); });
+        setAvailableBairros(Array.from(set).sort());
+      }
+      if (resStatus.data) {
+        const set = new Set<string>();
+        resStatus.data.forEach((os: any) => { if (os.status) set.add(os.status); });
+        setAvailableStatus(Array.from(set));
+      }
+      if (resTipo.data) {
+        const set = new Set<string>();
+        resTipo.data.forEach((os: any) => { if (os.tipo) set.add(os.tipo); });
+        setAvailableTipos(Array.from(set));
+      }
+      if (resRetorno.data) {
+        const set = new Set<string>();
+        resRetorno.data.forEach((os: any) => { if (os.retorno_campo_id) set.add(os.retorno_campo_id); });
+        setAvailableRetornos(Array.from(set));
+      }
+      if (resTerritorio.data) {
+        const set = new Set<string>();
+        resTerritorio.data.forEach((os: any) => { 
+          if (os.territorios && Array.isArray(os.territorios)) {
+            os.territorios.forEach((t: string) => set.add(t));
+          }
+        });
+        setAvailableTerritorios(Array.from(set));
+      }
+    } catch (err) {
+      console.error("Erro ao buscar opções de filtros:", err);
+    } finally {
+      setLoadingFilterOptions(false);
+    }
   };
 
   // Estado para controlar debounce do searchTerm
@@ -465,6 +705,7 @@ const OrdensServico = () => {
   // Carregamento inicial e dados para filtros
   useEffect(() => {
     fetchFilterData();
+    fetchDynamicFilterOptions();
   }, []);
   
   // Refazer busca quando filtros mudarem (incluindo debouncedSearchTerm)
@@ -482,38 +723,71 @@ const OrdensServico = () => {
     retornoFilter,
     coordenadasFilter,
     producaoFilter,
-    territorioFilter
+    territorioFilter,
+    centroCustoFilter,
+    coordenadorFilter,
+    supervisorFilter,
+    municipioFilter,
+    bairroFilter
+  ]);
+  
+  // Atualizar opções dinâmicas quando filtros mudarem
+  useEffect(() => {
+    fetchDynamicFilterOptions();
+  }, [
+    debouncedSearchTerm,
+    statusFilter,
+    tipoFilter,
+    execucaoInicio,
+    execucaoFim,
+    prazoInicio,
+    prazoFim,
+    retornoFilter,
+    coordenadasFilter,
+    territorioFilter,
+    municipioFilter,
+    bairroFilter
   ]);
   
   // Limpar filtros
   const clearFilters = () => {
     setSearchTerm("");
-    setStatusFilter("all");
-    setTipoFilter("all");
+    setStatusFilter([]);
+    setTipoFilter([]);
     setExecucaoInicio("");
     setExecucaoFim("");
     setPrazoInicio("");
     setPrazoFim("");
-    setEquipeFilter("all");
-    setRetornoFilter("all");
+    setEquipeFilter([]);
+    setRetornoFilter([]);
     setCoordenadasFilter("all");
     setProducaoFilter("all");
-    setTerritorioFilter("all");
+    setTerritorioFilter([]);
+    setCentroCustoFilter([]);
+    setCoordenadorFilter([]);
+    setSupervisorFilter([]);
+    setMunicipioFilter([]);
+    setBairroFilter([]);
   };
   
   // Contar filtros ativos
   const activeFiltersCount = [
-    statusFilter !== "all",
-    tipoFilter !== "all",
+    statusFilter.length > 0,
+    tipoFilter.length > 0,
     execucaoInicio !== "",
     execucaoFim !== "",
     prazoInicio !== "",
     prazoFim !== "",
-    equipeFilter !== "all",
-    retornoFilter !== "all",
+    equipeFilter.length > 0,
+    retornoFilter.length > 0,
     coordenadasFilter !== "all",
     producaoFilter !== "all",
-    territorioFilter !== "all",
+    territorioFilter.length > 0,
+    centroCustoFilter.length > 0,
+    coordenadorFilter.length > 0,
+    supervisorFilter.length > 0,
+    municipioFilter.length > 0,
+    bairroFilter.length > 0,
   ].filter(Boolean).length;
 
   const handleEdit = (ordem: Tables<"ordens_servico">) => {
@@ -940,6 +1214,63 @@ const OrdensServico = () => {
     return 0;
   });
 
+  // Funções de seleção de OSs
+  const selectAllVisible = () => {
+    const newSelected = new Set(selectedOsIds);
+    sortedOrdens.forEach(os => newSelected.add(os.id));
+    setSelectedOsIds(newSelected);
+  };
+
+  const selectAllFiltered = async () => {
+    // Buscar todos os IDs filtrados (não só os visíveis)
+    let query = supabase.from("ordens_servico").select("id");
+    query = applyFiltersToQuery(query);
+    const { data } = await query;
+    if (data) {
+      const newSelected = new Set(selectedOsIds);
+      data.forEach((os: any) => newSelected.add(os.id));
+      setSelectedOsIds(newSelected);
+      toast.success(`${data.length} OSs selecionadas`);
+    }
+  };
+
+  const clearSelection = () => {
+    setSelectedOsIds(new Set());
+  };
+
+  const toggleOsSelection = (osId: string) => {
+    const newSelected = new Set(selectedOsIds);
+    if (newSelected.has(osId)) {
+      newSelected.delete(osId);
+    } else {
+      newSelected.add(osId);
+    }
+    setSelectedOsIds(newSelected);
+  };
+
+  const isAllVisibleSelected = sortedOrdens.length > 0 && sortedOrdens.every(os => selectedOsIds.has(os.id));
+
+  // Cancelar OSs selecionadas
+  const handleCancelSelectedOs = async () => {
+    if (selectedOsIds.size === 0) return;
+    
+    const { error } = await supabase
+      .from("ordens_servico")
+      .update({ status: "cancelada", atualizado_at: new Date().toISOString() })
+      .in("id", Array.from(selectedOsIds));
+
+    if (error) {
+      toast.error("Erro ao cancelar ordens de serviço");
+      console.error(error);
+    } else {
+      toast.success(`${selectedOsIds.size} ordem(ns) de serviço cancelada(s)`);
+      setSelectedOsIds(new Set());
+      setClearAllDialogOpen(false);
+      setCancelConfirmText("");
+      fetchOrdens(0, false);
+    }
+  };
+
   const getStatusVariant = (status: string) => {
     switch (status) {
       case "concluida": return "success";
@@ -1025,15 +1356,44 @@ const OrdensServico = () => {
                 Geocodificar ({ordensSemCoordenadas.length})
               </Button>
             )}
+            {/* Botões de seleção */}
             <Button 
               variant="outline" 
-              className="gap-2 border-orange-500 text-orange-600 hover:bg-orange-50 hover:text-orange-700" 
-              onClick={() => setClearAllDialogOpen(true)}
-              disabled={!podeEditar}
-              title={!podeEditar ? "Você não tem permissão para cancelar" : undefined}
+              className="gap-2"
+              onClick={selectAllVisible}
+              title="Selecionar todas as OSs visíveis"
             >
-              <X className="h-4 w-4" />
-              Cancelar Todas
+              <CheckSquare className="h-4 w-4" />
+              Sel. Visíveis
+            </Button>
+            <Button 
+              variant="outline" 
+              className="gap-2"
+              onClick={selectAllFiltered}
+              title="Selecionar todas as OSs filtradas (mesmo não visíveis)"
+            >
+              <CheckSquare className="h-4 w-4" />
+              Sel. Filtradas ({totalCount})
+            </Button>
+            {selectedOsIds.size > 0 && (
+              <Button 
+                variant="ghost" 
+                className="gap-2"
+                onClick={clearSelection}
+              >
+                <Square className="h-4 w-4" />
+                Limpar ({selectedOsIds.size})
+              </Button>
+            )}
+            <Button 
+              variant="destructive" 
+              className="gap-2" 
+              onClick={() => setClearAllDialogOpen(true)}
+              disabled={!podeEditar || selectedOsIds.size === 0}
+              title={!podeEditar ? "Você não tem permissão para cancelar" : selectedOsIds.size === 0 ? "Selecione OSs para cancelar" : `Cancelar ${selectedOsIds.size} OS(s) selecionada(s)`}
+            >
+              <AlertTriangle className="h-4 w-4" />
+              Cancelar Selecionadas ({selectedOsIds.size})
             </Button>
             <Button 
               className="gap-2" 
@@ -1051,78 +1411,207 @@ const OrdensServico = () => {
         {showFilters && (
           <div className="mt-4 pt-4 border-t border-border">
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
-              {/* Status */}
+              {/* Status - Multi-select */}
               <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">Status</label>
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="h-9">
-                    <SelectValue placeholder="Todos" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos Status</SelectItem>
-                    {Object.entries(statusLabels).map(([key, label]) => (
-                      <SelectItem key={key} value={key}>{label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover open={statusFilterOpen} onOpenChange={setStatusFilterOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="h-9 w-full justify-between text-left font-normal">
+                      {statusFilter.length === 0 ? (
+                        <span className="text-muted-foreground">Todos</span>
+                      ) : statusFilter.length === 1 ? (
+                        statusLabels[statusFilter[0]] || statusFilter[0]
+                      ) : (
+                        `${statusFilter.length} selecionados`
+                      )}
+                      <ChevronDown className="h-4 w-4 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[200px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Buscar status..." />
+                      <CommandList>
+                        <CommandEmpty>Nenhum status encontrado.</CommandEmpty>
+                        <CommandGroup>
+                          <CommandItem onSelect={() => setStatusFilter([])}>
+                            <span className="text-muted-foreground">Limpar seleção</span>
+                          </CommandItem>
+                          {Object.entries(statusLabels).filter(([key]) => availableStatus.length === 0 || availableStatus.includes(key)).map(([key, label]) => {
+                            const isSelected = statusFilter.includes(key);
+                            return (
+                              <CommandItem key={key} onSelect={() => {
+                                if (isSelected) {
+                                  setStatusFilter(statusFilter.filter(s => s !== key));
+                                } else {
+                                  setStatusFilter([...statusFilter, key]);
+                                }
+                              }}>
+                                <Checkbox checked={isSelected} className="mr-2" />
+                                {label}
+                              </CommandItem>
+                            );
+                          })}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
 
-              {/* Tipo de Serviço */}
+              {/* Tipo de Serviço - Multi-select */}
               <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">Tipo de Serviço</label>
-                <Select value={tipoFilter} onValueChange={setTipoFilter}>
-                  <SelectTrigger className="h-9">
-                    <SelectValue placeholder="Todos" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos Tipos</SelectItem>
-                    {skills.map((skill) => (
-                      <SelectItem key={skill.codigo} value={skill.codigo.toLowerCase()}>
-                        {skill.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover open={tipoFilterOpen} onOpenChange={setTipoFilterOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="h-9 w-full justify-between text-left font-normal">
+                      {tipoFilter.length === 0 ? (
+                        <span className="text-muted-foreground">Todos</span>
+                      ) : tipoFilter.length === 1 ? (
+                        skills.find(s => s.codigo.toLowerCase() === tipoFilter[0])?.nome || tipoFilter[0]
+                      ) : (
+                        `${tipoFilter.length} selecionados`
+                      )}
+                      <ChevronDown className="h-4 w-4 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[250px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Buscar tipo..." />
+                      <CommandList>
+                        <CommandEmpty>Nenhum tipo encontrado.</CommandEmpty>
+                        <CommandGroup>
+                          <CommandItem onSelect={() => setTipoFilter([])}>
+                            <span className="text-muted-foreground">Limpar seleção</span>
+                          </CommandItem>
+                          {skills.filter(skill => availableTipos.length === 0 || availableTipos.includes(skill.codigo.toLowerCase())).map((skill) => {
+                            const isSelected = tipoFilter.includes(skill.codigo.toLowerCase());
+                            return (
+                              <CommandItem key={skill.codigo} onSelect={() => {
+                                const val = skill.codigo.toLowerCase();
+                                if (isSelected) {
+                                  setTipoFilter(tipoFilter.filter(t => t !== val));
+                                } else {
+                                  setTipoFilter([...tipoFilter, val]);
+                                }
+                              }}>
+                                <Checkbox checked={isSelected} className="mr-2" />
+                                {skill.nome}
+                              </CommandItem>
+                            );
+                          })}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
 
-              {/* Equipe */}
+              {/* Equipe - Multi-select */}
               <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                   <Users className="h-3 w-3" />
                   Equipe
                 </label>
-                <Select value={equipeFilter} onValueChange={setEquipeFilter}>
-                  <SelectTrigger className="h-9">
-                    <SelectValue placeholder="Todas" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todas Equipes</SelectItem>
-                    {equipes.map((equipe) => (
-                      <SelectItem key={equipe.id} value={equipe.codigo}>
-                        {equipe.codigo} - {equipe.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover open={equipeFilterOpen} onOpenChange={setEquipeFilterOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="h-9 w-full justify-between text-left font-normal">
+                      {equipeFilter.length === 0 ? (
+                        <span className="text-muted-foreground">Todas</span>
+                      ) : equipeFilter.length === 1 ? (
+                        equipes.find(e => e.codigo === equipeFilter[0])?.codigo || equipeFilter[0]
+                      ) : (
+                        `${equipeFilter.length} selecionadas`
+                      )}
+                      <ChevronDown className="h-4 w-4 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[250px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Buscar equipe..." />
+                      <CommandList>
+                        <CommandEmpty>Nenhuma equipe encontrada.</CommandEmpty>
+                        <CommandGroup>
+                          <CommandItem onSelect={() => setEquipeFilter([])}>
+                            <span className="text-muted-foreground">Limpar seleção</span>
+                          </CommandItem>
+                          {equipes.map((equipe) => {
+                            const isSelected = equipeFilter.includes(equipe.codigo);
+                            return (
+                              <CommandItem key={equipe.id} onSelect={() => {
+                                if (isSelected) {
+                                  setEquipeFilter(equipeFilter.filter(e => e !== equipe.codigo));
+                                } else {
+                                  setEquipeFilter([...equipeFilter, equipe.codigo]);
+                                }
+                              }}>
+                                <Checkbox checked={isSelected} className="mr-2" />
+                                {equipe.codigo} - {equipe.nome}
+                              </CommandItem>
+                            );
+                          })}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
 
-              {/* Retorno de Campo */}
+              {/* Retorno de Campo - Multi-select */}
               <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">Retorno de Campo</label>
-                <Select value={retornoFilter} onValueChange={setRetornoFilter}>
-                  <SelectTrigger className="h-9">
-                    <SelectValue placeholder="Todos" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos Retornos</SelectItem>
-                    <SelectItem value="sem_retorno">Sem Retorno</SelectItem>
-                    {retornos.map((retorno) => (
-                      <SelectItem key={retorno.id} value={retorno.id}>
-                        {retorno.descricao}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover open={retornoFilterOpen} onOpenChange={setRetornoFilterOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="h-9 w-full justify-between text-left font-normal">
+                      {retornoFilter.length === 0 ? (
+                        <span className="text-muted-foreground">Todos</span>
+                      ) : retornoFilter.length === 1 ? (
+                        retornoFilter[0] === "sem_retorno" ? "Sem Retorno" : 
+                        retornos.find(r => r.id === retornoFilter[0])?.descricao || retornoFilter[0]
+                      ) : (
+                        `${retornoFilter.length} selecionados`
+                      )}
+                      <ChevronDown className="h-4 w-4 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[250px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Buscar retorno..." />
+                      <CommandList>
+                        <CommandEmpty>Nenhum retorno encontrado.</CommandEmpty>
+                        <CommandGroup>
+                          <CommandItem onSelect={() => setRetornoFilter([])}>
+                            <span className="text-muted-foreground">Limpar seleção</span>
+                          </CommandItem>
+                          <CommandItem onSelect={() => {
+                            if (retornoFilter.includes("sem_retorno")) {
+                              setRetornoFilter(retornoFilter.filter(r => r !== "sem_retorno"));
+                            } else {
+                              setRetornoFilter([...retornoFilter, "sem_retorno"]);
+                            }
+                          }}>
+                            <Checkbox checked={retornoFilter.includes("sem_retorno")} className="mr-2" />
+                            Sem Retorno
+                          </CommandItem>
+                          {retornos.filter(ret => availableRetornos.length === 0 || availableRetornos.includes(ret.id)).map((retorno) => {
+                            const isSelected = retornoFilter.includes(retorno.id);
+                            return (
+                              <CommandItem key={retorno.id} onSelect={() => {
+                                if (isSelected) {
+                                  setRetornoFilter(retornoFilter.filter(r => r !== retorno.id));
+                                } else {
+                                  setRetornoFilter([...retornoFilter, retorno.id]);
+                                }
+                              }}>
+                                <Checkbox checked={isSelected} className="mr-2" />
+                                {retorno.descricao}
+                              </CommandItem>
+                            );
+                          })}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
 
               {/* Coordenadas */}
@@ -1136,7 +1625,7 @@ const OrdensServico = () => {
                     <SelectValue placeholder="Todas" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Todas</SelectItem>
+                    <SelectItem value="all"><span className="text-muted-foreground">Todas</span></SelectItem>
                     <SelectItem value="com">Com Coordenadas</SelectItem>
                     <SelectItem value="sem">Sem Coordenadas</SelectItem>
                   </SelectContent>
@@ -1151,35 +1640,294 @@ const OrdensServico = () => {
                     <SelectValue placeholder="Todas" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Todas</SelectItem>
+                    <SelectItem value="all"><span className="text-muted-foreground">Todas</span></SelectItem>
                     <SelectItem value="com">Com Produção</SelectItem>
                     <SelectItem value="sem">Sem Produção</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              {/* Território */}
+              {/* Território - Multi-select */}
               <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">Território</label>
-                <Select value={territorioFilter} onValueChange={setTerritorioFilter}>
-                  <SelectTrigger className="h-9">
-                    <SelectValue placeholder="Todos" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos Territórios</SelectItem>
-                    {territorios.map((territorio) => (
-                      <SelectItem key={territorio.id} value={territorio.id}>
-                        <div className="flex items-center gap-2">
-                          <span 
-                            className="w-3 h-3 rounded-full" 
-                            style={{ backgroundColor: territorio.cor }}
-                          />
-                          {territorio.nome}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover open={territorioFilterOpen} onOpenChange={setTerritorioFilterOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="h-9 w-full justify-between text-left font-normal">
+                      {territorioFilter.length === 0 ? (
+                        <span className="text-muted-foreground">Todos</span>
+                      ) : territorioFilter.length === 1 ? (
+                        territorios.find(t => t.id === territorioFilter[0])?.nome || territorioFilter[0]
+                      ) : (
+                        `${territorioFilter.length} selecionados`
+                      )}
+                      <ChevronDown className="h-4 w-4 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[250px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Buscar território..." />
+                      <CommandList>
+                        <CommandEmpty>Nenhum território encontrado.</CommandEmpty>
+                        <CommandGroup>
+                          <CommandItem onSelect={() => setTerritorioFilter([])}>
+                            <span className="text-muted-foreground">Limpar seleção</span>
+                          </CommandItem>
+                          {territorios.filter(ter => availableTerritorios.length === 0 || availableTerritorios.includes(ter.id)).map((territorio) => {
+                            const isSelected = territorioFilter.includes(territorio.id);
+                            return (
+                              <CommandItem key={territorio.id} onSelect={() => {
+                                if (isSelected) {
+                                  setTerritorioFilter(territorioFilter.filter(t => t !== territorio.id));
+                                } else {
+                                  setTerritorioFilter([...territorioFilter, territorio.id]);
+                                }
+                              }}>
+                                <Checkbox checked={isSelected} className="mr-2" />
+                                <span className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: territorio.cor }} />
+                                {territorio.nome}
+                              </CommandItem>
+                            );
+                          })}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Município - Multi-select */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Município</label>
+                <Popover open={municipioFilterOpen} onOpenChange={setMunicipioFilterOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="h-9 w-full justify-between text-left font-normal">
+                      {municipioFilter.length === 0 ? (
+                        <span className="text-muted-foreground">Todos</span>
+                      ) : municipioFilter.length === 1 ? (
+                        municipioFilter[0]
+                      ) : (
+                        `${municipioFilter.length} selecionados`
+                      )}
+                      <ChevronDown className="h-4 w-4 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[250px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Buscar município..." />
+                      <CommandList>
+                        <CommandEmpty>Nenhum município encontrado.</CommandEmpty>
+                        <CommandGroup>
+                          <CommandItem onSelect={() => setMunicipioFilter([])}>
+                            <span className="text-muted-foreground">Limpar seleção</span>
+                          </CommandItem>
+                          {availableMunicipios.map((municipio) => {
+                            const isSelected = municipioFilter.includes(municipio);
+                            return (
+                              <CommandItem key={municipio} onSelect={() => {
+                                if (isSelected) {
+                                  setMunicipioFilter(municipioFilter.filter(m => m !== municipio));
+                                } else {
+                                  setMunicipioFilter([...municipioFilter, municipio]);
+                                }
+                              }}>
+                                <Checkbox checked={isSelected} className="mr-2" />
+                                {municipio}
+                              </CommandItem>
+                            );
+                          })}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Bairro - Multi-select */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Bairro</label>
+                <Popover open={bairroFilterOpen} onOpenChange={setBairroFilterOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="h-9 w-full justify-between text-left font-normal">
+                      {bairroFilter.length === 0 ? (
+                        <span className="text-muted-foreground">Todos</span>
+                      ) : bairroFilter.length === 1 ? (
+                        bairroFilter[0]
+                      ) : (
+                        `${bairroFilter.length} selecionados`
+                      )}
+                      <ChevronDown className="h-4 w-4 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[250px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Buscar bairro..." />
+                      <CommandList>
+                        <CommandEmpty>Nenhum bairro encontrado.</CommandEmpty>
+                        <CommandGroup>
+                          <CommandItem onSelect={() => setBairroFilter([])}>
+                            <span className="text-muted-foreground">Limpar seleção</span>
+                          </CommandItem>
+                          {availableBairros.map((bairro) => {
+                            const isSelected = bairroFilter.includes(bairro);
+                            return (
+                              <CommandItem key={bairro} onSelect={() => {
+                                if (isSelected) {
+                                  setBairroFilter(bairroFilter.filter(b => b !== bairro));
+                                } else {
+                                  setBairroFilter([...bairroFilter, bairro]);
+                                }
+                              }}>
+                                <Checkbox checked={isSelected} className="mr-2" />
+                                {bairro}
+                              </CommandItem>
+                            );
+                          })}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Centro de Custos - Multi-select */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Centro de Custos</label>
+                <Popover open={centroCustoFilterOpen} onOpenChange={setCentroCustoFilterOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="h-9 w-full justify-between text-left font-normal">
+                      {centroCustoFilter.length === 0 ? (
+                        <span className="text-muted-foreground">Todos</span>
+                      ) : centroCustoFilter.length === 1 ? (
+                        centrosCusto.find(cc => cc.id === centroCustoFilter[0])?.nome || centroCustoFilter[0]
+                      ) : (
+                        `${centroCustoFilter.length} selecionados`
+                      )}
+                      <ChevronDown className="h-4 w-4 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[250px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Buscar centro de custos..." />
+                      <CommandList>
+                        <CommandEmpty>Nenhum centro de custos encontrado.</CommandEmpty>
+                        <CommandGroup>
+                          <CommandItem onSelect={() => setCentroCustoFilter([])}>
+                            <span className="text-muted-foreground">Limpar seleção</span>
+                          </CommandItem>
+                          {centrosCusto.map((cc) => {
+                            const isSelected = centroCustoFilter.includes(cc.id);
+                            return (
+                              <CommandItem key={cc.id} onSelect={() => {
+                                if (isSelected) {
+                                  setCentroCustoFilter(centroCustoFilter.filter(c => c !== cc.id));
+                                } else {
+                                  setCentroCustoFilter([...centroCustoFilter, cc.id]);
+                                }
+                              }}>
+                                <Checkbox checked={isSelected} className="mr-2" />
+                                {cc.codigo} - {cc.nome}
+                              </CommandItem>
+                            );
+                          })}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Coordenador - Multi-select */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Coordenador</label>
+                <Popover open={coordenadorFilterOpen} onOpenChange={setCoordenadorFilterOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="h-9 w-full justify-between text-left font-normal">
+                      {coordenadorFilter.length === 0 ? (
+                        <span className="text-muted-foreground">Todos</span>
+                      ) : coordenadorFilter.length === 1 ? (
+                        coordenadores.find(c => c.id === coordenadorFilter[0])?.nome || coordenadorFilter[0]
+                      ) : (
+                        `${coordenadorFilter.length} selecionados`
+                      )}
+                      <ChevronDown className="h-4 w-4 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[250px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Buscar coordenador..." />
+                      <CommandList>
+                        <CommandEmpty>Nenhum coordenador encontrado.</CommandEmpty>
+                        <CommandGroup>
+                          <CommandItem onSelect={() => setCoordenadorFilter([])}>
+                            <span className="text-muted-foreground">Limpar seleção</span>
+                          </CommandItem>
+                          {coordenadores.map((coord) => {
+                            const isSelected = coordenadorFilter.includes(coord.id);
+                            return (
+                              <CommandItem key={coord.id} onSelect={() => {
+                                if (isSelected) {
+                                  setCoordenadorFilter(coordenadorFilter.filter(c => c !== coord.id));
+                                } else {
+                                  setCoordenadorFilter([...coordenadorFilter, coord.id]);
+                                }
+                              }}>
+                                <Checkbox checked={isSelected} className="mr-2" />
+                                {coord.nome}
+                              </CommandItem>
+                            );
+                          })}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Supervisor - Multi-select */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Supervisor</label>
+                <Popover open={supervisorFilterOpen} onOpenChange={setSupervisorFilterOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="h-9 w-full justify-between text-left font-normal">
+                      {supervisorFilter.length === 0 ? (
+                        <span className="text-muted-foreground">Todos</span>
+                      ) : supervisorFilter.length === 1 ? (
+                        supervisores.find(s => s.id === supervisorFilter[0])?.nome || supervisorFilter[0]
+                      ) : (
+                        `${supervisorFilter.length} selecionados`
+                      )}
+                      <ChevronDown className="h-4 w-4 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[250px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Buscar supervisor..." />
+                      <CommandList>
+                        <CommandEmpty>Nenhum supervisor encontrado.</CommandEmpty>
+                        <CommandGroup>
+                          <CommandItem onSelect={() => setSupervisorFilter([])}>
+                            <span className="text-muted-foreground">Limpar seleção</span>
+                          </CommandItem>
+                          {supervisores.map((sup) => {
+                            const isSelected = supervisorFilter.includes(sup.id);
+                            return (
+                              <CommandItem key={sup.id} onSelect={() => {
+                                if (isSelected) {
+                                  setSupervisorFilter(supervisorFilter.filter(s => s !== sup.id));
+                                } else {
+                                  setSupervisorFilter([...supervisorFilter, sup.id]);
+                                }
+                              }}>
+                                <Checkbox checked={isSelected} className="mr-2" />
+                                {sup.nome}
+                              </CommandItem>
+                            );
+                          })}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
 
@@ -1246,6 +1994,11 @@ const OrdensServico = () => {
                 ({activeFiltersCount} filtro{activeFiltersCount > 1 ? "s" : ""} ativo{activeFiltersCount > 1 ? "s" : ""})
               </span>
             )}
+            {selectedOsIds.size > 0 && (
+              <span className="ml-2 text-blue-600 font-medium">
+                • {selectedOsIds.size} OS(s) selecionada(s)
+              </span>
+            )}
             {ordensSemCoordenadas.length > 0 && !geocodingInProgress && (
               <span className="ml-2 text-orange-500">
                 • {ordensSemCoordenadas.length} OS(s) sem coordenadas
@@ -1309,6 +2062,20 @@ const OrdensServico = () => {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/50">
+                <TableHead className="w-[50px]">
+                  <Checkbox 
+                    checked={isAllVisibleSelected}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        selectAllVisible();
+                      } else {
+                        // Desmarcar apenas as visíveis
+                        const visibleIds = new Set(sortedOrdens.map(os => os.id));
+                        setSelectedOsIds(new Set([...selectedOsIds].filter(id => !visibleIds.has(id))));
+                      }
+                    }}
+                  />
+                </TableHead>
                 <SortableHeader column="codigo" className="w-[150px]">Código</SortableHeader>
                 <SortableHeader column="numero" className="w-[120px]">Número OS</SortableHeader>
                 <SortableHeader column="tipo">Tipo</SortableHeader>
@@ -1325,7 +2092,16 @@ const OrdensServico = () => {
             </TableHeader>
             <TableBody>
               {sortedOrdens.map((os) => (
-                <TableRow key={os.id} className="hover:bg-muted/50 transition-colors">
+                <TableRow 
+                  key={os.id} 
+                  className={`hover:bg-muted/50 transition-colors ${selectedOsIds.has(os.id) ? "bg-blue-50 dark:bg-blue-950/30" : ""}`}
+                >
+                  <TableCell>
+                    <Checkbox 
+                      checked={selectedOsIds.has(os.id)}
+                      onCheckedChange={() => toggleOsSelection(os.id)}
+                    />
+                  </TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">
                     {(os as any).codigo || "-"}
                   </TableCell>
@@ -1503,23 +2279,53 @@ const OrdensServico = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={clearAllDialogOpen} onOpenChange={setClearAllDialogOpen}>
-        <AlertDialogContent>
+      <AlertDialog open={clearAllDialogOpen} onOpenChange={(open) => {
+        setClearAllDialogOpen(open);
+        if (!open) setCancelConfirmText("");
+      }}>
+        <AlertDialogContent className="max-w-md">
           <AlertDialogHeader>
-            <AlertDialogTitle>Cancelar todas as ordens de serviço</AlertDialogTitle>
-            <AlertDialogDescription>
-              Tem certeza que deseja cancelar TODAS as {ordens.filter(o => o.status !== "cancelada").length} ordem(ns) de serviço ativas?
-              <br /><br />
-              <span className="text-muted-foreground">
-                As ordens canceladas ficarão no histórico mas não aparecerão para roteirização.
-              </span>
+            <AlertDialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" />
+              Cancelar ordens de serviço selecionadas
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-4">
+                <p className="text-base">
+                  Você está prestes a cancelar <strong className="text-red-600">{selectedOsIds.size}</strong> ordem(ns) de serviço.
+                </p>
+                <div className="p-3 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg">
+                  <p className="text-sm text-red-700 dark:text-red-300 font-medium">
+                    ⚠️ ATENÇÃO: Esta ação NÃO pode ser desfeita!
+                  </p>
+                  <p className="text-xs text-red-600 dark:text-red-400 mt-1">
+                    As ordens canceladas permanecerão no histórico mas não estarão disponíveis para roteirização.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">
+                    Para confirmar, digite <strong className="text-red-600">CONFIRMAR</strong> abaixo:
+                  </label>
+                  <Input
+                    value={cancelConfirmText}
+                    onChange={(e) => setCancelConfirmText(e.target.value)}
+                    placeholder="Digite CONFIRMAR"
+                    className="border-red-300 focus:border-red-500"
+                  />
+                </div>
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Voltar</AlertDialogCancel>
-            <AlertDialogAction onClick={handleCancelAll} className="bg-orange-600 text-white hover:bg-orange-700">
-              Cancelar Todas
-            </AlertDialogAction>
+            <Button
+              variant="destructive"
+              onClick={handleCancelSelectedOs}
+              disabled={cancelConfirmText !== "CONFIRMAR"}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              Confirmar Cancelamento
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
