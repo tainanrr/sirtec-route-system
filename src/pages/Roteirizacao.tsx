@@ -114,20 +114,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Wifi, WifiOff, CheckCircle2, XCircle, Ban } from "lucide-react";
-
-// Interface para OSs pendentes de remoção
-interface OsPendenteRemocao {
-  id: string;
-  ordem_servico_id: string;
-  os_numero: string;
-  status: string;
-  solicitado_at: string;
-  equipe_id: string;
-  planejamento_id: string;
-  confirmado_at?: string;
-  confirmado_status_app?: string;
-  motivo_cancelamento?: string;
-}
 import {
   Command,
   CommandEmpty,
@@ -244,6 +230,20 @@ function getStatusBadgeInfo(status: string | undefined, retornoGrupo?: string | 
     default:
       return null;
   }
+}
+
+// Interface para OSs pendentes de remoção
+interface OsPendenteRemocao {
+  id: string;
+  ordem_servico_id: string;
+  os_numero: string;
+  status: string;
+  solicitado_at: string;
+  equipe_id: string;
+  planejamento_id: string;
+  confirmado_at?: string;
+  confirmado_status_app?: string;
+  motivo_cancelamento?: string;
 }
 
 const Roteirizacao = () => {
