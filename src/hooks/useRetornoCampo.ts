@@ -242,7 +242,11 @@ export function useRetornoCampo() {
 
         // Usar valor_total se existir (já considera fator_k), senão valor_unitario
         const valor = data?.valor_total || data?.valor_unitario || 0;
-        console.log(`[useRetornoCampo] Precificação encontrada para ${codigoAtividade}: R$${valor}`);
+        if (valor > 0) {
+          console.log(`[useRetornoCampo] ✅ Precificação encontrada para ${codigoAtividade} no contrato ${contratoId}: R$${valor}`);
+        } else {
+          console.warn(`[useRetornoCampo] ⚠️ Precificação não encontrada ou valor zerado para ${codigoAtividade} no contrato ${contratoId}`);
+        }
         return Number(valor);
       } catch (error) {
         console.error(`[useRetornoCampo] Erro ao buscar precificação:`, error);
@@ -371,11 +375,15 @@ export function useRetornoCampo() {
 
         for (const atv of retorno.atividades) {
           let valorUnit = atv.atividade.valor_unitario || 0;
+          console.log(`[useRetornoCampo] 🔍 Processando atividade ${atv.atividade.codigo}: valor_unitario inicial = R$${valorUnit}, contratoId = ${contratoId}`);
           
           // Se não tem valor na atividade, tentar buscar na precificação do contrato
           if (valorUnit === 0 && contratoId) {
+            console.log(`[useRetornoCampo] 🔎 Buscando precificação para ${atv.atividade.codigo} no contrato ${contratoId}...`);
             valorUnit = await buscarValorPrecificacao(atv.atividade.codigo, contratoId);
-            console.log(`[useRetornoCampo] Valor buscado da precificação para ${atv.atividade.codigo}: R$${valorUnit}`);
+            console.log(`[useRetornoCampo] ✅ Valor buscado da precificação para ${atv.atividade.codigo}: R$${valorUnit}`);
+          } else if (valorUnit === 0 && !contratoId) {
+            console.warn(`[useRetornoCampo] ⚠️ Atividade ${atv.atividade.codigo} sem valor_unitario e sem contrato_id na OS`);
           }
           
           // Se ainda não tem valor e não tem contrato, logar aviso (mas não bloquear)
@@ -384,7 +392,7 @@ export function useRetornoCampo() {
           }
           
           const subtotal = valorUnit * atv.quantidade;
-          console.log(`[useRetornoCampo] Atividade ${atv.atividade.codigo}: ${atv.quantidade} x R$${valorUnit} = R$${subtotal}`);
+          console.log(`[useRetornoCampo] 💰 Atividade ${atv.atividade.codigo}: ${atv.quantidade} x R$${valorUnit} = R$${subtotal}`);
           valorTotal += subtotal;
 
           // Atualizar atividade com valor encontrado
