@@ -42,6 +42,7 @@ import {
   Timer,
   Zap,
 } from "lucide-react";
+import * as LucideIcons from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -99,6 +100,7 @@ interface TipoIntervalo {
   tempo_minutos: number;
   tipo: "padrao" | "nao_padrao";
   cor: string | null;
+  icone: string | null;
 }
 
 interface IntervaloAtivo {
@@ -1002,7 +1004,10 @@ export default function AppHome() {
                   Exceção
                 </p>
                 <div className="grid grid-cols-3 gap-1.5">
-                  {intervalosNaoPadrao.map(tipo => (
+                  {intervalosNaoPadrao.map(tipo => {
+                    const IconName = tipo.icone || "Wrench";
+                    const IconComponent = (LucideIcons as any)[IconName] || Wrench;
+                    return (
                     <button
                       key={tipo.id}
                       onClick={() => setSelectedIntervalo(tipo.id)}
@@ -1019,11 +1024,12 @@ export default function AppHome() {
                           selectedIntervalo === tipo.id ? "bg-white/20" : "bg-orange-100"
                         )}
                       >
-                        <Wrench className="h-3.5 w-3.5" style={{ color: selectedIntervalo === tipo.id ? "white" : (tipo.cor || "#ea580c") }} />
+                        <IconComponent className="h-3.5 w-3.5" style={{ color: selectedIntervalo === tipo.id ? "white" : (tipo.cor || "#ea580c") }} />
                       </div>
                       <p className="text-[10px] font-medium leading-tight">{tipo.nome}</p>
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}

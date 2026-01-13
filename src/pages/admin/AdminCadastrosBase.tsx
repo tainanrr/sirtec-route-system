@@ -123,6 +123,7 @@ interface TipoIntervalo {
   tempo_minutos: number;
   tipo: "padrao" | "nao_padrao";
   cor: string | null;
+  icone: string | null;
   ativo: boolean;
   created_at: string;
 }
@@ -210,6 +211,7 @@ export default function AdminCadastrosBase() {
     tempo_minutos: "",
     tipo: "padrao" as "padrao" | "nao_padrao",
     cor: "#3B82F6",
+    icone: "",
     ativo: true,
   });
 
@@ -423,6 +425,7 @@ export default function AdminCadastrosBase() {
         tempo_minutos: "",
         tipo: "padrao" as "padrao" | "nao_padrao",
         cor: "#3B82F6",
+        icone: "",
         ativo: true,
       });
     } else if (type === "centro-custo") {
@@ -464,6 +467,7 @@ export default function AdminCadastrosBase() {
         tempo_minutos: item.tempo_minutos?.toString() || "",
         tipo: item.tipo || "padrao",
         cor: item.cor || "#3B82F6",
+        icone: item.icone || "",
         ativo: item.ativo,
       });
     } else if (type === "centro-custo") {
@@ -519,6 +523,7 @@ export default function AdminCadastrosBase() {
           tempo_minutos: parseInt(tipoIntervaloForm.tempo_minutos) || 0,
           tipo: tipoIntervaloForm.tipo,
           cor: tipoIntervaloForm.cor || null,
+          icone: tipoIntervaloForm.icone || null,
           ativo: tipoIntervaloForm.ativo,
         };
       } else if (currentFormType === "centro-custo") {
@@ -1000,6 +1005,7 @@ export default function AdminCadastrosBase() {
                 <TableRow>
                   <SortableTableHead column="codigo" label="Código" sortConfig={intervaloSortConfig} onSort={handleIntervaloSort} />
                   <SortableTableHead column="nome" label="Nome" sortConfig={intervaloSortConfig} onSort={handleIntervaloSort} />
+                  <TableHead>Ícone</TableHead>
                   <SortableTableHead column="tipo" label="Tipo" sortConfig={intervaloSortConfig} onSort={handleIntervaloSort} />
                   <SortableTableHead column="tempo_minutos" label="Tempo" sortConfig={intervaloSortConfig} onSort={handleIntervaloSort} />
                   <TableHead>Cor</TableHead>
@@ -1010,13 +1016,13 @@ export default function AdminCadastrosBase() {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8">
+                    <TableCell colSpan={8} className="text-center py-8">
                       <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
                     </TableCell>
                   </TableRow>
                 ) : sortedTiposIntervalo?.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8">
+                    <TableCell colSpan={8} className="text-center py-8">
                       <Clock className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                       <p className="text-muted-foreground">
                         {hasActiveFilters ? "Nenhum resultado" : "Nenhum intervalo cadastrado"}
@@ -1024,10 +1030,19 @@ export default function AdminCadastrosBase() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  sortedTiposIntervalo?.map((item) => (
+                  sortedTiposIntervalo?.map((item) => {
+                    const IconComponent = item.icone ? (LucideIcons as any)[item.icone] : Clock;
+                    return (
                     <TableRow key={item.id} className="group">
                       <TableCell className="font-mono">{item.codigo}</TableCell>
                       <TableCell className="font-medium">{item.nome}</TableCell>
+                      <TableCell>
+                        {IconComponent && (
+                          <div className="flex items-center justify-center">
+                            <IconComponent className="h-5 w-5" style={{ color: item.cor || "#3B82F6" }} />
+                          </div>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <Badge variant={item.tipo === "padrao" ? "default" : "outline"} className={item.tipo === "padrao" ? "bg-green-100 text-green-700 border-green-300" : "bg-amber-100 text-amber-700 border-amber-300"}>
                           {item.tipo === "padrao" ? (
@@ -1357,6 +1372,37 @@ export default function AdminCadastrosBase() {
                       ? "Intervalos esperados na rotina (ex: Almoço, Lanche)"
                       : "Intervalos de exceção (ex: Oficina, Chuva, Manutenção)"}
                   </p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Ícone *</Label>
+                  <Select
+                    value={tipoIntervaloForm.icone || "Coffee"}
+                    onValueChange={(v) => setTipoIntervaloForm({ ...tipoIntervaloForm, icone: v === "none" ? "" : v })}
+                  >
+                    <SelectTrigger><SelectValue placeholder="Selecione um ícone" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Coffee">☕ Coffee (Café/Almoço)</SelectItem>
+                      <SelectItem value="UtensilsCrossed">🍴 UtensilsCrossed (Refeição)</SelectItem>
+                      <SelectItem value="Clock">🕐 Clock (Relógio/Tempo)</SelectItem>
+                      <SelectItem value="Wrench">🔧 Wrench (Ferramenta/Manutenção)</SelectItem>
+                      <SelectItem value="Droplet">💧 Droplet (Chuva/Água)</SelectItem>
+                      <SelectItem value="CloudRain">🌧️ CloudRain (Chuva)</SelectItem>
+                      <SelectItem value="Car">🚗 Car (Veículo)</SelectItem>
+                      <SelectItem value="Shield">🛡️ Shield (Proteção)</SelectItem>
+                      <SelectItem value="Home">🏠 Home (Casa)</SelectItem>
+                      <SelectItem value="Building">🏢 Building (Prédio)</SelectItem>
+                      <SelectItem value="Users">👥 Users (Pessoas)</SelectItem>
+                      <SelectItem value="Phone">📞 Phone (Telefone)</SelectItem>
+                      <SelectItem value="Calendar">📅 Calendar (Calendário)</SelectItem>
+                      <SelectItem value="Bell">🔔 Bell (Alerta)</SelectItem>
+                      <SelectItem value="AlertCircle">⚠️ AlertCircle (Alerta)</SelectItem>
+                      <SelectItem value="CheckCircle">✅ CheckCircle (Concluído)</SelectItem>
+                      <SelectItem value="XCircle">❌ XCircle (Cancelado)</SelectItem>
+                      <SelectItem value="Pause">⏸️ Pause (Pausa)</SelectItem>
+                      <SelectItem value="Play">▶️ Play (Play)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">Ícone usado no aplicativo móvel</p>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
