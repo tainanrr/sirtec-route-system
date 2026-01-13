@@ -970,7 +970,10 @@ export default function AppHome() {
                   Padrão
                 </p>
                 <div className="grid grid-cols-3 gap-1.5">
-                  {intervalosPadrao.map(tipo => (
+                  {intervalosPadrao.map(tipo => {
+                    const IconName = tipo.icone || "Coffee";
+                    const IconComponent = (LucideIcons as any)[IconName] || Coffee;
+                    return (
                     <button
                       key={tipo.id}
                       onClick={() => setSelectedIntervalo(tipo.id)}
@@ -987,11 +990,12 @@ export default function AppHome() {
                           selectedIntervalo === tipo.id ? "bg-white/20" : "bg-green-100"
                         )}
                       >
-                        <Coffee className="h-3.5 w-3.5" style={{ color: selectedIntervalo === tipo.id ? "white" : (tipo.cor || "#22c55e") }} />
+                        <IconComponent className="h-3.5 w-3.5" style={{ color: selectedIntervalo === tipo.id ? "white" : (tipo.cor || "#22c55e") }} />
                       </div>
                       <p className="text-[10px] font-medium leading-tight">{tipo.nome}</p>
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
