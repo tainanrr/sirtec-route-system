@@ -1441,6 +1441,57 @@ const Roteirizacao = () => {
     return isToday(dataPlan);
   }, [planejamentoEditandoId, rotas.length, dataPlanejamento]);
 
+  // Calcular alterações por equipe para exibição no modal de confirmação (modo edição)
+  const alteracoesParaConfirmacao = useMemo(() => {
+    if (!planejamentoEditandoId) return null;
+    
+    const resultado: {
+      equipesAlteradas: {
+        equipeId: string;
+        equipeCodigo: string;
+        osIncluidas: { numero: string; tipo: string }[];
+        osRemovidas: { numero: string; tipo: string }[];
+      }[];
+      totalOsIncluidas: number;
+      totalOsRemovidas: number;
+      kmAlterado: number;
+      faturamentoAlterado: number;
+    } = {
+      equipesAlteradas: [],
+      totalOsIncluidas: 0,
+      totalOsRemovidas: 0,
+      kmAlterado: 0,
+      faturamentoAlterado: 0
+    };
+    
+    for (const rota of rotas) {
+      const rotaOriginal = rotasOriginais.get(rota.equipe.id) || [];
+      const rotaAtual = rota.servicos
+        .filter(s => s.tipo === 'SERVICO' && s.ordemServico)
+        .map(s => ({
+          numero: s.ordemServico!.numero,
+          tipo: s.ordemServico!.tipo
+        }));
+      
+      // Detectar alterações
+      const alteracoes = detectarAlteracoesRota(rotaOriginal, rotaAtual);
+      
+      // Se houver alterações, adicionar à lista
+      if (alteracoes.osIncluidas.length > 0 || alteracoes.osRemovidas.length > 0) {
+        resultado.equipesAlteradas.push({
+          equipeId: rota.equipe.id,
+          equipeCodigo: rota.equipe.codigo,
+          osIncluidas: alteracoes.osIncluidas,
+          osRemovidas: alteracoes.osRemovidas
+        });
+        resultado.totalOsIncluidas += alteracoes.osIncluidas.length;
+        resultado.totalOsRemovidas += alteracoes.osRemovidas.length;
+      }
+    }
+    
+    return resultado;
+  }, [planejamentoEditandoId, rotas, rotasOriginais]);
+
   const equipesAtivas = useMemo(
     () => equipes.filter((e) => equipesSelecionadas.includes(e.id)),
     [equipes, equipesSelecionadas]
@@ -6956,13 +7007,72 @@ const Roteirizacao = () => {
             </div>
             
             <div className="rounded-lg border border-border bg-muted/50 p-4">
-              <div className="text-sm font-medium mb-2">Resumo do Planejamento:</div>
-              <div className="space-y-1 text-sm text-muted-foreground">
-                <div>• {rotas.length} equipe(s)</div>
-                <div>• {rotas.reduce((acc, r) => acc + r.servicos.filter(s => s.tipo === 'SERVICO' && s.ordemServico).length, 0)} ordem(ns) de serviço</div>
-                <div>• {rotas.reduce((acc, r) => acc + r.distanciaTotal, 0).toFixed(1)} km total</div>
-                <div>• R$ {rotas.reduce((acc, r) => acc + r.faturamentoTotal, 0).toFixed(2)} faturamento estimado</div>
-              </div>
+              {planejamentoEditandoId && alteracoesParaConfirmacao ? (
+                // Modo edição: mostrar apenas as alterações
+                <>
+                  <div className="text-sm font-medium mb-2">Resumo das Alterações:</div>
+                  {alteracoesParaConfirmacao.equipesAlteradas.length === 0 ? (
+                    <div className="text-sm text-muted-foreground">
+                      <div className="flex items-center gap-2 text-amber-600">
+                        <span>⚠️</span>
+                        <span>Nenhuma alteração detectada nas rotas.</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 text-sm">
+                      <div className="text-muted-foreground">
+                        • <span className="font-medium">{alteracoesParaConfirmacao.equipesAlteradas.length}</span> equipe(s) com alterações
+                      </div>
+                      {alteracoesParaConfirmacao.totalOsIncluidas > 0 && (
+                        <div className="text-green-600">
+                          • <span className="font-medium">+{alteracoesParaConfirmacao.totalOsIncluidas}</span> OS(s) incluída(s)
+                        </div>
+                      )}
+                      {alteracoesParaConfirmacao.totalOsRemovidas > 0 && (
+                        <div className="text-red-600">
+                          • <span className="font-medium">-{alteracoesParaConfirmacao.totalOsRemovidas}</span> OS(s) removida(s)
+                        </div>
+                      )}
+                      
+                      <div className="mt-3 pt-3 border-t border-border space-y-2">
+                        <div className="text-xs font-medium text-muted-foreground mb-1">Detalhes por equipe:</div>
+                        <div className="max-h-[200px] overflow-y-auto space-y-2">
+                          {alteracoesParaConfirmacao.equipesAlteradas.map((equipe) => (
+                            <div key={equipe.equipeId} className="bg-background rounded p-2 text-xs">
+                              <div className="font-medium mb-1">{equipe.equipeCodigo}</div>
+                              {equipe.osIncluidas.length > 0 && (
+                                <div className="text-green-600 ml-2">
+                                  {equipe.osIncluidas.map(os => (
+                                    <div key={os.numero}>+ {os.numero} ({os.tipo})</div>
+                                  ))}
+                                </div>
+                              )}
+                              {equipe.osRemovidas.length > 0 && (
+                                <div className="text-red-600 ml-2">
+                                  {equipe.osRemovidas.map(os => (
+                                    <div key={os.numero}>- {os.numero} ({os.tipo})</div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                // Novo planejamento: mostrar resumo geral
+                <>
+                  <div className="text-sm font-medium mb-2">Resumo do Planejamento:</div>
+                  <div className="space-y-1 text-sm text-muted-foreground">
+                    <div>• {rotas.length} equipe(s)</div>
+                    <div>• {rotas.reduce((acc, r) => acc + r.servicos.filter(s => s.tipo === 'SERVICO' && s.ordemServico).length, 0)} ordem(ns) de serviço</div>
+                    <div>• {rotas.reduce((acc, r) => acc + r.distanciaTotal, 0).toFixed(1)} km total</div>
+                    <div>• R$ {rotas.reduce((acc, r) => acc + r.faturamentoTotal, 0).toFixed(2)} faturamento estimado</div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
           
