@@ -275,7 +275,8 @@ export function Sidebar({ isDark, setIsDark, collapsed = false }: SidebarProps) 
           alt="Sirtec" 
           className={cn(
             "transition-all",
-            collapsed ? "h-8 w-auto" : "h-10 w-auto"
+            collapsed ? "h-8 w-auto" : "h-10 w-auto",
+            isDark && "brightness-0 invert"
           )}
         />
       </div>
