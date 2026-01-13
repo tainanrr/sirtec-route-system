@@ -278,6 +278,8 @@ export default function AppHome() {
         return { valor: 0, quantidade: 0 };
       }
       
+      console.log("[AppHome] Buscando produção do dia:", dataHoje);
+      
       const { data, error } = await supabase
         .from("producao_equipes")
         .select("valor_total")
@@ -285,13 +287,20 @@ export default function AppHome() {
         .gte("created_at", dataHoje + "T00:00:00")
         .lte("created_at", dataHoje + "T23:59:59");
       
-      if (error) throw error;
+      if (error) {
+        console.error("[AppHome] Erro ao buscar produção:", error);
+        throw error;
+      }
       
+      console.log("[AppHome] Produção encontrada:", data?.length || 0, "registros");
       const valor = (data || []).reduce((acc, p) => acc + (p.valor_total || 0), 0);
+      console.log("[AppHome] Valor total produzido:", valor);
       return { valor, quantidade: data?.length || 0 };
     },
     enabled: !!equipe?.id,
     refetchInterval: isOnline ? 30000 : false,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
 
   // Buscar meta do dia

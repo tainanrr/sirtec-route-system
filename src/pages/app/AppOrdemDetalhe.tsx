@@ -686,6 +686,9 @@ export default function AppOrdemDetalhe() {
             queryClient.invalidateQueries({ queryKey: ["ordens-planejadas"] });
             queryClient.invalidateQueries({ queryKey: ["ordem-historico", id] });
             queryClient.invalidateQueries({ queryKey: ["ordem-producao", id] });
+            // Invalidar produção do dia na tela inicial
+            queryClient.invalidateQueries({ queryKey: ["producao-hoje"] });
+            queryClient.invalidateQueries({ queryKey: ["producoes-equipe"] });
           }
 
           setObservacao("");
