@@ -89,6 +89,7 @@ interface RetornoCampoResult {
   retorno_codigo: string;
   retorno_descricao: string;
   gera_producao: boolean;
+  grupo_retorno: string; // executado, impedimento, parcial
   atividades: AtividadeSelecionada[];
 }
 
@@ -437,6 +438,7 @@ export default function RetornoCampoSelector({
       retorno_codigo: selectedRetorno.retorno?.codigo || "",
       retorno_descricao: selectedRetorno.retorno?.descricao || "",
       gera_producao: selectedRetorno.retorno?.gera_producao || false,
+      grupo_retorno: selectedRetorno.retorno?.tipo || selectedGrupo || "executado",
       atividades,
     };
 

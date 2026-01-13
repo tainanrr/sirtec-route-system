@@ -93,6 +93,7 @@ interface Pergunta {
   ordem: number;
   grupo_id?: string;
   config?: PerguntaConfig;
+  permite_nao_aplica?: boolean; // Quando true, exibe checkbox "Não se aplica"
 }
 
 interface GrupoPerguntas {
@@ -134,6 +135,7 @@ interface Resposta {
   assinatura_latitude?: number;
   assinatura_longitude?: number;
   assinatura_data_hora?: string;
+  nao_aplica?: boolean; // Quando marcado como "Não se aplica"
 }
 
 export default function AppAPR() {

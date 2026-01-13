@@ -61,6 +61,9 @@ import {
   Hash,
   AlignLeft,
   Loader2,
+  Link2,
+  X,
+  Wrench,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -104,12 +107,38 @@ interface Checklist {
 // Tipos do checklist
 const tiposChecklist = [
   { value: "apr", label: "APR - Análise Preliminar de Riscos" },
+  { value: "servico", label: "Checklist de Serviço" },
   { value: "qualidade", label: "Qualidade" },
   { value: "seguranca", label: "Segurança" },
   { value: "inspecao", label: "Inspeção" },
   { value: "manutencao", label: "Manutenção" },
   { value: "outro", label: "Outro" },
 ];
+
+// Grupos de retorno para vincular checklists de serviço
+const gruposRetorno = [
+  { value: "todos", label: "Todos os Retornos" },
+  { value: "executado", label: "Executado" },
+  { value: "impedimento", label: "Impedimento" },
+  { value: "parcial", label: "Parcial" },
+];
+
+// Interface para vínculos de checklist de serviço
+interface ChecklistVinculo {
+  id?: string;
+  skill_id: string;
+  skill_nome?: string;
+  grupo_retorno: string;
+  obrigatorio: boolean;
+  ordem: number;
+}
+
+// Interface para Skills
+interface Skill {
+  id: string;
+  codigo: string;
+  nome: string;
+}
 
 export default function Checklists() {
   const { podeEditar } = useTelaPermissao("checklists");
@@ -123,6 +152,10 @@ export default function Checklists() {
   const [selectedChecklist, setSelectedChecklist] = useState<Checklist | null>(null);
   const [checklistToDelete, setChecklistToDelete] = useState<Checklist | null>(null);
   const [saving, setSaving] = useState(false);
+  
+  // Estados para checklists de serviço
+  const [skills, setSkills] = useState<Skill[]>([]);
+  const [vinculos, setVinculos] = useState<ChecklistVinculo[]>([]);
 
   // Estado do formulário
   const [formData, setFormData] = useState<{
@@ -177,11 +210,60 @@ export default function Checklists() {
     }
   };
 
+  const fetchSkills = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("skills")
+        .select("id, codigo, nome")
+        .eq("ativo", true)
+        .order("nome");
+
+      if (error) throw error;
+      setSkills(data || []);
+    } catch (error: any) {
+      console.error("Erro ao carregar skills:", error);
+    }
+  };
+
+  const fetchVinculos = async (checklistId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("checklist_servico_vinculos")
+        .select(`
+          id,
+          skill_id,
+          grupo_retorno,
+          obrigatorio,
+          ordem,
+          skills:skill_id (nome)
+        `)
+        .eq("checklist_id", checklistId)
+        .order("ordem");
+
+      if (error) throw error;
+      
+      const vinculosParsed = (data || []).map(v => ({
+        id: v.id,
+        skill_id: v.skill_id,
+        skill_nome: (v.skills as any)?.nome || "",
+        grupo_retorno: v.grupo_retorno,
+        obrigatorio: v.obrigatorio,
+        ordem: v.ordem,
+      }));
+      
+      setVinculos(vinculosParsed);
+    } catch (error: any) {
+      console.error("Erro ao carregar vínculos:", error);
+      setVinculos([]);
+    }
+  };
+
   useEffect(() => {
     fetchChecklists();
+    fetchSkills();
   }, []);
 
-  const handleEdit = (checklist: Checklist) => {
+  const handleEdit = async (checklist: Checklist) => {
     setSelectedChecklist(checklist);
     setFormData({
       nome: checklist.nome,
@@ -190,6 +272,14 @@ export default function Checklists() {
       ativo: checklist.ativo,
       perguntas: checklist.perguntas || [],
     });
+    
+    // Carregar vínculos se for checklist de serviço
+    if (checklist.tipo === "servico") {
+      await fetchVinculos(checklist.id);
+    } else {
+      setVinculos([]);
+    }
+    
     setFormOpen(true);
   };
 
@@ -251,6 +341,12 @@ export default function Checklists() {
       return;
     }
 
+    // Validar vínculos para checklist de serviço
+    if (formData.tipo === "servico" && vinculos.length === 0) {
+      toast.error("Adicione pelo menos um vínculo com tipo de serviço");
+      return;
+    }
+
     setSaving(true);
     try {
       const payload = {
@@ -261,6 +357,8 @@ export default function Checklists() {
         perguntas: formData.perguntas,
       };
 
+      let checklistId: string;
+
       if (selectedChecklist) {
         const { error } = await supabase
           .from("checklists")
@@ -268,14 +366,49 @@ export default function Checklists() {
           .eq("id", selectedChecklist.id);
 
         if (error) throw error;
-        toast.success("Checklist atualizado!");
+        checklistId = selectedChecklist.id;
       } else {
-        const { error } = await supabase.from("checklists").insert(payload);
+        const { data, error } = await supabase
+          .from("checklists")
+          .insert(payload)
+          .select("id")
+          .single();
 
         if (error) throw error;
-        toast.success("Checklist criado!");
+        checklistId = data.id;
       }
 
+      // Salvar vínculos para checklist de serviço
+      if (formData.tipo === "servico") {
+        // Remover vínculos existentes
+        await supabase
+          .from("checklist_servico_vinculos")
+          .delete()
+          .eq("checklist_id", checklistId);
+
+        // Inserir novos vínculos
+        if (vinculos.length > 0) {
+          const vinculosPayload = vinculos.map((v, index) => ({
+            checklist_id: checklistId,
+            skill_id: v.skill_id,
+            grupo_retorno: v.grupo_retorno,
+            obrigatorio: v.obrigatorio,
+            ordem: index,
+            ativo: true,
+          }));
+
+          const { error: vinculosError } = await supabase
+            .from("checklist_servico_vinculos")
+            .insert(vinculosPayload);
+
+          if (vinculosError) {
+            console.error("Erro ao salvar vínculos:", vinculosError);
+            toast.error("Checklist salvo, mas erro ao salvar vínculos");
+          }
+        }
+      }
+
+      toast.success(selectedChecklist ? "Checklist atualizado!" : "Checklist criado!");
       setFormOpen(false);
       resetForm();
       fetchChecklists();
@@ -301,6 +434,45 @@ export default function Checklists() {
       tipo: "texto",
       obrigatoria: true,
       opcoes: "",
+    });
+    setVinculos([]);
+  };
+
+  // Funções para gerenciar vínculos
+  const adicionarVinculo = () => {
+    if (skills.length === 0) {
+      toast.error("Nenhum tipo de serviço disponível");
+      return;
+    }
+    
+    setVinculos(prev => [
+      ...prev,
+      {
+        skill_id: skills[0].id,
+        skill_nome: skills[0].nome,
+        grupo_retorno: "todos",
+        obrigatorio: true,
+        ordem: prev.length,
+      },
+    ]);
+  };
+
+  const removerVinculo = (index: number) => {
+    setVinculos(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const atualizarVinculo = (index: number, field: keyof ChecklistVinculo, value: any) => {
+    setVinculos(prev => {
+      const novos = [...prev];
+      novos[index] = { ...novos[index], [field]: value };
+      
+      // Atualizar nome do skill se mudou o skill_id
+      if (field === "skill_id") {
+        const skill = skills.find(s => s.id === value);
+        novos[index].skill_nome = skill?.nome || "";
+      }
+      
+      return novos;
     });
   };
 
@@ -573,6 +745,105 @@ export default function Checklists() {
               />
               <Label htmlFor="ativo">Checklist ativo</Label>
             </div>
+
+            {/* Vínculos para Checklist de Serviço */}
+            {formData.tipo === "servico" && (
+              <div className="border-t pt-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-semibold flex items-center gap-2">
+                    <Link2 className="h-5 w-5" />
+                    Vínculos com Tipos de Serviço ({vinculos.length})
+                  </h3>
+                  <Button onClick={adicionarVinculo} size="sm" variant="outline">
+                    <Plus className="h-4 w-4 mr-1" />
+                    Adicionar Vínculo
+                  </Button>
+                </div>
+
+                {vinculos.length === 0 ? (
+                  <div className="text-center py-6 bg-muted/30 rounded-lg border border-dashed">
+                    <Wrench className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                    <p className="text-sm text-muted-foreground">
+                      Nenhum vínculo configurado.
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Configure para quais tipos de serviço e grupos de retorno este checklist será exibido.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {vinculos.map((vinculo, index) => (
+                      <div key={index} className="flex items-center gap-2 p-3 rounded-lg border bg-card">
+                        <div className="flex-1 grid gap-2 md:grid-cols-3">
+                          <div>
+                            <Label className="text-xs text-muted-foreground">Tipo de Serviço</Label>
+                            <Select
+                              value={vinculo.skill_id}
+                              onValueChange={(value) => atualizarVinculo(index, "skill_id", value)}
+                            >
+                              <SelectTrigger className="h-9">
+                                <SelectValue placeholder="Selecione..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {skills.map((skill) => (
+                                  <SelectItem key={skill.id} value={skill.id}>
+                                    {skill.nome}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label className="text-xs text-muted-foreground">Grupo de Retorno</Label>
+                            <Select
+                              value={vinculo.grupo_retorno}
+                              onValueChange={(value) => atualizarVinculo(index, "grupo_retorno", value)}
+                            >
+                              <SelectTrigger className="h-9">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {gruposRetorno.map((grupo) => (
+                                  <SelectItem key={grupo.value} value={grupo.value}>
+                                    {grupo.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="flex items-end gap-2">
+                            <div className="flex items-center gap-2">
+                              <Checkbox
+                                id={`obrigatorio-${index}`}
+                                checked={vinculo.obrigatorio}
+                                onCheckedChange={(checked) =>
+                                  atualizarVinculo(index, "obrigatorio", checked as boolean)
+                                }
+                              />
+                              <Label htmlFor={`obrigatorio-${index}`} className="text-sm">
+                                Obrigatório
+                              </Label>
+                            </div>
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:text-destructive shrink-0"
+                          onClick={() => removerVinculo(index)}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <p className="text-xs text-muted-foreground mt-3">
+                  💡 Configure os tipos de serviço e grupos de retorno onde este checklist será exibido ao concluir uma OS.
+                </p>
+              </div>
+            )}
 
             {/* Perguntas */}
             <div className="border-t pt-4">

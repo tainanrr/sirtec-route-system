@@ -98,6 +98,7 @@ import {
   Info,
   HelpCircle,
   X,
+  ClipboardList,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -265,6 +266,9 @@ interface Pergunta {
   // Metadados
   dica?: string;
   referencia?: string; // Norma técnica, procedimento, etc.
+  
+  // Opção "Não se aplica"
+  permite_nao_aplica?: boolean; // Quando true, exibe checkbox "Não se aplica" que desabilita o campo
 }
 
 // Interface para grupo/seção
@@ -314,6 +318,7 @@ interface ChecklistCompleto {
 // Tipos do checklist
 const TIPOS_CHECKLIST = [
   { value: "apr", label: "APR - Análise Preliminar de Riscos", cor: "#ef4444" },
+  { value: "servico", label: "Checklist de Serviço", cor: "#14b8a6" },
   { value: "qualidade", label: "Checklist de Qualidade", cor: "#3b82f6" },
   { value: "seguranca", label: "Checklist de Segurança", cor: "#f59e0b" },
   { value: "inspecao", label: "Inspeção Técnica", cor: "#8b5cf6" },
@@ -322,6 +327,31 @@ const TIPOS_CHECKLIST = [
   { value: "vistoria", label: "Vistoria", cor: "#ec4899" },
   { value: "outro", label: "Outro", cor: "#6b7280" },
 ];
+
+// Grupos de retorno para vincular checklists de serviço
+const GRUPOS_RETORNO = [
+  { value: "todos", label: "Todos os Retornos" },
+  { value: "executado", label: "Executado" },
+  { value: "impedimento", label: "Impedimento" },
+  { value: "parcial", label: "Parcial" },
+];
+
+// Interface para vínculos de checklist de serviço
+interface ChecklistVinculo {
+  id?: string;
+  skill_id: string;
+  skill_nome?: string;
+  grupo_retorno: string;
+  obrigatorio: boolean;
+  ordem: number;
+}
+
+// Interface para Skills
+interface Skill {
+  id: string;
+  codigo: string;
+  nome: string;
+}
 
 // Categorias de perguntas para o seletor
 const CATEGORIAS_PERGUNTA = [
@@ -357,6 +387,10 @@ export default function ChecklistsAvancado() {
   const [checklistToDelete, setChecklistToDelete] = useState<ChecklistCompleto | null>(null);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState("info");
+  
+  // Estados para checklists de serviço
+  const [skills, setSkills] = useState<Skill[]>([]);
+  const [vinculos, setVinculos] = useState<ChecklistVinculo[]>([]);
 
   // Estado do formulário
   const [formData, setFormData] = useState<Partial<ChecklistCompleto>>({
@@ -445,12 +479,105 @@ export default function ChecklistsAvancado() {
     }
   };
 
+  // Buscar skills para vincular checklists de serviço
+  const fetchSkills = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("skills")
+        .select("id, codigo, nome")
+        .eq("ativo", true)
+        .order("nome");
+
+      if (error) throw error;
+      setSkills(data || []);
+    } catch (error: any) {
+      console.error("Erro ao carregar skills:", error);
+    }
+  };
+
+  // Buscar vínculos de um checklist de serviço
+  const fetchVinculos = async (checklistId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("checklist_servico_vinculos")
+        .select(`
+          id,
+          skill_id,
+          grupo_retorno,
+          obrigatorio,
+          ordem,
+          skills:skill_id (nome)
+        `)
+        .eq("checklist_id", checklistId)
+        .order("ordem");
+
+      if (error) {
+        console.error("Erro ao carregar vínculos:", error);
+        setVinculos([]);
+        return;
+      }
+      
+      const vinculosParsed = (data || []).map(v => ({
+        id: v.id,
+        skill_id: v.skill_id,
+        skill_nome: (v.skills as any)?.nome || "",
+        grupo_retorno: v.grupo_retorno,
+        obrigatorio: v.obrigatorio,
+        ordem: v.ordem,
+      }));
+      
+      setVinculos(vinculosParsed);
+    } catch (error: any) {
+      console.error("Erro ao carregar vínculos:", error);
+      setVinculos([]);
+    }
+  };
+
   useEffect(() => {
     fetchChecklists();
+    fetchSkills();
   }, []);
 
+  // Funções para gerenciar vínculos
+  const adicionarVinculo = () => {
+    if (skills.length === 0) {
+      toast.error("Nenhum tipo de serviço disponível");
+      return;
+    }
+    
+    setVinculos(prev => [
+      ...prev,
+      {
+        skill_id: skills[0].id,
+        skill_nome: skills[0].nome,
+        grupo_retorno: "todos",
+        obrigatorio: true,
+        ordem: prev.length,
+      },
+    ]);
+  };
+
+  const removerVinculo = (index: number) => {
+    setVinculos(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const atualizarVinculo = (index: number, field: keyof ChecklistVinculo, value: any) => {
+    setVinculos(prev => {
+      const novos = [...prev];
+      novos[index] = { ...novos[index], [field]: value };
+      
+      // Atualizar nome do skill se mudou o skill_id
+      if (field === "skill_id") {
+        const skill = skills.find(s => s.id === value);
+        novos[index].skill_nome = skill?.nome || "";
+      }
+      
+      return novos;
+    });
+  };
+
   // Funções de manipulação
-  const handleEdit = (checklist: ChecklistCompleto) => {
+  const handleEdit = async (checklist: ChecklistCompleto) => {
     setSelectedChecklist(checklist);
     
     // Garantir que os grupos tenham estrutura correta
@@ -485,6 +612,14 @@ export default function ChecklistsAvancado() {
       ...checklist,
       grupos,
     });
+    
+    // Carregar vínculos se for checklist de serviço
+    if (checklist.tipo === "servico") {
+      await fetchVinculos(checklist.id);
+    } else {
+      setVinculos([]);
+    }
+    
     setActiveTab("info");
     setFormOpen(true);
   };
@@ -569,6 +704,12 @@ export default function ChecklistsAvancado() {
       return;
     }
 
+    // Validar vínculos para checklist de serviço
+    if (formData.tipo === "servico" && vinculos.length === 0) {
+      toast.error("Adicione pelo menos um vínculo com tipo de serviço");
+      return;
+    }
+
     setSaving(true);
     try {
       // Preparar payload - converter grupos para o formato correto
@@ -609,6 +750,8 @@ export default function ChecklistsAvancado() {
         grupos: formData.grupos,
       });
 
+      let checklistId: string;
+
       if (selectedChecklist) {
         const { data, error } = await supabase
           .from("checklists")
@@ -619,12 +762,12 @@ export default function ChecklistsAvancado() {
         console.log("[DEBUG] Resultado update:", { data, error });
 
         if (error) throw error;
+        checklistId = selectedChecklist.id;
         
         // Log de edição
         logEditar("checklists", "checklists", selectedChecklist.id, selectedChecklist, payload,
           `Editou checklist ${payload.nome} (${payload.tipo})`);
         
-        toast.success("Checklist atualizado!");
       } else {
         const { data, error } = await supabase
           .from("checklists")
@@ -635,14 +778,49 @@ export default function ChecklistsAvancado() {
         console.log("[DEBUG] Resultado insert:", { data, error });
 
         if (error) throw error;
+        checklistId = data?.id || "";
         
         // Log de criação
         logCriar("checklists", "checklists", data?.id || "", payload,
           `Criou checklist ${payload.nome} (${payload.tipo})`);
-        
-        toast.success("Checklist criado!");
       }
 
+      // Salvar vínculos para checklist de serviço
+      if (formData.tipo === "servico" && checklistId) {
+        try {
+          // Remover vínculos existentes
+          await supabase
+            .from("checklist_servico_vinculos")
+            .delete()
+            .eq("checklist_id", checklistId);
+
+          // Inserir novos vínculos
+          if (vinculos.length > 0) {
+            const vinculosPayload = vinculos.map((v, index) => ({
+              checklist_id: checklistId,
+              skill_id: v.skill_id,
+              grupo_retorno: v.grupo_retorno,
+              obrigatorio: v.obrigatorio,
+              ordem: index,
+              ativo: true,
+            }));
+
+            const { error: vinculosError } = await supabase
+              .from("checklist_servico_vinculos")
+              .insert(vinculosPayload);
+
+            if (vinculosError) {
+              console.error("Erro ao salvar vínculos:", vinculosError);
+              toast.error("Checklist salvo, mas erro ao salvar vínculos. Execute o SQL de migração.");
+            }
+          }
+        } catch (vinculoErr) {
+          console.error("Erro ao salvar vínculos:", vinculoErr);
+          // Não bloquear o salvamento do checklist se der erro nos vínculos
+        }
+      }
+
+      toast.success(selectedChecklist ? "Checklist atualizado!" : "Checklist criado!");
       setFormOpen(false);
       resetForm();
       fetchChecklists();
@@ -672,6 +850,7 @@ export default function ChecklistsAvancado() {
     });
     setActiveTab("info");
     setGrupoExpandido(null);
+    setVinculos([]);
   };
 
   // Funções para grupos
@@ -1226,6 +1405,106 @@ export default function ChecklistsAvancado() {
                       <Label htmlFor="ativo">Checklist ativo</Label>
                     </div>
                   </div>
+
+                  {/* Vínculos para Checklist de Serviço */}
+                  {formData.tipo === "servico" && (
+                    <div className="border-t pt-4 mt-4">
+                      <div className="flex items-center justify-between mb-4">
+                        <div>
+                          <h3 className="font-semibold flex items-center gap-2">
+                            <Link2 className="h-5 w-5" />
+                            Vínculos com Tipos de Serviço
+                          </h3>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Configure para quais tipos de serviço e grupos de retorno este checklist será exibido ao concluir uma OS.
+                          </p>
+                        </div>
+                        <Button onClick={adicionarVinculo} size="sm" variant="outline">
+                          <Plus className="h-4 w-4 mr-1" />
+                          Adicionar Vínculo
+                        </Button>
+                      </div>
+
+                      {vinculos.length === 0 ? (
+                        <div className="text-center py-6 bg-muted/30 rounded-lg border border-dashed">
+                          <ClipboardList className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                          <p className="text-sm text-muted-foreground">
+                            Nenhum vínculo configurado.
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Adicione vínculos para definir quando este checklist será exibido.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {vinculos.map((vinculo, index) => (
+                            <div key={index} className="flex items-center gap-2 p-3 rounded-lg border bg-card">
+                              <div className="flex-1 grid gap-2 md:grid-cols-3">
+                                <div>
+                                  <Label className="text-xs text-muted-foreground">Tipo de Serviço</Label>
+                                  <Select
+                                    value={vinculo.skill_id}
+                                    onValueChange={(value) => atualizarVinculo(index, "skill_id", value)}
+                                  >
+                                    <SelectTrigger className="h-9">
+                                      <SelectValue placeholder="Selecione..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {skills.map((skill) => (
+                                        <SelectItem key={skill.id} value={skill.id}>
+                                          {skill.nome}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div>
+                                  <Label className="text-xs text-muted-foreground">Grupo de Retorno</Label>
+                                  <Select
+                                    value={vinculo.grupo_retorno}
+                                    onValueChange={(value) => atualizarVinculo(index, "grupo_retorno", value)}
+                                  >
+                                    <SelectTrigger className="h-9">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {GRUPOS_RETORNO.map((grupo) => (
+                                        <SelectItem key={grupo.value} value={grupo.value}>
+                                          {grupo.label}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="flex items-end gap-2">
+                                  <div className="flex items-center gap-2">
+                                    <Checkbox
+                                      id={`obrigatorio-${index}`}
+                                      checked={vinculo.obrigatorio}
+                                      onCheckedChange={(checked) =>
+                                        atualizarVinculo(index, "obrigatorio", checked as boolean)
+                                      }
+                                    />
+                                    <Label htmlFor={`obrigatorio-${index}`} className="text-sm">
+                                      Obrigatório
+                                    </Label>
+                                  </div>
+                                </div>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive hover:text-destructive shrink-0"
+                                onClick={() => removerVinculo(index)}
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </TabsContent>
 
@@ -1785,6 +2064,8 @@ interface PerguntaDialogProps {
 function PerguntaDialog({ open, onOpenChange, pergunta, onSave, todasPerguntas }: PerguntaDialogProps) {
   const [formPergunta, setFormPergunta] = useState<Pergunta | null>(null);
   const [activeTab, setActiveTab] = useState("geral");
+  const [dialogOpcoesMassaOpen, setDialogOpcoesMassaOpen] = useState(false);
+  const [textoOpcoesMassa, setTextoOpcoesMassa] = useState("");
 
   useEffect(() => {
     if (pergunta) {
@@ -1809,6 +2090,33 @@ function PerguntaDialog({ open, onOpenChange, pergunta, onSave, todasPerguntas }
         opcoes: [...(prev.opcoes || []), { id: crypto.randomUUID(), texto: "" }],
       };
     });
+  };
+
+  const adicionarOpcoesMassa = () => {
+    if (!textoOpcoesMassa.trim()) return;
+    
+    // Divide o texto por linha, remove espaços extras e linhas vazias
+    const novasOpcoes = textoOpcoesMassa
+      .split('\n')
+      .map(linha => linha.trim())
+      .filter(linha => linha.length > 0)
+      .map(texto => ({
+        id: crypto.randomUUID(),
+        texto,
+      }));
+
+    if (novasOpcoes.length === 0) return;
+
+    setFormPergunta(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        opcoes: [...(prev.opcoes || []), ...novasOpcoes],
+      };
+    });
+
+    setTextoOpcoesMassa("");
+    setDialogOpcoesMassaOpen(false);
   };
 
   const atualizarOpcao = (id: string, dados: Partial<OpcaoSelecao>) => {
@@ -1868,6 +2176,7 @@ function PerguntaDialog({ open, onOpenChange, pergunta, onSave, todasPerguntas }
   };
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[90vh]">
         <DialogHeader>
@@ -2097,10 +2406,16 @@ function PerguntaDialog({ open, onOpenChange, pergunta, onSave, todasPerguntas }
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <Label>Opções de Resposta</Label>
-                    <Button size="sm" variant="outline" onClick={adicionarOpcao}>
-                      <Plus className="h-4 w-4 mr-1" />
-                      Adicionar
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={() => setDialogOpcoesMassaOpen(true)}>
+                        <FileText className="h-4 w-4 mr-1" />
+                        Adicionar em Massa
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={adicionarOpcao}>
+                        <Plus className="h-4 w-4 mr-1" />
+                        Adicionar
+                      </Button>
+                    </div>
                   </div>
 
                   <div className="space-y-2">
@@ -2194,6 +2509,29 @@ function PerguntaDialog({ open, onOpenChange, pergunta, onSave, todasPerguntas }
 
             {/* Tab Validação */}
             <TabsContent value="validacao" className="space-y-4 m-0">
+              {/* Opção "Não se aplica" - disponível para perguntas de texto, número, etc */}
+              {["texto", "texto_longo", "numero", "decimal", "moeda", "medida", "temperatura", "porcentagem", "data", "hora", "data_hora", "email", "telefone", "url"].includes(formPergunta.tipo) && (
+                <Card className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="permite_nao_aplica" className="text-sm font-medium">
+                        Permitir "Não se aplica"
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Exibe um checkbox que, quando marcado, desabilita o campo e torna a resposta opcional
+                      </p>
+                    </div>
+                    <Switch
+                      id="permite_nao_aplica"
+                      checked={formPergunta.permite_nao_aplica || false}
+                      onCheckedChange={(checked) =>
+                        setFormPergunta(prev => prev ? { ...prev, permite_nao_aplica: checked } : prev)
+                      }
+                    />
+                  </div>
+                </Card>
+              )}
+
               <Card className="p-4">
                 <p className="text-sm text-muted-foreground">
                   Configure validações adicionais para esta pergunta
@@ -2324,6 +2662,47 @@ function PerguntaDialog({ open, onOpenChange, pergunta, onSave, todasPerguntas }
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {/* Dialog de Importação em Massa de Opções */}
+    <Dialog open={dialogOpcoesMassaOpen} onOpenChange={setDialogOpcoesMassaOpen}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FileText className="h-5 w-5" />
+            Adicionar Opções em Massa
+          </DialogTitle>
+          <DialogDescription>
+            Cole as opções abaixo, uma por linha. Linhas vazias serão ignoradas.
+          </DialogDescription>
+        </DialogHeader>
+        
+        <div className="space-y-4">
+          <Textarea
+            value={textoOpcoesMassa}
+            onChange={(e) => setTextoOpcoesMassa(e.target.value)}
+            placeholder={"Opção 1\nOpção 2\nOpção 3\n..."}
+            className="min-h-[200px] font-mono text-sm"
+          />
+          <p className="text-xs text-muted-foreground">
+            {textoOpcoesMassa.split('\n').filter(l => l.trim()).length} opção(ões) serão adicionadas
+          </p>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => {
+            setTextoOpcoesMassa("");
+            setDialogOpcoesMassaOpen(false);
+          }}>
+            Cancelar
+          </Button>
+          <Button onClick={adicionarOpcoesMassa} disabled={!textoOpcoesMassa.trim()}>
+            <Plus className="h-4 w-4 mr-1" />
+            Adicionar Opções
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
 

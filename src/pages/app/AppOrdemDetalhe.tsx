@@ -12,6 +12,7 @@ import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
 import { useOfflineData, CACHE_KEYS } from "@/hooks/useOfflineData";
 import { useOfflineOperations } from "@/hooks/useOfflineOperations";
 import RetornoCampoSelector from "@/components/app/RetornoCampoSelector";
+import ChecklistServicoSheet from "@/components/app/ChecklistServicoSheet";
 import {
   Dialog,
   DialogContent,
@@ -174,6 +175,7 @@ export default function AppOrdemDetalhe() {
     retorno_codigo: string;
     retorno_descricao: string;
     gera_producao: boolean;
+    grupo_retorno?: string; // executado, impedimento, parcial
     atividades: Array<{
       atividade_id: string;
       quantidade: number;
@@ -184,6 +186,10 @@ export default function AppOrdemDetalhe() {
   const [tentouIniciarSemApr, setTentouIniciarSemApr] = useState(false);
   const [aprOfflineCache, setAprOfflineCache] = useState<boolean>(false);
   const { buscarSkillId, registrarProducao, atualizarOrdemComRetorno } = useRetornoCampo();
+  
+  // Estados para Checklist de Serviço
+  const [checklistServicoOpen, setChecklistServicoOpen] = useState(false);
+  const [grupoRetornoSelecionado, setGrupoRetornoSelecionado] = useState<string>("executado");
   
   // Estado para diálogo de OS em andamento
   const [osEmAndamentoDialog, setOsEmAndamentoDialog] = useState<{
@@ -985,16 +991,41 @@ export default function AppOrdemDetalhe() {
       return;
     }
     
-    // Se offline, os dados serão enfileirados
-    // registrarProducao e atualizarOrdemComRetorno já lidam com offline internamente
+    // Determinar grupo de retorno baseado no tipo do retorno
+    // Os tipos podem ser: "executado", "impedimento", "parcial"
+    const grupoRetorno = result.grupo_retorno || 
+      (result.gera_producao ? "executado" : "impedimento");
+    
+    // Salvar o retorno selecionado e o grupo
+    setRetornoSelecionado({ ...result, grupo_retorno: grupoRetorno });
+    setGrupoRetornoSelecionado(grupoRetorno);
+    setRetornoCampoOpen(false);
+    
+    // Abrir checklist de serviço (se houver configurado)
+    // O componente ChecklistServicoSheet vai verificar se há checklists obrigatórios
+    // Se não houver, vai chamar onSkip automaticamente
+    setChecklistServicoOpen(true);
+  };
+  
+  // Handler para quando checklists de serviço são concluídos (ou pulados)
+  const handleChecklistServicoComplete = async (checklists?: any[]) => {
+    const equipeId = equipe?.id || equipeAuth?.id;
+    if (!equipeId || !ordem?.id || !retornoSelecionado) {
+      toast.error("Erro ao identificar equipe ou retorno");
+      return;
+    }
+    
+    // Registrar produção e atualizar ordem com retorno
     try {
-      await registrarProducao(ordem.id, equipeId, result);
-      await atualizarOrdemComRetorno(ordem.id, result, ordem?.numero);
+      await registrarProducao(ordem.id, equipeId, retornoSelecionado);
+      await atualizarOrdemComRetorno(ordem.id, retornoSelecionado, ordem?.numero);
     } catch (error) {
       console.warn("[AppOrdemDetalhe] Erro ao registrar produção (será sincronizado depois):", error);
     }
     
+    // Concluir a OS
     updateStatusMutation.mutate("concluida");
+    setRetornoSelecionado(null);
   };
 
   if (isLoading) {
@@ -1493,6 +1524,20 @@ export default function AppOrdemDetalhe() {
           onOpenChange={setRetornoCampoOpen}
           skillId={skillId}
           onConfirm={handleRetornoCampoConfirm}
+        />
+      )}
+
+      {/* Checklist de Serviço */}
+      {skillId && (equipe?.id || equipeAuth?.id) && ordem?.id && (
+        <ChecklistServicoSheet
+          open={checklistServicoOpen}
+          onOpenChange={setChecklistServicoOpen}
+          skillId={skillId}
+          grupoRetorno={grupoRetornoSelecionado}
+          ordemServicoId={ordem.id}
+          equipeId={(equipe?.id || equipeAuth?.id)!}
+          onComplete={handleChecklistServicoComplete}
+          onSkip={() => handleChecklistServicoComplete()}
         />
       )}
 
