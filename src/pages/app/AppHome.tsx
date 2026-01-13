@@ -960,53 +960,73 @@ export default function AppHome() {
           </div>
           
           <div className="p-4 space-y-3 max-h-[60vh] overflow-y-auto">
-            {/* Tipos de Intervalo - Grid compacto */}
-            <div className="grid grid-cols-3 gap-1.5">
-              {intervalosPadrao.map(tipo => (
-                <button
-                  key={tipo.id}
-                  onClick={() => setSelectedIntervalo(tipo.id)}
-                  className={cn(
-                    "p-2 rounded-lg border text-center transition-all",
-                    selectedIntervalo === tipo.id 
-                      ? "bg-amber-500 text-white border-amber-500 shadow-md" 
-                      : "bg-white hover:bg-amber-50 border-gray-200"
-                  )}
-                >
-                  <div 
-                    className={cn(
-                      "h-6 w-6 mx-auto rounded-full flex items-center justify-center mb-1",
-                      selectedIntervalo === tipo.id ? "bg-white/20" : "bg-amber-100"
-                    )}
-                  >
-                    <Coffee className="h-3.5 w-3.5" style={{ color: selectedIntervalo === tipo.id ? "white" : (tipo.cor || "#d97706") }} />
-                  </div>
-                  <p className="text-[10px] font-medium leading-tight">{tipo.nome}</p>
-                </button>
-              ))}
-              {intervalosNaoPadrao.map(tipo => (
-                <button
-                  key={tipo.id}
-                  onClick={() => setSelectedIntervalo(tipo.id)}
-                  className={cn(
-                    "p-2 rounded-lg border border-dashed text-center transition-all",
-                    selectedIntervalo === tipo.id 
-                      ? "bg-orange-500 text-white border-orange-500 shadow-md border-solid" 
-                      : "bg-white hover:bg-orange-50 border-gray-300"
-                  )}
-                >
-                  <div 
-                    className={cn(
-                      "h-6 w-6 mx-auto rounded-full flex items-center justify-center mb-1",
-                      selectedIntervalo === tipo.id ? "bg-white/20" : "bg-orange-100"
-                    )}
-                  >
-                    <Wrench className="h-3.5 w-3.5" style={{ color: selectedIntervalo === tipo.id ? "white" : (tipo.cor || "#ea580c") }} />
-                  </div>
-                  <p className="text-[10px] font-medium leading-tight">{tipo.nome}</p>
-                </button>
-              ))}
-            </div>
+            {/* Intervalos Padrão (Esperados) */}
+            {intervalosPadrao.length > 0 && (
+              <div>
+                <p className="text-[10px] font-semibold text-green-600 uppercase mb-1.5 flex items-center gap-1">
+                  <CheckCircle2 className="h-3 w-3" />
+                  Padrão
+                </p>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {intervalosPadrao.map(tipo => (
+                    <button
+                      key={tipo.id}
+                      onClick={() => setSelectedIntervalo(tipo.id)}
+                      className={cn(
+                        "p-2 rounded-lg border text-center transition-all",
+                        selectedIntervalo === tipo.id 
+                          ? "bg-green-500 text-white border-green-500 shadow-md" 
+                          : "bg-white hover:bg-green-50 border-gray-200"
+                      )}
+                    >
+                      <div 
+                        className={cn(
+                          "h-6 w-6 mx-auto rounded-full flex items-center justify-center mb-1",
+                          selectedIntervalo === tipo.id ? "bg-white/20" : "bg-green-100"
+                        )}
+                      >
+                        <Coffee className="h-3.5 w-3.5" style={{ color: selectedIntervalo === tipo.id ? "white" : (tipo.cor || "#22c55e") }} />
+                      </div>
+                      <p className="text-[10px] font-medium leading-tight">{tipo.nome}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Intervalos Não Padrão (Exceção) */}
+            {intervalosNaoPadrao.length > 0 && (
+              <div>
+                <p className="text-[10px] font-semibold text-orange-600 uppercase mb-1.5 flex items-center gap-1">
+                  <Wrench className="h-3 w-3" />
+                  Exceção
+                </p>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {intervalosNaoPadrao.map(tipo => (
+                    <button
+                      key={tipo.id}
+                      onClick={() => setSelectedIntervalo(tipo.id)}
+                      className={cn(
+                        "p-2 rounded-lg border border-dashed text-center transition-all",
+                        selectedIntervalo === tipo.id 
+                          ? "bg-orange-500 text-white border-orange-500 shadow-md border-solid" 
+                          : "bg-white hover:bg-orange-50 border-gray-300"
+                      )}
+                    >
+                      <div 
+                        className={cn(
+                          "h-6 w-6 mx-auto rounded-full flex items-center justify-center mb-1",
+                          selectedIntervalo === tipo.id ? "bg-white/20" : "bg-orange-100"
+                        )}
+                      >
+                        <Wrench className="h-3.5 w-3.5" style={{ color: selectedIntervalo === tipo.id ? "white" : (tipo.cor || "#ea580c") }} />
+                      </div>
+                      <p className="text-[10px] font-medium leading-tight">{tipo.nome}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Observação compacta */}
             <input
