@@ -555,16 +555,36 @@ export default function AppHome() {
     }
   };
 
-  // Calcular duração do intervalo ativo
-  const duracaoIntervalo = useMemo(() => {
-    if (!intervaloAtivo?.hora_inicio) return "";
-    const inicio = new Date(intervaloAtivo.hora_inicio);
-    const agora = new Date();
-    const diffMs = agora.getTime() - inicio.getTime();
-    const diffMin = Math.floor(diffMs / 60000);
-    const horas = Math.floor(diffMin / 60);
-    const mins = diffMin % 60;
-    return horas > 0 ? `${horas}h ${mins}min` : `${mins}min`;
+  // Estado para contador do intervalo ativo (atualiza a cada segundo)
+  const [tempoIntervalo, setTempoIntervalo] = useState("");
+  
+  // Atualizar contador do intervalo ativo a cada segundo
+  useEffect(() => {
+    if (!intervaloAtivo?.hora_inicio) {
+      setTempoIntervalo("");
+      return;
+    }
+    
+    const calcularTempo = () => {
+      const inicio = new Date(intervaloAtivo.hora_inicio);
+      const agora = new Date();
+      const diffMs = agora.getTime() - inicio.getTime();
+      const totalSegundos = Math.floor(diffMs / 1000);
+      const horas = Math.floor(totalSegundos / 3600);
+      const minutos = Math.floor((totalSegundos % 3600) / 60);
+      const segundos = totalSegundos % 60;
+      
+      if (horas > 0) {
+        setTempoIntervalo(`${horas}:${minutos.toString().padStart(2, '0')}:${segundos.toString().padStart(2, '0')}`);
+      } else {
+        setTempoIntervalo(`${minutos.toString().padStart(2, '0')}:${segundos.toString().padStart(2, '0')}`);
+      }
+    };
+    
+    calcularTempo(); // Calcular imediatamente
+    const interval = setInterval(calcularTempo, 1000);
+    
+    return () => clearInterval(interval);
   }, [intervaloAtivo?.hora_inicio]);
 
   const handleRefresh = async () => {
@@ -806,8 +826,10 @@ export default function AppHome() {
                     <p className="font-medium text-amber-700 dark:text-amber-400">
                       Em Intervalo: {intervaloAtivo.tipo_intervalo?.nome || ""}
                     </p>
-                    <p className="text-xs text-muted-foreground">
-                      Iniciado às {format(new Date(intervaloAtivo.hora_inicio), "HH:mm")} • {duracaoIntervalo}
+                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+                      <span>Iniciado às {format(new Date(intervaloAtivo.hora_inicio), "HH:mm")}</span>
+                      <span>•</span>
+                      <span className="font-mono font-semibold text-amber-600 tabular-nums">{tempoIntervalo}</span>
                     </p>
                   </>
                 ) : (
