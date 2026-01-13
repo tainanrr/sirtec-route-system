@@ -198,9 +198,24 @@ export default function AppOrdens() {
       }
 
       const dataFormatada = format(selectedDate, "yyyy-MM-dd");
+      
+      // Criar datas com fuso horário local e converter para ISO (UTC)
+      // Isso garante que o filtro capture OSs criadas no dia local correto
+      const inicioLocal = new Date(selectedDate);
+      inicioLocal.setHours(0, 0, 0, 0);
+      const fimLocal = new Date(selectedDate);
+      fimLocal.setHours(23, 59, 59, 999);
+      
+      // Converter para ISO string (UTC) para comparar com timestamps do banco
+      const dataInicioUTC = inicioLocal.toISOString();
+      const dataFimUTC = fimLocal.toISOString();
+      
+      // Manter também as strings locais para logs
       const dataInicio = `${dataFormatada}T00:00:00`;
       const dataFim = `${dataFormatada}T23:59:59`;
+      
       console.log("[DEBUG AppOrdens] Buscando ordens para equipe:", equipeIdParaUsar, "data:", dataFormatada, "online:", isOnline);
+      console.log("[DEBUG AppOrdens] Filtro UTC - dataInicioUTC:", dataInicioUTC, "dataFimUTC:", dataFimUTC);
 
       // Se estiver offline, tentar usar o cache
       if (!isOnline) {
@@ -298,7 +313,7 @@ export default function AppOrdens() {
 
       // Buscar OSs avulsas da equipe para o dia selecionado
       // Debug: buscar TODAS OSs avulsas da equipe para ver o que existe
-      console.log("[DEBUG AppOrdens] 🔍 Buscando OSs avulsas - equipeId:", equipeIdParaUsar, "dataInicio:", dataInicio, "dataFim:", dataFim);
+      console.log("[DEBUG AppOrdens] 🔍 Buscando OSs avulsas - equipeId:", equipeIdParaUsar, "dataInicioUTC:", dataInicioUTC, "dataFimUTC:", dataFimUTC);
       
       // Primeiro: buscar TODAS as OSs avulsas da equipe (sem filtro de data)
       const { data: todasAvulsas, error: errorTodasAvulsas } = await supabase
@@ -335,7 +350,7 @@ export default function AppOrdens() {
         }
       }
 
-      // 1. OSs avulsas criadas no dia (qualquer status)
+      // 1. OSs avulsas criadas no dia (qualquer status) - usando datas UTC
       const { data: ordensAvulsasCriadas, error: errorAvulsasCriadas } = await supabase
         .from("ordens_servico")
         .select(`
@@ -355,15 +370,15 @@ export default function AppOrdens() {
         `)
         .eq("tecnico_id", equipeIdParaUsar)
         .eq("avulsa", true)
-        .gte("created_at", dataInicio)
-        .lte("created_at", dataFim)
+        .gte("created_at", dataInicioUTC)
+        .lte("created_at", dataFimUTC)
         .order("created_at", { ascending: true });
 
       if (errorAvulsasCriadas) {
         console.error("[DEBUG AppOrdens] Erro ao buscar ordens avulsas criadas:", errorAvulsasCriadas);
       }
 
-      // 2. OSs avulsas concluídas no dia (mesmo que criadas em outro dia)
+      // 2. OSs avulsas concluídas no dia (mesmo que criadas em outro dia) - usando datas UTC
       const { data: ordensAvulsasConcluidas, error: errorAvulsasConcluidas } = await supabase
         .from("ordens_servico")
         .select(`
@@ -384,8 +399,8 @@ export default function AppOrdens() {
         .eq("tecnico_id", equipeIdParaUsar)
         .eq("avulsa", true)
         .eq("status", "concluida")
-        .gte("concluido_at", dataInicio)
-        .lte("concluido_at", dataFim)
+        .gte("concluido_at", dataInicioUTC)
+        .lte("concluido_at", dataFimUTC)
         .order("created_at", { ascending: true });
 
       if (errorAvulsasConcluidas) {
