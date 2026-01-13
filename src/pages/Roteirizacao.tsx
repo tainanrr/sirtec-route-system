@@ -5450,7 +5450,7 @@ const Roteirizacao = () => {
                                               <ArrowDown className="h-2.5 w-2.5" />
                                             </Button>
                                           )}
-                                          {servico.tipo === 'SERVICO' && rotaEditando && (
+                                          {servico.tipo === 'SERVICO' && rotaEditando && os?.status !== 'concluida' && (
                                           <Button
                                             variant="ghost"
                                             size="sm"
@@ -5467,6 +5467,12 @@ const Roteirizacao = () => {
                                           >
                                             <X className="h-2.5 w-2.5" />
                                           </Button>
+                                          )}
+                                          {os?.status === 'concluida' && (
+                                            <Badge variant="outline" className="text-[9px] px-1 py-0 bg-green-50 text-green-700 border-green-200">
+                                              <CheckCircle2 className="h-2.5 w-2.5 mr-0.5" />
+                                              OK
+                                            </Badge>
                                           )}
                                         </div>
                                       </div>
