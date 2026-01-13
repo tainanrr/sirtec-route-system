@@ -43,6 +43,13 @@ import {
   Trash2,
   FilterX,
   Loader2,
+  AlertTriangle,
+  Wifi,
+  WifiOff,
+  CheckCircle2,
+  XCircle,
+  Send,
+  Ban,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -64,6 +71,25 @@ import { useNavigate } from "react-router-dom";
 import * as XLSX from "xlsx";
 import { OrdemServicoDetalhesDialog } from "@/components/ordens/OrdemServicoDetalhesDialog";
 import { getDadosSkills } from "@/lib/skillsUtils";
+import { ChatTorreControle } from "@/components/chat/ChatTorreControle";
+import { format, isToday, parseISO } from "date-fns";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScrollArea } from "@/components/ui/scroll-area";
+
+// Interface para OSs pendentes de remoção
+interface OsPendenteRemocao {
+  id: string;
+  ordem_servico_id: string;
+  os_numero: string;
+  status: string;
+  solicitado_at: string;
+  equipe_id: string;
+  planejamento_id: string;
+  confirmado_at?: string;
+  confirmado_status_app?: string;
+  motivo_cancelamento?: string;
+}
 
 interface PlanejamentoCompleto {
   id: string;
@@ -116,6 +142,22 @@ const AcompanhamentoRoteirizacoes = () => {
   const [detalhesOpen, setDetalhesOpen] = useState(false);
   const [ordemDetalhesId, setOrdemDetalhesId] = useState<string | null>(null);
   const [producaoMap, setProducaoMap] = useState<Record<string, number>>({});
+  
+  // Estados para controle de OSs pendentes de remoção
+  const [osPendentesRemocao, setOsPendentesRemocao] = useState<OsPendenteRemocao[]>([]);
+  const [pendentesDialogOpen, setPendentesDialogOpen] = useState(false);
+  const [loadingPendentes, setLoadingPendentes] = useState(false);
+  
+  // Estado para OS que requer confirmação especial (rota do dia atual)
+  const [osParaRemoverComConfirmacao, setOsParaRemoverComConfirmacao] = useState<{
+    ordemId: string;
+    osNumero: string;
+    osStatus: string;
+    planejamentoId: string;
+    equipeId: string;
+    dataPlanejamento: string;
+  } | null>(null);
+  const [confirmacaoRemocaoDialogOpen, setConfirmacaoRemocaoDialogOpen] = useState(false);
 
   // Debounce do termo de busca para evitar muitas requisições
   useEffect(() => {
@@ -272,6 +314,7 @@ const AcompanhamentoRoteirizacoes = () => {
 
   useEffect(() => {
     fetchPlanejamentos();
+    fetchOsPendentesRemocao();
   }, [fetchPlanejamentos]);
 
   // Função para agrupar dados por equipe e data (aplicando filtros de equipe e busca)
@@ -417,11 +460,176 @@ const AcompanhamentoRoteirizacoes = () => {
     }
   };
 
-  // Função para cancelar OS específica de um planejamento
+  // Função para buscar OSs pendentes de remoção
+  const fetchOsPendentesRemocao = async () => {
+    setLoadingPendentes(true);
+    try {
+      const { data, error } = await supabase
+        .from("os_pendentes_remocao")
+        .select("*")
+        .in("status", ["aguardando_sinal", "cancelado_em_execucao", "cancelado_concluida"])
+        .order("solicitado_at", { ascending: false });
+
+      if (error) throw error;
+      setOsPendentesRemocao(data || []);
+    } catch (error: any) {
+      console.error("Erro ao buscar OSs pendentes:", error);
+    } finally {
+      setLoadingPendentes(false);
+    }
+  };
+
+  // Verificar se é rota do dia atual
+  const isRotaDoDiaAtual = (dataPlanejamento: string) => {
+    try {
+      return isToday(parseISO(dataPlanejamento));
+    } catch {
+      return false;
+    }
+  };
+
+  // Função para preparar remoção de OS (verificar regras)
+  const prepararRemocaoOS = async (
+    ordemId: string, 
+    osNumero: string, 
+    planejamentoId: string,
+    equipeId: string,
+    dataPlanejamento: string
+  ) => {
+    // Buscar status atual da OS
+    const { data: osData, error } = await supabase
+      .from("ordens_servico")
+      .select("status")
+      .eq("id", ordemId)
+      .single();
+
+    if (error) {
+      toast.error("Erro ao verificar status da OS");
+      return;
+    }
+
+    const osStatus = osData?.status || "pendente";
+
+    // Regra 1: OS concluída não pode ser removida
+    if (osStatus === "concluida") {
+      toast.error("Não é possível remover uma OS que já foi concluída!", { 
+        description: "OSs concluídas ficam permanentemente na rota.",
+        duration: 5000 
+      });
+      return;
+    }
+
+    // Regra 2: Para rotas do dia atual, verificar se precisa aguardar confirmação
+    if (isRotaDoDiaAtual(dataPlanejamento)) {
+      // Se OS está em andamento (deslocamento, execução, no local), precisa confirmar
+      if (["em_deslocamento", "no_local", "em_execucao"].includes(osStatus)) {
+        toast.error("Esta OS está em andamento! Não é possível remover.", {
+          description: `Status atual: ${osStatus}`,
+          duration: 5000
+        });
+        return;
+      }
+
+      // Rota do dia atual - criar pendência aguardando sinal
+      setOsParaRemoverComConfirmacao({
+        ordemId,
+        osNumero,
+        osStatus,
+        planejamentoId,
+        equipeId,
+        dataPlanejamento,
+      });
+      setConfirmacaoRemocaoDialogOpen(true);
+      return;
+    }
+
+    // Para rotas futuras, pode remover diretamente
+    setOsParaCancelar({
+      ordemId,
+      osNumero,
+      planejamentoId,
+    });
+    setCancelarOSDialogOpen(true);
+  };
+
+  // Função para criar solicitação de remoção pendente (rota do dia atual)
+  const handleCriarPendenciaRemocao = async () => {
+    if (!osParaRemoverComConfirmacao || !user) return;
+
+    try {
+      // Buscar o registro de planejamento_ordens
+      const { data: planejamentoOrdem, error: erroBuscar } = await supabase
+        .from("planejamento_ordens")
+        .select("id")
+        .eq("planejamento_id", osParaRemoverComConfirmacao.planejamentoId)
+        .eq("ordem_servico_id", osParaRemoverComConfirmacao.ordemId)
+        .single();
+
+      if (erroBuscar || !planejamentoOrdem) {
+        throw new Error("Registro de planejamento não encontrado");
+      }
+
+      // Criar registro de pendência
+      const { error: erroPendencia } = await supabase
+        .from("os_pendentes_remocao")
+        .insert({
+          planejamento_id: osParaRemoverComConfirmacao.planejamentoId,
+          planejamento_ordem_id: planejamentoOrdem.id,
+          ordem_servico_id: osParaRemoverComConfirmacao.ordemId,
+          equipe_id: osParaRemoverComConfirmacao.equipeId,
+          os_numero: osParaRemoverComConfirmacao.osNumero,
+          os_status_original: osParaRemoverComConfirmacao.osStatus,
+          status: "aguardando_sinal",
+          solicitado_por: user.id,
+        });
+
+      if (erroPendencia) throw erroPendencia;
+
+      // Criar log
+      await supabase.from("planejamento_logs").insert({
+        planejamento_id: osParaRemoverComConfirmacao.planejamentoId,
+        ordem_servico_id: osParaRemoverComConfirmacao.ordemId,
+        acao: "solicitacao_remocao",
+        descricao: `Solicitação de remoção da OS ${osParaRemoverComConfirmacao.osNumero} - aguardando confirmação do app`,
+        created_by: user.id,
+      });
+
+      toast.success(`Solicitação de remoção criada para OS ${osParaRemoverComConfirmacao.osNumero}`, {
+        description: "Aguardando sinal do app para confirmar que a OS não está em andamento.",
+        duration: 5000,
+      });
+      
+      setConfirmacaoRemocaoDialogOpen(false);
+      setOsParaRemoverComConfirmacao(null);
+      fetchOsPendentesRemocao();
+    } catch (error: any) {
+      console.error("Erro ao criar pendência:", error);
+      toast.error(`Erro: ${error.message}`);
+    }
+  };
+
+  // Função para cancelar OS específica de um planejamento (rotas futuras ou após confirmação)
   const handleCancelarOS = async () => {
     if (!osParaCancelar || !user) return;
 
     try {
+      // Verificar novamente se a OS não foi concluída nesse meio tempo
+      const { data: osAtual, error: erroVerificar } = await supabase
+        .from("ordens_servico")
+        .select("status")
+        .eq("id", osParaCancelar.ordemId)
+        .single();
+
+      if (erroVerificar) throw erroVerificar;
+
+      if (osAtual?.status === "concluida") {
+        toast.error("Não é possível remover - a OS foi concluída!");
+        setCancelarOSDialogOpen(false);
+        setOsParaCancelar(null);
+        fetchPlanejamentos();
+        return;
+      }
+
       // Buscar o registro de planejamento_ordens para obter o ID correto
       const { data: planejamentoOrdem, error: erroBuscar } = await supabase
         .from("planejamento_ordens")
@@ -819,6 +1027,23 @@ const AcompanhamentoRoteirizacoes = () => {
         </div>
         
         <div className="ml-auto flex items-center gap-1">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="h-7 px-2 relative" 
+            onClick={() => {
+              fetchOsPendentesRemocao();
+              setPendentesDialogOpen(true);
+            }}
+            title="Central de Sincronização"
+          >
+            <Wifi className="h-3 w-3" />
+            {osPendentesRemocao.filter(p => p.status === "aguardando_sinal").length > 0 && (
+              <span className="absolute -top-1 -right-1 h-4 w-4 bg-amber-500 text-white text-[10px] rounded-full flex items-center justify-center">
+                {osPendentesRemocao.filter(p => p.status === "aguardando_sinal").length}
+              </span>
+            )}
+          </Button>
           <Button variant="outline" size="sm" className="h-7 px-2" onClick={fetchPlanejamentos} disabled={loading}>
             {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCcw className="h-3 w-3" />}
           </Button>
@@ -1238,22 +1463,29 @@ const AcompanhamentoRoteirizacoes = () => {
                                           >
                                             <Eye className="h-4 w-4" />
                                           </Button>
-                                          {planejamento && planejamento.status === "aberto" && podeEditar && (
+                                          {planejamento && planejamento.status === "aberto" && podeEditar && os?.status !== "concluida" && (
                                             <Button
                                               variant="ghost"
                                               size="sm"
                                               onClick={() => {
-                                                setOsParaCancelar({
-                                                  ordemId: ordem.ordem_servico_id,
-                                                  osNumero: os?.numero || "-",
-                                                  planejamentoId: planejamento.id,
-                                                });
-                                                setCancelarOSDialogOpen(true);
+                                                prepararRemocaoOS(
+                                                  ordem.ordem_servico_id,
+                                                  os?.numero || "-",
+                                                  planejamento.id,
+                                                  ordem.equipe_id,
+                                                  planejamento.data_planejamento
+                                                );
                                               }}
-                                              title="Cancelar OS"
+                                              title="Remover OS da rota"
                                             >
                                               <Trash2 className="h-4 w-4 text-destructive" />
                                             </Button>
+                                          )}
+                                          {os?.status === "concluida" && (
+                                            <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                                              <CheckCircle2 className="h-3 w-3 mr-1" />
+                                              Concluída
+                                            </Badge>
                                           )}
                                         </div>
                                       </TableCell>
@@ -1334,6 +1566,159 @@ const AcompanhamentoRoteirizacoes = () => {
         onOpenChange={setDetalhesOpen}
         ordemId={ordemDetalhesId}
       />
+
+      {/* Dialog de Confirmação para Remoção em Rota do Dia Atual */}
+      <AlertDialog open={confirmacaoRemocaoDialogOpen} onOpenChange={setConfirmacaoRemocaoDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              Rota do Dia Atual - Confirmação Necessária
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <p>
+                Você está tentando remover a <strong>OS {osParaRemoverComConfirmacao?.osNumero}</strong> de uma 
+                <strong> rota do dia atual</strong>.
+              </p>
+              <p>
+                Como a equipe pode estar trabalhando offline, a remoção ficará 
+                <span className="text-amber-600 font-medium"> "Aguardando sinal do app"</span> até 
+                confirmarmos que a OS não está em andamento ou foi concluída.
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Se a equipe já iniciou ou concluiu esta OS offline, a remoção será cancelada automaticamente.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleCriarPendenciaRemocao} className="bg-amber-500 hover:bg-amber-600">
+              <WifiOff className="h-4 w-4 mr-2" />
+              Aguardar Confirmação
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Dialog para Visualizar OSs Pendentes de Remoção/Sincronização */}
+      <AlertDialog open={pendentesDialogOpen} onOpenChange={setPendentesDialogOpen}>
+        <AlertDialogContent className="max-w-2xl max-h-[80vh]">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Wifi className="h-5 w-5 text-blue-500" />
+              Central de Sincronização
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Acompanhe as OSs pendentes de confirmação e o status de sincronização com as equipes.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          
+          <Tabs defaultValue="pendentes" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="pendentes" className="flex items-center gap-2">
+                <WifiOff className="h-4 w-4" />
+                Aguardando Sinal ({osPendentesRemocao.filter(p => p.status === "aguardando_sinal").length})
+              </TabsTrigger>
+              <TabsTrigger value="historico" className="flex items-center gap-2">
+                <Ban className="h-4 w-4" />
+                Não Efetivadas ({osPendentesRemocao.filter(p => p.status.startsWith("cancelado")).length})
+              </TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="pendentes" className="mt-4">
+              <ScrollArea className="h-[300px]">
+                {osPendentesRemocao.filter(p => p.status === "aguardando_sinal").length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Wifi className="h-12 w-12 mx-auto mb-2 opacity-20" />
+                    <p>Nenhuma OS aguardando confirmação</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {osPendentesRemocao
+                      .filter(p => p.status === "aguardando_sinal")
+                      .map(pendente => (
+                        <Card key={pendente.id} className="border-amber-200 bg-amber-50/50">
+                          <CardContent className="p-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className="p-2 rounded-full bg-amber-100">
+                                  <WifiOff className="h-4 w-4 text-amber-600" />
+                                </div>
+                                <div>
+                                  <p className="font-medium">OS {pendente.os_numero}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    Solicitado em {new Date(pendente.solicitado_at).toLocaleString("pt-BR")}
+                                  </p>
+                                </div>
+                              </div>
+                              <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-300">
+                                Aguardando sinal
+                              </Badge>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                  </div>
+                )}
+              </ScrollArea>
+            </TabsContent>
+            
+            <TabsContent value="historico" className="mt-4">
+              <ScrollArea className="h-[300px]">
+                {osPendentesRemocao.filter(p => p.status.startsWith("cancelado")).length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <CheckCircle2 className="h-12 w-12 mx-auto mb-2 opacity-20" />
+                    <p>Nenhuma remoção cancelada</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {osPendentesRemocao
+                      .filter(p => p.status.startsWith("cancelado"))
+                      .map(pendente => (
+                        <Card key={pendente.id} className="border-red-200 bg-red-50/50">
+                          <CardContent className="p-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className="p-2 rounded-full bg-red-100">
+                                  <XCircle className="h-4 w-4 text-red-600" />
+                                </div>
+                                <div>
+                                  <p className="font-medium">OS {pendente.os_numero}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {pendente.motivo_cancelamento || `Status no app: ${pendente.confirmado_status_app}`}
+                                  </p>
+                                  {pendente.confirmado_at && (
+                                    <p className="text-xs text-muted-foreground">
+                                      Confirmado em {new Date(pendente.confirmado_at).toLocaleString("pt-BR")}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                              <Badge variant="outline" className="bg-red-100 text-red-700 border-red-300">
+                                {pendente.status === "cancelado_concluida" ? "OS Concluída" : "Em Execução"}
+                              </Badge>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                  </div>
+                )}
+              </ScrollArea>
+            </TabsContent>
+          </Tabs>
+          
+          <AlertDialogFooter>
+            <Button variant="outline" onClick={fetchOsPendentesRemocao} disabled={loadingPendentes}>
+              {loadingPendentes ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCcw className="h-4 w-4 mr-2" />}
+              Atualizar
+            </Button>
+            <AlertDialogCancel>Fechar</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Chat Torre de Controle */}
+      <ChatTorreControle />
     </MainLayout>
   );
 };

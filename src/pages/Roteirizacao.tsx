@@ -98,6 +98,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { ChatTorreControle } from "@/components/chat/ChatTorreControle";
 import {
   Command,
   CommandEmpty,
@@ -7394,6 +7395,9 @@ const Roteirizacao = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Chat Torre de Controle */}
+      <ChatTorreControle />
     </MainLayout>
   );
 };
