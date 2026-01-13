@@ -6,18 +6,14 @@ import { useTecnico } from "@/contexts/TecnicoContext";
 import { logApp } from "@/lib/logUtils";
 import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
 import { useOfflineData } from "@/hooks/useOfflineData";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Separator } from "@/components/ui/separator";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Dialog,
   DialogContent,
@@ -32,19 +28,20 @@ import {
   AlertTriangle,
   CheckCircle,
   Zap,
-  RefreshCw,
   History,
   ChevronRight,
   Camera,
   FileSignature,
   X,
-  Trash2,
-  MapPin,
-  Calendar,
   Plus,
-  Eye,
   AlertCircle,
   Loader2,
+  BoxesIcon,
+  TrendingDown,
+  Clock,
+  ArrowDownCircle,
+  ArrowUpCircle,
+  ChevronDown,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { format } from "date-fns";
@@ -53,6 +50,7 @@ import { getAppParentRoute } from "@/lib/appNavigation";
 import { SignatureFullScreen } from "@/components/app/SignatureFullScreen";
 import { DiasRetencaoBadge, calcularDiasDesde, getNivelAlerta } from "@/components/materiais/DiasRetencaoBadge";
 import { usePageState } from "@/contexts/ScrollRestoreContext";
+import { cn } from "@/lib/utils";
 
 interface EstoqueItem {
   id: string;
@@ -147,6 +145,8 @@ interface Resposta {
   assinatura_data_hora?: string;
 }
 
+type TabType = "estoque" | "serializados" | "historico";
+
 export default function AppEstoque() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -164,7 +164,7 @@ export default function AppEstoque() {
   } = useOfflineData();
   const pageKey = "app-estoque";
   const { getState, saveState } = usePageState<{
-    activeTab?: "estoque" | "serializados" | "historico";
+    activeTab?: TabType;
     searchTerm?: string;
     dialogConfirmacao?: boolean;
     entregaSelecionada?: EntregaPendente | null;
@@ -176,13 +176,11 @@ export default function AppEstoque() {
   }>(pageKey);
 
   const initialState = getState();
-  const [activeTab, setActiveTab] = useState<"estoque" | "serializados" | "historico">(
-    initialState?.activeTab || "estoque"
-  );
+  const [activeTab, setActiveTab] = useState<TabType>(initialState?.activeTab || "estoque");
   const [searchTerm, setSearchTerm] = useState(initialState?.searchTerm || "");
   const [refreshKey, setRefreshKey] = useState(0);
   const [showOnlyLowStock, setShowOnlyLowStock] = useState(false);
-  const [pendentesOpen, setPendentesOpen] = useState(false);
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
 
   const handleBack = () => {
     const parent = getAppParentRoute(location.pathname);
@@ -202,7 +200,7 @@ export default function AppEstoque() {
 
   const equipeId = equipe?.id || equipeAuth?.id;
 
-  // Persistir estado do Estoque (para voltar exatamente como estava)
+  // Persistir estado
   useEffect(() => {
     const t = window.setTimeout(() => {
       saveState({
@@ -218,24 +216,12 @@ export default function AppEstoque() {
       });
     }, 300);
     return () => window.clearTimeout(t);
-  }, [
-    activeTab,
-    searchTerm,
-    dialogConfirmacao,
-    entregaSelecionada,
-    respostas,
-    showSignatureScreen,
-    signaturePerguntaId,
-    fotoPreview,
-    fotoPerguntaAtual,
-    saveState,
-  ]);
+  }, [activeTab, searchTerm, dialogConfirmacao, entregaSelecionada, respostas, showSignatureScreen, signaturePerguntaId, fotoPreview, fotoPerguntaAtual, saveState]);
 
   // Query para checklist de recebimento
   const { data: checklistRecebimento } = useQuery({
     queryKey: ["checklist-recebimento"],
     queryFn: async () => {
-      // Tentar buscar do cache se offline
       if (!isOnline) {
         const checklists = await getChecklistsFromCache() as any[];
         if (checklists) {
@@ -263,33 +249,27 @@ export default function AppEstoque() {
       if (error) throw error;
       
       if (data) {
-        // Normalizar estrutura de perguntas
         let perguntas: Pergunta[] = [];
-        
         if (data.grupos && Array.isArray(data.grupos) && data.grupos.length > 0) {
-          // Se tem grupos, extrair perguntas dos grupos
           perguntas = (data.grupos as GrupoPerguntas[]).flatMap(g => g.perguntas);
         } else if (data.perguntas && Array.isArray(data.perguntas)) {
           perguntas = data.perguntas as Pergunta[];
         }
-        
         return { ...data, perguntasNormalizadas: perguntas } as ChecklistRecebimento & { perguntasNormalizadas: Pergunta[] };
       }
       return null;
     },
   });
 
-  // Query para estoque da equipe - NÃO incluir isOnline na queryKey para manter dados ao ficar offline
+  // Query para estoque da equipe
   const { data: estoqueEquipe, isLoading } = useQuery({
     queryKey: ["estoque-equipe", equipeId, refreshKey],
     queryFn: async () => {
       if (!equipeId) return [];
 
-      // Tentar buscar do cache se offline
       if (!isOnline) {
         const cached = await getEstoqueFromCache(equipeId) as EstoqueItem[];
         if (cached && cached.length > 0) {
-          console.log("[AppEstoque] Usando estoque do cache:", cached.length, "itens");
           return cached;
         }
         return [];
@@ -328,13 +308,9 @@ export default function AppEstoque() {
     queryFn: async () => {
       if (!equipeId) return [];
 
-      // Tentar buscar do cache se offline
       if (!isOnline) {
         const cached = await getMovimentacoesFromCache(equipeId) as MovimentacaoRecente[];
-        if (cached) {
-          console.log("[AppEstoque] Usando movimentações do cache:", cached.length);
-          return cached;
-        }
+        if (cached) return cached;
         return [];
       }
 
@@ -350,7 +326,7 @@ export default function AppEstoque() {
         `)
         .or(`local_origem_id.eq.${equipeId},local_destino_id.eq.${equipeId}`)
         .order("created_at", { ascending: false })
-        .limit(10);
+        .limit(20);
 
       if (error) throw error;
       return data as MovimentacaoRecente[];
@@ -358,53 +334,34 @@ export default function AppEstoque() {
     enabled: !!equipeId,
   });
 
-  // Query para entregas pendentes com itens
+  // Query para entregas pendentes
   const { data: entregasPendentes } = useQuery({
     queryKey: ["entregas-pendentes-equipe", equipeId, refreshKey],
     queryFn: async () => {
       if (!equipeId) return [];
 
-      // Tentar buscar do cache se offline
       if (!isOnline) {
         const cached = await getEntregasPendentesFromCache(equipeId) as EntregaPendente[];
-        if (cached) {
-          console.log("[AppEstoque] Usando entregas pendentes do cache:", cached.length);
-          return cached;
-        }
+        if (cached) return cached;
         return [];
       }
 
       const { data, error } = await supabase
         .from("materiais_entregas")
-        .select(`
-          id,
-          data_entrega,
-          status,
-          observacao
-        `)
+        .select(`id, data_entrega, status, observacao`)
         .eq("equipe_id", equipeId)
         .eq("status", "pendente")
         .order("created_at", { ascending: false });
 
       if (error) throw error;
 
-      // Buscar itens de cada entrega
       const entregasComItens = await Promise.all(
         (data || []).map(async (entrega: any) => {
           const { data: itens } = await supabase
             .from("materiais_entregas_itens")
-            .select(`
-              material_id,
-              quantidade,
-              numero_serie,
-              materiais (codigo, nome, unidade)
-            `)
+            .select(`material_id, quantidade, numero_serie, materiais (codigo, nome, unidade)`)
             .eq("entrega_id", entrega.id);
-
-          return {
-            ...entrega,
-            itens: itens || [],
-          };
+          return { ...entrega, itens: itens || [] };
         })
       );
 
@@ -413,19 +370,15 @@ export default function AppEstoque() {
     enabled: !!equipeId,
   });
 
-  // Query para devoluções pendentes de confirmação (solicitadas pelo almoxarifado)
+  // Query para devoluções pendentes
   const { data: devolucoesPendentesConfirmacao } = useQuery({
     queryKey: ["devolucoes-pendentes-confirmacao-equipe", equipeId, refreshKey],
     queryFn: async () => {
       if (!equipeId) return [];
       
-      // Tentar buscar do cache se offline
       if (!isOnline) {
         const cached = await getDevolucoesPendentesFromCache(equipeId) as any[];
-        if (cached) {
-          console.log("[AppEstoque] Usando devoluções pendentes do cache:", cached.length);
-          return cached;
-        }
+        if (cached) return cached;
         return [];
       }
       
@@ -442,24 +395,18 @@ export default function AppEstoque() {
     enabled: !!equipeId,
   });
 
-  // Query para materiais serializados (com rastro) da equipe
-  // Busca materiais que foram entregues para a equipe e ainda não foram aplicados/devolvidos
+  // Query para materiais serializados
   const { data: materiaisSerializados } = useQuery({
     queryKey: ["materiais-serializados-equipe", equipeId, refreshKey],
     queryFn: async () => {
       if (!equipeId) return [];
 
-      // Tentar buscar do cache se offline
       if (!isOnline) {
         const cached = await getMateriaisSerializadosFromCache(equipeId) as any[];
-        if (cached) {
-          console.log("[AppEstoque] Usando materiais serializados do cache:", cached.length);
-          return cached;
-        }
+        if (cached) return cached;
         return [];
       }
 
-      // Primeiro, buscar entregas confirmadas da equipe
       const { data: entregas, error: entregasError } = await supabase
         .from("materiais_entregas")
         .select("id, data_entrega, data_confirmacao")
@@ -469,28 +416,16 @@ export default function AppEstoque() {
       if (entregasError) throw entregasError;
       if (!entregas || entregas.length === 0) return [];
 
-      // Buscar itens das entregas que têm número de série
       const entregaIds = entregas.map((e: any) => e.id);
       const { data: itensEntrega, error: itensError } = await supabase
         .from("materiais_entregas_itens")
-        .select(`
-          id,
-          entrega_id,
-          numero_serie,
-          material_id,
-          materiais (
-            codigo,
-            nome,
-            dias_alerta_retencao
-          )
-        `)
+        .select(`id, entrega_id, numero_serie, material_id, materiais (codigo, nome, dias_alerta_retencao)`)
         .in("entrega_id", entregaIds)
         .not("numero_serie", "is", null);
 
       if (itensError) throw itensError;
       if (!itensEntrega || itensEntrega.length === 0) return [];
 
-      // Verificar quais materiais ainda estão com a equipe (não foram aplicados)
       const numerosSerieEntregues = itensEntrega.map((i: any) => i.numero_serie).filter(Boolean);
       
       const { data: serializados, error: serializadosError } = await supabase
@@ -500,20 +435,12 @@ export default function AppEstoque() {
 
       if (serializadosError) throw serializadosError;
 
-      // Filtrar apenas os que ainda não foram instalados/retirados
-      const serializadosMap = new Map(
-        (serializados || []).map((s: any) => [s.numero_serie, s.status])
-      );
-
-      // Montar resultado com data de entrega
-      const entregasMap = new Map(
-        entregas.map((e: any) => [e.id, e])
-      );
+      const serializadosMap = new Map((serializados || []).map((s: any) => [s.numero_serie, s.status]));
+      const entregasMap = new Map(entregas.map((e: any) => [e.id, e]));
 
       return itensEntrega
         .filter((item: any) => {
           const status = serializadosMap.get(item.numero_serie);
-          // Manter se status é em_estoque (ainda não aplicado) ou não existe registro
           return !status || status === "em_estoque" || status === "com_equipe";
         })
         .map((item: any) => {
@@ -521,9 +448,9 @@ export default function AppEstoque() {
           return {
             id: item.id,
             numero_serie: item.numero_serie,
-            data_entrega_equipe: entrega?.data_confirmacao || entrega?.data_entrega,
-            created_at: entrega?.data_entrega,
-            updated_at: entrega?.data_confirmacao,
+            data_entrega_equipe: (entrega as any)?.data_confirmacao || (entrega as any)?.data_entrega,
+            created_at: (entrega as any)?.data_entrega,
+            updated_at: (entrega as any)?.data_confirmacao,
             materiais: item.materiais,
           };
         });
@@ -533,12 +460,7 @@ export default function AppEstoque() {
 
   // Mutation para confirmar recebimento
   const confirmarRecebimentoMutation = useMutation({
-    mutationFn: async (data: {
-      entrega_id: string;
-      respostas: Record<string, Resposta>;
-      checklist_id: string;
-    }) => {
-      // Extrair foto e assinatura das respostas
+    mutationFn: async (data: { entrega_id: string; respostas: Record<string, Resposta>; checklist_id: string }) => {
       const respostasArray = Object.values(data.respostas);
       const fotoResposta = respostasArray.find(r => r.fotos && r.fotos.length > 0);
       const assinaturaResposta = respostasArray.find(r => r.assinatura_url);
@@ -550,45 +472,27 @@ export default function AppEstoque() {
 
       const dataConfirmacao = new Date().toISOString();
 
-      // Se offline, enfileirar operação
       if (!isOnline) {
-        console.log("[AppEstoque] Enfileirando confirmação de recebimento offline");
+        await queueOperation("confirmar_recebimento", "materiais_entregas", "update", {
+          id: data.entrega_id,
+          status: "confirmado",
+          foto_recebimento: fotoPrincipal,
+          assinatura_recebimento: assinaturaResposta?.assinatura_url || null,
+          coordenadas_recebimento: coordenadas,
+          data_confirmacao: dataConfirmacao,
+        }, 2);
         
-        // Enfileirar atualização da entrega
-        await queueOperation(
-          "confirmar_recebimento",
-          "materiais_entregas",
-          "update",
-          {
-            id: data.entrega_id,
-            status: "confirmado",
-            foto_recebimento: fotoPrincipal,
-            assinatura_recebimento: assinaturaResposta?.assinatura_url || null,
-            coordenadas_recebimento: coordenadas,
-            data_confirmacao: dataConfirmacao,
-          },
-          2 // Prioridade média
-        );
-        
-        // Enfileirar registro no checklist
-        await queueOperation(
-          "save_checklist",
-          "checklist_respostas",
-          "insert",
-          {
-            checklist_id: data.checklist_id,
-            equipe_id: equipeId,
-            status: "completo",
-            respostas: data.respostas,
-          },
-          2 // Prioridade média
-        );
+        await queueOperation("save_checklist", "checklist_respostas", "insert", {
+          checklist_id: data.checklist_id,
+          equipe_id: equipeId,
+          status: "completo",
+          respostas: data.respostas,
+        }, 2);
         
         toast.success("Confirmação salva! Será sincronizada quando houver internet.");
         return;
       }
 
-      // Atualizar status da entrega
       const { error } = await supabase
         .from("materiais_entregas")
         .update({
@@ -600,7 +504,6 @@ export default function AppEstoque() {
         })
         .eq("id", data.entrega_id);
 
-      // Buscar itens serializados da entrega e atualizar status
       const { data: itensEntrega } = await supabase
         .from("materiais_entregas_itens")
         .select("numero_serie")
@@ -609,8 +512,6 @@ export default function AppEstoque() {
 
       if (itensEntrega && itensEntrega.length > 0) {
         const numerosSerieEntregues = itensEntrega.map((i: any) => i.numero_serie).filter(Boolean);
-        
-        // Atualizar status dos materiais serializados para "com_equipe"
         await supabase
           .from("materiais_serializados")
           .update({
@@ -625,7 +526,6 @@ export default function AppEstoque() {
 
       if (error) throw error;
 
-      // Criar registro no checklist
       await supabase.from("checklist_respostas").insert({
         checklist_id: data.checklist_id,
         equipe_id: equipeId,
@@ -633,20 +533,12 @@ export default function AppEstoque() {
         respostas: data.respostas,
       });
       
-      // Log do sistema
-      logApp(
-        "criar",
-        "app",
-        "materiais_entregas",
-        data.entrega_id,
-        {
-          id: equipeId || "",
-          nome: equipe?.codigo || equipeAuth?.codigo || "",
-          equipeId: equipeId || "",
-          equipeCodigo: equipe?.codigo || equipeAuth?.codigo || ""
-        },
-        null,
-        { status: "confirmado", data_confirmacao: dataConfirmacao },
+      logApp("criar", "app", "materiais_entregas", data.entrega_id, {
+        id: equipeId || "",
+        nome: equipe?.codigo || equipeAuth?.codigo || "",
+        equipeId: equipeId || "",
+        equipeCodigo: equipe?.codigo || equipeAuth?.codigo || ""
+      }, null, { status: "confirmado", data_confirmacao: dataConfirmacao },
         `Confirmou recebimento de materiais (entrega ${data.entrega_id})`
       );
     },
@@ -664,33 +556,19 @@ export default function AppEstoque() {
     },
   });
 
-  // Obter localização atual
+  // Helpers
   const getCurrentLocation = useCallback((): Promise<{ latitude: number; longitude: number } | null> => {
     return new Promise((resolve) => {
-      if (!navigator.geolocation) {
-        resolve(null);
-        return;
-      }
-
+      if (!navigator.geolocation) { resolve(null); return; }
       navigator.geolocation.getCurrentPosition(
-        (position) => {
-          resolve({
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-          });
-        },
+        (position) => resolve({ latitude: position.coords.latitude, longitude: position.coords.longitude }),
         () => resolve(null),
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
       );
     });
   }, []);
 
-  // Adicionar carimbo na imagem
-  const addImageStamp = useCallback((
-    imageDataUrl: string,
-    timestamp: string,
-    coords: { latitude: number; longitude: number } | null
-  ): Promise<string> => {
+  const addImageStamp = useCallback((imageDataUrl: string, timestamp: string, coords: { latitude: number; longitude: number } | null): Promise<string> => {
     return new Promise((resolve) => {
       const img = new Image();
       img.onload = () => {
@@ -698,20 +576,12 @@ export default function AppEstoque() {
         canvas.width = img.width;
         canvas.height = img.height;
         const ctx = canvas.getContext("2d");
-        
-        if (!ctx) {
-          resolve(imageDataUrl);
-          return;
-        }
-
+        if (!ctx) { resolve(imageDataUrl); return; }
         ctx.drawImage(img, 0, 0);
-
         const fontSize = Math.max(14, Math.floor(img.width / 35));
         ctx.font = `bold ${fontSize}px Arial`;
-        
         const line1 = `📅 ${timestamp}`;
         const line2 = coords ? `📍 ${coords.latitude.toFixed(6)}, ${coords.longitude.toFixed(6)}` : "📍 Sem GPS";
-        
         const metrics1 = ctx.measureText(line1);
         const metrics2 = ctx.measureText(line2);
         const maxWidth = Math.max(metrics1.width, metrics2.width);
@@ -719,23 +589,18 @@ export default function AppEstoque() {
         const padding = fontSize * 0.6;
         const boxHeight = lineHeight * 2 + padding * 2;
         const boxWidth = maxWidth + padding * 2;
-
         ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
         ctx.fillRect(0, 0, boxWidth, boxHeight);
-
         ctx.fillStyle = "#ffffff";
         ctx.fillText(line1, padding, padding + fontSize);
         ctx.fillText(line2, padding, padding + fontSize + lineHeight);
-
         resolve(canvas.toDataURL("image/jpeg", 0.85));
       };
-      
       img.onerror = () => resolve(imageDataUrl);
       img.src = imageDataUrl;
     });
   }, []);
 
-  // Converter arquivo para base64
   const fileToBase64 = useCallback((file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -745,7 +610,6 @@ export default function AppEstoque() {
     });
   }, []);
 
-  // Funções auxiliares
   const resetFormConfirmacao = () => {
     setEntregaSelecionada(null);
     setRespostas({});
@@ -759,37 +623,20 @@ export default function AppEstoque() {
     setDialogConfirmacao(true);
   };
 
-  // Atualizar resposta
   const updateResposta = (perguntaId: string, valor: any, campo: keyof Resposta = 'resposta') => {
-    setRespostas(prev => {
-      const respostaAtual = prev[perguntaId] || { pergunta_id: perguntaId };
-      return {
-        ...prev,
-        [perguntaId]: {
-          ...respostaAtual,
-          pergunta_id: perguntaId,
-          [campo]: valor,
-        },
-      };
-    });
+    setRespostas(prev => ({
+      ...prev,
+      [perguntaId]: { ...prev[perguntaId], pergunta_id: perguntaId, [campo]: valor },
+    }));
   };
 
-  // Atualizar múltiplos campos de uma resposta
   const updateRespostaMultiplo = (perguntaId: string, campos: Partial<Resposta>) => {
-    setRespostas(prev => {
-      const respostaAtual = prev[perguntaId] || { pergunta_id: perguntaId };
-      return {
-        ...prev,
-        [perguntaId]: {
-          ...respostaAtual,
-          pergunta_id: perguntaId,
-          ...campos,
-        },
-      };
-    });
+    setRespostas(prev => ({
+      ...prev,
+      [perguntaId]: { ...prev[perguntaId], pergunta_id: perguntaId, ...campos },
+    }));
   };
 
-  // Handler para foto
   const handleTirarFoto = (perguntaId: string) => {
     setFotoPerguntaAtual(perguntaId);
     inputFotoRef.current?.click();
@@ -816,11 +663,9 @@ export default function AppEstoque() {
 
       const respostaAtual = respostas[fotoPerguntaAtual];
       const fotosAtuais = respostaAtual?.fotos || [];
-      
       updateResposta(fotoPerguntaAtual, [...fotosAtuais, novaFoto], 'fotos');
       toast.success("Foto adicionada!", { id: "foto-upload" });
     } catch (error) {
-      console.error("Erro ao processar foto:", error);
       toast.error("Erro ao processar foto", { id: "foto-upload" });
     }
     
@@ -834,7 +679,6 @@ export default function AppEstoque() {
     updateResposta(perguntaId, fotosAtuais.filter((_, i) => i !== index), 'fotos');
   };
 
-  // Handler para assinatura
   const handleAbrirAssinatura = (perguntaId: string) => {
     setSignaturePerguntaId(perguntaId);
     setDialogConfirmacao(false);
@@ -843,14 +687,11 @@ export default function AppEstoque() {
 
   const handleAssinaturaSalva = async (dataUrl: string) => {
     if (!signaturePerguntaId) return;
-    
     toast.loading("Processando assinatura...", { id: "assinatura" });
-    
     try {
       const coords = await getCurrentLocation();
       const timestamp = format(new Date(), "dd/MM/yyyy HH:mm:ss");
       const stampedSignature = await addImageStamp(dataUrl, timestamp, coords);
-      
       updateRespostaMultiplo(signaturePerguntaId, {
         assinatura_url: stampedSignature,
         resposta: true,
@@ -858,7 +699,6 @@ export default function AppEstoque() {
         assinatura_longitude: coords?.longitude,
         assinatura_data_hora: timestamp,
       });
-      
       toast.success("Assinatura salva!", { id: "assinatura" });
     } catch (error) {
       updateRespostaMultiplo(signaturePerguntaId, {
@@ -880,25 +720,17 @@ export default function AppEstoque() {
     });
   };
 
-  // Verificar pendências
   const verificarPendencias = (): string[] => {
     const pendencias: string[] = [];
     const perguntas = (checklistRecebimento as any)?.perguntasNormalizadas || [];
-    
     for (const pergunta of perguntas) {
       const resposta = respostas[pergunta.id];
       const obrigatoria = pergunta.obrigatorio || pergunta.obrigatoria;
-      
       if (obrigatoria) {
         if (pergunta.tipo === 'foto') {
-          const fotos = resposta?.fotos || [];
-          if (fotos.length === 0) {
-            pendencias.push(pergunta.id);
-          }
+          if (!(resposta?.fotos?.length > 0)) pendencias.push(pergunta.id);
         } else if (pergunta.tipo === 'assinatura') {
-          if (!resposta?.assinatura_url) {
-            pendencias.push(pergunta.id);
-          }
+          if (!resposta?.assinatura_url) pendencias.push(pergunta.id);
         } else {
           if (resposta?.resposta === null || resposta?.resposta === undefined || resposta?.resposta === '') {
             pendencias.push(pergunta.id);
@@ -906,19 +738,16 @@ export default function AppEstoque() {
         }
       }
     }
-    
     return pendencias;
   };
 
   const handleConfirmarRecebimento = () => {
     if (!entregaSelecionada || !checklistRecebimento) return;
-    
     const pendencias = verificarPendencias();
     if (pendencias.length > 0) {
       toast.error("Preencha todos os campos obrigatórios");
       return;
     }
-    
     confirmarRecebimentoMutation.mutate({
       entrega_id: entregaSelecionada.id,
       respostas: respostas,
@@ -926,38 +755,18 @@ export default function AppEstoque() {
     });
   };
 
-  // Renderizar campo de pergunta (igual APR)
+  // Render campo pergunta
   const renderCampoPergunta = (pergunta: Pergunta) => {
     const resposta = respostas[pergunta.id];
-    const obrigatoria = pergunta.obrigatorio || pergunta.obrigatoria;
 
     switch (pergunta.tipo) {
       case 'texto':
-        return (
-          <Input
-            value={(resposta?.resposta as string) || ''}
-            onChange={(e) => updateResposta(pergunta.id, e.target.value)}
-            placeholder="Digite sua resposta..."
-          />
-        );
-
+        return <Input value={(resposta?.resposta as string) || ''} onChange={(e) => updateResposta(pergunta.id, e.target.value)} placeholder="Digite..." />;
       case 'texto_longo':
-        return (
-          <Textarea
-            value={(resposta?.resposta as string) || ''}
-            onChange={(e) => updateResposta(pergunta.id, e.target.value)}
-            placeholder="Digite sua resposta..."
-            rows={3}
-          />
-        );
-
+        return <Textarea value={(resposta?.resposta as string) || ''} onChange={(e) => updateResposta(pergunta.id, e.target.value)} placeholder="Digite..." rows={3} />;
       case 'sim_nao':
         return (
-          <RadioGroup
-            value={resposta?.resposta as string || ''}
-            onValueChange={(value) => updateResposta(pergunta.id, value)}
-            className="flex gap-4"
-          >
+          <RadioGroup value={resposta?.resposta as string || ''} onValueChange={(value) => updateResposta(pergunta.id, value)} className="flex gap-4">
             <div className="flex items-center space-x-2">
               <RadioGroupItem value="sim" id={`${pergunta.id}-sim`} />
               <Label htmlFor={`${pergunta.id}-sim`} className="text-green-600 font-medium cursor-pointer">Sim</Label>
@@ -968,7 +777,6 @@ export default function AppEstoque() {
             </div>
           </RadioGroup>
         );
-
       case 'foto':
         const fotos = resposta?.fotos || [];
         return (
@@ -977,154 +785,76 @@ export default function AppEstoque() {
               <div className="grid grid-cols-2 gap-2">
                 {fotos.map((foto, index) => (
                   <div key={index} className="relative group">
-                    <img
-                      src={foto.url}
-                      alt={`Foto ${index + 1}`}
-                      className="w-full h-28 object-cover rounded-lg border cursor-pointer"
-                      onClick={() => setFotoPreview(foto.url)}
-                    />
-                    <Button
-                      variant="destructive"
-                      size="icon"
-                      className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={() => handleRemoverFoto(pergunta.id, index)}
-                    >
+                    <img src={foto.url} alt={`Foto ${index + 1}`} className="w-full h-28 object-cover rounded-lg border cursor-pointer" onClick={() => setFotoPreview(foto.url)} />
+                    <Button variant="destructive" size="icon" className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleRemoverFoto(pergunta.id, index)}>
                       <X className="h-3 w-3" />
                     </Button>
-                    <div className="absolute bottom-1 left-1 right-1 bg-black/60 text-white text-[10px] px-1 py-0.5 rounded truncate">
-                      📅 {foto.data_hora}
-                    </div>
+                    <div className="absolute bottom-1 left-1 right-1 bg-black/60 text-white text-[10px] px-1 py-0.5 rounded truncate">📅 {foto.data_hora}</div>
                   </div>
                 ))}
               </div>
             )}
-            
-            <Button
-              type="button"
-              variant="outline"
-              className={`w-full ${fotos.length === 0 ? 'h-28 border-dashed' : 'h-10'}`}
-              onClick={() => handleTirarFoto(pergunta.id)}
-            >
+            <Button type="button" variant="outline" className={`w-full ${fotos.length === 0 ? 'h-24 border-dashed' : 'h-10'}`} onClick={() => handleTirarFoto(pergunta.id)}>
               <div className="flex items-center gap-2">
-                {fotos.length === 0 ? (
-                  <>
-                    <Camera className="h-8 w-8 text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">Tirar Foto</span>
-                  </>
-                ) : (
-                  <>
-                    <Plus className="h-4 w-4" />
-                    <span>Adicionar outra foto</span>
-                  </>
-                )}
+                {fotos.length === 0 ? (<><Camera className="h-6 w-6 text-muted-foreground" /><span className="text-sm text-muted-foreground">Tirar Foto</span></>) : (<><Plus className="h-4 w-4" /><span>Adicionar foto</span></>)}
               </div>
             </Button>
-            
-            {fotos.length > 0 && (
-              <p className="text-xs text-muted-foreground text-center">
-                {fotos.length} foto(s) • com data/hora e coordenadas
-              </p>
-            )}
           </div>
         );
-
       case 'assinatura':
         return (
           <div className="space-y-2">
             {resposta?.assinatura_url ? (
               <div className="relative">
                 <div className="bg-white rounded-lg border-2 border-gray-200 p-2">
-                  <img
-                    src={resposta.assinatura_url}
-                    alt="Assinatura"
-                    className="w-full h-32 object-contain cursor-pointer"
-                    onClick={() => setFotoPreview(resposta.assinatura_url!)}
-                  />
-                  {resposta.assinatura_data_hora && (
-                    <p className="text-xs text-muted-foreground text-center mt-2">
-                      📅 {resposta.assinatura_data_hora}
-                      {resposta.assinatura_latitude && resposta.assinatura_longitude && (
-                        <> • 📍 {resposta.assinatura_latitude.toFixed(4)}, {resposta.assinatura_longitude.toFixed(4)}</>
-                      )}
-                    </p>
-                  )}
+                  <img src={resposta.assinatura_url} alt="Assinatura" className="w-full h-28 object-contain cursor-pointer" onClick={() => setFotoPreview(resposta.assinatura_url!)} />
+                  {resposta.assinatura_data_hora && <p className="text-xs text-muted-foreground text-center mt-2">📅 {resposta.assinatura_data_hora}</p>}
                 </div>
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  className="absolute top-2 right-2"
-                  onClick={() => handleLimparAssinatura(pergunta.id)}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
+                <Button size="sm" variant="destructive" className="absolute top-2 right-2" onClick={() => handleLimparAssinatura(pergunta.id)}><X className="h-4 w-4" /></Button>
               </div>
             ) : (
-              <Button
-                variant="outline"
-                className="w-full h-28 border-dashed border-2"
-                onClick={() => handleAbrirAssinatura(pergunta.id)}
-              >
+              <Button variant="outline" className="w-full h-24 border-dashed border-2" onClick={() => handleAbrirAssinatura(pergunta.id)}>
                 <div className="flex flex-col items-center gap-2">
-                  <FileSignature className="h-10 w-10 text-violet-500" />
+                  <FileSignature className="h-8 w-8 text-violet-500" />
                   <span className="text-sm text-muted-foreground">Toque para assinar</span>
-                  <span className="text-xs text-muted-foreground">Abre em tela cheia</span>
                 </div>
               </Button>
             )}
           </div>
         );
-
       default:
-        return (
-          <Input
-            value={(resposta?.resposta as string) || ''}
-            onChange={(e) => updateResposta(pergunta.id, e.target.value)}
-            placeholder="Digite sua resposta..."
-          />
-        );
+        return <Input value={(resposta?.resposta as string) || ''} onChange={(e) => updateResposta(pergunta.id, e.target.value)} placeholder="Digite..." />;
     }
   };
 
-  // Filtrar estoque por busca
+  // Filtragem e agrupamento
   const estoqueFiltrado = estoqueEquipe?.filter((item) => {
     const isBaixo = item.quantidade <= item.materiais.estoque_minimo;
     if (showOnlyLowStock && !isBaixo) return false;
     if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
-    return (
-      item.materiais.codigo.toLowerCase().includes(term) ||
-      item.materiais.nome.toLowerCase().includes(term)
-    );
+    return item.materiais.codigo.toLowerCase().includes(term) || item.materiais.nome.toLowerCase().includes(term);
   });
 
   const estoqueAgrupado = useMemo(() => {
     const map = new Map<string, EstoqueItem[]>();
     (estoqueFiltrado || []).forEach((item) => {
-      const cat = item.materiais.categoria?.trim() || "Sem categoria";
+      const cat = item.materiais.categoria?.trim() || "Outros";
       const list = map.get(cat) || [];
       list.push(item);
       map.set(cat, list);
     });
-
-    const categorias = Array.from(map.keys()).sort((a, b) => a.localeCompare(b, "pt-BR"));
-    return categorias.map((categoria) => {
-      const itens = (map.get(categoria) || []).sort((a, b) =>
-        a.materiais.codigo.localeCompare(b.materiais.codigo, "pt-BR", { numeric: true })
-      );
-      return { categoria, itens };
-    });
+    return Array.from(map.keys()).sort((a, b) => a.localeCompare(b, "pt-BR")).map((categoria) => ({
+      categoria,
+      itens: (map.get(categoria) || []).sort((a, b) => a.materiais.codigo.localeCompare(b.materiais.codigo, "pt-BR", { numeric: true })),
+    }));
   }, [estoqueFiltrado]);
 
-  // Calcular estatísticas
+  // Estatísticas
   const totalItens = estoqueEquipe?.length || 0;
-  const itensBaixos = estoqueEquipe?.filter(
-    (item) => item.quantidade <= item.materiais.estoque_minimo
-  ).length || 0;
-
-  // Função auxiliar para obter data de entrega (usa created_at como fallback)
+  const totalQuantidade = estoqueEquipe?.reduce((acc, item) => acc + item.quantidade, 0) || 0;
+  const itensBaixos = estoqueEquipe?.filter((item) => item.quantidade <= item.materiais.estoque_minimo).length || 0;
   const getDataEntrega = (item: any) => item.data_entrega_equipe || item.updated_at || item.created_at;
-
-  // Calcular materiais serializados em alerta
   const materiaisEmAlerta = materiaisSerializados?.filter((item: any) => {
     const dataEntrega = getDataEntrega(item);
     const dias = calcularDiasDesde(dataEntrega);
@@ -1135,245 +865,185 @@ export default function AppEstoque() {
 
   const perguntas = (checklistRecebimento as any)?.perguntasNormalizadas || [];
 
+  const toggleCategory = (cat: string) => {
+    setExpandedCategories(prev => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat);
+      else next.add(cat);
+      return next;
+    });
+  };
+
+  // Tabs config
+  const tabs: { id: TabType; label: string; icon: any; count?: number; alert?: boolean }[] = [
+    { id: "estoque", label: "Estoque", icon: BoxesIcon, count: totalItens },
+    { id: "serializados", label: "Rastro", icon: Zap, count: materiaisSerializados?.length || 0, alert: materiaisEmAlerta.length > 0 },
+    { id: "historico", label: "Histórico", icon: History },
+  ];
+
   return (
-    <div className="pb-20">
-      {/* Header */}
-      <div className="sticky top-0 z-30 bg-background border-b px-4 py-3">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={handleBack}>
+    <div className="min-h-screen bg-gradient-to-b from-emerald-50 to-background pb-24">
+      {/* Header com gradiente */}
+      <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-4 pt-4 pb-20">
+        <div className="flex items-center gap-3 mb-4">
+          <Button variant="ghost" size="icon" onClick={handleBack} className="text-white hover:bg-white/20 rounded-full">
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="flex-1">
-            <h1 className="font-semibold flex items-center gap-2">
-              <Package className="h-5 w-5 text-emerald-600" />
+            <h1 className="text-lg font-bold text-white flex items-center gap-2">
+              <Package className="h-5 w-5" />
               Meu Estoque
             </h1>
-            <p className="text-xs text-muted-foreground">
-              Materiais disponíveis para uso
+            <p className="text-emerald-100 text-xs">
+              {equipe?.codigo || equipeAuth?.codigo}
             </p>
           </div>
+          {!isOnline && (
+            <Badge variant="secondary" className="bg-white/20 text-white border-0">
+              Offline
+            </Badge>
+          )}
         </div>
       </div>
 
-      <div className="p-4 space-y-4">
-        {/* Devoluções pendentes (almoxarifado → equipe confirma) */}
-        {devolucoesPendentesConfirmacao && devolucoesPendentesConfirmacao.length > 0 && (
-          <Card className="border-violet-200 bg-violet-50">
-            <CardContent className="p-4 space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-3 min-w-0">
-                  <div className="p-2 bg-violet-100 rounded-lg shrink-0">
-                    <Package className="h-5 w-5 text-violet-700" />
+      {/* Cards de resumo flutuantes */}
+      <div className="px-4 -mt-14">
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          {/* Card Total */}
+          <Card className="shadow-lg border-0">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground">Total de Itens</p>
+                  <p className="text-2xl font-bold text-emerald-700">{totalItens}</p>
+                  <p className="text-[10px] text-muted-foreground">{totalQuantidade} unidades</p>
+                </div>
+                <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center">
+                  <BoxesIcon className="h-5 w-5 text-emerald-600" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Card Alertas */}
+          <Card 
+            className={cn("shadow-lg border-0 cursor-pointer transition-all", itensBaixos > 0 && "ring-2 ring-amber-400 bg-amber-50")}
+            onClick={() => { setActiveTab("estoque"); setShowOnlyLowStock(true); }}
+          >
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground">Estoque Baixo</p>
+                  <p className={cn("text-2xl font-bold", itensBaixos > 0 ? "text-amber-600" : "text-gray-400")}>{itensBaixos}</p>
+                  <p className="text-[10px] text-muted-foreground">itens críticos</p>
+                </div>
+                <div className={cn("h-10 w-10 rounded-full flex items-center justify-center", itensBaixos > 0 ? "bg-amber-100" : "bg-gray-100")}>
+                  <TrendingDown className={cn("h-5 w-5", itensBaixos > 0 ? "text-amber-600" : "text-gray-400")} />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Alertas de pendências */}
+        {(entregasPendentes && entregasPendentes.length > 0) && (
+          <Card className="shadow-lg border-0 mb-3 bg-gradient-to-r from-amber-500 to-orange-500 text-white">
+            <CardContent className="p-4">
+              <button 
+                className="w-full flex items-center justify-between"
+                onClick={() => handleAbrirConfirmacao(entregasPendentes[0])}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-full bg-white/20 flex items-center justify-center">
+                    <ArrowDownCircle className="h-5 w-5" />
                   </div>
-                  <div className="min-w-0">
-                    <p className="font-semibold text-violet-900">Devolução pendente</p>
-                    <p className="text-xs text-violet-800/80">
-                      {devolucoesPendentesConfirmacao.length} solicitação(ões) aguardando sua confirmação
-                    </p>
+                  <div className="text-left">
+                    <p className="font-semibold">Recebimento Pendente</p>
+                    <p className="text-xs text-white/80">{entregasPendentes.length} entrega(s) aguardando confirmação</p>
                   </div>
                 </div>
-                <Button
-                  size="sm"
-                  className="shrink-0 bg-violet-600 hover:bg-violet-700"
-                  onClick={() => navigate("/app/estoque/devolucoes")}
-                >
-                  Confirmar
-                </Button>
-              </div>
-
-              <Collapsible open={pendentesOpen} onOpenChange={setPendentesOpen}>
-                <CollapsibleTrigger asChild>
-                  <Button variant="ghost" size="sm" className="px-0 h-auto text-violet-800 hover:bg-transparent">
-                    {pendentesOpen ? "Ocultar detalhes" : "Ver detalhes"}
-                  </Button>
-                </CollapsibleTrigger>
-                <CollapsibleContent className="space-y-2">
-                  <div className="rounded-lg border border-violet-200 bg-white overflow-hidden">
-                    {devolucoesPendentesConfirmacao.map((dev: any, idx: number) => (
-                      <div key={dev.id}>
-                        <button
-                          type="button"
-                          className="w-full text-left p-3 hover:bg-violet-50 transition-colors"
-                          onClick={() => navigate("/app/estoque/devolucoes")}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="text-sm font-medium text-violet-900">
-                                Solicitação {String(dev.id).slice(0, 8).toUpperCase()}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                {format(new Date(dev.created_at), "dd/MM/yyyy HH:mm")}
-                                {dev.observacao ? ` • ${dev.observacao}` : ""}
-                              </p>
-                            </div>
-                            <ChevronRight className="h-4 w-4 text-violet-700" />
-                          </div>
-                        </button>
-                        {idx < devolucoesPendentesConfirmacao.length - 1 && <Separator />}
-                      </div>
-                    ))}
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
+                <ChevronRight className="h-5 w-5" />
+              </button>
             </CardContent>
           </Card>
         )}
 
-        {/* Entregas pendentes (resumo) */}
-        {entregasPendentes && entregasPendentes.length > 0 && (
-          <Card className="border-amber-200 bg-amber-50">
-            <CardContent className="p-4 space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-3 min-w-0">
-                  <div className="p-2 bg-amber-100 rounded-lg shrink-0">
-                    <Package className="h-5 w-5 text-amber-700" />
+        {(devolucoesPendentesConfirmacao && devolucoesPendentesConfirmacao.length > 0) && (
+          <Card className="shadow-lg border-0 mb-3 bg-gradient-to-r from-violet-500 to-purple-500 text-white">
+            <CardContent className="p-4">
+              <button 
+                className="w-full flex items-center justify-between"
+                onClick={() => navigate("/app/estoque/devolucoes")}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-full bg-white/20 flex items-center justify-center">
+                    <ArrowUpCircle className="h-5 w-5" />
                   </div>
-                  <div className="min-w-0">
-                    <p className="font-semibold text-amber-900">Recebimento pendente</p>
-                    <p className="text-xs text-amber-800/80">
-                      {entregasPendentes.length} entrega(s) aguardando sua assinatura
-                    </p>
+                  <div className="text-left">
+                    <p className="font-semibold">Devolução Pendente</p>
+                    <p className="text-xs text-white/80">{devolucoesPendentesConfirmacao.length} solicitação(ões) para confirmar</p>
                   </div>
                 </div>
-                <Button
-                  size="sm"
-                  className="shrink-0 bg-amber-600 hover:bg-amber-700"
-                  onClick={() => handleAbrirConfirmacao(entregasPendentes[0])}
-                >
-                  Confirmar
-                </Button>
-              </div>
-
-              <Collapsible open={pendentesOpen} onOpenChange={setPendentesOpen}>
-                <CollapsibleTrigger asChild>
-                  <Button variant="ghost" size="sm" className="px-0 h-auto text-amber-800 hover:bg-transparent">
-                    {pendentesOpen ? "Ocultar detalhes" : "Ver detalhes"}
-                  </Button>
-                </CollapsibleTrigger>
-                <CollapsibleContent className="space-y-2">
-                  <div className="rounded-lg border border-amber-200 bg-white overflow-hidden">
-                    {entregasPendentes.map((entrega, idx) => (
-                      <div key={entrega.id}>
-                        <button
-                          type="button"
-                          className="w-full text-left p-3 hover:bg-amber-50 transition-colors"
-                          onClick={() => handleAbrirConfirmacao(entrega)}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="text-sm font-medium text-amber-900">
-                                {entrega.itens?.length || 0} item(ns)
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                {format(new Date(entrega.data_entrega), "dd/MM/yyyy")}
-                                {entrega.observacao ? ` • ${entrega.observacao}` : ""}
-                              </p>
-                            </div>
-                            <ChevronRight className="h-4 w-4 text-amber-700" />
-                          </div>
-                        </button>
-                        {idx < entregasPendentes.length - 1 && <Separator />}
-                      </div>
-                    ))}
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
+                <ChevronRight className="h-5 w-5" />
+              </button>
             </CardContent>
           </Card>
         )}
 
-        {/* Resumo compacto */}
-        <Card>
-          <CardContent className="p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold">Resumo</p>
-                <p className="text-xs text-muted-foreground">Visão rápida do seu estoque</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-lg border p-3">
-                <p className="text-xs text-muted-foreground">Itens diferentes</p>
-                <p className="text-xl font-semibold">{totalItens}</p>
-              </div>
-              <button
-                type="button"
-                className={`rounded-lg border p-3 text-left transition-colors ${
-                  itensBaixos > 0 ? "border-amber-300 bg-amber-50 hover:bg-amber-100/50" : "hover:bg-muted/30"
-                }`}
-                onClick={() => {
-                  setActiveTab("estoque");
-                  setShowOnlyLowStock(true);
-                }}
-              >
-                <p className="text-xs text-muted-foreground">Estoque baixo</p>
-                <div className="flex items-center justify-between">
-                  <p className={`text-xl font-semibold ${itensBaixos > 0 ? "text-amber-700" : ""}`}>{itensBaixos}</p>
-                  <AlertTriangle className={`h-4 w-4 ${itensBaixos > 0 ? "text-amber-600" : "text-muted-foreground/40"}`} />
-                </div>
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                className="rounded-lg border p-3 text-left hover:bg-muted/30 transition-colors"
-                onClick={() => setActiveTab("serializados")}
-              >
-                <p className="text-xs text-muted-foreground">Rastros</p>
-                <div className="flex items-center justify-between">
-                  <p className="text-xl font-semibold">{materiaisSerializados?.length || 0}</p>
-                  <Zap className="h-4 w-4 text-violet-600" />
-                </div>
-              </button>
-              <button
-                type="button"
-                className={`rounded-lg border p-3 text-left transition-colors ${
-                  materiaisEmAlerta.length > 0 ? "border-orange-300 bg-orange-50 hover:bg-orange-100/50" : "hover:bg-muted/30"
-                }`}
-                onClick={() => setActiveTab("serializados")}
-              >
-                <p className="text-xs text-muted-foreground">Alertas de rastro</p>
-                <div className="flex items-center justify-between">
-                  <p className={`text-xl font-semibold ${materiaisEmAlerta.length > 0 ? "text-orange-700" : ""}`}>
-                    {materiaisEmAlerta.length}
-                  </p>
-                  <AlertTriangle className={`h-4 w-4 ${materiaisEmAlerta.length > 0 ? "text-orange-600" : "text-muted-foreground/40"}`} />
-                </div>
-              </button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Tabs */}
-        <Tabs
-          value={activeTab}
-          onValueChange={(v) => {
-            if (v === "estoque" || v === "serializados" || v === "historico") {
-              setActiveTab(v);
-            }
-          }}
-          className="w-full"
-        >
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="estoque">Estoque</TabsTrigger>
-            <TabsTrigger value="serializados">
-              Rastro{materiaisSerializados?.length ? ` (${materiaisSerializados.length})` : ""}
-              {materiaisEmAlerta.length > 0 ? (
-                <span className="ml-2 inline-flex items-center rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-medium text-orange-700">
-                  {materiaisEmAlerta.length}
+        {/* Tabs customizadas */}
+        <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
+          {tabs.map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium transition-all whitespace-nowrap",
+                activeTab === tab.id 
+                  ? "bg-emerald-600 text-white shadow-md" 
+                  : "bg-white text-gray-600 hover:bg-gray-50 shadow"
+              )}
+            >
+              <tab.icon className="h-4 w-4" />
+              {tab.label}
+              {tab.count !== undefined && tab.count > 0 && (
+                <span className={cn(
+                  "text-xs px-1.5 py-0.5 rounded-full",
+                  activeTab === tab.id ? "bg-white/20" : "bg-gray-100"
+                )}>
+                  {tab.count}
                 </span>
-              ) : null}
-            </TabsTrigger>
-            <TabsTrigger value="historico">Histórico</TabsTrigger>
-          </TabsList>
+              )}
+              {tab.alert && (
+                <span className="h-2 w-2 rounded-full bg-orange-500 animate-pulse" />
+              )}
+            </button>
+          ))}
+        </div>
 
-          <TabsContent value="estoque" className="mt-4 space-y-4">
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between gap-3">
-                  <CardTitle className="text-base">Materiais</CardTitle>
+        {/* Conteúdo das tabs */}
+        {activeTab === "estoque" && (
+          <div className="space-y-3">
+            {/* Barra de busca e ações */}
+            <Card className="shadow-md border-0">
+              <CardContent className="p-3">
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Buscar por código ou nome..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-10 h-10"
+                    />
+                  </div>
+                  <Button
+                    variant={showOnlyLowStock ? "default" : "outline"}
+                    size="icon"
+                    onClick={() => setShowOnlyLowStock(v => !v)}
+                    className={cn("h-10 w-10 shrink-0", showOnlyLowStock && "bg-amber-500 hover:bg-amber-600")}
+                  >
+                    <AlertTriangle className="h-4 w-4" />
+                  </Button>
                   <Button 
                     size="sm" 
                     onClick={() => {
@@ -1383,280 +1053,224 @@ export default function AppEstoque() {
                       }
                       navigate("/app/estoque/devolucoes");
                     }}
-                    variant={isOnline ? "default" : "outline"}
-                    className={!isOnline ? "opacity-60" : ""}
+                    className="h-10 bg-emerald-600 hover:bg-emerald-700"
+                    disabled={!isOnline}
                   >
-                    <Package className="h-4 w-4 mr-2" />
+                    <Package className="h-4 w-4 mr-1" />
                     Devolver
                   </Button>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Busque por código/nome e use “Baixo” para focar no que precisa de reposição.
-                </p>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Buscar material..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="pl-10"
-                    />
-                  </div>
-                  <Button
-                    type="button"
-                    variant={showOnlyLowStock ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setShowOnlyLowStock((v) => !v)}
-                    className={showOnlyLowStock ? "bg-amber-600 hover:bg-amber-700" : ""}
-                  >
-                    <AlertTriangle className="h-4 w-4 mr-2" />
-                    Baixo
-                  </Button>
-                </div>
-
                 {showOnlyLowStock && (
-                  <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-2">
-                    Mostrando apenas itens com estoque abaixo do mínimo.
-                  </div>
-                )}
-
-                {/* Lista agrupada */}
-                {isLoading ? (
-                  <div className="space-y-3">
-                    {[1, 2, 3, 4, 5].map((i) => (
-                      <Skeleton key={i} className="h-16 w-full" />
-                    ))}
-                  </div>
-                ) : estoqueAgrupado.length > 0 ? (
-                  <div className="space-y-4">
-                    {estoqueAgrupado.map((grupo) => (
-                      <div key={grupo.categoria} className="space-y-2">
-                        <div className="flex items-center justify-between px-1">
-                          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                            {grupo.categoria}
-                          </p>
-                          <Badge variant="secondary" className="text-xs">
-                            {grupo.itens.length}
-                          </Badge>
-                        </div>
-
-                        <div className="rounded-lg border overflow-hidden bg-background">
-                          {grupo.itens.map((item, idx) => {
-                            const isBaixo = item.quantidade <= item.materiais.estoque_minimo;
-                            return (
-                              <div key={item.id}>
-                                <div className="p-3">
-                                  <div className="flex items-start justify-between gap-3">
-                                    <div className="min-w-0">
-                                      <div className="flex items-center gap-2 flex-wrap">
-                                        <span className="font-mono text-sm font-semibold">
-                                          {item.materiais.codigo}
-                                        </span>
-                                        {item.materiais.requer_serial && (
-                                          <Badge variant="outline" className="text-[10px]">
-                                            SR
-                                          </Badge>
-                                        )}
-                                        {isBaixo && (
-                                          <Badge className="bg-amber-100 text-amber-800 border-0 text-[10px]">
-                                            Baixo
-                                          </Badge>
-                                        )}
-                                      </div>
-                                      <p className="text-xs text-muted-foreground line-clamp-1">
-                                        {item.materiais.nome}
-                                      </p>
-                                      {isBaixo && (
-                                        <p className="text-[11px] text-amber-700 mt-1">
-                                          Mínimo: {item.materiais.estoque_minimo}
-                                        </p>
-                                      )}
-                                    </div>
-                                    <div className="text-right shrink-0">
-                                      <p className={`text-lg font-semibold leading-none ${isBaixo ? "text-amber-700" : ""}`}>
-                                        {item.quantidade}
-                                      </p>
-                                      <p className="text-[10px] text-muted-foreground mt-1">
-                                        {item.materiais.unidade}
-                                      </p>
-                                    </div>
-                                  </div>
-                                </div>
-                                {idx < grupo.itens.length - 1 && <Separator />}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="p-8 text-center">
-                    <Package className="h-12 w-12 mx-auto text-muted-foreground/30 mb-3" />
-                    <p className="text-muted-foreground">
-                      {searchTerm || showOnlyLowStock ? "Nenhum material encontrado" : "Seu estoque está vazio"}
-                    </p>
-                    {(searchTerm || showOnlyLowStock) && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="mt-3"
-                        onClick={() => {
-                          setSearchTerm("");
-                          setShowOnlyLowStock(false);
-                        }}
-                      >
-                        Limpar filtros
-                      </Button>
-                    )}
+                  <div className="mt-2 flex items-center gap-2 text-xs text-amber-700 bg-amber-50 rounded-lg p-2">
+                    <AlertTriangle className="h-3 w-3" />
+                    Mostrando apenas itens com estoque baixo
+                    <button onClick={() => setShowOnlyLowStock(false)} className="ml-auto text-amber-800 hover:underline">Limpar</button>
                   </div>
                 )}
               </CardContent>
             </Card>
-          </TabsContent>
 
-          <TabsContent value="serializados" className="mt-4">
-            {materiaisSerializados && materiaisSerializados.length > 0 ? (
-              <div className="space-y-2">
-                {materiaisSerializados.map((item: any) => {
-                  const dataEntrega = getDataEntrega(item);
-                  const dias = calcularDiasDesde(dataEntrega);
-                  const diasAlerta = item.materiais?.dias_alerta_retencao || 7;
-                  const nivel = getNivelAlerta(dias, diasAlerta);
-                  const isAlerta = nivel === "alerta" || nivel === "critico";
-
-                  return (
-                    <Card
-                      key={item.id}
-                      className={isAlerta ? (nivel === "critico" ? "border-red-300 bg-red-50/50" : "border-orange-300 bg-orange-50/50") : ""}
-                    >
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className={`p-2 rounded-lg ${
-                              nivel === "critico" ? "bg-red-100" : 
-                              nivel === "alerta" ? "bg-orange-100" : 
-                              nivel === "atencao" ? "bg-amber-100" : "bg-violet-100"
-                            }`}>
-                              <Zap className={`h-5 w-5 ${
-                                nivel === "critico" ? "text-red-600" : 
-                                nivel === "alerta" ? "text-orange-600" : 
-                                nivel === "atencao" ? "text-amber-600" : "text-violet-600"
-                              }`} />
-                            </div>
-                            <div>
-                              <p className="font-mono font-medium text-sm">{item.numero_serie}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {item.materiais?.codigo} - {item.materiais?.nome}
-                              </p>
-                            </div>
-                          </div>
-                          <DiasRetencaoBadge
-                            dataEntregaEquipe={dataEntrega}
-                            diasAlertaRetencao={diasAlerta}
-                            size="sm"
-                            showTooltip={false}
-                          />
-                        </div>
-                        {isAlerta && (
-                          <div className={`mt-2 flex items-center gap-1 ${nivel === "critico" ? "text-red-600" : "text-orange-600"}`}>
-                            <AlertTriangle className="h-3 w-3" />
-                            <span className="text-xs">
-                              {nivel === "critico" ? "Situação crítica!" : "Ultrapassou prazo de alerta"}
-                              {" - "}Aplique em uma OS ou devolva ao estoque
-                            </span>
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  );
-                })}
+            {/* Lista de materiais */}
+            {isLoading ? (
+              <div className="space-y-3">
+                {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-20 w-full rounded-xl" />)}
               </div>
-            ) : (
-              <Card>
-                <CardContent className="p-8 text-center">
-                  <Zap className="h-12 w-12 mx-auto text-muted-foreground/30 mb-3" />
-                  <p className="text-muted-foreground">
-                    Nenhum material com rastro em seu estoque
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Medidores e equipamentos serializados aparecerão aqui
-                  </p>
-                </CardContent>
-              </Card>
-            )}
-          </TabsContent>
-
-          <TabsContent value="historico" className="mt-4">
-            {movimentacoesRecentes && movimentacoesRecentes.length > 0 ? (
-              <div className="space-y-2">
-                {movimentacoesRecentes.map((mov) => (
-                  <Card key={mov.id}>
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-full ${
-                          mov.tipo === "entrada" || mov.tipo === "transferencia"
-                            ? "bg-green-100"
-                            : "bg-red-100"
-                        }`}>
-                          {mov.tipo === "entrada" || mov.tipo === "transferencia" ? (
-                            <CheckCircle className="h-4 w-4 text-green-600" />
-                          ) : (
-                            <Package className="h-4 w-4 text-red-600" />
-                          )}
-                        </div>
-                        <div className="flex-1">
-                          <p className="font-medium text-sm">
-                            {mov.materiais?.codigo} - {mov.materiais?.nome}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {mov.observacao || (mov.tipo === "entrada" ? "Recebimento" : "Aplicação/Saída")}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <Badge variant={mov.tipo === "entrada" || mov.tipo === "transferencia" ? "default" : "destructive"}>
-                            {mov.tipo === "entrada" || mov.tipo === "transferencia" ? "+" : "-"}
-                            {mov.quantidade}
-                          </Badge>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {format(new Date(mov.created_at), "dd/MM HH:mm")}
-                          </p>
-                        </div>
+            ) : estoqueAgrupado.length > 0 ? (
+              <div className="space-y-3">
+                {estoqueAgrupado.map((grupo) => (
+                  <Card key={grupo.categoria} className="shadow-md border-0 overflow-hidden">
+                    <button
+                      onClick={() => toggleCategory(grupo.categoria)}
+                      className="w-full p-3 flex items-center justify-between bg-gray-50 hover:bg-gray-100 transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-gray-700">{grupo.categoria}</span>
+                        <Badge variant="secondary" className="text-xs">{grupo.itens.length}</Badge>
                       </div>
-                    </CardContent>
+                      <ChevronDown className={cn("h-4 w-4 text-gray-500 transition-transform", expandedCategories.has(grupo.categoria) && "rotate-180")} />
+                    </button>
+                    
+                    {(expandedCategories.size === 0 || expandedCategories.has(grupo.categoria)) && (
+                      <div className="divide-y">
+                        {grupo.itens.map((item) => {
+                          const isBaixo = item.quantidade <= item.materiais.estoque_minimo;
+                          return (
+                            <div key={item.id} className={cn("p-3 flex items-center gap-3", isBaixo && "bg-amber-50/50")}>
+                              <div className={cn(
+                                "h-10 w-10 rounded-lg flex items-center justify-center shrink-0 text-xs font-bold",
+                                isBaixo ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"
+                              )}>
+                                {item.quantidade}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-sm font-semibold">{item.materiais.codigo}</span>
+                                  {item.materiais.requer_serial && (
+                                    <Badge variant="outline" className="text-[9px] px-1 py-0">SR</Badge>
+                                  )}
+                                  {isBaixo && (
+                                    <Badge className="bg-amber-500 text-white text-[9px] px-1 py-0">Baixo</Badge>
+                                  )}
+                                </div>
+                                <p className="text-xs text-muted-foreground truncate">{item.materiais.nome}</p>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <p className="text-[10px] text-muted-foreground">{item.materiais.unidade}</p>
+                                {isBaixo && (
+                                  <p className="text-[9px] text-amber-600">Mín: {item.materiais.estoque_minimo}</p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </Card>
                 ))}
               </div>
             ) : (
-              <Card>
+              <Card className="shadow-md border-0">
                 <CardContent className="p-8 text-center">
-                  <History className="h-12 w-12 mx-auto text-muted-foreground/30 mb-3" />
-                  <p className="text-muted-foreground">Nenhuma movimentação recente</p>
+                  <Package className="h-12 w-12 mx-auto text-gray-300 mb-3" />
+                  <p className="text-gray-500 font-medium">
+                    {searchTerm || showOnlyLowStock ? "Nenhum material encontrado" : "Estoque vazio"}
+                  </p>
+                  {(searchTerm || showOnlyLowStock) && (
+                    <Button variant="outline" className="mt-3" onClick={() => { setSearchTerm(""); setShowOnlyLowStock(false); }}>
+                      Limpar filtros
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
             )}
-          </TabsContent>
-        </Tabs>
+          </div>
+        )}
+
+        {activeTab === "serializados" && (
+          <div className="space-y-3">
+            {materiaisSerializados && materiaisSerializados.length > 0 ? (
+              materiaisSerializados.map((item: any) => {
+                const dataEntrega = getDataEntrega(item);
+                const dias = calcularDiasDesde(dataEntrega);
+                const diasAlerta = item.materiais?.dias_alerta_retencao || 7;
+                const nivel = getNivelAlerta(dias, diasAlerta);
+                const isAlerta = nivel === "alerta" || nivel === "critico";
+
+                return (
+                  <Card key={item.id} className={cn(
+                    "shadow-md border-0 overflow-hidden",
+                    nivel === "critico" && "ring-2 ring-red-400",
+                    nivel === "alerta" && "ring-2 ring-orange-400"
+                  )}>
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-3">
+                        <div className={cn(
+                          "h-12 w-12 rounded-xl flex items-center justify-center shrink-0",
+                          nivel === "critico" ? "bg-red-100" : 
+                          nivel === "alerta" ? "bg-orange-100" : 
+                          nivel === "atencao" ? "bg-amber-100" : "bg-violet-100"
+                        )}>
+                          <Zap className={cn(
+                            "h-6 w-6",
+                            nivel === "critico" ? "text-red-600" : 
+                            nivel === "alerta" ? "text-orange-600" : 
+                            nivel === "atencao" ? "text-amber-600" : "text-violet-600"
+                          )} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-mono font-bold text-sm">{item.numero_serie}</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {item.materiais?.codigo} • {item.materiais?.nome}
+                          </p>
+                        </div>
+                        <DiasRetencaoBadge
+                          dataEntregaEquipe={dataEntrega}
+                          diasAlertaRetencao={diasAlerta}
+                          size="sm"
+                          showTooltip={false}
+                        />
+                      </div>
+                      {isAlerta && (
+                        <div className={cn(
+                          "mt-3 flex items-center gap-2 p-2 rounded-lg text-xs",
+                          nivel === "critico" ? "bg-red-50 text-red-700" : "bg-orange-50 text-orange-700"
+                        )}>
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                          <span>{nivel === "critico" ? "Situação crítica!" : "Ultrapassou prazo"} - Aplique ou devolva</span>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })
+            ) : (
+              <Card className="shadow-md border-0">
+                <CardContent className="p-8 text-center">
+                  <Zap className="h-12 w-12 mx-auto text-gray-300 mb-3" />
+                  <p className="text-gray-500 font-medium">Nenhum material com rastro</p>
+                  <p className="text-xs text-gray-400 mt-1">Medidores e equipamentos serializados aparecerão aqui</p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
+
+        {activeTab === "historico" && (
+          <div className="space-y-3">
+            {movimentacoesRecentes && movimentacoesRecentes.length > 0 ? (
+              movimentacoesRecentes.map((mov) => {
+                const isEntrada = mov.tipo === "entrada" || mov.tipo === "transferencia";
+                return (
+                  <Card key={mov.id} className="shadow-md border-0">
+                    <CardContent className="p-3 flex items-center gap-3">
+                      <div className={cn(
+                        "h-10 w-10 rounded-full flex items-center justify-center shrink-0",
+                        isEntrada ? "bg-green-100" : "bg-red-100"
+                      )}>
+                        {isEntrada ? (
+                          <ArrowDownCircle className="h-5 w-5 text-green-600" />
+                        ) : (
+                          <ArrowUpCircle className="h-5 w-5 text-red-600" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">
+                          {mov.materiais?.codigo} • {mov.materiais?.nome}
+                        </p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {mov.observacao || (isEntrada ? "Recebimento" : "Aplicação/Saída")}
+                        </p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <Badge variant={isEntrada ? "default" : "destructive"} className={cn(isEntrada && "bg-green-600")}>
+                          {isEntrada ? "+" : "-"}{mov.quantidade}
+                        </Badge>
+                        <p className="text-[10px] text-muted-foreground mt-1 flex items-center justify-end gap-1">
+                          <Clock className="h-3 w-3" />
+                          {format(new Date(mov.created_at), "dd/MM HH:mm")}
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })
+            ) : (
+              <Card className="shadow-md border-0">
+                <CardContent className="p-8 text-center">
+                  <History className="h-12 w-12 mx-auto text-gray-300 mb-3" />
+                  <p className="text-gray-500 font-medium">Nenhuma movimentação recente</p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Input oculto para foto */}
-      <input
-        ref={inputFotoRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-        onChange={handleFotoCapturada}
-      />
+      <input ref={inputFotoRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFotoCapturada} />
 
       {/* Dialog de Confirmação de Recebimento */}
-      <Dialog open={dialogConfirmacao} onOpenChange={(open) => {
-        if (!open) resetFormConfirmacao();
-        setDialogConfirmacao(open);
-      }}>
+      <Dialog open={dialogConfirmacao} onOpenChange={(open) => { if (!open) resetFormConfirmacao(); setDialogConfirmacao(open); }}>
         <DialogContent className="max-w-[95vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1667,45 +1281,26 @@ export default function AppEstoque() {
 
           {entregaSelecionada && (
             <div className="space-y-4">
-              {/* Info da entrega */}
               <Card className="bg-muted/50">
                 <CardContent className="p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Calendar className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">
-                      Data: {format(new Date(entregaSelecionada.data_entrega), "dd/MM/yyyy")}
-                    </span>
-                  </div>
-                  
-                  <p className="text-sm font-medium mb-2">Materiais:</p>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    📅 {format(new Date(entregaSelecionada.data_entrega), "dd/MM/yyyy")}
+                  </p>
                   <div className="space-y-2">
                     {entregaSelecionada.itens?.map((item, idx) => (
-                      <div key={idx} className="flex items-center justify-between p-2 bg-background rounded">
+                      <div key={idx} className="flex items-center justify-between p-2 bg-background rounded-lg">
                         <div>
                           <p className="text-sm font-medium">{item.materiais?.codigo}</p>
                           <p className="text-xs text-muted-foreground">{item.materiais?.nome}</p>
-                          {item.numero_serie && (
-                            <Badge variant="outline" className="mt-1 text-xs">
-                              SN: {item.numero_serie}
-                            </Badge>
-                          )}
+                          {item.numero_serie && <Badge variant="outline" className="mt-1 text-xs">SN: {item.numero_serie}</Badge>}
                         </div>
-                        <Badge variant="secondary">
-                          {item.quantidade} {item.materiais?.unidade}
-                        </Badge>
+                        <Badge variant="secondary">{item.quantidade} {item.materiais?.unidade}</Badge>
                       </div>
                     ))}
                   </div>
-                  
-                  {entregaSelecionada.observacao && (
-                    <p className="text-sm text-muted-foreground mt-3">
-                      Obs: {entregaSelecionada.observacao}
-                    </p>
-                  )}
                 </CardContent>
               </Card>
 
-              {/* Perguntas do Checklist */}
               {perguntas.length > 0 ? (
                 <div className="space-y-4">
                   {perguntas.map((pergunta: Pergunta, index: number) => {
@@ -1713,13 +1308,8 @@ export default function AppEstoque() {
                     return (
                       <div key={pergunta.id} className="space-y-2">
                         <Label className="flex items-start gap-2 text-sm">
-                          <Badge variant="outline" className="shrink-0 mt-0.5">
-                            {index + 1}
-                          </Badge>
-                          <span>
-                            {pergunta.texto}
-                            {obrigatoria && <span className="text-red-500 ml-1">*</span>}
-                          </span>
+                          <Badge variant="outline" className="shrink-0 mt-0.5">{index + 1}</Badge>
+                          <span>{pergunta.texto}{obrigatoria && <span className="text-red-500 ml-1">*</span>}</span>
                         </Label>
                         {renderCampoPergunta(pergunta)}
                       </div>
@@ -1728,41 +1318,17 @@ export default function AppEstoque() {
                 </div>
               ) : (
                 <Card>
-                  <CardContent className="p-8 text-center">
-                    <AlertCircle className="h-12 w-12 mx-auto text-amber-500 mb-3" />
-                    <p className="text-muted-foreground">
-                      Nenhum formulário de recebimento cadastrado.
-                    </p>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Configure um checklist do tipo "recebimento_materiais" em Cadastros &gt; Checklists
-                    </p>
+                  <CardContent className="p-6 text-center">
+                    <AlertCircle className="h-10 w-10 mx-auto text-amber-500 mb-3" />
+                    <p className="text-muted-foreground text-sm">Nenhum formulário de recebimento cadastrado.</p>
                   </CardContent>
                 </Card>
               )}
 
               <DialogFooter className="gap-2">
-                <Button 
-                  variant="outline" 
-                  onClick={() => {
-                    resetFormConfirmacao();
-                    setDialogConfirmacao(false);
-                  }}
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  onClick={handleConfirmarRecebimento}
-                  disabled={confirmarRecebimentoMutation.isPending || perguntas.length === 0}
-                  className="bg-green-600 hover:bg-green-700"
-                >
-                  {confirmarRecebimentoMutation.isPending ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Confirmando...
-                    </>
-                  ) : (
-                    "Confirmar Recebimento"
-                  )}
+                <Button variant="outline" onClick={() => { resetFormConfirmacao(); setDialogConfirmacao(false); }}>Cancelar</Button>
+                <Button onClick={handleConfirmarRecebimento} disabled={confirmarRecebimentoMutation.isPending || perguntas.length === 0} className="bg-green-600 hover:bg-green-700">
+                  {confirmarRecebimentoMutation.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Confirmando...</> : "Confirmar"}
                 </Button>
               </DialogFooter>
             </div>
@@ -1770,46 +1336,22 @@ export default function AppEstoque() {
         </DialogContent>
       </Dialog>
 
-      {/* Tela de Assinatura Full Screen */}
+      {/* Tela de Assinatura */}
       <SignatureFullScreen
         open={showSignatureScreen}
-        onClose={() => {
-          setShowSignatureScreen(false);
-          if (entregaSelecionada) {
-            setTimeout(() => setDialogConfirmacao(true), 100);
-          }
-        }}
-        onSave={(dataUrl) => {
-          handleAssinaturaSalva(dataUrl);
-          setShowSignatureScreen(false);
-          if (entregaSelecionada) {
-            setTimeout(() => setDialogConfirmacao(true), 100);
-          }
-        }}
+        onClose={() => { setShowSignatureScreen(false); if (entregaSelecionada) setTimeout(() => setDialogConfirmacao(true), 100); }}
+        onSave={(dataUrl) => { handleAssinaturaSalva(dataUrl); setShowSignatureScreen(false); if (entregaSelecionada) setTimeout(() => setDialogConfirmacao(true), 100); }}
         titulo="Assinatura de Recebimento"
       />
 
-      {/* Dialog de Preview de Foto */}
+      {/* Preview de Foto */}
       <Dialog open={!!fotoPreview} onOpenChange={() => setFotoPreview(null)}>
         <DialogContent className="max-w-[95vw] max-h-[90vh] p-2">
-          <DialogHeader className="sr-only">
-            <DialogTitle>Visualizar Imagem</DialogTitle>
-          </DialogHeader>
+          <DialogHeader className="sr-only"><DialogTitle>Visualizar</DialogTitle></DialogHeader>
           {fotoPreview && (
             <div className="relative">
-              <img 
-                src={fotoPreview} 
-                alt="Preview" 
-                className="w-full h-auto max-h-[80vh] object-contain rounded-lg"
-              />
-              <Button
-                variant="secondary"
-                size="icon"
-                className="absolute top-2 right-2"
-                onClick={() => setFotoPreview(null)}
-              >
-                <X className="h-4 w-4" />
-              </Button>
+              <img src={fotoPreview} alt="Preview" className="w-full h-auto max-h-[80vh] object-contain rounded-lg" />
+              <Button variant="secondary" size="icon" className="absolute top-2 right-2" onClick={() => setFotoPreview(null)}><X className="h-4 w-4" /></Button>
             </div>
           )}
         </DialogContent>
