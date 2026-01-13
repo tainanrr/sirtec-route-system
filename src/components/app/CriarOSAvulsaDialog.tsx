@@ -4,6 +4,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useEquipeAuth } from "@/contexts/EquipeAuthContext";
 import { useTecnico } from "@/contexts/TecnicoContext";
 import { logApp } from "@/lib/logUtils";
+import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
+import { CACHE_KEYS } from "@/hooks/useOfflineData";
 import {
   Dialog,
   DialogContent,
@@ -61,6 +63,7 @@ export default function CriarOSAvulsaDialog({
   const queryClient = useQueryClient();
   const { equipe: equipeAuth, turno } = useEquipeAuth();
   const { equipe } = useTecnico();
+  const { isOnline, getFromCache, queueOperation, saveToCache } = useOfflineSyncContext();
 
   // Estado do formulário
   const [tipoServico, setTipoServico] = useState<string>("");
@@ -93,10 +96,38 @@ export default function CriarOSAvulsaDialog({
     }
   }, [open]);
 
-  // Buscar tipos de serviço que permitem avulso
+  // Buscar tipos de serviço que permitem avulso (com suporte offline)
   const { data: tiposServico, isLoading: isLoadingTipos } = useQuery({
-    queryKey: ["tipos-servico-avulso"],
+    queryKey: ["tipos-servico-avulso", isOnline],
     queryFn: async () => {
+      // Se offline, buscar do cache
+      if (!isOnline) {
+        console.log("[CriarOSAvulsa] 📦 Offline - buscando skills do cache...");
+        const skillsCache = await getFromCache<any[]>(CACHE_KEYS.SKILLS);
+        
+        if (skillsCache && skillsCache.length > 0) {
+          // Filtrar apenas os que permitem avulso
+          const skillsAvulso = skillsCache
+            .filter((s: any) => s.ativo && s.permite_avulso)
+            .map((s: any) => ({
+              id: s.id,
+              codigo: s.codigo,
+              nome: s.nome,
+              descricao: s.descricao,
+              tempo_execucao_minutos: s.tempo_execucao_minutos || 30,
+              valor: s.valor,
+            }))
+            .sort((a: any, b: any) => (a.nome || "").localeCompare(b.nome || ""));
+          
+          console.log("[CriarOSAvulsa] ✅ Skills do cache:", skillsAvulso.length);
+          return skillsAvulso as TipoServicoAvulso[];
+        }
+        
+        console.log("[CriarOSAvulsa] ⚠️ Cache de skills vazio");
+        return [] as TipoServicoAvulso[];
+      }
+      
+      // Se online, buscar do servidor
       const { data, error } = await supabase
         .from("skills")
         .select("id, codigo, nome, descricao, tempo_execucao_minutos, valor")
@@ -108,6 +139,7 @@ export default function CriarOSAvulsaDialog({
       return (data || []) as TipoServicoAvulso[];
     },
     enabled: open,
+    networkMode: "always", // Permite executar offline
   });
 
   // Gerar número de OS avulsa único
@@ -164,7 +196,7 @@ export default function CriarOSAvulsaDialog({
     );
   };
 
-  // Mutation para criar OS
+  // Mutation para criar OS (com suporte offline)
   const criarOSMutation = useMutation({
     mutationFn: async () => {
       const equipeId = equipe?.id || equipeAuth?.id;
@@ -197,7 +229,91 @@ export default function CriarOSAvulsaDialog({
 
       const numeroOS = gerarNumeroOS();
       const agora = new Date().toISOString();
+      const dataHoje = format(new Date(), "yyyy-MM-dd");
 
+      // ============ MODO OFFLINE ============
+      if (!isOnline) {
+        console.log("[CriarOSAvulsa] 📦 Modo offline - criando OS localmente...");
+        
+        // Gerar ID local para a OS
+        const osIdLocal = `local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        
+        // Buscar contrato padrão do cache da equipe
+        let contratoPadraoId = null;
+        try {
+          const equipeCache = await getFromCache<any>(`equipe_auth`);
+          contratoPadraoId = equipeCache?.contrato_padrao_avulsas || null;
+          console.log("[CriarOSAvulsa] Contrato do cache:", contratoPadraoId);
+        } catch (error) {
+          console.warn("[CriarOSAvulsa] Erro ao buscar contrato do cache:", error);
+        }
+        
+        // Dados da OS para criar
+        const novaOSData = {
+          id: osIdLocal,
+          numero: numeroOS,
+          tipo: tipoSelecionado.codigo,
+          status: "no_local",
+          endereco: endereco.trim(),
+          cliente_nome: clienteNome.trim() || null,
+          instalacao: instalacao.trim() || null,
+          medidor: medidor.trim() || null,
+          observacoes: observacoes.trim() || `OS Avulsa criada pela equipe ${equipe?.codigo || equipeAuth?.codigo}`,
+          latitude,
+          longitude,
+          duracao_estimada: tipoSelecionado.tempo_execucao_minutos,
+          valor: tipoSelecionado.valor,
+          tecnico_id: equipeId,
+          contrato_id: contratoPadraoId,
+          prazo: null,
+          regulada: false,
+          avulsa: true,
+          deslocamento_iniciado_at: agora,
+          chegada_local_at: agora,
+          created_at: agora,
+          pendente_sync: true, // Marca como pendente de sincronização
+        };
+        
+        // Salvar no cache do planejamento
+        const cacheKey = `planejamento_dia_${equipeId}_${dataHoje}`;
+        const planejamentoCache = await getFromCache<any[]>(cacheKey) || [];
+        
+        // Adicionar a nova OS ao cache no formato esperado
+        const novaEntrada = {
+          id: `local_planejamento_${Date.now()}`,
+          ordens_servico: novaOSData,
+          ordem_na_rota: planejamentoCache.length + 1,
+          hora_inicio_estimada: format(new Date(), "HH:mm"),
+          tempo_estimado_minutos: tipoSelecionado.tempo_execucao_minutos,
+        };
+        
+        planejamentoCache.push(novaEntrada);
+        await saveToCache(cacheKey, planejamentoCache, 24);
+        console.log("[CriarOSAvulsa] ✅ OS salva no cache local:", numeroOS);
+        
+        // Enfileirar operação para sincronização
+        await queueOperation({
+          type: "create_os_avulsa",
+          payload: {
+            ...novaOSData,
+            id: undefined, // Remove ID local para o servidor gerar um novo
+            osIdLocal, // Mantém referência ao ID local
+          },
+          metadata: {
+            equipeId,
+            turnoId,
+            dataHoje,
+            tipoSelecionadoCodigo: tipoSelecionado.codigo,
+            tipoSelecionadoNome: tipoSelecionado.nome,
+          },
+        });
+        
+        console.log("[CriarOSAvulsa] ✅ Operação enfileirada para sincronização");
+        
+        return { osId: osIdLocal, numero: numeroOS, offline: true };
+      }
+
+      // ============ MODO ONLINE ============
       // Buscar contrato padrão da equipe para OSs avulsas
       let contratoPadraoId = null;
       try {
@@ -250,7 +366,7 @@ export default function CriarOSAvulsaDialog({
         .from("planejamentos")
         .select("id")
         .eq("equipe_id", equipeId)
-        .eq("data_planejamento", format(new Date(), "yyyy-MM-dd"))
+        .eq("data_planejamento", dataHoje)
         .eq("status", "aberto")
         .single();
 
@@ -302,10 +418,14 @@ export default function CriarOSAvulsaDialog({
         }
       );
 
-      return { osId: novaOS.id, numero: numeroOS };
+      return { osId: novaOS.id, numero: numeroOS, offline: false };
     },
     onSuccess: (data) => {
-      toast.success(`OS ${data.numero} criada com sucesso!`);
+      if (data.offline) {
+        toast.success(`OS ${data.numero} criada localmente! Será sincronizada quando houver conexão.`);
+      } else {
+        toast.success(`OS ${data.numero} criada com sucesso!`);
+      }
       queryClient.invalidateQueries({ queryKey: ["ordens-planejadas"] });
       onOpenChange(false);
       if (onSuccess) {
