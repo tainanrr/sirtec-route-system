@@ -955,17 +955,24 @@ export function useOfflineSync() {
                   }
                   
                   if (codigoAtividade && (atv.valor_unitario === 0 || !atv.valor_unitario)) {
-                    console.log(`[OfflineSync] 🔎 Buscando precificação para ${codigoAtividade}...`);
+                    const dataHoje = new Date().toISOString().split("T")[0];
+                    console.log(`[OfflineSync] 🔎 Buscando precificação para ${codigoAtividade} no contrato ${contratoId}...`);
                     
-                    const { data: precData } = await supabase
+                    const { data: precData, error: precError } = await supabase
                       .from("precificacao_servicos")
                       .select("valor_unitario, valor_total")
                       .eq("contrato_id", contratoId)
-                      .eq("codigo_atividade", codigoAtividade)
-                      .or("data_fim.is.null,data_fim.gte." + new Date().toISOString().split("T")[0])
+                      .eq("codigo_servico", codigoAtividade)
+                      .eq("ativo", true)
+                      .lte("data_inicio", dataHoje)
+                      .or(`data_fim.is.null,data_fim.gte.${dataHoje}`)
                       .order("data_inicio", { ascending: false })
                       .limit(1)
-                      .single();
+                      .maybeSingle();
+                    
+                    if (precError) {
+                      console.warn(`[OfflineSync] ❌ Erro ao buscar precificação para ${codigoAtividade}:`, precError);
+                    }
                     
                     if (precData) {
                       const valorUnit = precData.valor_total || precData.valor_unitario || 0;
