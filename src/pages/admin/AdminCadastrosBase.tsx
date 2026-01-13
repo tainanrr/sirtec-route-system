@@ -1082,7 +1082,8 @@ export default function AdminCadastrosBase() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))
+                    );
+                  })
                 )}
               </TableBody>
             </Table>
