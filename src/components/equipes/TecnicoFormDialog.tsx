@@ -213,6 +213,22 @@ export function TecnicoFormDialog({
     }
   };
 
+  // Carregar contratos
+  const fetchContratos = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("contratos")
+        .select("id, codigo, nome")
+        .eq("ativo", true)
+        .order("codigo");
+
+      if (error) throw error;
+      setContratos(data || []);
+    } catch (error) {
+      console.error("Erro ao carregar contratos:", error);
+    }
+  };
+
   // Carregar todos os colaboradores disponíveis
   const fetchColaboradores = async () => {
     try {
