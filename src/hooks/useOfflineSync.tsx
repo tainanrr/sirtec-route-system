@@ -925,6 +925,80 @@ export function useOfflineSync() {
             insertPayload = payloadSemAtividades;
           }
           
+          // Se for produção com valor zerado, tentar buscar precificação antes de inserir
+          if (operation.table === "producao_equipes" && (insertPayload.valor_total === 0 || !insertPayload.valor_total)) {
+            console.log("[OfflineSync] 🔍 Produção com valor zerado - buscando precificação...");
+            
+            // Buscar contrato_id da OS
+            const ordemServicoId = insertPayload.ordem_servico_id;
+            if (ordemServicoId && isValidUUID(ordemServicoId)) {
+              const { data: osData } = await supabase
+                .from("ordens_servico")
+                .select("contrato_id")
+                .eq("id", ordemServicoId)
+                .single();
+              
+              const contratoId = osData?.contrato_id;
+              console.log(`[OfflineSync] Contrato da OS ${ordemServicoId}: ${contratoId}`);
+              
+              if (contratoId && atividadesParaInserir && atividadesParaInserir.length > 0) {
+                let valorTotalCalculado = 0;
+                
+                // Buscar valores de precificação para cada atividade
+                for (let i = 0; i < atividadesParaInserir.length; i++) {
+                  const atv = atividadesParaInserir[i];
+                  let codigoAtividade = atv.atividade_codigo || "";
+                  
+                  // Extrair apenas o código (antes do " - ")
+                  if (codigoAtividade.includes(" - ")) {
+                    codigoAtividade = codigoAtividade.split(" - ")[0].trim();
+                  }
+                  
+                  if (codigoAtividade && (atv.valor_unitario === 0 || !atv.valor_unitario)) {
+                    console.log(`[OfflineSync] 🔎 Buscando precificação para ${codigoAtividade}...`);
+                    
+                    const { data: precData } = await supabase
+                      .from("precificacao_servicos")
+                      .select("valor_unitario, valor_total")
+                      .eq("contrato_id", contratoId)
+                      .eq("codigo_atividade", codigoAtividade)
+                      .or("data_fim.is.null,data_fim.gte." + new Date().toISOString().split("T")[0])
+                      .order("data_inicio", { ascending: false })
+                      .limit(1)
+                      .single();
+                    
+                    if (precData) {
+                      const valorUnit = precData.valor_total || precData.valor_unitario || 0;
+                      const valorAtv = valorUnit * (atv.quantidade || 1);
+                      
+                      console.log(`[OfflineSync] ✅ Precificação encontrada: ${codigoAtividade} = R$${valorUnit} x ${atv.quantidade} = R$${valorAtv}`);
+                      
+                      // Atualizar valores da atividade
+                      atividadesParaInserir[i] = {
+                        ...atv,
+                        valor_unitario: valorUnit,
+                        valor_total: valorAtv
+                      };
+                      
+                      valorTotalCalculado += valorAtv;
+                    } else {
+                      console.warn(`[OfflineSync] ⚠️ Precificação não encontrada para ${codigoAtividade}`);
+                    }
+                  } else {
+                    // Atividade já tem valor, somar ao total
+                    valorTotalCalculado += (atv.valor_total || 0);
+                  }
+                }
+                
+                // Atualizar valor total da produção
+                if (valorTotalCalculado > 0) {
+                  console.log(`[OfflineSync] 💰 Valor total calculado: R$${valorTotalCalculado}`);
+                  insertPayload.valor_total = valorTotalCalculado;
+                }
+              }
+            }
+          }
+          
           console.log(`[OfflineSync] Payload limpo para ${operation.table}:`, JSON.stringify(insertPayload).substring(0, 300));
           result = await supabase.from(operation.table).insert(insertPayload).select().single();
           
