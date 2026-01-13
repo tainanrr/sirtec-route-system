@@ -33,6 +33,7 @@ interface OrdemServico {
 interface Intervalo {
   id: string;
   equipe_id: string;
+  turno_id?: string;
   tipo_intervalo_id: string;
   hora_inicio: string;
   hora_fim?: string;
@@ -213,6 +214,7 @@ export function useOfflineOperations() {
   const iniciarIntervalo = useCallback(async (
     equipeId: string,
     tipoIntervaloId: string,
+    turnoId?: string,
     observacao?: string
   ): Promise<{ success: boolean; id?: string; offline?: boolean }> => {
     const agora = new Date().toISOString();
@@ -222,6 +224,7 @@ export function useOfflineOperations() {
     const intervalo: Intervalo = {
       id: intervaloId,
       equipe_id: equipeId,
+      turno_id: turnoId,
       tipo_intervalo_id: tipoIntervaloId,
       hora_inicio: agora,
       observacao,
@@ -229,7 +232,7 @@ export function useOfflineOperations() {
 
     // Se offline, salvar na fila e localmente
     if (!isOnline) {
-      console.log("[OfflineOps] Iniciando intervalo offline");
+      console.log("[OfflineOps] Iniciando intervalo offline com turno_id:", turnoId);
       
       try {
         // Enfileirar para sincronização
@@ -259,6 +262,7 @@ export function useOfflineOperations() {
         .from("intervalos_equipe")
         .insert({
           equipe_id: equipeId,
+          turno_id: turnoId,
           tipo_intervalo_id: tipoIntervaloId,
           hora_inicio: agora,
           observacao,
@@ -277,7 +281,7 @@ export function useOfflineOperations() {
       
       // Se falhou por rede, tentar offline
       if (!navigator.onLine) {
-        return iniciarIntervalo(equipeId, tipoIntervaloId, observacao);
+        return iniciarIntervalo(equipeId, tipoIntervaloId, turnoId, observacao);
       }
       
       toast.error("Erro ao iniciar intervalo");

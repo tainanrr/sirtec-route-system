@@ -445,6 +445,7 @@ export default function AppHome() {
       const result = await iniciarIntervaloOffline(
         equipe.id,
         selectedIntervalo,
+        turno?.id, // Passar turno_id para vincular o intervalo ao turno
         intervaloObs || undefined
       );
       
