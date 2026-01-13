@@ -29,6 +29,8 @@ import {
 import { AudioPlayer } from "@/components/chat/AudioPlayer";
 import { AudioRecorder } from "@/components/chat/AudioRecorder";
 import { cn } from "@/lib/utils";
+import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
+import { WifiOff } from "lucide-react";
 
 // ============================================
 // PÁGINA DE CHAT DO APP MOBILE
@@ -37,6 +39,7 @@ import { cn } from "@/lib/utils";
 export default function AppChat() {
   const { equipe: equipeAuth } = useEquipeAuth();
   const { equipe } = useTecnico();
+  const { isOnline, pendingOperations } = useOfflineSyncContext();
   
   const equipeAtual = equipe || equipeAuth;
   const equipeId = equipeAtual?.id || "";
@@ -189,22 +192,42 @@ export default function AppChat() {
                 <Radio className="h-6 w-6" />
               </AvatarFallback>
             </Avatar>
-            <span className="absolute bottom-0 right-0 h-3 w-3 bg-green-400 rounded-full border-2 border-blue-600" />
+            <span className={cn(
+              "absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-blue-600",
+              isOnline ? "bg-green-400" : "bg-yellow-400"
+            )} />
           </div>
           <div className="flex-1">
             <h1 className="text-lg font-semibold">Suporte</h1>
-            <p className="text-xs text-blue-100">Atendimento em tempo real</p>
+            <p className="text-xs text-blue-100">
+              {isOnline ? "Atendimento em tempo real" : "Modo offline - mensagens serão enviadas depois"}
+            </p>
           </div>
+          {!isOnline && (
+            <div className="flex items-center gap-1 px-2 py-1 bg-yellow-400 text-yellow-900 rounded-full text-xs font-medium">
+              <WifiOff className="h-3 w-3" />
+              Offline
+            </div>
+          )}
           <Button
             variant="ghost"
             size="icon"
             onClick={() => carregarConversas()}
             className="text-white hover:bg-white/20"
+            disabled={!isOnline}
           >
             <RefreshCw className="h-5 w-5" />
           </Button>
         </div>
       </div>
+
+      {/* Banner offline */}
+      {!isOnline && (
+        <div className="px-4 py-2 bg-yellow-100 border-b border-yellow-200 text-yellow-800 text-sm flex items-center gap-2">
+          <WifiOff className="h-4 w-4" />
+          <span>Você está offline. Mensagens serão enviadas quando a conexão for restaurada.</span>
+        </div>
+      )}
 
       {/* Área de mensagens */}
       <ScrollArea 
@@ -365,6 +388,11 @@ export default function AppChat() {
 function MensagemBubble({ mensagem }: { mensagem: ChatMensagem }) {
   const [imageOpen, setImageOpen] = useState(false);
   const isMinha = mensagem.remetente_tipo === "equipe";
+  
+  // Verificar se é mensagem pendente de sincronização (offline)
+  const isPendente = mensagem.id.startsWith("temp-") || 
+    (mensagem.metadata as any)?.offline === true ||
+    mensagem.status === "enviando";
 
   const renderConteudo = () => {
     if (mensagem.tipo === "imagem" && mensagem.arquivo_url) {
@@ -420,6 +448,15 @@ function MensagemBubble({ mensagem }: { mensagem: ChatMensagem }) {
   const renderStatus = () => {
     if (!isMinha) return null;
 
+    // Mensagem pendente de sincronização (offline)
+    if (isPendente) {
+      return (
+        <div className="flex items-center gap-1">
+          <RefreshCw className="h-3 w-3 animate-spin text-yellow-300" />
+        </div>
+      );
+    }
+
     switch (mensagem.status) {
       case "enviando":
         return <Loader2 className="h-3 w-3 animate-spin text-gray-400" />;
@@ -438,12 +475,21 @@ function MensagemBubble({ mensagem }: { mensagem: ChatMensagem }) {
     <div className={cn("flex mb-2", isMinha ? "justify-end" : "justify-start")}>
       <div
         className={cn(
-          "max-w-[80%] rounded-2xl px-4 py-2 shadow-sm",
+          "max-w-[80%] rounded-2xl px-4 py-2 shadow-sm relative",
           isMinha
-            ? "bg-blue-600 text-white rounded-br-md"
+            ? isPendente 
+              ? "bg-blue-400 text-white rounded-br-md border-2 border-dashed border-yellow-300" 
+              : "bg-blue-600 text-white rounded-br-md"
             : "bg-white text-gray-900 rounded-bl-md border"
         )}
       >
+        {/* Indicador de pendente */}
+        {isPendente && isMinha && (
+          <div className="absolute -top-2 -right-2 bg-yellow-400 text-yellow-900 text-[9px] px-1.5 py-0.5 rounded-full font-medium">
+            Pendente
+          </div>
+        )}
+        
         {!isMinha && mensagem.remetente_nome && (
           <p className="text-xs font-medium text-blue-600 mb-1">
             {mensagem.remetente_nome}
@@ -454,7 +500,9 @@ function MensagemBubble({ mensagem }: { mensagem: ChatMensagem }) {
         
         <div className={cn(
           "flex items-center justify-end gap-1 mt-1",
-          isMinha ? "text-blue-100" : "text-gray-400"
+          isMinha 
+            ? isPendente ? "text-yellow-200" : "text-blue-100" 
+            : "text-gray-400"
         )}>
           <span className="text-[10px]">
             {format(new Date(mensagem.created_at), "HH:mm")}

@@ -4,8 +4,9 @@ export function getAppParentRoute(pathname: string): string | null {
 
   // Ordens
   // /app/ordens/:id/apr -> /app/ordens/:id
+  // /app/ordens/:id/checklist-servico -> /app/ordens/:id
   // /app/ordens/:id/materiais -> /app/ordens/:id
-  const ordensSubMatch = pathname.match(/^\/app\/ordens\/([^/]+)\/(apr|materiais)$/);
+  const ordensSubMatch = pathname.match(/^\/app\/ordens\/([^/]+)\/(apr|checklist-servico|materiais)$/);
   if (ordensSubMatch) {
     const id = ordensSubMatch[1];
     return `/app/ordens/${id}`;

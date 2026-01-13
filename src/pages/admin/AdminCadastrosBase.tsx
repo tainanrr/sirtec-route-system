@@ -52,6 +52,7 @@ import {
   X,
   ImageIcon,
   TrendingUp,
+  CloudRain,
 } from "lucide-react";
 import * as LucideIcons from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -124,6 +125,7 @@ interface TipoIntervalo {
   tipo: "padrao" | "nao_padrao";
   cor: string | null;
   icone: string | null;
+  permite_durante_execucao: boolean;
   ativo: boolean;
   created_at: string;
 }
@@ -212,6 +214,7 @@ export default function AdminCadastrosBase() {
     tipo: "padrao" as "padrao" | "nao_padrao",
     cor: "#3B82F6",
     icone: "",
+    permite_durante_execucao: false,
     ativo: true,
   });
 
@@ -426,6 +429,7 @@ export default function AdminCadastrosBase() {
         tipo: "padrao" as "padrao" | "nao_padrao",
         cor: "#3B82F6",
         icone: "",
+        permite_durante_execucao: false,
         ativo: true,
       });
     } else if (type === "centro-custo") {
@@ -468,6 +472,7 @@ export default function AdminCadastrosBase() {
         tipo: item.tipo || "padrao",
         cor: item.cor || "#3B82F6",
         icone: item.icone || "",
+        permite_durante_execucao: item.permite_durante_execucao || false,
         ativo: item.ativo,
       });
     } else if (type === "centro-custo") {
@@ -524,6 +529,7 @@ export default function AdminCadastrosBase() {
           tipo: tipoIntervaloForm.tipo,
           cor: tipoIntervaloForm.cor || null,
           icone: tipoIntervaloForm.icone || null,
+          permite_durante_execucao: tipoIntervaloForm.permite_durante_execucao,
           ativo: tipoIntervaloForm.ativo,
         };
       } else if (currentFormType === "centro-custo") {
@@ -989,6 +995,7 @@ export default function AdminCadastrosBase() {
                   { key: "nome", label: "Nome" },
                   { key: "tipo", label: "Tipo", format: (v: any) => v === "padrao" ? "Padrão" : "Não Padrão" },
                   { key: "tempo_minutos", label: "Tempo (min)" },
+                  { key: "permite_durante_execucao", label: "Durante Execução", format: (v: any) => v ? "Sim" : "Não" },
                   { key: "ativo", label: "Ativo", format: (v: any) => v ? "Sim" : "Não" },
                 ]}
               />
@@ -1009,6 +1016,7 @@ export default function AdminCadastrosBase() {
                   <SortableTableHead column="tipo" label="Tipo" sortConfig={intervaloSortConfig} onSort={handleIntervaloSort} />
                   <SortableTableHead column="tempo_minutos" label="Tempo" sortConfig={intervaloSortConfig} onSort={handleIntervaloSort} />
                   <TableHead>Cor</TableHead>
+                  <TableHead className="text-center" title="Permite iniciar durante execução de OS">Durante Exec.</TableHead>
                   <SortableTableHead column="ativo" label="Status" sortConfig={intervaloSortConfig} onSort={handleIntervaloSort} />
                   <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
@@ -1016,13 +1024,13 @@ export default function AdminCadastrosBase() {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8">
+                    <TableCell colSpan={9} className="text-center py-8">
                       <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
                     </TableCell>
                   </TableRow>
                 ) : sortedTiposIntervalo?.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8">
+                    <TableCell colSpan={9} className="text-center py-8">
                       <Clock className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
                       <p className="text-muted-foreground">
                         {hasActiveFilters ? "Nenhum resultado" : "Nenhum intervalo cadastrado"}
@@ -1064,6 +1072,16 @@ export default function AdminCadastrosBase() {
                             className="w-6 h-6 rounded border"
                             style={{ backgroundColor: item.cor }}
                           />
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {item.permite_durante_execucao ? (
+                          <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-300" title="Pode ser iniciado mesmo com OS em execução">
+                            <CloudRain className="h-3 w-3 mr-1" />
+                            Sim
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground text-sm">Não</span>
                         )}
                       </TableCell>
                       <TableCell>
@@ -1418,6 +1436,21 @@ export default function AdminCadastrosBase() {
                     <Switch checked={tipoIntervaloForm.ativo} onCheckedChange={(v) => setTipoIntervaloForm({ ...tipoIntervaloForm, ativo: v })} />
                     <Label>Ativo</Label>
                   </div>
+                </div>
+                <div className="flex items-center justify-between rounded-lg border p-3 bg-amber-50/50 border-amber-200">
+                  <div className="space-y-0.5">
+                    <Label className="flex items-center gap-2">
+                      <CloudRain className="h-4 w-4 text-amber-600" />
+                      Permite durante Execução
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Se ativado, este intervalo pode ser iniciado mesmo com uma OS em execução (ex: Chuva pausa temporariamente a execução)
+                    </p>
+                  </div>
+                  <Switch 
+                    checked={tipoIntervaloForm.permite_durante_execucao} 
+                    onCheckedChange={(v) => setTipoIntervaloForm({ ...tipoIntervaloForm, permite_durante_execucao: v })} 
+                  />
                 </div>
               </>
             )}

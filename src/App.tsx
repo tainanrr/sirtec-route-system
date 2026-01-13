@@ -76,6 +76,7 @@ import AppDevolucoes from "./pages/app/AppDevolucoes";
 import AppProcedimentos from "./pages/app/AppProcedimentos";
 import AppProcedimentoDetalhe from "./pages/app/AppProcedimentoDetalhe";
 import AppChat from "./pages/app/AppChat";
+import AppChecklistServico from "./pages/app/AppChecklistServico";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -201,6 +202,7 @@ const App = () => (
               <Route path="ordens" element={<AppOrdens />} />
               <Route path="ordens/:id" element={<AppOrdemDetalhe />} />
               <Route path="ordens/:id/apr" element={<AppAPR />} />
+              <Route path="ordens/:id/checklist-servico" element={<AppChecklistServico />} />
               <Route path="ordens/:id/materiais" element={<AppMateriaisOS />} />
               <Route path="estoque" element={<AppEstoque />} />
               <Route path="estoque/devolucoes" element={<AppDevolucoes />} />

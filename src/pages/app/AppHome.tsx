@@ -39,8 +39,10 @@ import {
   LogOut,
   CheckCircle2,
   AlertTriangle,
+  AlertCircle,
   Timer,
   Zap,
+  CloudRain,
 } from "lucide-react";
 import * as LucideIcons from "lucide-react";
 import {
@@ -101,6 +103,7 @@ interface TipoIntervalo {
   tipo: "padrao" | "nao_padrao";
   cor: string | null;
   icone: string | null;
+  permite_durante_execucao?: boolean;
 }
 
 interface IntervaloAtivo {
@@ -519,8 +522,11 @@ export default function AppHome() {
       return;
     }
     
-    // Verificar se há OS em andamento (apenas se tiver dados)
-    if (osEmAndamento) {
+    // Buscar o tipo de intervalo selecionado para verificar se permite durante execução
+    const tipoIntervaloSelecionado = tiposIntervalo?.find(t => t.id === selectedIntervalo);
+    
+    // Verificar se há OS em andamento (apenas se tiver dados e o tipo NÃO permitir durante execução)
+    if (osEmAndamento && !tipoIntervaloSelecionado?.permite_durante_execucao) {
       toast.error(`Finalize a OS ${osEmAndamento.numero || ""} antes de iniciar o intervalo!`, { duration: 4000 });
       return;
     }
@@ -536,7 +542,10 @@ export default function AppHome() {
       );
       
       if (result.success) {
-        toast.success(result.offline ? "Intervalo iniciado (offline)!" : "Intervalo iniciado!");
+        const mensagem = osEmAndamento && tipoIntervaloSelecionado?.permite_durante_execucao
+          ? "Intervalo iniciado! (execução pausada temporariamente)"
+          : "Intervalo iniciado!";
+        toast.success(result.offline ? `${mensagem} (offline)` : mensagem);
         setIntervaloDialogOpen(false);
         setSelectedIntervalo("");
         setIntervaloObs("");
@@ -979,6 +988,17 @@ export default function AppHome() {
           </div>
           
           <div className="p-4 space-y-3 max-h-[60vh] overflow-y-auto">
+            {/* Aviso quando há OS em execução */}
+            {osEmAndamento && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-[11px] text-amber-800 font-medium">OS {osEmAndamento.numero || ""} em execução</p>
+                  <p className="text-[10px] text-amber-600">Apenas intervalos que permitem durante execução estão disponíveis (ex: Chuva)</p>
+                </div>
+              </div>
+            )}
+
             {/* Intervalos Padrão (Esperados) */}
             {intervalosPadrao.length > 0 && (
               <div>
@@ -990,24 +1010,35 @@ export default function AppHome() {
                   {intervalosPadrao.map(tipo => {
                     const IconName = tipo.icone || "Coffee";
                     const IconComponent = (LucideIcons as any)[IconName] || Coffee;
+                    const bloqueado = osEmAndamento && !tipo.permite_durante_execucao;
                     return (
                     <button
                       key={tipo.id}
-                      onClick={() => setSelectedIntervalo(tipo.id)}
+                      onClick={() => !bloqueado && setSelectedIntervalo(tipo.id)}
+                      disabled={bloqueado}
                       className={cn(
-                        "p-2 rounded-lg border text-center transition-all",
-                        selectedIntervalo === tipo.id 
-                          ? "bg-green-500 text-white border-green-500 shadow-md" 
-                          : "bg-white hover:bg-green-50 border-gray-200"
+                        "p-2 rounded-lg border text-center transition-all relative",
+                        bloqueado
+                          ? "bg-gray-100 border-gray-200 opacity-50 cursor-not-allowed"
+                          : selectedIntervalo === tipo.id 
+                            ? "bg-green-500 text-white border-green-500 shadow-md" 
+                            : "bg-white hover:bg-green-50 border-gray-200"
                       )}
                     >
+                      {tipo.permite_durante_execucao && (
+                        <div className="absolute -top-1 -right-1 bg-amber-500 text-white rounded-full p-0.5" title="Permite durante execução">
+                          <CloudRain className="h-2.5 w-2.5" />
+                        </div>
+                      )}
                       <div 
                         className={cn(
                           "h-6 w-6 mx-auto rounded-full flex items-center justify-center mb-1",
-                          selectedIntervalo === tipo.id ? "bg-white/20" : "bg-green-100"
+                          bloqueado 
+                            ? "bg-gray-200"
+                            : selectedIntervalo === tipo.id ? "bg-white/20" : "bg-green-100"
                         )}
                       >
-                        <IconComponent className="h-3.5 w-3.5" style={{ color: selectedIntervalo === tipo.id ? "white" : (tipo.cor || "#22c55e") }} />
+                        <IconComponent className="h-3.5 w-3.5" style={{ color: bloqueado ? "#9ca3af" : selectedIntervalo === tipo.id ? "white" : (tipo.cor || "#22c55e") }} />
                       </div>
                       <p className="text-[10px] font-medium leading-tight">{tipo.nome}</p>
                     </button>
@@ -1028,24 +1059,35 @@ export default function AppHome() {
                   {intervalosNaoPadrao.map(tipo => {
                     const IconName = tipo.icone || "Wrench";
                     const IconComponent = (LucideIcons as any)[IconName] || Wrench;
+                    const bloqueado = osEmAndamento && !tipo.permite_durante_execucao;
                     return (
                     <button
                       key={tipo.id}
-                      onClick={() => setSelectedIntervalo(tipo.id)}
+                      onClick={() => !bloqueado && setSelectedIntervalo(tipo.id)}
+                      disabled={bloqueado}
                       className={cn(
-                        "p-2 rounded-lg border border-dashed text-center transition-all",
-                        selectedIntervalo === tipo.id 
-                          ? "bg-orange-500 text-white border-orange-500 shadow-md border-solid" 
-                          : "bg-white hover:bg-orange-50 border-gray-300"
+                        "p-2 rounded-lg border border-dashed text-center transition-all relative",
+                        bloqueado
+                          ? "bg-gray-100 border-gray-200 opacity-50 cursor-not-allowed border-solid"
+                          : selectedIntervalo === tipo.id 
+                            ? "bg-orange-500 text-white border-orange-500 shadow-md border-solid" 
+                            : "bg-white hover:bg-orange-50 border-gray-300"
                       )}
                     >
+                      {tipo.permite_durante_execucao && (
+                        <div className="absolute -top-1 -right-1 bg-amber-500 text-white rounded-full p-0.5" title="Permite durante execução">
+                          <CloudRain className="h-2.5 w-2.5" />
+                        </div>
+                      )}
                       <div 
                         className={cn(
                           "h-6 w-6 mx-auto rounded-full flex items-center justify-center mb-1",
-                          selectedIntervalo === tipo.id ? "bg-white/20" : "bg-orange-100"
+                          bloqueado
+                            ? "bg-gray-200"
+                            : selectedIntervalo === tipo.id ? "bg-white/20" : "bg-orange-100"
                         )}
                       >
-                        <IconComponent className="h-3.5 w-3.5" style={{ color: selectedIntervalo === tipo.id ? "white" : (tipo.cor || "#ea580c") }} />
+                        <IconComponent className="h-3.5 w-3.5" style={{ color: bloqueado ? "#9ca3af" : selectedIntervalo === tipo.id ? "white" : (tipo.cor || "#ea580c") }} />
                       </div>
                       <p className="text-[10px] font-medium leading-tight">{tipo.nome}</p>
                     </button>

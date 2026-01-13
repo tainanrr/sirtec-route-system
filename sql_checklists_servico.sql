@@ -61,13 +61,24 @@ COMMENT ON COLUMN public.checklist_servico_vinculos.grupo_retorno IS 'Grupo de r
 COMMENT ON COLUMN public.checklist_servico_vinculos.obrigatorio IS 'Se o checklist é obrigatório para conclusão da OS';
 
 -- ============================================
--- 3. ADICIONAR CAMPO grupo_retorno NA TABELA checklist_respostas
+-- 3. ADICIONAR CAMPOS NECESSÁRIOS NA TABELA checklist_respostas
 -- ============================================
 
+-- Adicionar coluna grupo_retorno para registrar qual grupo de retorno foi selecionado
 ALTER TABLE public.checklist_respostas
-ADD COLUMN IF NOT EXISTS grupo_retorno VARCHAR(50); -- Para registrar qual grupo de retorno foi selecionado
+ADD COLUMN IF NOT EXISTS grupo_retorno VARCHAR(50);
+
+-- Adicionar coluna equipe_id para rastreamento
+ALTER TABLE public.checklist_respostas
+ADD COLUMN IF NOT EXISTS equipe_id UUID REFERENCES public.tecnicos(id) ON DELETE SET NULL;
+
+-- Adicionar coluna status para checklists de serviço
+ALTER TABLE public.checklist_respostas
+ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'completo';
 
 COMMENT ON COLUMN public.checklist_respostas.grupo_retorno IS 'Grupo de retorno selecionado ao preencher o checklist (executado, impedimento, parcial)';
+COMMENT ON COLUMN public.checklist_respostas.equipe_id IS 'ID da equipe que preencheu o checklist';
+COMMENT ON COLUMN public.checklist_respostas.status IS 'Status do preenchimento: completo, incompleto, pendente';
 
 -- ============================================
 -- 4. RLS PARA A NOVA TABELA

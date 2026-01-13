@@ -2174,6 +2174,9 @@ const Roteirizacao = () => {
       const planejamentoOrdens: any[] = [];
       const osUpdates: Map<string, { equipe_id: string; data_planejada: string }> = new Map();
       const logsParaInserir: any[] = [];
+      
+      // Set para rastrear OSs já adicionadas e evitar duplicatas
+      const osJaAdicionadas = new Set<string>();
 
       for (const rota of rotas) {
         let ordemNaRota = 1;
@@ -2181,6 +2184,13 @@ const Roteirizacao = () => {
         for (const servico of rota.servicos) {
           if (servico.tipo === 'SERVICO' && servico.ordemServico) {
             const os = servico.ordemServico;
+            
+            // CORREÇÃO: Evitar duplicatas de OS no mesmo planejamento
+            if (osJaAdicionadas.has(os.id)) {
+              console.warn(`[PLANEJAMENTO] OS ${os.numero} já foi adicionada, ignorando duplicata`);
+              continue;
+            }
+            osJaAdicionadas.add(os.id);
             
             // Preparar dados para planejamento_ordens
             planejamentoOrdens.push({
@@ -2224,18 +2234,23 @@ const Roteirizacao = () => {
         logs: logsParaInserir.length,
       });
 
-      // Inserir relacionamentos planejamento_ordens em batch
+      // Inserir relacionamentos planejamento_ordens em batch (usando upsert para evitar duplicatas)
       if (planejamentoOrdens.length > 0) {
-        console.log("[PLANEJAMENTO] Inserindo relacionamentos planejamento_ordens...");
+        console.log("[PLANEJAMENTO] Inserindo relacionamentos planejamento_ordens...", planejamentoOrdens.length);
+        
+        // Usar upsert com onConflict para evitar erro de duplicata
         const { error: erroRelacionamentos } = await supabase
           .from("planejamento_ordens")
-          .insert(planejamentoOrdens);
+          .upsert(planejamentoOrdens, {
+            onConflict: "planejamento_id,ordem_servico_id",
+            ignoreDuplicates: false // Atualiza se já existir
+          });
 
         if (erroRelacionamentos) {
           console.error("[PLANEJAMENTO] Erro ao inserir relacionamentos:", erroRelacionamentos);
           throw erroRelacionamentos;
         }
-        console.log("[PLANEJAMENTO] Relacionamentos inseridos com sucesso");
+        console.log("[PLANEJAMENTO] Relacionamentos inseridos/atualizados com sucesso");
       }
 
       // Atualizar OSs em batch

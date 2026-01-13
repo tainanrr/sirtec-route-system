@@ -66,6 +66,7 @@ import {
   MessageSquare,
   Info,
   Flag,
+  X,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -190,6 +191,7 @@ export default function AppOrdemDetalhe() {
   // Estados para Checklist de Serviço
   const [checklistServicoOpen, setChecklistServicoOpen] = useState(false);
   const [grupoRetornoSelecionado, setGrupoRetornoSelecionado] = useState<string>("executado");
+  const checklistServicoCompletandoRef = useRef(false); // Ref para evitar problema de timing
   
   // Estado para diálogo de OS em andamento
   const [osEmAndamentoDialog, setOsEmAndamentoDialog] = useState<{
@@ -553,6 +555,11 @@ export default function AppOrdemDetalhe() {
     (c: any) => c.checklists?.tipo === "apr" || c.checklists?.nome?.toLowerCase().includes("apr")
   ) || false;
 
+  // Verificar se tem checklist de serviço preenchido
+  const temChecklistServicoPreenchido = checklistsPreenchidos?.some(
+    (c: any) => c.checklists?.tipo === "servico"
+  ) || false;
+
   // Buscar próxima OS
   const { data: proximaOS } = useQuery({
     queryKey: ["proxima-os", id, planejamento?.ordem_na_rota],
@@ -623,6 +630,11 @@ export default function AppOrdemDetalhe() {
           if (ordem?.execucao_iniciada_at) {
             dadosAdicionais.tempo_execucao_minutos = Math.round((new Date().getTime() - new Date(ordem.execucao_iniciada_at).getTime()) / 60000);
           }
+        } else if (newStatus === "planejada" || newStatus === "pendente") {
+          // Cancelar ação - limpar timestamps de deslocamento/chegada
+          acaoDescricao = "Ação cancelada pela equipe";
+          dadosAdicionais.deslocamento_iniciado_at = null;
+          dadosAdicionais.chegada_local_at = null;
         }
 
         if (observacao.trim()) {
@@ -939,6 +951,7 @@ export default function AppOrdemDetalhe() {
     }
     
     if (newStatus === "concluida") {
+      // Se já tem retorno selecionado, verificar fotos e depois abrir checklist
       if (retornoSelecionado) {
         const qtdFotosExigidas = retornoSelecionado.atividades.reduce((t, a) => t + (a.qtd_min_fotos || 0), 0);
         const qtdFotosAnexadas = anexos?.filter(a => a.tipo === "foto").length || 0;
@@ -946,16 +959,27 @@ export default function AppOrdemDetalhe() {
           toast.error(`Faltam ${qtdFotosExigidas - qtdFotosAnexadas} foto(s)!`);
           return;
         }
-        const equipeId = equipe?.id || equipeAuth?.id;
-        if (equipeId && ordem?.id) {
-          await registrarProducao(ordem.id, equipeId, retornoSelecionado);
-          await atualizarOrdemComRetorno(ordem.id, retornoSelecionado, ordem?.numero);
-          setRetornoSelecionado(null);
-          updateStatusMutation.mutate("concluida");
+        
+        // Garantir que skillId está definido
+        let currentSkillId = skillId;
+        if (!currentSkillId && ordem?.tipo) {
+          currentSkillId = await buscarSkillId(ordem.tipo);
+          if (currentSkillId) {
+            setSkillId(currentSkillId);
+          }
         }
+        
+        // Fotos OK - Abrir checklist de serviço (se configurado)
+        // O ChecklistServicoSheet vai verificar se há checklists obrigatórios
+        // Se não houver, chama onSkip automaticamente que completa a conclusão
+        const grupoRetorno = retornoSelecionado.grupo_retorno || 
+          (retornoSelecionado.gera_producao ? "executado" : "impedimento");
+        setGrupoRetornoSelecionado(grupoRetorno);
+        setChecklistServicoOpen(true);
         return;
       }
       
+      // Se não tem retorno selecionado, abrir seletor de retorno
       if (ordem?.tipo) {
         const foundSkillId = await buscarSkillId(ordem.tipo);
         if (foundSkillId) {
@@ -965,6 +989,7 @@ export default function AppOrdemDetalhe() {
         }
       }
       
+      // Se não tem skill configurado, mostrar diálogo de confirmação simples
       setConfirmDialog({
         open: true,
         status: newStatus,
@@ -1009,9 +1034,13 @@ export default function AppOrdemDetalhe() {
   
   // Handler para quando checklists de serviço são concluídos (ou pulados)
   const handleChecklistServicoComplete = async (checklists?: any[]) => {
+    // Marcar que está completando (síncrono, antes de qualquer await)
+    checklistServicoCompletandoRef.current = true;
+    
     const equipeId = equipe?.id || equipeAuth?.id;
     if (!equipeId || !ordem?.id || !retornoSelecionado) {
       toast.error("Erro ao identificar equipe ou retorno");
+      checklistServicoCompletandoRef.current = false;
       return;
     }
     
@@ -1026,6 +1055,23 @@ export default function AppOrdemDetalhe() {
     // Concluir a OS
     updateStatusMutation.mutate("concluida");
     setRetornoSelecionado(null);
+    checklistServicoCompletandoRef.current = false;
+  };
+  
+  // Handler para quando o ChecklistServicoSheet é fechado
+  const handleChecklistServicoClose = () => {
+    // Se está no processo de completar, apenas fechar normalmente
+    if (checklistServicoCompletandoRef.current) {
+      setChecklistServicoOpen(false);
+      return;
+    }
+    
+    // Se foi fechado sem completar, resetar o fluxo de conclusão
+    if (retornoSelecionado) {
+      setRetornoSelecionado(null);
+      toast.warning("Checklist não preenchido. Selecione o retorno novamente para concluir a OS.");
+    }
+    setChecklistServicoOpen(false);
   };
 
   if (isLoading) {
@@ -1256,9 +1302,27 @@ export default function AppOrdemDetalhe() {
                 </span>
               </button>
 
+              {/* Consultar Checklist de Serviço */}
+              {temChecklistServicoPreenchido && (
+                <button
+                  onClick={() => navegarComEstado(`/app/ordens/${id}/checklist-servico`)}
+                  className="flex-1 flex flex-col items-center justify-center py-3 bg-white rounded-xl border border-green-200 shadow-sm hover:bg-green-50 transition-colors"
+                >
+                  <List className="h-6 w-6 text-green-600" />
+                  <span className="text-xs mt-1 font-medium">Ver Checklist</span>
+                </button>
+              )}
+
               {/* Consultar Fotos */}
               <button
-                onClick={() => navegarComEstado(`/app/ordens/${id}/fotos`)}
+                onClick={() => {
+                  const fotosSection = document.getElementById("fotos-section");
+                  if (fotosSection) {
+                    fotosSection.scrollIntoView({ behavior: "smooth", block: "start" });
+                  } else if (qtdFotos === 0) {
+                    toast.info("Nenhuma foto registrada para esta OS");
+                  }
+                }}
                 className="flex-1 flex flex-col items-center justify-center py-3 bg-white rounded-xl border border-green-200 shadow-sm hover:bg-green-50 transition-colors"
               >
                 <Camera className={`h-6 w-6 ${qtdFotos > 0 ? "text-emerald-600" : "text-gray-400"}`} />
@@ -1472,18 +1536,40 @@ export default function AppOrdemDetalhe() {
       {/* Botão de Ação Principal Fixo - ACIMA DA NAVEGAÇÃO */}
       {primaryAction && actionConfig && (
         <div className="fixed bottom-[70px] left-0 right-0 p-4 bg-gradient-to-t from-white via-white to-transparent pt-6">
-          <Button
-            className={`w-full h-14 text-base font-bold rounded-xl shadow-lg ${actionConfig.color}`}
-            onClick={() => handleStatusChange(primaryAction)}
-            disabled={updateStatusMutation.isPending}
-          >
-            {updateStatusMutation.isPending ? (
-              <Loader2 className="h-6 w-6 mr-2 animate-spin" />
-            ) : (
-              <ActionIcon className="h-6 w-6 mr-2" />
+          <div className="flex gap-2">
+            {/* Botão Cancelar - apenas para em_deslocamento e no_local */}
+            {(status === "em_deslocamento" || status === "no_local") && (
+              <Button
+                variant="outline"
+                className="h-14 px-4 rounded-xl shadow-lg border-2 border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300"
+                onClick={() => {
+                  setConfirmDialog({
+                    open: true,
+                    status: "planejada",
+                    title: "Cancelar Ação",
+                    description: `Deseja cancelar e voltar a OS para "Planejada"? Isso permitirá iniciar outra OS.`,
+                  });
+                }}
+                disabled={updateStatusMutation.isPending}
+              >
+                <X className="h-5 w-5" />
+              </Button>
             )}
-            {actionConfig.label}
-          </Button>
+            
+            {/* Botão de ação principal */}
+            <Button
+              className={`flex-1 h-14 text-base font-bold rounded-xl shadow-lg ${actionConfig.color}`}
+              onClick={() => handleStatusChange(primaryAction)}
+              disabled={updateStatusMutation.isPending}
+            >
+              {updateStatusMutation.isPending ? (
+                <Loader2 className="h-6 w-6 mr-2 animate-spin" />
+              ) : (
+                <ActionIcon className="h-6 w-6 mr-2" />
+              )}
+              {actionConfig.label}
+            </Button>
+          </div>
         </div>
       )}
 
@@ -1531,7 +1617,13 @@ export default function AppOrdemDetalhe() {
       {skillId && (equipe?.id || equipeAuth?.id) && ordem?.id && (
         <ChecklistServicoSheet
           open={checklistServicoOpen}
-          onOpenChange={setChecklistServicoOpen}
+          onOpenChange={(open) => {
+            if (!open) {
+              handleChecklistServicoClose();
+            } else {
+              setChecklistServicoOpen(true);
+            }
+          }}
           skillId={skillId}
           grupoRetorno={grupoRetornoSelecionado}
           ordemServicoId={ordem.id}

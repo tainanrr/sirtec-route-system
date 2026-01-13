@@ -950,8 +950,9 @@ const AcompanhamentoRoteirizacoes = () => {
                                             ? "destructive"
                                             : "secondary"
                                         }
+                                        className={planejamento.status === "concluido" ? "bg-green-500 hover:bg-green-600 text-white" : ""}
                                       >
-                                        {planejamento.status}
+                                        {planejamento.status.charAt(0).toUpperCase() + planejamento.status.slice(1)}
                                       </Badge>
                                     )}
                                   </div>
@@ -1145,8 +1146,11 @@ const AcompanhamentoRoteirizacoes = () => {
                                       <TableCell>{os?.cliente_nome || "-"}</TableCell>
                                       <TableCell className="max-w-xs truncate">{os?.endereco || "-"}</TableCell>
                                       <TableCell>
-                                        <Badge variant={os?.status === "planejada" ? "default" : "secondary"}>
-                                          {os?.status || "-"}
+                                        <Badge 
+                                          variant={os?.status === "planejada" ? "default" : os?.status === "cancelada" ? "destructive" : "secondary"}
+                                          className={os?.status === "concluida" ? "bg-green-500 hover:bg-green-600 text-white" : ""}
+                                        >
+                                          {os?.status ? os.status.charAt(0).toUpperCase() + os.status.slice(1) : "-"}
                                         </Badge>
                                       </TableCell>
                                       <TableCell>

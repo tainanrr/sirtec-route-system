@@ -54,8 +54,29 @@ export function OfflineSyncIndicator({ className = "", showDetails = true }: Off
   const [showSheet, setShowSheet] = useState(false);
   const [wasOffline, setWasOffline] = useState(false);
   
-  // Contar operações com erro
-  const failedCount = pendingOperations.filter(op => op.retries >= 5).length;
+  // Filtrar operações válidas (proteger contra formatos antigos/corrompidos)
+  const validOperations = useMemo(() => {
+    return pendingOperations.filter(op => {
+      // Operação válida deve ter id, type como string, e created_at
+      if (!op || typeof op !== 'object') return false;
+      if (!op.id || typeof op.type !== 'string') return false;
+      // Detectar operações com formato antigo incorreto (objeto {type, table, data})
+      if (op.type === 'object' || (op as any).table === 'object') return false;
+      return true;
+    });
+  }, [pendingOperations]);
+  
+  // Operações corrompidas (formato antigo)
+  const corruptedOperations = useMemo(() => {
+    return pendingOperations.filter(op => {
+      if (!op || typeof op !== 'object') return true;
+      if (!op.id || typeof op.type !== 'string') return true;
+      return false;
+    });
+  }, [pendingOperations]);
+  
+  // Contar operações com erro (apenas válidas)
+  const failedCount = validOperations.filter(op => op.retries >= 5).length;
   
   // Extrair ordem_servico_id do payload da operação
   const getOrdemServicoId = (op: typeof pendingOperations[0]): string | null => {
@@ -79,17 +100,17 @@ export function OfflineSyncIndicator({ className = "", showDetails = true }: Off
     return payload.numero_os || payload.numero || null;
   };
   
-  // Extrair IDs das OSs das operações pendentes
+  // Extrair IDs das OSs das operações pendentes (apenas válidas)
   const osIds = useMemo(() => {
     const ids = new Set<string>();
-    pendingOperations.forEach(op => {
+    validOperations.forEach(op => {
       const osId = getOrdemServicoId(op);
       if (osId) {
         ids.add(osId);
       }
     });
     return Array.from(ids);
-  }, [pendingOperations]);
+  }, [validOperations]);
   
   // Estado para cache offline de números de OSs
   const [osNumbersCache, setOsNumbersCache] = useState<Record<string, string>>({});
@@ -99,8 +120,8 @@ export function OfflineSyncIndicator({ className = "", showDetails = true }: Off
     const carregarCacheOffline = async () => {
       const map: Record<string, string> = {};
       
-      // 1. Primeiro extrair números diretamente dos payloads das operações
-      pendingOperations.forEach(op => {
+      // 1. Primeiro extrair números diretamente dos payloads das operações válidas
+      validOperations.forEach(op => {
         const osId = getOrdemServicoId(op);
         const numero = getNumeroOsFromPayload(op);
         if (osId && numero) {
@@ -152,7 +173,7 @@ export function OfflineSyncIndicator({ className = "", showDetails = true }: Off
     };
     
     carregarCacheOffline();
-  }, [osIds, pendingOperations, getFromCache]);
+  }, [osIds, validOperations, getFromCache]);
   
   // Buscar números das OSs do Supabase (quando online)
   const { data: osNumbersOnline } = useQuery({
@@ -236,7 +257,7 @@ export function OfflineSyncIndicator({ className = "", showDetails = true }: Off
       end_intervalo: "Encerrar intervalo",
       update_localizacao: "Atualizar localização",
       send_chat_message: "Enviar mensagem",
-      save_checklist: "Salvar checklist",
+      save_checklist: "Salvar checklist de serviço",
       save_apr: "Salvar APR",
       update_apr: "Atualizar APR",
       save_foto: "Salvar foto",
@@ -246,12 +267,12 @@ export function OfflineSyncIndicator({ className = "", showDetails = true }: Off
     return descriptions[type] || type;
   };
 
-  // Agrupar operações por OS
-  const groupedOperations = (() => {
-    const groups: Record<string, typeof pendingOperations> = {};
-    const semOS: typeof pendingOperations = [];
+  // Agrupar operações válidas por OS
+  const groupedOperations = useMemo(() => {
+    const groups: Record<string, typeof validOperations> = {};
+    const semOS: typeof validOperations = [];
     
-    pendingOperations.forEach(op => {
+    validOperations.forEach(op => {
       const osId = getOrdemServicoId(op);
       if (osId) {
         if (!groups[osId]) {
@@ -264,7 +285,7 @@ export function OfflineSyncIndicator({ className = "", showDetails = true }: Off
     });
     
     return { groups, semOS };
-  })();
+  }, [validOperations]);
 
   // Indicador simples sem detalhes
   if (!showDetails) {
@@ -361,21 +382,23 @@ export function OfflineSyncIndicator({ className = "", showDetails = true }: Off
 
         <div className="mt-4 space-y-4">
           {/* Status e ações */}
-          <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
-            <div>
-              <p className="text-sm font-medium">
-                {pendingCount === 0 
-                  ? "Tudo sincronizado!" 
-                  : `${pendingCount} operação(ões) pendente(s)`
-                }
-              </p>
-              {lastSyncTime && (
-                <p className="text-xs text-muted-foreground">
-                  Última sincronização: {format(lastSyncTime, "HH:mm", { locale: ptBR })}
+          <div className="p-3 bg-muted rounded-lg space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">
+                  {validOperations.length === 0 && corruptedOperations.length === 0
+                    ? "Tudo sincronizado!" 
+                    : validOperations.length > 0
+                      ? `${validOperations.length} operação(ões) pendente(s)`
+                      : `${corruptedOperations.length} operação(ões) corrompida(s)`
+                  }
                 </p>
-              )}
-            </div>
-            <div className="flex gap-2">
+                {lastSyncTime && (
+                  <p className="text-xs text-muted-foreground">
+                    Última sincronização: {format(lastSyncTime, "HH:mm", { locale: ptBR })}
+                  </p>
+                )}
+              </div>
               {pendingCount > 0 && isOnline && (
                 <Button 
                   size="sm" 
@@ -390,22 +413,63 @@ export function OfflineSyncIndicator({ className = "", showDetails = true }: Off
                   Sincronizar
                 </Button>
               )}
-              {failedCount > 0 && (
-                <Button 
-                  size="sm" 
-                  variant="destructive"
-                  onClick={handleClearFailed}
-                  disabled={isSyncing}
-                >
-                  <Trash2 className="h-4 w-4 mr-1" />
-                  Limpar Erros ({failedCount})
-                </Button>
-              )}
             </div>
+            
+            {/* Botões de limpeza em linha separada */}
+            {(failedCount > 0 || corruptedOperations.length > 0) && (
+              <div className="flex flex-wrap gap-2">
+                {failedCount > 0 && (
+                  <Button 
+                    size="sm" 
+                    variant="destructive"
+                    onClick={handleClearFailed}
+                    disabled={isSyncing}
+                  >
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    Limpar Erros ({failedCount})
+                  </Button>
+                )}
+                {corruptedOperations.length > 0 && (
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    onClick={async () => {
+                      if (window.confirm(`Há ${corruptedOperations.length} operação(ões) com formato inválido. Deseja removê-las?`)) {
+                        await clearQueue();
+                        refreshPendingOperations();
+                        toast.success("Fila limpa");
+                      }
+                    }}
+                    disabled={isSyncing}
+                  >
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    Limpar Inválidas ({corruptedOperations.length})
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
 
+          {/* Alerta sobre operações corrompidas */}
+          {corruptedOperations.length > 0 && (
+            <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
+              <div className="flex gap-2">
+                <AlertTriangle className="h-5 w-5 text-orange-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-orange-800">
+                    {corruptedOperations.length} operação(ões) com formato inválido
+                  </p>
+                  <p className="text-xs text-orange-700 mt-1">
+                    Estas operações foram salvas com um formato incorreto e não podem ser sincronizadas.
+                    Use o botão "Limpar Corrompidas" para removê-las.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Lista de operações pendentes agrupadas por OS */}
-          {pendingCount > 0 && (
+          {validOperations.length > 0 && (
             <div className="space-y-2">
               <h4 className="text-sm font-medium">Operações pendentes</h4>
               <ScrollArea className="h-[300px] rounded border">
@@ -555,7 +619,7 @@ export function OfflineSyncIndicator({ className = "", showDetails = true }: Off
           )}
 
           {/* Tudo sincronizado */}
-          {isOnline && pendingCount === 0 && (
+          {isOnline && validOperations.length === 0 && corruptedOperations.length === 0 && (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <div className="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center mb-3">
                 <Check className="h-6 w-6 text-green-600" />
