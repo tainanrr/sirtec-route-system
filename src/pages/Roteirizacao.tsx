@@ -375,7 +375,7 @@ const Roteirizacao = () => {
   const [centrosCustoEquipes, setCentrosCustoEquipes] = useState<{id: string; nome: string}[]>([]);
   const [equipesSelecionadasParaEditar, setEquipesSelecionadasParaEditar] = useState<Set<string>>(new Set());
   
-  // Estado para rastrear equipes offline (sem atividade há mais de 5 minutos)
+  // Estado para rastrear equipes com problemas de conexão (sem sinal)
   const [equipesOfflineInfo, setEquipesOfflineInfo] = useState<Map<string, { turnoAberto: boolean; ultimaAtividade: Date | null; minutosOffline: number | null }>>(new Map());
   
   // Estado para controlar se estamos editando um planejamento existente
@@ -4765,10 +4765,13 @@ const Roteirizacao = () => {
                   const tempoOcioso = statusEq?.tempoOciosidadeMin;
                   const ociosidadeCritica = tempoOcioso !== null && tempoOcioso >= 10;
                   
-                  // Verificar se equipe está offline (sem atividade há mais de 5 minutos)
+                  // Verificar status de conectividade da equipe
+                  // ONLINE: < 3 min, INSTÁVEL: 3-10 min, OFFLINE: > 10 min
                   const offlineInfo = equipesOfflineInfo.get(rota.equipe.id);
-                  const isOffline = offlineInfo?.minutosOffline !== null && offlineInfo?.minutosOffline !== undefined;
-                  const minutosOffline = offlineInfo?.minutosOffline || 0;
+                  const minutosSemSinal = offlineInfo?.minutosOffline || 0;
+                  const isInstavel = minutosSemSinal >= 3 && minutosSemSinal < 10;
+                  const isOffline = minutosSemSinal >= 10;
+                  const temProblemaConexao = isInstavel || isOffline;
                   
                   return (
                     <div
@@ -4779,30 +4782,32 @@ const Roteirizacao = () => {
                       }}
                       className={cn(
                         "flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all min-w-[140px]",
-                        // Offline tem prioridade visual
+                        // Problema de conexão tem prioridade visual
                         isOffline && "bg-gray-200 dark:bg-gray-800 border-gray-500 dark:border-gray-500 hover:bg-gray-300 dark:hover:bg-gray-700 border-2 border-dashed",
-                        !isOffline && isOciosa && !ociosidadeCritica && "bg-amber-50 dark:bg-amber-950/50 border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900",
-                        !isOffline && isOciosa && ociosidadeCritica && "bg-red-50 dark:bg-red-950/50 border-red-400 dark:border-red-600 hover:bg-red-100 dark:hover:bg-red-900 border-2",
-                        !isOffline && isTrabalhando && "bg-green-50 dark:bg-green-950/50 border-green-300 dark:border-green-700 hover:bg-green-100 dark:hover:bg-green-900",
-                        !isOffline && isFinalizada && "bg-gray-50 dark:bg-gray-900/50 border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 opacity-60",
-                        !isOffline && !isOciosa && !isTrabalhando && !isFinalizada && "bg-card border-border hover:bg-muted/50",
+                        isInstavel && !isOffline && "bg-orange-100 dark:bg-orange-950/50 border-orange-400 dark:border-orange-600 hover:bg-orange-200 dark:hover:bg-orange-900 border-2 border-dashed",
+                        !temProblemaConexao && isOciosa && !ociosidadeCritica && "bg-amber-50 dark:bg-amber-950/50 border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900",
+                        !temProblemaConexao && isOciosa && ociosidadeCritica && "bg-red-50 dark:bg-red-950/50 border-red-400 dark:border-red-600 hover:bg-red-100 dark:hover:bg-red-900 border-2",
+                        !temProblemaConexao && isTrabalhando && "bg-green-50 dark:bg-green-950/50 border-green-300 dark:border-green-700 hover:bg-green-100 dark:hover:bg-green-900",
+                        !temProblemaConexao && isFinalizada && "bg-gray-50 dark:bg-gray-900/50 border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 opacity-60",
+                        !temProblemaConexao && !isOciosa && !isTrabalhando && !isFinalizada && "bg-card border-border hover:bg-muted/50",
                         isSelected && "ring-2 ring-primary ring-offset-2",
-                        !isOffline && isOciosa && "animate-pulse"
+                        !temProblemaConexao && isOciosa && "animate-pulse"
                       )}
-                      title={isOffline ? `Equipe sem atividade há ${minutosOffline} minutos - possível problema de conexão` : undefined}
+                      title={temProblemaConexao ? `Equipe sem sinal há ${minutosSemSinal} minutos - ${isOffline ? 'conexão perdida' : 'sinal instável'}` : undefined}
                     >
                       <div
                         className={cn(
                           "h-9 w-9 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0",
                           isOffline && "ring-2 ring-gray-600 dark:ring-gray-400",
-                          !isOffline && isOciosa && !ociosidadeCritica && "ring-2 ring-amber-400",
-                          !isOffline && ociosidadeCritica && "ring-2 ring-red-500"
+                          isInstavel && !isOffline && "ring-2 ring-orange-500 dark:ring-orange-400",
+                          !temProblemaConexao && isOciosa && !ociosidadeCritica && "ring-2 ring-amber-400",
+                          !temProblemaConexao && ociosidadeCritica && "ring-2 ring-red-500"
                         )}
                         style={{ 
-                          backgroundColor: isOffline ? '#6b7280' : (ociosidadeCritica ? '#dc2626' : (isOciosa ? '#f59e0b' : (isTrabalhando ? '#22c55e' : (isFinalizada ? '#6b7280' : (rota.equipe.color || '#3b82f6')))))
+                          backgroundColor: isOffline ? '#6b7280' : (isInstavel ? '#f97316' : (ociosidadeCritica ? '#dc2626' : (isOciosa ? '#f59e0b' : (isTrabalhando ? '#22c55e' : (isFinalizada ? '#6b7280' : (rota.equipe.color || '#3b82f6'))))))
                         }}
                       >
-                        {isOffline ? '📡' : (isOciosa ? '🕐' : isTrabalhando ? '⚡' : isFinalizada ? '✓' : '⏳')}
+                        {temProblemaConexao ? '📡' : (isOciosa ? '🕐' : isTrabalhando ? '⚡' : isFinalizada ? '✓' : '⏳')}
                       </div>
                       <div className="flex flex-col min-w-0">
                         <div className="flex items-center gap-1">
@@ -4814,19 +4819,25 @@ const Roteirizacao = () => {
                               OFFLINE
                             </span>
                           )}
+                          {isInstavel && !isOffline && (
+                            <span className="text-[9px] px-1 py-0.5 rounded bg-orange-500 text-white font-bold">
+                              INSTÁVEL
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-1">
                           <span className={cn(
                             "text-[10px] font-medium",
                             isOffline && "text-gray-600 dark:text-gray-400",
-                            !isOffline && ociosidadeCritica && "text-red-600 dark:text-red-400",
-                            !isOffline && isOciosa && !ociosidadeCritica && "text-amber-600 dark:text-amber-400",
-                            !isOffline && isTrabalhando && "text-green-600 dark:text-green-400",
-                            !isOffline && isFinalizada && "text-gray-600 dark:text-gray-400"
+                            isInstavel && !isOffline && "text-orange-600 dark:text-orange-400",
+                            !temProblemaConexao && ociosidadeCritica && "text-red-600 dark:text-red-400",
+                            !temProblemaConexao && isOciosa && !ociosidadeCritica && "text-amber-600 dark:text-amber-400",
+                            !temProblemaConexao && isTrabalhando && "text-green-600 dark:text-green-400",
+                            !temProblemaConexao && isFinalizada && "text-gray-600 dark:text-gray-400"
                           )}>
-                            {isOffline ? (
+                            {temProblemaConexao ? (
                               <span className="font-bold">
-                                📡 {minutosOffline}min sem atividade
+                                📡 {minutosSemSinal}min sem sinal
                               </span>
                             ) : isOciosa ? (
                               tempoOcioso !== null ? (
@@ -5072,10 +5083,12 @@ const Roteirizacao = () => {
                         const isTrabalhando = statusEq?.status === 'trabalhando';
                         const isFinalizada = statusEq?.status === 'finalizada';
                         
-                        // Verificar se equipe está offline
+                        // Verificar status de conectividade
                         const offlineInfo = equipesOfflineInfo.get(rota.equipe.id);
-                        const isOffline = offlineInfo?.minutosOffline !== null && offlineInfo?.minutosOffline !== undefined;
-                        const minutosOffline = offlineInfo?.minutosOffline || 0;
+                        const minutosSemSinal2 = offlineInfo?.minutosOffline || 0;
+                        const isInstavel2 = minutosSemSinal2 >= 3 && minutosSemSinal2 < 10;
+                        const isOffline2 = minutosSemSinal2 >= 10;
+                        const temProblemaConexao2 = isInstavel2 || isOffline2;
                         
                         return (
                           <SelectItem key={rota.equipe.id} value={rota.equipe.id}>
@@ -5083,30 +5096,35 @@ const Roteirizacao = () => {
                               <div
                                 className={cn(
                                   "h-3 w-3 rounded-full",
-                                  isOffline && "opacity-50"
+                                  temProblemaConexao2 && "opacity-50"
                                 )}
-                                style={{ backgroundColor: isOffline ? "#6b7280" : (rota.equipe.color || "#3b82f6") }}
+                                style={{ backgroundColor: isOffline2 ? "#6b7280" : (isInstavel2 ? "#f97316" : (rota.equipe.color || "#3b82f6")) }}
                               />
                               <span>{rota.equipe.codigo}</span>
                               <span className="text-muted-foreground text-xs">
                                 ({servicosValidos.length} OSs)
                               </span>
-                              {isOffline && (
+                              {isOffline2 && (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200 font-bold">
-                                  📡 OFFLINE ({minutosOffline}min)
+                                  📡 OFFLINE ({minutosSemSinal2}min)
                                 </span>
                               )}
-                              {!isOffline && isOciosa && (
+                              {isInstavel2 && !isOffline2 && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-200 text-orange-800 dark:bg-orange-700 dark:text-orange-200 font-bold">
+                                  📡 INSTÁVEL ({minutosSemSinal2}min)
+                                </span>
+                              )}
+                              {!temProblemaConexao2 && isOciosa && (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200 font-medium">
                                   🕐 OCIOSA
                                 </span>
                               )}
-                              {!isOffline && isTrabalhando && (
+                              {!temProblemaConexao2 && isTrabalhando && (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 font-medium">
                                   ⚡ {statusEq?.osAtualNumero}
                                 </span>
                               )}
-                              {!isOffline && isFinalizada && (
+                              {!temProblemaConexao2 && isFinalizada && (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200 font-medium">
                                   ✓ FIM
                                 </span>
