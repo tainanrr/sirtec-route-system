@@ -198,6 +198,21 @@ export default function CriarOSAvulsaDialog({
       const numeroOS = gerarNumeroOS();
       const agora = new Date().toISOString();
 
+      // Buscar contrato padrão da equipe para OSs avulsas
+      let contratoPadraoId = null;
+      try {
+        const { data: equipeData } = await supabase
+          .from("tecnicos")
+          .select("contrato_padrao_avulsas")
+          .eq("id", equipeId)
+          .single();
+        
+        contratoPadraoId = equipeData?.contrato_padrao_avulsas || null;
+        console.log("[CriarOSAvulsa] Contrato padrão da equipe:", contratoPadraoId);
+      } catch (error) {
+        console.warn("[CriarOSAvulsa] Erro ao buscar contrato padrão da equipe:", error);
+      }
+
       // Criar a OS
       const { data: novaOS, error: erroOS } = await supabase
         .from("ordens_servico")
@@ -215,6 +230,7 @@ export default function CriarOSAvulsaDialog({
           duracao_estimada: tipoSelecionado.tempo_execucao_minutos,
           valor: tipoSelecionado.valor,
           tecnico_id: equipeId,
+          contrato_id: contratoPadraoId, // Usar contrato padrão da equipe para OSs avulsas
           prazo: null, // OS avulsa não tem prazo
           regulada: false,
           avulsa: true, // Marca como OS avulsa

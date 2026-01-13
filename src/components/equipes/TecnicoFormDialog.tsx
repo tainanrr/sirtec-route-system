@@ -69,6 +69,7 @@ const tecnicoSchema = z.object({
   max_colaboradores: z.number().min(1).max(10),
   centro_custo_id: z.string().optional(),
   supervisor_id: z.string().min(1, "Supervisor é obrigatório"),
+  contrato_padrao_avulsas_id: z.string().optional(),
 }).refine(data => data.max_colaboradores >= data.min_colaboradores, {
   message: "Máximo deve ser maior ou igual ao mínimo",
   path: ["max_colaboradores"],
@@ -125,6 +126,7 @@ export function TecnicoFormDialog({
   const [skillsDisponiveis, setSkillsDisponiveis] = useState<Skill[]>([]);
   const [centrosCusto, setCentrosCusto] = useState<CentroCusto[]>([]);
   const [supervisores, setSupervisores] = useState<Supervisor[]>([]);
+  const [contratos, setContratos] = useState<{ id: string; codigo: string; nome: string }[]>([]);
   const [almoco, setAlmoco] = useState({
     duracao: 60,
     janelaInicio: "11:00",
@@ -158,6 +160,7 @@ export function TecnicoFormDialog({
       max_colaboradores: 2,
       centro_custo_id: "",
       supervisor_id: "",
+      contrato_padrao_avulsas_id: "",
     },
   });
 
@@ -403,6 +406,7 @@ export function TecnicoFormDialog({
       fetchSkills();
       fetchCentrosCusto();
       fetchSupervisores();
+      fetchContratos();
     }
   }, [open]);
 
@@ -429,6 +433,7 @@ export function TecnicoFormDialog({
         max_colaboradores: (tecnico as any).max_colaboradores || 2,
         centro_custo_id: (tecnico as any).centro_custo_id || "",
         supervisor_id: (tecnico as any).supervisor_id || "",
+        contrato_padrao_avulsas_id: (tecnico as any).contrato_padrao_avulsas || "",
       });
       setHabilidades(tecnico.habilidades || []);
       
@@ -468,6 +473,7 @@ export function TecnicoFormDialog({
         max_colaboradores: 2,
         centro_custo_id: "",
         supervisor_id: "",
+        contrato_padrao_avulsas_id: "",
       });
       setHabilidades([]);
       setAlmoco({ duracao: 60, janelaInicio: "11:00", janelaFim: "14:00" });
@@ -519,6 +525,7 @@ export function TecnicoFormDialog({
         max_colaboradores: data.max_colaboradores,
         centro_custo_id: (data.centro_custo_id && data.centro_custo_id !== "_none_") ? data.centro_custo_id : null,
         supervisor_id: data.supervisor_id,
+        contrato_padrao_avulsas: (data.contrato_padrao_avulsas_id && data.contrato_padrao_avulsas_id !== "_none_") ? data.contrato_padrao_avulsas_id : null,
       };
 
       // Adicionar coordenadas se fornecidas
@@ -821,6 +828,36 @@ export function TecnicoFormDialog({
                       </Select>
                       <FormDescription>
                         Vincula a equipe a um centro de custo para controle de metas e feriados
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {/* Campo de Contrato Padrão para OSs Avulsas */}
+                <FormField
+                  control={form.control}
+                  name="contrato_padrao_avulsas_id"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Contrato Padrão para OSs Avulsas</FormLabel>
+                      <Select onValueChange={(val) => field.onChange(val === "_none_" ? "" : val)} value={field.value || "_none_"}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione um contrato" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="_none_">Nenhum</SelectItem>
+                          {contratos.map((contrato) => (
+                            <SelectItem key={contrato.id} value={contrato.id}>
+                              {contrato.codigo ? `${contrato.codigo} - ` : ""}{contrato.nome}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>
+                        Contrato utilizado para calcular valores de produção quando a equipe cria OSs avulsas
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
