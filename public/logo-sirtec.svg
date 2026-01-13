@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 60" fill="none">
+  <!-- Chama/Onda estilizada -->
+  <path d="M10 45 Q15 30 20 40 Q25 50 30 35 Q35 20 45 30 Q50 35 50 45 L10 45" fill="#E53935"/>
+  <path d="M15 45 Q20 32 25 40 Q30 48 35 35 Q40 25 48 33 Q50 36 50 45 L15 45" fill="#FF8F00"/>
+  <path d="M20 45 Q25 35 30 42 Q35 48 40 38 Q45 30 50 38 L50 45 L20 45" fill="#FFD600"/>
+  
+  <!-- Texto Sirtec -->
+  <text x="55" y="38" font-family="Arial, sans-serif" font-size="28" font-weight="bold" fill="#1A1A1A">
+    <tspan>Sirtec</tspan>
+  </text>
+  <text x="142" y="38" font-family="Arial, sans-serif" font-size="10" fill="#1A1A1A" baseline-shift="super">®</text>
+  
+  <!-- Subtítulo -->
+  <text x="55" y="52" font-family="Arial, sans-serif" font-size="10" fill="#666666">Sistemas Elétricos</text>
+</svg>

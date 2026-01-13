@@ -425,20 +425,19 @@ export default function AppLayout() {
       <header className="sticky top-0 z-40 bg-gradient-to-r from-primary to-primary/90 text-primary-foreground px-4 py-3 shadow-lg">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center shadow-inner">
-              <span className="text-sm font-bold">SR</span>
-            </div>
-            <div>
-              <span className="font-semibold text-lg">SirtecRoute</span>
-              {equipe && (
-                <Badge 
-                  variant="secondary" 
-                  className="ml-2 bg-white/20 text-white border-white/30 text-xs"
-                >
-                  {equipe.codigo}
-                </Badge>
-              )}
-            </div>
+            <img 
+              src="/logo-sirtec.svg" 
+              alt="Sirtec" 
+              className="h-9 w-auto brightness-0 invert"
+            />
+            {equipe && (
+              <Badge 
+                variant="secondary" 
+                className="bg-white/20 text-white border-white/30 text-xs"
+              >
+                {equipe.codigo}
+              </Badge>
+            )}
           </div>
           
           <div className="flex items-center gap-2">

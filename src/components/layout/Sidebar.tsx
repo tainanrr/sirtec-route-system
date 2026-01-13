@@ -268,17 +268,16 @@ export function Sidebar({ isDark, setIsDark, collapsed = false }: SidebarProps) 
       {/* Logo */}
       <div className={cn(
         "flex h-16 items-center border-b border-sidebar-border transition-all",
-        collapsed ? "justify-center px-2" : "gap-2 px-6"
+        collapsed ? "justify-center px-2" : "px-4"
       )}>
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg gradient-primary flex-shrink-0">
-          <Zap className="h-5 w-5 text-primary-foreground" />
-        </div>
-        {!collapsed && (
-        <div className="flex flex-col">
-          <span className="text-lg font-bold text-sidebar-foreground">SirtecRoute</span>
-          <span className="text-[10px] text-muted-foreground -mt-1">Sistema de Roteirização</span>
-        </div>
-        )}
+        <img 
+          src="/logo-sirtec.svg" 
+          alt="Sirtec" 
+          className={cn(
+            "transition-all",
+            collapsed ? "h-8 w-auto" : "h-10 w-auto"
+          )}
+        />
       </div>
 
       {/* Navigation */}
