@@ -111,14 +111,30 @@ const actionLabels: Record<string, { label: string; icon: React.ElementType; col
 };
 
 export default function AppOrdemDetalhe() {
-  const { id } = useParams();
+  const { id: rawId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
   const { equipe: equipeAuth } = useEquipeAuth();
   const { equipe } = useTecnico();
-  const { isOnline, queueOperation, saveToCache, getFromCache, pendingOperations } = useOfflineSyncContext();
+  const { isOnline, queueOperation, saveToCache, getFromCache, pendingOperations, resolveLocalId } = useOfflineSyncContext();
   const { updateOSStatus } = useOfflineOperations();
+  
+  // Resolver ID local para ID real (se foi sincronizado)
+  const id = useMemo(() => {
+    if (!rawId) return rawId;
+    const resolvedId = resolveLocalId(rawId);
+    return resolvedId;
+  }, [rawId, resolveLocalId]);
+  
+  // Se o ID foi resolvido para um diferente, redirecionar para a URL correta
+  useEffect(() => {
+    if (rawId && id && rawId !== id) {
+      console.log(`[AppOrdemDetalhe] 🔄 Redirecionando de ID local ${rawId} para ID real ${id}`);
+      // Substituir a URL atual (sem adicionar ao histórico)
+      navigate(`/app/ordens/${id}`, { replace: true });
+    }
+  }, [rawId, id, navigate]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [observacao, setObservacao] = useState("");
@@ -211,7 +227,15 @@ export default function AppOrdemDetalhe() {
         console.log("[AppOrdemDetalhe] 📦 Offline - buscando ordem do cache manualmente...");
         const dataHoje = format(new Date(), "yyyy-MM-dd");
         const cacheKey = `${CACHE_KEYS.PLANEJAMENTO_DIA}_${equipeIdParaUsar}_${dataHoje}`;
-        console.log("[AppOrdemDetalhe] Cache key:", cacheKey, "ID procurado:", id);
+        
+        // IDs para buscar: o ID resolvido e, se diferente, o ID original (local)
+        const idsParaBuscar = [id];
+        if (rawId && rawId !== id) {
+          idsParaBuscar.push(rawId);
+          console.log("[AppOrdemDetalhe] Cache key:", cacheKey, "IDs procurados:", idsParaBuscar);
+        } else {
+          console.log("[AppOrdemDetalhe] Cache key:", cacheKey, "ID procurado:", id);
+        }
         
         try {
           // 1. Primeiro tentar buscar do cache de planejamento do dia
@@ -220,7 +244,7 @@ export default function AppOrdemDetalhe() {
           
           if (cachedPlanejamento && Array.isArray(cachedPlanejamento)) {
             const ordemEncontrada = (cachedPlanejamento as any[]).find(
-              p => p.ordens_servico?.id === id
+              p => idsParaBuscar.includes(p.ordens_servico?.id)
             );
             
             if (ordemEncontrada?.ordens_servico) {
@@ -236,7 +260,7 @@ export default function AppOrdemDetalhe() {
           console.log("[AppOrdemDetalhe] Cache ordens encontrado:", cachedOrdens?.length || 0, "items");
           
           if (cachedOrdens && Array.isArray(cachedOrdens)) {
-            const ordemEncontrada = (cachedOrdens as any[]).find(o => o.id === id);
+            const ordemEncontrada = (cachedOrdens as any[]).find(o => idsParaBuscar.includes(o.id));
             if (ordemEncontrada) {
               console.log("[AppOrdemDetalhe] ✅ Ordem encontrada no cache ordens:", ordemEncontrada.numero);
               setOrdemOfflineCache(ordemEncontrada);
@@ -250,7 +274,7 @@ export default function AppOrdemDetalhe() {
           console.log("[AppOrdemDetalhe] Cache ordens_all encontrado:", cachedOrdensAll?.length || 0, "items");
           
           if (cachedOrdensAll && Array.isArray(cachedOrdensAll)) {
-            const ordemEncontrada = (cachedOrdensAll as any[]).find(o => o.id === id);
+            const ordemEncontrada = (cachedOrdensAll as any[]).find(o => idsParaBuscar.includes(o.id));
             if (ordemEncontrada) {
               console.log("[AppOrdemDetalhe] ✅ Ordem encontrada no cache ordens_all:", ordemEncontrada.numero);
               setOrdemOfflineCache(ordemEncontrada);
@@ -268,7 +292,7 @@ export default function AppOrdemDetalhe() {
       }
     };
     buscarOrdemDoCache();
-  }, [isOnline, id, equipeIdParaUsar, ordemOfflineCache, getFromCache]);
+  }, [isOnline, id, rawId, equipeIdParaUsar, ordemOfflineCache, getFromCache]);
 
   // Usar ordem do React Query ou do cache offline
   const ordem = isOnline ? ordemOnline : ordemOfflineCache;

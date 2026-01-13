@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -137,15 +137,29 @@ interface Resposta {
 }
 
 export default function AppAPR() {
-  const { id: ordemId } = useParams();
+  const { id: rawOrdemId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
   const { equipe: equipeAuth } = useEquipeAuth();
   const { equipe } = useTecnico();
-  const { isOnline, pendingOperations } = useOfflineSyncContext();
+  const { isOnline, pendingOperations, resolveLocalId } = useOfflineSyncContext();
   const { getFromCache } = useOfflineData();
   const { salvarAPR: salvarAPROffline } = useOfflineOperations();
+  
+  // Resolver ID local para ID real (se foi sincronizado)
+  const ordemId = useMemo(() => {
+    if (!rawOrdemId) return rawOrdemId;
+    return resolveLocalId(rawOrdemId);
+  }, [rawOrdemId, resolveLocalId]);
+  
+  // Se o ID foi resolvido para um diferente, redirecionar para a URL correta
+  useEffect(() => {
+    if (rawOrdemId && ordemId && rawOrdemId !== ordemId) {
+      console.log(`[APR] 🔄 Redirecionando de ID local ${rawOrdemId} para ID real ${ordemId}`);
+      navigate(`/app/ordens/${ordemId}/apr`, { replace: true });
+    }
+  }, [rawOrdemId, ordemId, navigate]);
   
   const [respostas, setRespostas] = useState<Record<string, Resposta>>({});
   const [gruposExpandidos, setGruposExpandidos] = useState<Set<string>>(new Set());
@@ -309,8 +323,14 @@ export default function AppAPR() {
         return;
       }
       
+      // IDs para buscar: o ID resolvido e, se diferente, o ID original (local)
+      const idsParaBuscar = [ordemId];
+      if (rawOrdemId && rawOrdemId !== ordemId) {
+        idsParaBuscar.push(rawOrdemId);
+      }
+      
       // Sempre buscar do cache para ter o status mais recente
-      console.log("[APR] 📦 Buscando ordem do cache para:", ordemId, "(isOnline:", isOnline, ")");
+      console.log("[APR] 📦 Buscando ordem do cache para:", idsParaBuscar, "(isOnline:", isOnline, ")");
       
       const dataHoje = format(new Date(), "yyyy-MM-dd");
       const cacheKey = `planejamento_dia_${equipeId}_${dataHoje}`;
@@ -325,7 +345,7 @@ export default function AppAPR() {
           const ordemEncontrada = cachedOrdens.find((o: any) => {
             const osData = o.ordens_servico || o;
             const osId = osData.id || o.ordem_servico_id;
-            return osId === ordemId;
+            return idsParaBuscar.includes(osId);
           });
           
           if (ordemEncontrada) {
@@ -356,7 +376,7 @@ export default function AppAPR() {
       }
     };
     buscarOrdemDoCache();
-  }, [isOnline, ordemId, equipe?.id, equipeAuth?.id, getFromCache, pendingOperations.length]);
+  }, [isOnline, ordemId, rawOrdemId, equipe?.id, equipeAuth?.id, getFromCache, pendingOperations.length]);
 
   // Usar ordem do React Query ou do cache offline
   const ordem = ordemOnline || ordemOfflineCache;
@@ -366,11 +386,17 @@ export default function AppAPR() {
   const statusPendente = (() => {
     if (!ordemId || pendingOperations.length === 0) return null;
     
+    // IDs para buscar: o ID resolvido e, se diferente, o ID original (local)
+    const idsParaBuscar = [ordemId];
+    if (rawOrdemId && rawOrdemId !== ordemId) {
+      idsParaBuscar.push(rawOrdemId);
+    }
+    
     // Buscar a operação mais recente de update_os_status para esta ordem
     const operacoesDestaOrdem = pendingOperations.filter(op => {
       if (op.type !== "update_os_status") return false;
       const payload = op.payload;
-      return payload && (payload.id === ordemId || payload.ordem_servico_id === ordemId);
+      return payload && (idsParaBuscar.includes(payload.id) || idsParaBuscar.includes(payload.ordem_servico_id));
     });
     
     if (operacoesDestaOrdem.length === 0) return null;

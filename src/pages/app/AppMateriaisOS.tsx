@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -92,14 +92,28 @@ interface RastroDisponivel {
 }
 
 export default function AppMateriaisOS() {
-  const { id: ordemId } = useParams();
+  const { id: rawOrdemId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
   const { equipe: equipeAuth } = useEquipeAuth();
   const { equipe } = useTecnico();
-  const { isOnline, queueOperation, saveToCache, getFromCache } = useOfflineSyncContext();
+  const { isOnline, queueOperation, saveToCache, getFromCache, resolveLocalId } = useOfflineSyncContext();
   const { getEstoqueFromCache, getMateriaisSerializadosFromCache, getOrdensFromCache, getMateriaisCatalogoFromCache } = useOfflineData();
+  
+  // Resolver ID local para ID real (se foi sincronizado)
+  const ordemId = useMemo(() => {
+    if (!rawOrdemId) return rawOrdemId;
+    return resolveLocalId(rawOrdemId);
+  }, [rawOrdemId, resolveLocalId]);
+  
+  // Se o ID foi resolvido para um diferente, redirecionar para a URL correta
+  useEffect(() => {
+    if (rawOrdemId && ordemId && rawOrdemId !== ordemId) {
+      console.log(`[MateriaisOS] 🔄 Redirecionando de ID local ${rawOrdemId} para ID real ${ordemId}`);
+      navigate(`/app/ordens/${ordemId}/materiais`, { replace: true });
+    }
+  }, [rawOrdemId, ordemId, navigate]);
 
   const pageKey = `app-materiais-os-${ordemId || "sem-id"}`;
   const { getState, saveState } = usePageState<{
@@ -172,7 +186,12 @@ export default function AppMateriaisOS() {
       if (!isOnline && equipeId) {
         const ordens = await getOrdensFromCache(equipeId) as any[];
         if (ordens) {
-          const ordemCached = ordens.find((o: any) => o.id === ordemId);
+          // IDs para buscar: o ID resolvido e, se diferente, o ID original (local)
+          const idsParaBuscar = [ordemId];
+          if (rawOrdemId && rawOrdemId !== ordemId) {
+            idsParaBuscar.push(rawOrdemId);
+          }
+          const ordemCached = ordens.find((o: any) => idsParaBuscar.includes(o.id));
           if (ordemCached) {
             console.log("[AppMateriaisOS] Usando ordem do cache");
             return ordemCached;
@@ -199,7 +218,11 @@ export default function AppMateriaisOS() {
     queryFn: async () => {
       // Tentar buscar do cache se offline
       if (!isOnline) {
-        const cached = await getFromCache<MaterialAplicado[]>(`materiais_os_${ordemId}`);
+        // Tentar com ID resolvido primeiro, depois com ID local original se diferente
+        let cached = await getFromCache<MaterialAplicado[]>(`materiais_os_${ordemId}`);
+        if (!cached && rawOrdemId && rawOrdemId !== ordemId) {
+          cached = await getFromCache<MaterialAplicado[]>(`materiais_os_${rawOrdemId}`);
+        }
         if (cached) {
           console.log("[AppMateriaisOS] Usando materiais da OS do cache:", cached.length);
           return cached;
