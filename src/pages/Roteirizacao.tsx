@@ -6381,7 +6381,6 @@ const Roteirizacao = () => {
                 </div>
               </div>
             )}
-          </div>
 
           <Droppable droppableId="backlog">
           {(provided, snapshot) => (
