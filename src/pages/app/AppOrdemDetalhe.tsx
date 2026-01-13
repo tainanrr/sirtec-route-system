@@ -1156,6 +1156,48 @@ export default function AppOrdemDetalhe() {
           </div>
         )}
 
+        {/* Consulta para OS concluída/cancelada - permitir ver APR e Fotos */}
+        {!isActive && (
+          <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl border border-green-200 p-3">
+            <p className="text-xs text-green-700 font-medium mb-3 flex items-center gap-1">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              OS {status === "concluida" ? "Concluída" : "Cancelada"} - Documentos disponíveis para consulta
+            </p>
+            <div className="flex gap-2">
+              {/* Consultar APR */}
+              <button
+                onClick={() => navegarComEstado(`/app/ordens/${id}/apr`)}
+                className="flex-1 flex flex-col items-center justify-center py-3 bg-white rounded-xl border border-green-200 shadow-sm hover:bg-green-50 transition-colors"
+              >
+                <ClipboardCheck className={`h-6 w-6 ${temAprPreenchida ? "text-green-600" : "text-gray-400"}`} />
+                <span className="text-xs mt-1 font-medium">
+                  {temAprPreenchida ? "Ver APR" : "APR"}
+                </span>
+              </button>
+
+              {/* Consultar Fotos */}
+              <button
+                onClick={() => navegarComEstado(`/app/ordens/${id}/fotos`)}
+                className="flex-1 flex flex-col items-center justify-center py-3 bg-white rounded-xl border border-green-200 shadow-sm hover:bg-green-50 transition-colors"
+              >
+                <Camera className={`h-6 w-6 ${qtdFotos > 0 ? "text-emerald-600" : "text-gray-400"}`} />
+                <span className="text-xs mt-1 font-medium">
+                  Fotos {qtdFotos > 0 && `(${qtdFotos})`}
+                </span>
+              </button>
+
+              {/* Consultar Materiais */}
+              <button
+                onClick={() => navegarComEstado(`/app/ordens/${id}/materiais`)}
+                className="flex-1 flex flex-col items-center justify-center py-3 bg-white rounded-xl border border-green-200 shadow-sm hover:bg-green-50 transition-colors"
+              >
+                <Package className="h-6 w-6 text-teal-600" />
+                <span className="text-xs mt-1 font-medium">Materiais</span>
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Retorno Selecionado (Pendente por fotos) */}
         {retornoSelecionado && isActive && (
           <div

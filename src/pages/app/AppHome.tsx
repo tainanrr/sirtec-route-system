@@ -64,7 +64,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { format, subMonths, setDate, getDate, addMonths, parseISO } from "date-fns";
+import { format, subMonths, setDate, getDate, addMonths, parseISO, differenceInMinutes } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -211,6 +211,56 @@ export default function AppHome() {
     },
     enabled: !!equipe?.id,
     refetchInterval: isOnline ? 30000 : false, // Não atualizar automaticamente quando offline
+  });
+
+  // Buscar todos os intervalos do turno atual
+  const { data: intervalosTurno, refetch: refetchIntervalosTurno } = useQuery({
+    queryKey: ["intervalos-turno", equipe?.id, turno?.id, dataHoje],
+    queryFn: async () => {
+      if (!equipe?.id) return [];
+      
+      // Se offline, buscar do cache
+      if (!isOnline) {
+        const intervalosCached = await getIntervalosFromCache(equipe.id, dataHoje);
+        if (intervalosCached && Array.isArray(intervalosCached)) {
+          // Adicionar dados do tipo de intervalo do cache
+          const tiposIntervaloCache = await getTiposIntervaloFromCache();
+          return intervalosCached.map((i: any) => {
+            if (tiposIntervaloCache && Array.isArray(tiposIntervaloCache)) {
+              const tipoIntervalo = tiposIntervaloCache.find((t: any) => t.id === i.tipo_intervalo_id);
+              return { ...i, tipo_intervalo: tipoIntervalo };
+            }
+            return i;
+          }).sort((a: any, b: any) => new Date(b.hora_inicio).getTime() - new Date(a.hora_inicio).getTime());
+        }
+        return [];
+      }
+      
+      // Buscar do turno atual se tiver, senão do dia
+      const query = supabase
+        .from("intervalos_equipe")
+        .select(`
+          *,
+          tipo_intervalo:tipo_intervalo_id (*)
+        `)
+        .eq("equipe_id", equipe.id)
+        .order("hora_inicio", { ascending: false });
+      
+      if (turno?.id) {
+        query.eq("turno_id", turno.id);
+      } else {
+        // Fallback para buscar do dia se não tiver turno_id
+        query.gte("hora_inicio", dataHoje + "T00:00:00")
+             .lte("hora_inicio", dataHoje + "T23:59:59");
+      }
+      
+      const { data, error } = await query;
+      
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!equipe?.id,
+    refetchInterval: isOnline ? 30000 : false,
   });
 
   // Buscar produção do dia
@@ -455,6 +505,7 @@ export default function AppHome() {
         setSelectedIntervalo("");
         setIntervaloObs("");
         refetchIntervalo();
+        refetchIntervalosTurno();
       } else {
         toast.error("Erro ao iniciar intervalo");
       }
@@ -476,6 +527,7 @@ export default function AppHome() {
       if (result.success) {
         toast.success(result.offline ? "Intervalo finalizado (offline)!" : "Intervalo finalizado!");
         refetchIntervalo();
+        refetchIntervalosTurno();
       } else {
         toast.error("Erro ao finalizar intervalo");
       }
@@ -501,7 +553,7 @@ export default function AppHome() {
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      await Promise.all([refetchProducao(), refetchIntervalo()]);
+      await Promise.all([refetchProducao(), refetchIntervalo(), refetchIntervalosTurno()]);
       queryClient.invalidateQueries({ queryKey: ["producao-ciclo"] });
       queryClient.invalidateQueries({ queryKey: ["meta-hoje"] });
       toast.success("Dados atualizados!");
@@ -922,6 +974,78 @@ export default function AppHome() {
                 rows={2}
               />
             </div>
+
+            {/* Histórico de intervalos do turno */}
+            {intervalosTurno && intervalosTurno.length > 0 && (
+              <div className="border-t pt-4 mt-4">
+                <p className="text-xs font-medium text-muted-foreground mb-3 flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  Intervalos do Turno ({intervalosTurno.length})
+                </p>
+                <div className="max-h-40 overflow-y-auto space-y-2">
+                  {intervalosTurno.map((intervalo: any) => {
+                    const duracao = intervalo.hora_fim 
+                      ? differenceInMinutes(parseISO(intervalo.hora_fim), parseISO(intervalo.hora_inicio))
+                      : null;
+                    const emAndamento = !intervalo.hora_fim;
+                    
+                    return (
+                      <div 
+                        key={intervalo.id} 
+                        className={cn(
+                          "flex items-center justify-between p-2 rounded-lg border text-sm",
+                          emAndamento ? "bg-amber-50 border-amber-200" : "bg-gray-50"
+                        )}
+                      >
+                        <div className="flex items-center gap-2">
+                          <div 
+                            className="h-2 w-2 rounded-full" 
+                            style={{ backgroundColor: intervalo.tipo_intervalo?.cor || "#888" }}
+                          />
+                          <div>
+                            <p className="font-medium text-xs">
+                              {intervalo.tipo_intervalo?.nome || "Intervalo"}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground">
+                              {format(parseISO(intervalo.hora_inicio), "HH:mm")}
+                              {intervalo.hora_fim && ` - ${format(parseISO(intervalo.hora_fim), "HH:mm")}`}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          {emAndamento ? (
+                            <span className="text-[10px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-medium">
+                              Em andamento
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              {duracao}min
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* Total de tempo em intervalos */}
+                <div className="mt-2 pt-2 border-t flex justify-between text-xs text-muted-foreground">
+                  <span>Tempo total:</span>
+                  <span className="font-medium">
+                    {Math.floor(intervalosTurno.reduce((acc: number, i: any) => {
+                      if (i.hora_fim) {
+                        return acc + differenceInMinutes(parseISO(i.hora_fim), parseISO(i.hora_inicio));
+                      }
+                      return acc;
+                    }, 0) / 60)}h {intervalosTurno.reduce((acc: number, i: any) => {
+                      if (i.hora_fim) {
+                        return acc + differenceInMinutes(parseISO(i.hora_fim), parseISO(i.hora_inicio));
+                      }
+                      return acc;
+                    }, 0) % 60}min
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
           <DialogFooter>
