@@ -247,17 +247,27 @@ export function OrdemServicoFormDialog({
     return () => subscription.unsubscribe();
   }, [form, isEditing]);
 
+  // Função para formatar data para datetime-local no fuso horário local
+  const formatLocalDateTime = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  };
+
   // Efeito para resetar o formulário quando a ordem muda (apenas quando ordem é definida/alterada)
   useEffect(() => {
     if (ordem) {
-      // Formatar prazo para input datetime-local
+      // Formatar prazo para input datetime-local (usando fuso horário LOCAL, não UTC)
       const prazoFormatted = ordem.prazo 
-        ? new Date(ordem.prazo).toISOString().slice(0, 16)
+        ? formatLocalDateTime(new Date(ordem.prazo))
         : "";
       
-      // Formatar data_geracao para input datetime-local
+      // Formatar data_geracao para input datetime-local (usando fuso horário LOCAL)
       const dataGeracaoFormatted = (ordem as any).data_geracao 
-        ? new Date((ordem as any).data_geracao).toISOString().slice(0, 16)
+        ? formatLocalDateTime(new Date((ordem as any).data_geracao))
         : "";
       
       console.log("[FormDialog] Carregando OS para edição:", {
