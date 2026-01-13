@@ -614,6 +614,11 @@ const Roteirizacao = () => {
 
   // Monitorar equipes offline (sem atividade há mais de 5 minutos)
   // Busca turnos abertos e última atividade a cada 30 segundos
+  // 
+  // LÓGICA: Uma equipe é considerada OFFLINE quando:
+  // - Não há nenhuma atualização (updated_at) em nenhuma OS ou intervalo nos últimos 5 minutos
+  // - Isso inclui equipes "em execução" que perderam sinal - o status da OS fica "em_execucao"
+  //   mas se não houver atualização em 5 min, a equipe está sem sinal
   useEffect(() => {
     const MINUTOS_PARA_OFFLINE = 5;
     
@@ -641,8 +646,6 @@ const Roteirizacao = () => {
           turnosMap.set(t.equipe_id, new Date(t.hora_inicio));
         });
         
-        // Buscar última atividade de cada equipe com turno aberto
-        // (última alteração de status de OS ou último intervalo)
         const equipesComTurno = Array.from(turnosMap.keys());
         
         if (equipesComTurno.length === 0) {
@@ -650,32 +653,8 @@ const Roteirizacao = () => {
           return;
         }
         
-        // Buscar OSs em andamento (status ativo = equipe está online e trabalhando)
-        const { data: osEmAndamento, error: osAndamentoError } = await supabase
-          .from("ordens_servico")
-          .select("tecnico_id, updated_at, status")
-          .in("tecnico_id", equipesComTurno)
-          .in("status", ["em_deslocamento", "no_local", "em_execucao", "em_andamento"]);
-        
-        if (osAndamentoError) {
-          console.error("Erro ao buscar OSs em andamento:", osAndamentoError);
-        }
-        
-        // Mapa de equipes com OS em andamento (não são offline)
-        const equipesComOsAtiva = new Set<string>();
-        const ultimaAtividadeOsAtiva = new Map<string, Date>();
-        (osEmAndamento || []).forEach((os: any) => {
-          if (os.tecnico_id) {
-            equipesComOsAtiva.add(os.tecnico_id);
-            const dataOS = new Date(os.updated_at);
-            const atual = ultimaAtividadeOsAtiva.get(os.tecnico_id);
-            if (!atual || dataOS > atual) {
-              ultimaAtividadeOsAtiva.set(os.tecnico_id, dataOS);
-            }
-          }
-        });
-        
-        // Buscar última atividade de ordens de serviço (últimas atualizações)
+        // Buscar última atividade de ordens de serviço (qualquer status)
+        // O que importa é o updated_at - se não atualizou em X minutos, está offline
         const { data: ultimasAtividades, error: atividadesError } = await supabase
           .from("ordens_servico")
           .select("tecnico_id, updated_at, status")
@@ -690,7 +669,7 @@ const Roteirizacao = () => {
         // Buscar últimos intervalos
         const { data: ultimosIntervalos, error: intervalosError } = await supabase
           .from("intervalos_equipe")
-          .select("equipe_id, hora_inicio, hora_fim")
+          .select("equipe_id, hora_inicio, hora_fim, updated_at")
           .in("equipe_id", equipesComTurno)
           .gte("hora_inicio", dataHoje)
           .order("hora_inicio", { ascending: false });
@@ -704,19 +683,9 @@ const Roteirizacao = () => {
         const agora = new Date();
         
         equipesComTurno.forEach(equipeId => {
-          // Se a equipe tem OS em andamento, NÃO está offline
-          if (equipesComOsAtiva.has(equipeId)) {
-            novoMapaOffline.set(equipeId, {
-              turnoAberto: true,
-              ultimaAtividade: ultimaAtividadeOsAtiva.get(equipeId) || agora,
-              minutosOffline: null, // Não está offline
-            });
-            return;
-          }
-          
           let ultimaAtividade: Date | null = null;
           
-          // Verificar última atividade de OS
+          // Verificar última atividade de OS (usando updated_at)
           const atividadesEquipe = (ultimasAtividades || []).filter((a: any) => a.tecnico_id === equipeId);
           atividadesEquipe.forEach((a: any) => {
             const dataOS = new Date(a.updated_at);
@@ -725,10 +694,11 @@ const Roteirizacao = () => {
             }
           });
           
-          // Verificar último intervalo
+          // Verificar último intervalo (usando updated_at ou hora_fim/hora_inicio)
           const intervalosEquipe = (ultimosIntervalos || []).filter((i: any) => i.equipe_id === equipeId);
           intervalosEquipe.forEach((i: any) => {
-            const dataIntervalo = new Date(i.hora_fim || i.hora_inicio);
+            // Usar updated_at se disponível, senão hora_fim ou hora_inicio
+            const dataIntervalo = new Date(i.updated_at || i.hora_fim || i.hora_inicio);
             if (!ultimaAtividade || dataIntervalo > ultimaAtividade) {
               ultimaAtividade = dataIntervalo;
             }
@@ -739,7 +709,7 @@ const Roteirizacao = () => {
             ultimaAtividade = turnosMap.get(equipeId) || null;
           }
           
-          // Calcular minutos offline
+          // Calcular minutos offline baseado no tempo desde a última atualização
           let minutosOffline: number | null = null;
           if (ultimaAtividade) {
             const diffMs = agora.getTime() - ultimaAtividade.getTime();
@@ -749,6 +719,7 @@ const Roteirizacao = () => {
           novoMapaOffline.set(equipeId, {
             turnoAberto: true,
             ultimaAtividade,
+            // Considera offline se não houve atualização em X minutos
             minutosOffline: minutosOffline && minutosOffline >= MINUTOS_PARA_OFFLINE ? minutosOffline : null,
           });
         });
