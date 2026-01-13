@@ -88,7 +88,8 @@ async function enviarMensagemSistema(
   conteudo: string
 ): Promise<boolean> {
   try {
-    const { error } = await supabase
+    // 1. Inserir a mensagem
+    const { data: mensagem, error } = await supabase
       .from("chat_mensagens")
       .insert({
         conversa_id: conversaId,
@@ -98,14 +99,43 @@ async function enviarMensagemSistema(
         tipo: "sistema",
         conteudo,
         status: "enviada"
-      });
+      })
+      .select()
+      .single();
 
     if (error) {
       console.error("[Chat Notificação] Erro ao enviar mensagem:", error);
       return false;
     }
 
-    console.log("[Chat Notificação] Mensagem enviada com sucesso");
+    // 2. Atualizar a conversa: incrementar contador de não lidas e atualizar preview
+    // Primeiro buscar o contador atual
+    const { data: conversaAtual } = await supabase
+      .from("chat_conversas")
+      .select("nao_lidas_equipe")
+      .eq("id", conversaId)
+      .single();
+
+    const naoLidasAtual = conversaAtual?.nao_lidas_equipe || 0;
+
+    // Atualizar a conversa
+    const { error: updateError } = await supabase
+      .from("chat_conversas")
+      .update({
+        nao_lidas_equipe: naoLidasAtual + 1,
+        ultima_mensagem_id: mensagem.id,
+        ultima_mensagem_at: mensagem.created_at,
+        ultima_mensagem_preview: conteudo.substring(0, 100),
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", conversaId);
+
+    if (updateError) {
+      console.error("[Chat Notificação] Erro ao atualizar conversa:", updateError);
+      // Não retorna false pois a mensagem já foi enviada
+    }
+
+    console.log("[Chat Notificação] Mensagem enviada com sucesso (nao_lidas_equipe:", naoLidasAtual + 1, ")");
     return true;
   } catch (error) {
     console.error("[Chat Notificação] Erro ao enviar mensagem:", error);
