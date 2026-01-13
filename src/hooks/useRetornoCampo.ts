@@ -372,9 +372,15 @@ export function useRetornoCampo() {
         for (const atv of retorno.atividades) {
           let valorUnit = atv.atividade.valor_unitario || 0;
           
-          // Se não tem valor na atividade, buscar na precificação do contrato
+          // Se não tem valor na atividade, tentar buscar na precificação do contrato
           if (valorUnit === 0 && contratoId) {
             valorUnit = await buscarValorPrecificacao(atv.atividade.codigo, contratoId);
+            console.log(`[useRetornoCampo] Valor buscado da precificação para ${atv.atividade.codigo}: R$${valorUnit}`);
+          }
+          
+          // Se ainda não tem valor e não tem contrato, logar aviso (mas não bloquear)
+          if (valorUnit === 0) {
+            console.warn(`[useRetornoCampo] ⚠️ Atividade ${atv.atividade.codigo} sem valor_unitario definido e sem contrato_id para buscar precificação`);
           }
           
           const subtotal = valorUnit * atv.quantidade;
