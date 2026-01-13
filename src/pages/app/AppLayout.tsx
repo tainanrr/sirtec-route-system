@@ -84,10 +84,16 @@ export default function AppLayout() {
   }, [isOnline, wasOffline, equipe?.id, temTurnoAberto, syncPendingOperations]);
 
   // Função para confirmar pendências de remoção de OSs
-  const confirmarPendenciasRemocao = useCallback(async (equipeId: string) => {
-    console.log("[AppLayout] 🔄 Verificando pendências de remoção para equipe:", equipeId);
+  // IMPORTANTE: Verificar não apenas o status, mas também timestamps que indicam trabalho iniciado
+  const confirmarPendenciasRemocao = useCallback(async (equipeId: string, aposSync: boolean = false) => {
+    console.log("[AppLayout] 🔄 Verificando pendências de remoção para equipe:", equipeId, aposSync ? "(após sync)" : "");
     
     try {
+      // Se estamos verificando após sincronização, dar um tempo extra para o banco processar
+      if (aposSync) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      
       // Buscar pendências de remoção para esta equipe
       const { data: pendencias, error: erroPendencias } = await supabase
         .from("os_pendentes_remocao")
@@ -104,10 +110,12 @@ export default function AppLayout() {
       
       // Para cada pendência, verificar se a OS ainda está em andamento
       for (const pendencia of pendencias) {
-        // Verificar status atual da OS
+        // Verificar status atual da OS E timestamps de trabalho iniciado
+        // IMPORTANTE: Buscar também deslocamento_iniciado_at, chegada_local_at, execucao_iniciada_at
+        // pois esses indicam que a equipe já começou a trabalhar na OS mesmo que status ainda não atualizou
         const { data: osAtual, error: erroOS } = await supabase
           .from("ordens_servico")
-          .select("status")
+          .select("status, deslocamento_iniciado_at, chegada_local_at, execucao_iniciada_at, concluido_at")
           .eq("id", pendencia.ordem_servico_id)
           .single();
         
@@ -116,9 +124,20 @@ export default function AppLayout() {
           continue;
         }
         
-        // Se a OS está em andamento, cancelar a pendência indicando que não pode remover
-        if (osAtual && ["em_deslocamento", "no_local", "em_execucao", "em_andamento"].includes(osAtual.status)) {
-          console.log(`[AppLayout] OS ${pendencia.os_numero} está em andamento (${osAtual.status}) - cancelando pendência`);
+        // Verificar se há indicadores de trabalho iniciado (timestamps preenchidos)
+        const trabalhoIniciado = osAtual && (
+          osAtual.deslocamento_iniciado_at || 
+          osAtual.chegada_local_at || 
+          osAtual.execucao_iniciada_at
+        );
+        
+        // Se a OS está em andamento OU tem timestamps de trabalho iniciado, cancelar a pendência
+        if (osAtual && (["em_deslocamento", "no_local", "em_execucao", "em_andamento"].includes(osAtual.status) || trabalhoIniciado)) {
+          const motivoStatus = trabalhoIniciado && !["em_deslocamento", "no_local", "em_execucao", "em_andamento"].includes(osAtual.status)
+            ? `Trabalho já iniciado (deslocamento: ${osAtual.deslocamento_iniciado_at ? 'sim' : 'não'})`
+            : `Status: ${osAtual.status}`;
+          
+          console.log(`[AppLayout] OS ${pendencia.os_numero} está em andamento (${motivoStatus}) - cancelando pendência`);
           
           await supabase
             .from("os_pendentes_remocao")
@@ -126,12 +145,12 @@ export default function AppLayout() {
               status: "cancelado_em_execucao",
               confirmado_at: new Date().toISOString(),
               confirmado_status_app: osAtual.status,
-              motivo_cancelamento: `OS estava em status ${osAtual.status} quando o app confirmou`
+              motivo_cancelamento: `OS estava em andamento quando o app confirmou: ${motivoStatus}`
             })
             .eq("id", pendencia.id);
         }
         // Se a OS está concluída, cancelar a pendência
-        else if (osAtual && osAtual.status === "concluida") {
+        else if (osAtual && (osAtual.status === "concluida" || osAtual.concluido_at)) {
           console.log(`[AppLayout] OS ${pendencia.os_numero} foi concluída - cancelando pendência`);
           
           await supabase
@@ -144,7 +163,7 @@ export default function AppLayout() {
             })
             .eq("id", pendencia.id);
         }
-        // Se a OS está planejada ou pendente, confirmar a remoção
+        // Se a OS está planejada ou pendente SEM indicadores de trabalho, confirmar a remoção
         else {
           console.log(`[AppLayout] OS ${pendencia.os_numero} pode ser removida (status: ${osAtual?.status}) - confirmando remoção`);
           
@@ -172,7 +191,7 @@ export default function AppLayout() {
       console.log("[AppLayout] ✅ Sincronização completada (0 operações pendentes) - atualizando dados do servidor...");
       setPendingRefreshAfterSync(false);
       
-      // Pequeno delay para garantir que o servidor processou os dados
+      // Delay maior para garantir que o servidor processou TODAS as operações
       const timeoutId = setTimeout(async () => {
         const success = await preloadEssentialData(equipe.id);
         if (success) {
@@ -183,13 +202,16 @@ export default function AppLayout() {
         console.log("[AppLayout] 📄 Sincronizando documentos após reconexão...");
         await syncProcedimentos();
         
-        // Confirmar pendências de remoção de OSs
-        await confirmarPendenciasRemocao(equipe.id);
+        // Confirmar pendências de remoção de OSs (com flag aposSync=true para delay extra)
+        await confirmarPendenciasRemocao(equipe.id, true);
         
         // Também recarregar mensagens não lidas do chat
         // (mensagens que chegaram durante período offline não disparam eventos Realtime)
         console.log("[AppLayout] 🔔 Recarregando mensagens não lidas do chat após reconexão...");
         try {
+          // Delay adicional para garantir que mensagens de sistema foram processadas
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
           const { data } = await supabase
             .from("chat_conversas")
             .select("nao_lidas_equipe")
@@ -202,20 +224,19 @@ export default function AppLayout() {
         } catch (error) {
           console.error("[AppLayout] Erro ao carregar mensagens não lidas:", error);
         }
-      }, 500);
+      }, 1000);
       
       return () => clearTimeout(timeoutId);
     }
   }, [pendingRefreshAfterSync, pendingOperations.length, isOnline, equipe?.id, preloadEssentialData, confirmarPendenciasRemocao]);
 
   // Verificar pendências de remoção periodicamente quando online
+  // NOTA: NÃO verificar imediatamente ao ficar online, pois isso pode causar race condition
+  // com a sincronização. A verificação inicial é feita no useEffect de pós-sincronização.
   useEffect(() => {
     if (!isOnline || !equipe?.id || !temTurnoAberto) return;
     
-    // Verificar inicialmente
-    confirmarPendenciasRemocao(equipe.id);
-    
-    // Verificar a cada 30 segundos
+    // Verificar a cada 30 segundos (primeira verificação após 30s, não imediatamente)
     const interval = setInterval(() => {
       confirmarPendenciasRemocao(equipe.id);
     }, 30000);
