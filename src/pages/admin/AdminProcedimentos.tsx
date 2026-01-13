@@ -438,7 +438,19 @@ export default function AdminProcedimentos() {
 
     setSaving(true);
     try {
-      const payload = {
+      // Gerar código automaticamente baseado no título
+      const gerarCodigo = (titulo: string) => {
+        return titulo
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "") // Remove acentos
+          .toUpperCase()
+          .replace(/[^A-Z0-9]/g, "_") // Substitui caracteres especiais por _
+          .replace(/_+/g, "_") // Remove underscores duplicados
+          .substring(0, 30) // Limita tamanho
+          + "_" + Date.now().toString(36).toUpperCase().substring(-4); // Adiciona sufixo único
+      };
+
+      const payload: Record<string, any> = {
         titulo: formData.titulo,
         descricao: formData.descricao || null,
         conteudo: formData.conteudo || null,
@@ -449,6 +461,11 @@ export default function AdminProcedimentos() {
         ativo: formData.ativo,
         ordem: formData.ordem,
       };
+
+      // Somente adicionar codigo ao criar (não editar)
+      if (!editingProcedimento) {
+        payload.codigo = gerarCodigo(formData.titulo);
+      }
 
       let procedimentoId: string;
 

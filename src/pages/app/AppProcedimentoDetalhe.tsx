@@ -40,7 +40,6 @@ import {
   CloudOff,
   Loader2,
   Check,
-  Trash2,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -303,16 +302,6 @@ export default function AppProcedimentoDetalhe() {
     } catch (error) {
       console.error("Erro ao abrir arquivo:", error);
       toast.error("Erro ao abrir arquivo");
-    }
-  };
-
-  // Remover arquivo do cache
-  const handleRemoveFromCache = async (anexoId: string) => {
-    const success = await removeFromCache(anexoId);
-    if (success) {
-      toast.success("Arquivo removido do cache offline");
-    } else {
-      toast.error("Erro ao remover do cache");
     }
   };
 
@@ -628,25 +617,15 @@ export default function AppProcedimentoDetalhe() {
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
-                          {isCached ? (
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-9 w-9 text-red-500 hover:text-red-600 hover:bg-red-500/10"
-                              onClick={() => handleRemoveFromCache(anexo.id)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          ) : (
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-9 w-9"
-                              onClick={() => handleDownload(anexo)}
-                            >
-                              <Download className="h-4 w-4" />
-                            </Button>
-                          )}
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-9 w-9"
+                            onClick={() => handleDownload(anexo)}
+                            disabled={!isOnline && !isCached}
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
                     );
