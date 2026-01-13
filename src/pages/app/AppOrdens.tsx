@@ -296,7 +296,45 @@ export default function AppOrdens() {
         console.error("[DEBUG AppOrdens] Erro ao buscar ordens planejadas:", errorPlanejadas);
       }
 
-      // Buscar OSs avulsas da equipe: criadas no dia OU concluídas no dia
+      // Buscar OSs avulsas da equipe para o dia selecionado
+      // Debug: buscar TODAS OSs avulsas da equipe para ver o que existe
+      console.log("[DEBUG AppOrdens] 🔍 Buscando OSs avulsas - equipeId:", equipeIdParaUsar, "dataInicio:", dataInicio, "dataFim:", dataFim);
+      
+      // Primeiro: buscar TODAS as OSs avulsas da equipe (sem filtro de data)
+      const { data: todasAvulsas, error: errorTodasAvulsas } = await supabase
+        .from("ordens_servico")
+        .select(`
+          id,
+          numero,
+          tipo,
+          endereco,
+          cliente_nome,
+          status,
+          prazo,
+          regulada,
+          avulsa,
+          latitude,
+          longitude,
+          created_at,
+          concluido_at,
+          tecnico_id
+        `)
+        .eq("tecnico_id", equipeIdParaUsar)
+        .eq("avulsa", true)
+        .order("created_at", { ascending: false })
+        .limit(10);
+
+      if (errorTodasAvulsas) {
+        console.error("[DEBUG AppOrdens] ❌ Erro ao buscar todas OSs avulsas:", errorTodasAvulsas);
+      } else {
+        console.log("[DEBUG AppOrdens] 📋 Todas OSs avulsas da equipe:", todasAvulsas?.length || 0);
+        if (todasAvulsas && todasAvulsas.length > 0) {
+          todasAvulsas.forEach((os, i) => {
+            console.log(`[DEBUG AppOrdens]   ${i + 1}. ${os.numero} - status: ${os.status}, created_at: ${os.created_at}, concluido_at: ${os.concluido_at || 'N/A'}`);
+          });
+        }
+      }
+
       // 1. OSs avulsas criadas no dia (qualquer status)
       const { data: ordensAvulsasCriadas, error: errorAvulsasCriadas } = await supabase
         .from("ordens_servico")
