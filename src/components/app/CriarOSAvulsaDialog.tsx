@@ -238,25 +238,36 @@ export default function CriarOSAvulsaDialog({
         // Gerar ID local para a OS
         const osIdLocal = `local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
         
-        // Buscar contrato padrão: primeiro dos objetos equipe/equipeAuth, depois do cache
+        // Buscar contrato padrão e centro de custo: primeiro dos objetos equipe/equipeAuth, depois do cache
         let contratoPadraoId: string | null = null;
+        let centroCustoId: string | null = null;
         
         // Tentar obter do objeto equipe (que já vem do contexto com o contrato)
         const equipeDados = equipe || equipeAuth;
-        if (equipeDados && (equipeDados as any).contrato_padrao_avulsas) {
-          contratoPadraoId = (equipeDados as any).contrato_padrao_avulsas;
+        if (equipeDados) {
+          contratoPadraoId = (equipeDados as any).contrato_padrao_avulsas || null;
+          centroCustoId = (equipeDados as any).centro_custo_id || null;
           console.log("[CriarOSAvulsa] Contrato do contexto equipe:", contratoPadraoId);
-        } else {
-          // Fallback: tentar buscar do cache localStorage
+          console.log("[CriarOSAvulsa] Centro de custo do contexto equipe:", centroCustoId);
+        }
+        
+        // Fallback: tentar buscar do cache localStorage
+        if (!contratoPadraoId || !centroCustoId) {
           try {
             const equipeSalva = localStorage.getItem("equipe_auth");
             if (equipeSalva) {
               const equipeCache = JSON.parse(equipeSalva);
-              contratoPadraoId = equipeCache?.contrato_padrao_avulsas || null;
-              console.log("[CriarOSAvulsa] Contrato do localStorage:", contratoPadraoId);
+              if (!contratoPadraoId) {
+                contratoPadraoId = equipeCache?.contrato_padrao_avulsas || null;
+                console.log("[CriarOSAvulsa] Contrato do localStorage:", contratoPadraoId);
+              }
+              if (!centroCustoId) {
+                centroCustoId = equipeCache?.centro_custo_id || null;
+                console.log("[CriarOSAvulsa] Centro de custo do localStorage:", centroCustoId);
+              }
             }
           } catch (error) {
-            console.warn("[CriarOSAvulsa] Erro ao buscar contrato do localStorage:", error);
+            console.warn("[CriarOSAvulsa] Erro ao buscar dados do localStorage:", error);
           }
         }
         
@@ -281,6 +292,8 @@ export default function CriarOSAvulsaDialog({
           valor: tipoSelecionado.valor,
           tecnico_id: equipeId,
           contrato_id: contratoPadraoId,
+          centro_custo_id: centroCustoId, // Centro de custo da equipe
+          data_geracao: agora, // Data de criação da OS
           prazo: null,
           regulada: false,
           avulsa: true,
@@ -326,19 +339,22 @@ export default function CriarOSAvulsaDialog({
       }
 
       // ============ MODO ONLINE ============
-      // Buscar contrato padrão da equipe para OSs avulsas
+      // Buscar contrato padrão e centro de custo da equipe para OSs avulsas
       let contratoPadraoId = null;
+      let centroCustoId = null;
       try {
         const { data: equipeData } = await supabase
           .from("tecnicos")
-          .select("contrato_padrao_avulsas")
+          .select("contrato_padrao_avulsas, centro_custo_id")
           .eq("id", equipeId)
           .single();
         
         contratoPadraoId = equipeData?.contrato_padrao_avulsas || null;
+        centroCustoId = equipeData?.centro_custo_id || null;
         console.log("[CriarOSAvulsa] Contrato padrão da equipe:", contratoPadraoId);
+        console.log("[CriarOSAvulsa] Centro de custo da equipe:", centroCustoId);
       } catch (error) {
-        console.warn("[CriarOSAvulsa] Erro ao buscar contrato padrão da equipe:", error);
+        console.warn("[CriarOSAvulsa] Erro ao buscar dados da equipe:", error);
       }
 
       // Criar a OS
@@ -359,6 +375,8 @@ export default function CriarOSAvulsaDialog({
           valor: tipoSelecionado.valor,
           tecnico_id: equipeId,
           contrato_id: contratoPadraoId, // Usar contrato padrão da equipe para OSs avulsas
+          centro_custo_id: centroCustoId, // Centro de custo da equipe
+          data_geracao: agora, // Data de criação da OS no app
           prazo: null, // OS avulsa não tem prazo
           regulada: false,
           avulsa: true, // Marca como OS avulsa

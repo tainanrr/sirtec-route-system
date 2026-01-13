@@ -13,7 +13,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       expand
       visibleToasts={5}
       toastOptions={{
-        duration: 5000,
+        duration: 2500,
         style: {
           zIndex: 999999,
           background: "white",

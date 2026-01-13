@@ -20,6 +20,7 @@ interface Equipe {
   min_colaboradores: number;
   max_colaboradores: number;
   contrato_padrao_avulsas?: string | null; // Contrato padrão para criação de OSs avulsas
+  centro_custo_id?: string | null; // Centro de custo da equipe para OSs avulsas
 }
 
 interface Turno {
@@ -361,18 +362,21 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
       const result = await validarLoginEquipe(codigoEquipe, placaVeiculo);
 
       if (result.success && result.equipe_id) {
-        // Buscar dados adicionais da equipe (contrato padrão para avulsas)
+        // Buscar dados adicionais da equipe (contrato padrão para avulsas e centro de custo)
         let contratoPadraoAvulsas: string | null = null;
+        let centroCustoId: string | null = null;
         try {
           const { data: equipeExtra } = await supabase
             .from("tecnicos")
-            .select("contrato_padrao_avulsas")
+            .select("contrato_padrao_avulsas, centro_custo_id")
             .eq("id", result.equipe_id)
             .single();
           contratoPadraoAvulsas = equipeExtra?.contrato_padrao_avulsas || null;
+          centroCustoId = equipeExtra?.centro_custo_id || null;
           console.log("[EquipeAuth] Contrato padrão para avulsas:", contratoPadraoAvulsas);
+          console.log("[EquipeAuth] Centro de custo:", centroCustoId);
         } catch (err) {
-          console.warn("[EquipeAuth] Erro ao buscar contrato padrão:", err);
+          console.warn("[EquipeAuth] Erro ao buscar dados extras da equipe:", err);
         }
         
         const equipeData: Equipe = {
@@ -385,6 +389,7 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
           min_colaboradores: result.min_colaboradores || 1,
           max_colaboradores: result.max_colaboradores || 2,
           contrato_padrao_avulsas: contratoPadraoAvulsas,
+          centro_custo_id: centroCustoId,
         };
         
         setEquipe(equipeData);
