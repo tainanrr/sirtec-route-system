@@ -157,13 +157,14 @@ export default function AppLayout() {
     refetchInterval: 15000,
   });
 
-  // Verificar se há OS em andamento
+  // Verificar se há OS em andamento (incluindo OSs avulsas)
   const { data: osEmAndamento } = useQuery({
     queryKey: ["os-em-andamento-layout", equipe?.id, dataHoje],
     queryFn: async () => {
       if (!equipe?.id) return null;
       
-      const { data, error } = await supabase
+      // 1. Buscar OS planejadas que estão em andamento
+      const { data: planejadas, error: errorPlanejadas } = await supabase
         .from("planejamento_ordens")
         .select(`
           ordem_servico_id,
@@ -172,10 +173,28 @@ export default function AppLayout() {
         .eq("equipe_id", equipe.id)
         .in("ordens_servico.status", ["em_deslocamento", "no_local", "em_andamento", "em_execucao"]);
       
-      if (error) return null;
+      if (!errorPlanejadas) {
+        const osAtivas = planejadas?.filter(d => d.ordens_servico?.status) || [];
+        if (osAtivas.length > 0) {
+          return osAtivas[0].ordens_servico;
+        }
+      }
       
-      const osAtivas = data?.filter(d => d.ordens_servico?.status) || [];
-      return osAtivas.length > 0 ? osAtivas[0].ordens_servico : null;
+      // 2. Buscar OSs avulsas em andamento (não estão no planejamento)
+      const { data: avulsas, error: errorAvulsas } = await supabase
+        .from("ordens_servico")
+        .select("id, status")
+        .eq("tecnico_id", equipe.id)
+        .eq("avulsa", true)
+        .in("status", ["em_deslocamento", "no_local", "em_andamento", "em_execucao"])
+        .limit(1)
+        .maybeSingle();
+      
+      if (!errorAvulsas && avulsas) {
+        return avulsas;
+      }
+      
+      return null;
     },
     enabled: !!equipe?.id,
     refetchInterval: 10000,
