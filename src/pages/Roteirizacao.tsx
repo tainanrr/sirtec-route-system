@@ -378,6 +378,15 @@ const Roteirizacao = () => {
   // Estado para rastrear equipes com problemas de conexão (sem sinal)
   const [equipesOfflineInfo, setEquipesOfflineInfo] = useState<Map<string, { turnoAberto: boolean; ultimaAtividade: Date | null; minutosOffline: number | null }>>(new Map());
   
+  // Estado para rastrear intervalos abertos das equipes
+  const [equipesIntervalosInfo, setEquipesIntervalosInfo] = useState<Map<string, { 
+    intervaloAberto: boolean; 
+    tipoIntervalo: 'padrao' | 'nao_padrao' | null; 
+    nomeIntervalo: string | null;
+    horaInicio: Date | null;
+    minutosEmIntervalo: number | null;
+  }>>(new Map());
+  
   // Estado para controlar se estamos editando um planejamento existente
   const [planejamentoEditandoId, setPlanejamentoEditandoId] = useState<string | null>(null);
   
@@ -659,6 +668,7 @@ const Roteirizacao = () => {
         
         if (equipesComTurno.length === 0) {
           setEquipesOfflineInfo(new Map());
+          setEquipesIntervalosInfo(new Map());
           return;
         }
         
@@ -681,8 +691,40 @@ const Roteirizacao = () => {
           });
         });
         
+        // Buscar intervalos abertos das equipes (sem hora_fim)
+        const { data: intervalosAbertos, error: intervalosError } = await supabase
+          .from("intervalos_equipe")
+          .select(`
+            equipe_id,
+            hora_inicio,
+            tipo_intervalo:tipo_intervalo_id (id, nome, tipo)
+          `)
+          .in("equipe_id", equipesComTurno)
+          .is("hora_fim", null);
+        
+        if (intervalosError) {
+          console.error("Erro ao buscar intervalos:", intervalosError);
+        }
+        
+        // Mapa de intervalos abertos por equipe
+        const intervalosMap = new Map<string, { tipoIntervalo: 'padrao' | 'nao_padrao' | null; nomeIntervalo: string | null; horaInicio: Date }>();
+        (intervalosAbertos || []).forEach((i: any) => {
+          intervalosMap.set(i.equipe_id, {
+            tipoIntervalo: i.tipo_intervalo?.tipo || null,
+            nomeIntervalo: i.tipo_intervalo?.nome || null,
+            horaInicio: new Date(i.hora_inicio),
+          });
+        });
+        
         // Calcular status de conectividade para cada equipe
         const novoMapaOffline = new Map<string, { turnoAberto: boolean; ultimaAtividade: Date | null; minutosOffline: number | null }>();
+        const novoMapaIntervalos = new Map<string, { 
+          intervaloAberto: boolean; 
+          tipoIntervalo: 'padrao' | 'nao_padrao' | null; 
+          nomeIntervalo: string | null;
+          horaInicio: Date | null;
+          minutosEmIntervalo: number | null;
+        }>();
         const agora = new Date();
         
         equipesComTurno.forEach(equipeId => {
@@ -714,9 +756,25 @@ const Roteirizacao = () => {
             ultimaAtividade,
             minutosOffline,
           });
+          
+          // Verificar intervalo aberto
+          const intervaloInfo = intervalosMap.get(equipeId);
+          if (intervaloInfo) {
+            const diffMs = agora.getTime() - intervaloInfo.horaInicio.getTime();
+            const minutosEmIntervalo = Math.floor(diffMs / 60000);
+            
+            novoMapaIntervalos.set(equipeId, {
+              intervaloAberto: true,
+              tipoIntervalo: intervaloInfo.tipoIntervalo,
+              nomeIntervalo: intervaloInfo.nomeIntervalo,
+              horaInicio: intervaloInfo.horaInicio,
+              minutosEmIntervalo,
+            });
+          }
         });
         
         setEquipesOfflineInfo(novoMapaOffline);
+        setEquipesIntervalosInfo(novoMapaIntervalos);
       } catch (error) {
         console.error("Erro ao verificar equipes offline:", error);
       }
@@ -5267,6 +5325,14 @@ const Roteirizacao = () => {
                   Turno Fechado
                 </span>
                 <span className="flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-rose-600 dark:bg-rose-500 animate-pulse"></span>
+                  Intervalo Problema
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-cyan-500 dark:bg-cyan-400"></span>
+                  Intervalo
+                </span>
+                <span className="flex items-center gap-1">
                   <span className="h-2 w-2 rounded-full bg-green-500"></span>
                   Trabalhando
                 </span>
@@ -5301,10 +5367,18 @@ const Roteirizacao = () => {
                   // Este status é SOBERANO - se turno fechado, não pode fazer nada
                   const isTurnoFechado = !equipesOfflineInfo.has(rota.equipe.id);
                   
-                  // Status de trabalho (só relevante se turno estiver aberto)
-                  const isOciosa = !isTurnoFechado && statusEq?.status === 'ociosa';
-                  const isTrabalhando = !isTurnoFechado && statusEq?.status === 'trabalhando';
-                  const isFinalizada = !isTurnoFechado && statusEq?.status === 'finalizada';
+                  // Verificar status de intervalo da equipe (prioridade sobre status de trabalho)
+                  const intervaloInfo = equipesIntervalosInfo.get(rota.equipe.id);
+                  const isEmIntervalo = !isTurnoFechado && intervaloInfo?.intervaloAberto === true;
+                  const isIntervaloPadrao = isEmIntervalo && intervaloInfo?.tipoIntervalo === 'padrao';
+                  const isIntervaloNaoPadrao = isEmIntervalo && intervaloInfo?.tipoIntervalo === 'nao_padrao';
+                  const minutosEmIntervalo = intervaloInfo?.minutosEmIntervalo || 0;
+                  const nomeIntervalo = intervaloInfo?.nomeIntervalo || 'Intervalo';
+                  
+                  // Status de trabalho (só relevante se turno estiver aberto e NÃO estiver em intervalo)
+                  const isOciosa = !isTurnoFechado && !isEmIntervalo && statusEq?.status === 'ociosa';
+                  const isTrabalhando = !isTurnoFechado && !isEmIntervalo && statusEq?.status === 'trabalhando';
+                  const isFinalizada = !isTurnoFechado && !isEmIntervalo && statusEq?.status === 'finalizada';
                   
                   const minutosSemSinal = offlineInfo?.minutosOffline || 0;
                   const isInstavel = !isTurnoFechado && minutosSemSinal >= 3 && minutosSemSinal < 10;
@@ -5322,33 +5396,39 @@ const Roteirizacao = () => {
                         "flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all min-w-[140px]",
                         // TURNO FECHADO tem prioridade máxima (soberano)
                         isTurnoFechado && "bg-slate-200 dark:bg-slate-900 border-slate-500 dark:border-slate-600 hover:bg-slate-300 dark:hover:bg-slate-800 border-2 opacity-75",
-                        // Problema de conexão tem prioridade visual (se turno aberto)
-                        !isTurnoFechado && isOffline && "bg-gray-200 dark:bg-gray-800 border-gray-500 dark:border-gray-500 hover:bg-gray-300 dark:hover:bg-gray-700 border-2 border-dashed",
-                        !isTurnoFechado && isInstavel && !isOffline && "bg-orange-100 dark:bg-orange-950/50 border-orange-400 dark:border-orange-600 hover:bg-orange-200 dark:hover:bg-orange-900 border-2 border-dashed",
-                        !isTurnoFechado && !temProblemaConexao && isOciosa && !ociosidadeCritica && "bg-amber-50 dark:bg-amber-950/50 border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900",
-                        !isTurnoFechado && !temProblemaConexao && isOciosa && ociosidadeCritica && "bg-red-50 dark:bg-red-950/50 border-red-400 dark:border-red-600 hover:bg-red-100 dark:hover:bg-red-900 border-2",
-                        !isTurnoFechado && !temProblemaConexao && isTrabalhando && "bg-green-50 dark:bg-green-950/50 border-green-300 dark:border-green-700 hover:bg-green-100 dark:hover:bg-green-900",
-                        !isTurnoFechado && !temProblemaConexao && isFinalizada && "bg-gray-50 dark:bg-gray-900/50 border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 opacity-60",
-                        !isTurnoFechado && !temProblemaConexao && !isOciosa && !isTrabalhando && !isFinalizada && "bg-card border-border hover:bg-muted/50",
+                        // INTERVALO NÃO PADRÃO - crítico/problema (ex: chuva, falta material)
+                        !isTurnoFechado && isIntervaloNaoPadrao && "bg-rose-100 dark:bg-rose-950/60 border-rose-500 dark:border-rose-600 hover:bg-rose-200 dark:hover:bg-rose-900 border-2 animate-pulse",
+                        // INTERVALO PADRÃO (ex: almoço, café)
+                        !isTurnoFechado && isIntervaloPadrao && "bg-cyan-50 dark:bg-cyan-950/50 border-cyan-400 dark:border-cyan-600 hover:bg-cyan-100 dark:hover:bg-cyan-900",
+                        // Problema de conexão tem prioridade visual (se turno aberto e não em intervalo)
+                        !isTurnoFechado && !isEmIntervalo && isOffline && "bg-gray-200 dark:bg-gray-800 border-gray-500 dark:border-gray-500 hover:bg-gray-300 dark:hover:bg-gray-700 border-2 border-dashed",
+                        !isTurnoFechado && !isEmIntervalo && isInstavel && !isOffline && "bg-orange-100 dark:bg-orange-950/50 border-orange-400 dark:border-orange-600 hover:bg-orange-200 dark:hover:bg-orange-900 border-2 border-dashed",
+                        !isTurnoFechado && !isEmIntervalo && !temProblemaConexao && isOciosa && !ociosidadeCritica && "bg-amber-50 dark:bg-amber-950/50 border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900",
+                        !isTurnoFechado && !isEmIntervalo && !temProblemaConexao && isOciosa && ociosidadeCritica && "bg-red-50 dark:bg-red-950/50 border-red-400 dark:border-red-600 hover:bg-red-100 dark:hover:bg-red-900 border-2",
+                        !isTurnoFechado && !isEmIntervalo && !temProblemaConexao && isTrabalhando && "bg-green-50 dark:bg-green-950/50 border-green-300 dark:border-green-700 hover:bg-green-100 dark:hover:bg-green-900",
+                        !isTurnoFechado && !isEmIntervalo && !temProblemaConexao && isFinalizada && "bg-gray-50 dark:bg-gray-900/50 border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 opacity-60",
+                        !isTurnoFechado && !isEmIntervalo && !temProblemaConexao && !isOciosa && !isTrabalhando && !isFinalizada && "bg-card border-border hover:bg-muted/50",
                         isSelected && "ring-2 ring-primary ring-offset-2",
-                        !isTurnoFechado && !temProblemaConexao && isOciosa && "animate-pulse"
+                        !isTurnoFechado && !isEmIntervalo && !temProblemaConexao && isOciosa && "animate-pulse"
                       )}
-                      title={isTurnoFechado ? 'Equipe sem turno aberto - não pode executar atividades' : (temProblemaConexao ? `Equipe sem sinal há ${minutosSemSinal} minutos - ${isOffline ? 'conexão perdida' : 'sinal instável'}` : undefined)}
+                      title={isTurnoFechado ? 'Equipe sem turno aberto - não pode executar atividades' : (isEmIntervalo ? `${nomeIntervalo} - ${minutosEmIntervalo}min` : (temProblemaConexao ? `Equipe sem sinal há ${minutosSemSinal} minutos - ${isOffline ? 'conexão perdida' : 'sinal instável'}` : undefined))}
                     >
                       <div
                         className={cn(
                           "h-9 w-9 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0",
                           isTurnoFechado && "ring-2 ring-slate-700 dark:ring-slate-400",
-                          !isTurnoFechado && isOffline && "ring-2 ring-gray-600 dark:ring-gray-400",
-                          !isTurnoFechado && isInstavel && !isOffline && "ring-2 ring-orange-500 dark:ring-orange-400",
-                          !isTurnoFechado && !temProblemaConexao && isOciosa && !ociosidadeCritica && "ring-2 ring-amber-400",
-                          !isTurnoFechado && !temProblemaConexao && ociosidadeCritica && "ring-2 ring-red-500"
+                          !isTurnoFechado && isIntervaloNaoPadrao && "ring-2 ring-rose-600 dark:ring-rose-400",
+                          !isTurnoFechado && isIntervaloPadrao && "ring-2 ring-cyan-500 dark:ring-cyan-400",
+                          !isTurnoFechado && !isEmIntervalo && isOffline && "ring-2 ring-gray-600 dark:ring-gray-400",
+                          !isTurnoFechado && !isEmIntervalo && isInstavel && !isOffline && "ring-2 ring-orange-500 dark:ring-orange-400",
+                          !isTurnoFechado && !isEmIntervalo && !temProblemaConexao && isOciosa && !ociosidadeCritica && "ring-2 ring-amber-400",
+                          !isTurnoFechado && !isEmIntervalo && !temProblemaConexao && ociosidadeCritica && "ring-2 ring-red-500"
                         )}
                         style={{ 
-                          backgroundColor: isTurnoFechado ? '#475569' : (isOffline ? '#6b7280' : (isInstavel ? '#f97316' : (ociosidadeCritica ? '#dc2626' : (isOciosa ? '#f59e0b' : (isTrabalhando ? '#22c55e' : (isFinalizada ? '#6b7280' : (rota.equipe.color || '#3b82f6')))))))
+                          backgroundColor: isTurnoFechado ? '#475569' : (isIntervaloNaoPadrao ? '#e11d48' : (isIntervaloPadrao ? '#06b6d4' : (isOffline ? '#6b7280' : (isInstavel ? '#f97316' : (ociosidadeCritica ? '#dc2626' : (isOciosa ? '#f59e0b' : (isTrabalhando ? '#22c55e' : (isFinalizada ? '#6b7280' : (rota.equipe.color || '#3b82f6')))))))))
                         }}
                       >
-                        {isTurnoFechado ? '🔒' : (temProblemaConexao ? '📡' : (isOciosa ? '🕐' : isTrabalhando ? '⚡' : isFinalizada ? '✓' : '⏳'))}
+                        {isTurnoFechado ? '🔒' : (isIntervaloNaoPadrao ? '⚠️' : (isIntervaloPadrao ? '☕' : (temProblemaConexao ? '📡' : (isOciosa ? '🕐' : isTrabalhando ? '⚡' : isFinalizada ? '✓' : '⏳'))))}
                       </div>
                       <div className="flex flex-col min-w-0">
                         <div className="flex items-center gap-1">
@@ -5360,12 +5440,22 @@ const Roteirizacao = () => {
                               TURNO FECHADO
                             </span>
                           )}
-                          {!isTurnoFechado && isOffline && (
+                          {!isTurnoFechado && isIntervaloNaoPadrao && (
+                            <span className="text-[9px] px-1 py-0.5 rounded bg-rose-600 text-white font-bold animate-pulse">
+                              PROBLEMA
+                            </span>
+                          )}
+                          {!isTurnoFechado && isIntervaloPadrao && (
+                            <span className="text-[9px] px-1 py-0.5 rounded bg-cyan-600 text-white font-bold">
+                              INTERVALO
+                            </span>
+                          )}
+                          {!isTurnoFechado && !isEmIntervalo && isOffline && (
                             <span className="text-[9px] px-1 py-0.5 rounded bg-gray-500 text-white font-bold">
                               OFFLINE
                             </span>
                           )}
-                          {!isTurnoFechado && isInstavel && !isOffline && (
+                          {!isTurnoFechado && !isEmIntervalo && isInstavel && !isOffline && (
                             <span className="text-[9px] px-1 py-0.5 rounded bg-orange-500 text-white font-bold">
                               INSTÁVEL
                             </span>
@@ -5375,16 +5465,26 @@ const Roteirizacao = () => {
                           <span className={cn(
                             "text-[10px] font-medium",
                             isTurnoFechado && "text-slate-600 dark:text-slate-400",
-                            !isTurnoFechado && isOffline && "text-gray-600 dark:text-gray-400",
-                            !isTurnoFechado && isInstavel && !isOffline && "text-orange-600 dark:text-orange-400",
-                            !isTurnoFechado && !temProblemaConexao && ociosidadeCritica && "text-red-600 dark:text-red-400",
-                            !isTurnoFechado && !temProblemaConexao && isOciosa && !ociosidadeCritica && "text-amber-600 dark:text-amber-400",
-                            !isTurnoFechado && !temProblemaConexao && isTrabalhando && "text-green-600 dark:text-green-400",
-                            !isTurnoFechado && !temProblemaConexao && isFinalizada && "text-gray-600 dark:text-gray-400"
+                            !isTurnoFechado && isIntervaloNaoPadrao && "text-rose-600 dark:text-rose-400",
+                            !isTurnoFechado && isIntervaloPadrao && "text-cyan-600 dark:text-cyan-400",
+                            !isTurnoFechado && !isEmIntervalo && isOffline && "text-gray-600 dark:text-gray-400",
+                            !isTurnoFechado && !isEmIntervalo && isInstavel && !isOffline && "text-orange-600 dark:text-orange-400",
+                            !isTurnoFechado && !isEmIntervalo && !temProblemaConexao && ociosidadeCritica && "text-red-600 dark:text-red-400",
+                            !isTurnoFechado && !isEmIntervalo && !temProblemaConexao && isOciosa && !ociosidadeCritica && "text-amber-600 dark:text-amber-400",
+                            !isTurnoFechado && !isEmIntervalo && !temProblemaConexao && isTrabalhando && "text-green-600 dark:text-green-400",
+                            !isTurnoFechado && !isEmIntervalo && !temProblemaConexao && isFinalizada && "text-gray-600 dark:text-gray-400"
                           )}>
                             {isTurnoFechado ? (
                               <span className="font-bold">
                                 🔒 Sem turno
+                              </span>
+                            ) : isIntervaloNaoPadrao ? (
+                              <span className="font-bold" title={nomeIntervalo}>
+                                ⚠️ {nomeIntervalo} ({minutosEmIntervalo}min)
+                              </span>
+                            ) : isIntervaloPadrao ? (
+                              <span title={nomeIntervalo}>
+                                ☕ {nomeIntervalo} ({minutosEmIntervalo}min)
                               </span>
                             ) : temProblemaConexao ? (
                               <span className="font-bold">
@@ -5637,14 +5737,22 @@ const Roteirizacao = () => {
                         // TURNO FECHADO: Se a equipe não está no mapa de turnos abertos
                         const isTurnoFechado2 = !equipesOfflineInfo.has(rota.equipe.id);
                         
-                        // Status de trabalho (só relevante se turno estiver aberto)
-                        const isOciosa2 = !isTurnoFechado2 && statusEq?.status === 'ociosa';
-                        const isTrabalhando2 = !isTurnoFechado2 && statusEq?.status === 'trabalhando';
-                        const isFinalizada2 = !isTurnoFechado2 && statusEq?.status === 'finalizada';
+                        // Verificar status de intervalo
+                        const intervaloInfo2 = equipesIntervalosInfo.get(rota.equipe.id);
+                        const isEmIntervalo2 = !isTurnoFechado2 && intervaloInfo2?.intervaloAberto === true;
+                        const isIntervaloPadrao2 = isEmIntervalo2 && intervaloInfo2?.tipoIntervalo === 'padrao';
+                        const isIntervaloNaoPadrao2 = isEmIntervalo2 && intervaloInfo2?.tipoIntervalo === 'nao_padrao';
+                        const minutosEmIntervalo2 = intervaloInfo2?.minutosEmIntervalo || 0;
+                        const nomeIntervalo2 = intervaloInfo2?.nomeIntervalo || 'Intervalo';
+                        
+                        // Status de trabalho (só relevante se turno estiver aberto e NÃO em intervalo)
+                        const isOciosa2 = !isTurnoFechado2 && !isEmIntervalo2 && statusEq?.status === 'ociosa';
+                        const isTrabalhando2 = !isTurnoFechado2 && !isEmIntervalo2 && statusEq?.status === 'trabalhando';
+                        const isFinalizada2 = !isTurnoFechado2 && !isEmIntervalo2 && statusEq?.status === 'finalizada';
                         
                         const minutosSemSinal2 = offlineInfo?.minutosOffline || 0;
-                        const isInstavel2 = !isTurnoFechado2 && minutosSemSinal2 >= 3 && minutosSemSinal2 < 10;
-                        const isOffline2 = !isTurnoFechado2 && minutosSemSinal2 >= 10;
+                        const isInstavel2 = !isTurnoFechado2 && !isEmIntervalo2 && minutosSemSinal2 >= 3 && minutosSemSinal2 < 10;
+                        const isOffline2 = !isTurnoFechado2 && !isEmIntervalo2 && minutosSemSinal2 >= 10;
                         const temProblemaConexao2 = isInstavel2 || isOffline2;
                         
                         return (
@@ -5655,7 +5763,7 @@ const Roteirizacao = () => {
                                   "h-3 w-3 rounded-full",
                                   (isTurnoFechado2 || temProblemaConexao2) && "opacity-50"
                                 )}
-                                style={{ backgroundColor: isTurnoFechado2 ? "#475569" : (isOffline2 ? "#6b7280" : (isInstavel2 ? "#f97316" : (rota.equipe.color || "#3b82f6"))) }}
+                                style={{ backgroundColor: isTurnoFechado2 ? "#475569" : (isIntervaloNaoPadrao2 ? "#e11d48" : (isIntervaloPadrao2 ? "#06b6d4" : (isOffline2 ? "#6b7280" : (isInstavel2 ? "#f97316" : (rota.equipe.color || "#3b82f6"))))) }}
                               />
                               <span>{rota.equipe.codigo}</span>
                               <span className="text-muted-foreground text-xs">
@@ -5666,27 +5774,37 @@ const Roteirizacao = () => {
                                   🔒 TURNO FECHADO
                                 </span>
                               )}
-                              {!isTurnoFechado2 && isOffline2 && (
+                              {!isTurnoFechado2 && isIntervaloNaoPadrao2 && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-200 text-rose-800 dark:bg-rose-700 dark:text-rose-200 font-bold animate-pulse">
+                                  ⚠️ {nomeIntervalo2} ({minutosEmIntervalo2}min)
+                                </span>
+                              )}
+                              {!isTurnoFechado2 && isIntervaloPadrao2 && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-200 text-cyan-800 dark:bg-cyan-700 dark:text-cyan-200 font-medium">
+                                  ☕ {nomeIntervalo2} ({minutosEmIntervalo2}min)
+                                </span>
+                              )}
+                              {!isTurnoFechado2 && !isEmIntervalo2 && isOffline2 && (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200 font-bold">
                                   📡 OFFLINE ({minutosSemSinal2}min)
                                 </span>
                               )}
-                              {!isTurnoFechado2 && isInstavel2 && !isOffline2 && (
+                              {!isTurnoFechado2 && !isEmIntervalo2 && isInstavel2 && !isOffline2 && (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-200 text-orange-800 dark:bg-orange-700 dark:text-orange-200 font-bold">
                                   📡 INSTÁVEL ({minutosSemSinal2}min)
                                 </span>
                               )}
-                              {!isTurnoFechado2 && !temProblemaConexao2 && isOciosa2 && (
+                              {!isTurnoFechado2 && !isEmIntervalo2 && !temProblemaConexao2 && isOciosa2 && (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200 font-medium">
                                   🕐 OCIOSA
                                 </span>
                               )}
-                              {!isTurnoFechado2 && !temProblemaConexao2 && isTrabalhando2 && (
+                              {!isTurnoFechado2 && !isEmIntervalo2 && !temProblemaConexao2 && isTrabalhando2 && (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 font-medium">
                                   ⚡ {statusEq?.osAtualNumero}
                                 </span>
                               )}
-                              {!isTurnoFechado2 && !temProblemaConexao2 && isFinalizada2 && (
+                              {!isTurnoFechado2 && !isEmIntervalo2 && !temProblemaConexao2 && isFinalizada2 && (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200 font-medium">
                                   ✓ FIM
                                 </span>
