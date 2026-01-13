@@ -238,14 +238,30 @@ export default function CriarOSAvulsaDialog({
         // Gerar ID local para a OS
         const osIdLocal = `local_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
         
-        // Buscar contrato padrão do cache da equipe
-        let contratoPadraoId = null;
-        try {
-          const equipeCache = await getFromCache<any>(`equipe_auth`);
-          contratoPadraoId = equipeCache?.contrato_padrao_avulsas || null;
-          console.log("[CriarOSAvulsa] Contrato do cache:", contratoPadraoId);
-        } catch (error) {
-          console.warn("[CriarOSAvulsa] Erro ao buscar contrato do cache:", error);
+        // Buscar contrato padrão: primeiro dos objetos equipe/equipeAuth, depois do cache
+        let contratoPadraoId: string | null = null;
+        
+        // Tentar obter do objeto equipe (que já vem do contexto com o contrato)
+        const equipeDados = equipe || equipeAuth;
+        if (equipeDados && (equipeDados as any).contrato_padrao_avulsas) {
+          contratoPadraoId = (equipeDados as any).contrato_padrao_avulsas;
+          console.log("[CriarOSAvulsa] Contrato do contexto equipe:", contratoPadraoId);
+        } else {
+          // Fallback: tentar buscar do cache localStorage
+          try {
+            const equipeSalva = localStorage.getItem("equipe_auth");
+            if (equipeSalva) {
+              const equipeCache = JSON.parse(equipeSalva);
+              contratoPadraoId = equipeCache?.contrato_padrao_avulsas || null;
+              console.log("[CriarOSAvulsa] Contrato do localStorage:", contratoPadraoId);
+            }
+          } catch (error) {
+            console.warn("[CriarOSAvulsa] Erro ao buscar contrato do localStorage:", error);
+          }
+        }
+        
+        if (!contratoPadraoId) {
+          console.warn("[CriarOSAvulsa] ⚠️ Nenhum contrato padrão encontrado - produção pode ficar zerada!");
         }
         
         // Dados da OS para criar

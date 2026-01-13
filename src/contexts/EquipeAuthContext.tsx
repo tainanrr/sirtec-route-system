@@ -19,6 +19,7 @@ interface Equipe {
   placa_veiculo?: string;
   min_colaboradores: number;
   max_colaboradores: number;
+  contrato_padrao_avulsas?: string | null; // Contrato padrão para criação de OSs avulsas
 }
 
 interface Turno {
@@ -360,6 +361,20 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
       const result = await validarLoginEquipe(codigoEquipe, placaVeiculo);
 
       if (result.success && result.equipe_id) {
+        // Buscar dados adicionais da equipe (contrato padrão para avulsas)
+        let contratoPadraoAvulsas: string | null = null;
+        try {
+          const { data: equipeExtra } = await supabase
+            .from("tecnicos")
+            .select("contrato_padrao_avulsas")
+            .eq("id", result.equipe_id)
+            .single();
+          contratoPadraoAvulsas = equipeExtra?.contrato_padrao_avulsas || null;
+          console.log("[EquipeAuth] Contrato padrão para avulsas:", contratoPadraoAvulsas);
+        } catch (err) {
+          console.warn("[EquipeAuth] Erro ao buscar contrato padrão:", err);
+        }
+        
         const equipeData: Equipe = {
           id: result.equipe_id,
           codigo: result.equipe_codigo || codigoEquipe,
@@ -369,6 +384,7 @@ export function EquipeAuthProvider({ children }: { children: ReactNode }) {
           placa_veiculo: placaVeiculo,
           min_colaboradores: result.min_colaboradores || 1,
           max_colaboradores: result.max_colaboradores || 2,
+          contrato_padrao_avulsas: contratoPadraoAvulsas,
         };
         
         setEquipe(equipeData);
