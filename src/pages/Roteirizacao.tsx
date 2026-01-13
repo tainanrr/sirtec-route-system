@@ -650,19 +650,38 @@ const Roteirizacao = () => {
           return;
         }
         
-        // Buscar última atividade de ordens de serviço
+        // Buscar OSs em andamento (status ativo = equipe está online e trabalhando)
+        const { data: osEmAndamento, error: osAndamentoError } = await supabase
+          .from("ordens_servico")
+          .select("tecnico_id, updated_at, status")
+          .in("tecnico_id", equipesComTurno)
+          .in("status", ["em_deslocamento", "no_local", "em_execucao", "em_andamento"]);
+        
+        if (osAndamentoError) {
+          console.error("Erro ao buscar OSs em andamento:", osAndamentoError);
+        }
+        
+        // Mapa de equipes com OS em andamento (não são offline)
+        const equipesComOsAtiva = new Set<string>();
+        const ultimaAtividadeOsAtiva = new Map<string, Date>();
+        (osEmAndamento || []).forEach((os: any) => {
+          if (os.tecnico_id) {
+            equipesComOsAtiva.add(os.tecnico_id);
+            const dataOS = new Date(os.updated_at);
+            const atual = ultimaAtividadeOsAtiva.get(os.tecnico_id);
+            if (!atual || dataOS > atual) {
+              ultimaAtividadeOsAtiva.set(os.tecnico_id, dataOS);
+            }
+          }
+        });
+        
+        // Buscar última atividade de ordens de serviço (últimas atualizações)
         const { data: ultimasAtividades, error: atividadesError } = await supabase
-          .from("planejamento_ordens")
-          .select(`
-            equipe_id,
-            ordens_servico!inner(
-              updated_at,
-              status
-            )
-          `)
-          .in("equipe_id", equipesComTurno)
-          .gte("data_planejamento", dataHoje)
-          .order("ordens_servico(updated_at)", { ascending: false });
+          .from("ordens_servico")
+          .select("tecnico_id, updated_at, status")
+          .in("tecnico_id", equipesComTurno)
+          .gte("updated_at", dataHoje + "T00:00:00")
+          .order("updated_at", { ascending: false });
         
         if (atividadesError) {
           console.error("Erro ao buscar atividades:", atividadesError);
@@ -685,12 +704,22 @@ const Roteirizacao = () => {
         const agora = new Date();
         
         equipesComTurno.forEach(equipeId => {
+          // Se a equipe tem OS em andamento, NÃO está offline
+          if (equipesComOsAtiva.has(equipeId)) {
+            novoMapaOffline.set(equipeId, {
+              turnoAberto: true,
+              ultimaAtividade: ultimaAtividadeOsAtiva.get(equipeId) || agora,
+              minutosOffline: null, // Não está offline
+            });
+            return;
+          }
+          
           let ultimaAtividade: Date | null = null;
           
           // Verificar última atividade de OS
-          const atividadesEquipe = (ultimasAtividades || []).filter((a: any) => a.equipe_id === equipeId);
+          const atividadesEquipe = (ultimasAtividades || []).filter((a: any) => a.tecnico_id === equipeId);
           atividadesEquipe.forEach((a: any) => {
-            const dataOS = new Date(a.ordens_servico?.updated_at);
+            const dataOS = new Date(a.updated_at);
             if (!ultimaAtividade || dataOS > ultimaAtividade) {
               ultimaAtividade = dataOS;
             }
