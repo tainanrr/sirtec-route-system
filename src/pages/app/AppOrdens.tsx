@@ -783,7 +783,7 @@ export default function AppOrdens() {
       </Tabs>
 
       {/* Lista */}
-      <div className="space-y-3">
+      <div className="space-y-2">
         {isLoadingOrdens ? (
           <>
             <Skeleton className="h-28" />
@@ -853,11 +853,11 @@ export default function AppOrdens() {
                 className={`cursor-pointer hover:shadow-md transition-all ${getCardClass()}`}
                 onClick={() => navigate(`/app/ordens/${ordem.ordens_servico!.id}`)}
             >
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between gap-3">
+              <CardContent className="p-3">
+                <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
                       {/* Header da ordem */}
-                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                         <Badge className="bg-primary/10 text-primary border-primary/20 text-xs">
                           #{ordem.ordem_na_rota}
                         </Badge>
@@ -883,25 +883,25 @@ export default function AppOrdens() {
                       </div>
                       
                       {/* Número e Tipo */}
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-2 mb-0.5">
                       <span className="text-xs text-muted-foreground font-mono">
                           {ordem.ordens_servico.numero}
                       </span>
                     </div>
-                      <p className="font-semibold text-foreground">
+                      <p className="font-semibold text-sm text-foreground">
                         {skillsNomes.get(ordem.ordens_servico.tipo) || 
                          skillsNomes.get(ordem.ordens_servico.tipo?.toLowerCase()) ||
                          ordem.ordens_servico.tipo}
                       </p>
                       
                       {/* Endereço */}
-                    <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
                       <MapPin className="h-3 w-3 flex-shrink-0" />
                         <span className="truncate">{ordem.ordens_servico.endereco}</span>
                     </div>
                       
                       {/* Info adicional */}
-                      <div className="flex items-center gap-3 text-xs text-muted-foreground mt-2 flex-wrap">
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1.5 flex-wrap">
                         {ordem.hora_inicio_estimada && (
                       <span className="flex items-center gap-1">
                         <Clock className="h-3 w-3" />
