@@ -762,13 +762,25 @@ const Roteirizacao = () => {
         console.log(`[Roteirização] Iniciando carregamento otimizado...`);
         
         // Passo 1: Obter contagem total e pre-carregar skills
-        const [countResult] = await Promise.all([
+        // Incluir OSs pendentes, atrasadas E OSs avulsas concluídas (para visualização na Rota)
+        // Fazer duas queries separadas e somar os resultados
+        const [countPendentes, countAvulsasConcluidas] = await Promise.all([
           supabase
             .from("ordens_servico")
             .select("id", { count: "exact", head: true })
             .in("status", ["pendente", "atrasada"]),
+          supabase
+            .from("ordens_servico")
+            .select("id", { count: "exact", head: true })
+            .eq("avulsa", true)
+            .eq("status", "concluida"),
           getDadosSkills([]) // Pre-carregar dados de skills
         ]);
+        
+        const countResult = {
+          count: (countPendentes.count || 0) + (countAvulsasConcluidas.count || 0),
+          error: countPendentes.error || countAvulsasConcluidas.error
+        };
 
         if (countResult.error) throw countResult.error;
         if (isCancelled) return;
@@ -806,11 +818,12 @@ const Roteirizacao = () => {
             const pageIndex = pageStart + i;
             const currentOffset = pageIndex * PAGE_SIZE;
             
+            // Query para OSs pendentes/atrasadas
             batchPromises.push(
               supabase
                 .from("ordens_servico")
                 .select(`
-                  id, numero, tipo, endereco, municipio, bairro, latitude, longitude, prazo, valor, duracao_estimada, regulada, status,
+                  id, numero, tipo, endereco, municipio, bairro, latitude, longitude, prazo, valor, duracao_estimada, regulada, status, avulsa,
                   contrato_id, centro_custo_id,
                   contratos:contrato_id (codigo, nome),
                   centros_custo:centro_custo_id (codigo, nome)
@@ -818,7 +831,7 @@ const Roteirizacao = () => {
                 .in("status", ["pendente", "atrasada"])
                 .order("created_at", { ascending: false })
                 .range(currentOffset, currentOffset + PAGE_SIZE - 1)
-                .then(result => ({ pageIndex, offset: currentOffset, ...result }))
+                .then(result => ({ pageIndex, offset: currentOffset, tipo: "pendentes", ...result }))
             );
           }
 
@@ -845,6 +858,34 @@ const Roteirizacao = () => {
           console.log(`[Roteirização] Progresso: ${dataMap.size}/${totalCount} OSs carregadas`);
         }
 
+        if (isCancelled) return;
+        
+        // Buscar OSs avulsas concluídas separadamente (para visualização na Rota)
+        try {
+          const { data: avulsasConcluidas, error: errorAvulsas } = await supabase
+            .from("ordens_servico")
+            .select(`
+              id, numero, tipo, endereco, municipio, bairro, latitude, longitude, prazo, valor, duracao_estimada, regulada, status, avulsa,
+              contrato_id, centro_custo_id,
+              contratos:contrato_id (codigo, nome),
+              centros_custo:centro_custo_id (codigo, nome)
+            `)
+            .eq("avulsa", true)
+            .eq("status", "concluida")
+            .order("created_at", { ascending: false });
+          
+          if (errorAvulsas) {
+            console.warn("[Roteirização] Erro ao buscar OSs avulsas concluídas:", errorAvulsas);
+          } else if (avulsasConcluidas && avulsasConcluidas.length > 0) {
+            console.log(`[Roteirização] Adicionando ${avulsasConcluidas.length} OSs avulsas concluídas`);
+            for (const item of avulsasConcluidas) {
+              dataMap.set(item.id, item); // Usar Map para garantir unicidade
+            }
+          }
+        } catch (error) {
+          console.warn("[Roteirização] Erro ao buscar OSs avulsas concluídas:", error);
+        }
+        
         if (isCancelled) return;
         
         const allData = Array.from(dataMap.values());
@@ -2369,6 +2410,28 @@ const Roteirizacao = () => {
         if (allOSs.length >= 100000) hasMore = false;
       }
       
+      // Buscar OSs avulsas concluídas separadamente
+      let offsetAvulsas = 0;
+      let hasMoreAvulsas = true;
+      while (hasMoreAvulsas) {
+        const { data: dataAvulsas } = await supabase
+          .from("ordens_servico")
+          .select("*")
+          .eq("avulsa", true)
+          .eq("status", "concluida")
+          .order("created_at", { ascending: false })
+          .range(offsetAvulsas, offsetAvulsas + PAGE_SIZE - 1);
+        
+        if (dataAvulsas && dataAvulsas.length > 0) {
+          allOSs = [...allOSs, ...dataAvulsas];
+          offsetAvulsas += PAGE_SIZE;
+          if (dataAvulsas.length < PAGE_SIZE) hasMoreAvulsas = false;
+        } else {
+          hasMoreAvulsas = false;
+        }
+        if (allOSs.length >= 100000) hasMoreAvulsas = false;
+      }
+      
       console.log(`[PLANEJAMENTO] Recarregadas ${allOSs.length} OSs`);
       const ordensConvertidas = await mapSupabaseOrdensServicoToOrdemServico(allOSs);
       setOrdensServico(ordensConvertidas);
@@ -2550,6 +2613,28 @@ const Roteirizacao = () => {
           hasMore = false;
         }
         if (allOSs.length >= 100000) hasMore = false;
+      }
+      
+      // Buscar OSs avulsas concluídas separadamente
+      let offsetAvulsas = 0;
+      let hasMoreAvulsas = true;
+      while (hasMoreAvulsas) {
+        const { data: dataAvulsas } = await supabase
+          .from("ordens_servico")
+          .select("*")
+          .eq("avulsa", true)
+          .eq("status", "concluida")
+          .order("created_at", { ascending: false })
+          .range(offsetAvulsas, offsetAvulsas + PAGE_SIZE - 1);
+        
+        if (dataAvulsas && dataAvulsas.length > 0) {
+          allOSs = [...allOSs, ...dataAvulsas];
+          offsetAvulsas += PAGE_SIZE;
+          if (dataAvulsas.length < PAGE_SIZE) hasMoreAvulsas = false;
+        } else {
+          hasMoreAvulsas = false;
+        }
+        if (allOSs.length >= 100000) hasMoreAvulsas = false;
       }
       
       console.log(`[CANCELAR] Recarregadas ${allOSs.length} OSs`);

@@ -222,12 +222,27 @@ export function useRetornoCampo() {
       if (!contratoId) return 0;
 
       try {
+        // Extrair apenas o código da atividade (antes do " - " se houver descrição concatenada)
+        const codigoLimpo = codigoAtividade.includes(" - ") 
+          ? codigoAtividade.split(" - ")[0].trim() 
+          : codigoAtividade.trim();
+        
+        // Primeiro, buscar o código do contrato para debug
+        const { data: contratoData } = await supabase
+          .from("contratos")
+          .select("codigo, nome")
+          .eq("id", contratoId)
+          .maybeSingle();
+        
+        const codigoContrato = contratoData?.codigo || "N/A";
+        console.log(`[useRetornoCampo] 🔍 Buscando precificação: atividade_original=${codigoAtividade}, codigo_limpo=${codigoLimpo}, contrato_id=${contratoId}, contrato_codigo=${codigoContrato}`);
+
         // Buscar na tabela de precificação pelo código da atividade e contrato
         const { data, error } = await supabase
           .from("precificacao_servicos")
-          .select("valor_unitario, valor_total")
+          .select("valor_unitario, valor_total, data_inicio, data_fim, ativo")
           .eq("contrato_id", contratoId)
-          .eq("codigo_servico", codigoAtividade)
+          .eq("codigo_servico", codigoLimpo)
           .eq("ativo", true)
           .lte("data_inicio", new Date().toISOString().split("T")[0])
           .or(`data_fim.is.null,data_fim.gte.${new Date().toISOString().split("T")[0]}`)
@@ -236,20 +251,36 @@ export function useRetornoCampo() {
           .maybeSingle();
 
         if (error) {
-          console.warn(`[useRetornoCampo] Erro ao buscar precificação para ${codigoAtividade}:`, error);
+          console.warn(`[useRetornoCampo] ❌ Erro ao buscar precificação para ${codigoLimpo} no contrato ${contratoId} (${codigoContrato}):`, error);
+          return 0;
+        }
+
+        if (!data) {
+          console.warn(`[useRetornoCampo] ⚠️ Nenhum registro encontrado na precificação para ${codigoLimpo} no contrato ${contratoId} (${codigoContrato})`);
+          // Tentar buscar sem filtro de vigência para debug
+          const { data: debugData } = await supabase
+            .from("precificacao_servicos")
+            .select("valor_unitario, valor_total, data_inicio, data_fim, ativo")
+            .eq("contrato_id", contratoId)
+            .eq("codigo_servico", codigoLimpo)
+            .order("data_inicio", { ascending: false })
+            .limit(5);
+          if (debugData && debugData.length > 0) {
+            console.log(`[useRetornoCampo] 🔍 Debug: Encontrados ${debugData.length} registros sem filtro de vigência:`, debugData);
+          }
           return 0;
         }
 
         // Usar valor_total se existir (já considera fator_k), senão valor_unitario
         const valor = data?.valor_total || data?.valor_unitario || 0;
         if (valor > 0) {
-          console.log(`[useRetornoCampo] ✅ Precificação encontrada para ${codigoAtividade} no contrato ${contratoId}: R$${valor}`);
+          console.log(`[useRetornoCampo] ✅ Precificação encontrada para ${codigoLimpo} no contrato ${contratoId} (${codigoContrato}): R$${valor} (vigência: ${data.data_inicio} a ${data.data_fim || 'indefinida'})`);
         } else {
-          console.warn(`[useRetornoCampo] ⚠️ Precificação não encontrada ou valor zerado para ${codigoAtividade} no contrato ${contratoId}`);
+          console.warn(`[useRetornoCampo] ⚠️ Precificação encontrada mas valor zerado para ${codigoLimpo} no contrato ${contratoId} (${codigoContrato})`);
         }
         return Number(valor);
       } catch (error) {
-        console.error(`[useRetornoCampo] Erro ao buscar precificação:`, error);
+        console.error(`[useRetornoCampo] ❌ Erro ao buscar precificação:`, error);
         return 0;
       }
     },

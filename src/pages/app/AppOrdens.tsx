@@ -296,8 +296,9 @@ export default function AppOrdens() {
         console.error("[DEBUG AppOrdens] Erro ao buscar ordens planejadas:", errorPlanejadas);
       }
 
-      // Buscar OSs avulsas da equipe criadas no dia (que não estão no planejamento)
-      const { data: ordensAvulsasData, error: errorAvulsas } = await supabase
+      // Buscar OSs avulsas da equipe: criadas no dia OU concluídas no dia
+      // 1. OSs avulsas criadas no dia (qualquer status)
+      const { data: ordensAvulsasCriadas, error: errorAvulsasCriadas } = await supabase
         .from("ordens_servico")
         .select(`
           id,
@@ -311,7 +312,8 @@ export default function AppOrdens() {
           avulsa,
           latitude,
           longitude,
-          created_at
+          created_at,
+          concluido_at
         `)
         .eq("tecnico_id", equipeIdParaUsar)
         .eq("avulsa", true)
@@ -319,9 +321,49 @@ export default function AppOrdens() {
         .lte("created_at", dataFim)
         .order("created_at", { ascending: true });
 
-      if (errorAvulsas) {
-        console.error("[DEBUG AppOrdens] Erro ao buscar ordens avulsas:", errorAvulsas);
+      if (errorAvulsasCriadas) {
+        console.error("[DEBUG AppOrdens] Erro ao buscar ordens avulsas criadas:", errorAvulsasCriadas);
       }
+
+      // 2. OSs avulsas concluídas no dia (mesmo que criadas em outro dia)
+      const { data: ordensAvulsasConcluidas, error: errorAvulsasConcluidas } = await supabase
+        .from("ordens_servico")
+        .select(`
+          id,
+          numero,
+          tipo,
+          endereco,
+          cliente_nome,
+          status,
+          prazo,
+          regulada,
+          avulsa,
+          latitude,
+          longitude,
+          created_at,
+          concluido_at
+        `)
+        .eq("tecnico_id", equipeIdParaUsar)
+        .eq("avulsa", true)
+        .eq("status", "concluida")
+        .gte("concluido_at", dataInicio)
+        .lte("concluido_at", dataFim)
+        .order("created_at", { ascending: true });
+
+      if (errorAvulsasConcluidas) {
+        console.error("[DEBUG AppOrdens] Erro ao buscar ordens avulsas concluídas:", errorAvulsasConcluidas);
+      }
+
+      // Mesclar OSs avulsas criadas e concluídas (removendo duplicatas)
+      const ordensAvulsasMap = new Map<string, any>();
+      if (ordensAvulsasCriadas) {
+        ordensAvulsasCriadas.forEach(os => ordensAvulsasMap.set(os.id, os));
+      }
+      if (ordensAvulsasConcluidas) {
+        ordensAvulsasConcluidas.forEach(os => ordensAvulsasMap.set(os.id, os));
+      }
+      const ordensAvulsasData = Array.from(ordensAvulsasMap.values());
+      console.log("[DEBUG AppOrdens] OSs avulsas encontradas:", ordensAvulsasData.length, "(criadas:", ordensAvulsasCriadas?.length || 0, ", concluídas:", ordensAvulsasConcluidas?.length || 0, ")");
 
       // Mesclar ordens planejadas e avulsas
       const todasOrdens: OrdemPlanejada[] = [];
