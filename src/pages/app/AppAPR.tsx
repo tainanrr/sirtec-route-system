@@ -1228,6 +1228,12 @@ export default function AppAPR() {
         throw new Error("Falha ao salvar APR");
       }
 
+      // Invalidar query de checklists para forçar refetch imediato
+      if (isOnline) {
+        queryClient.invalidateQueries({ queryKey: ["ordem-checklists", ordemId] });
+        console.log("[APR] Query de checklists invalidada para refetch imediato");
+      }
+
       // Se online, tentar registrar log (não bloqueia se falhar)
       if (isOnline && equipeId) {
         try {
@@ -1268,6 +1274,8 @@ export default function AppAPR() {
       }
       
       queryClient.invalidateQueries({ queryKey: ["apr-existente", ordemId] });
+      // Invalidar também a query de checklists para atualizar status da APR na tela de detalhes
+      queryClient.invalidateQueries({ queryKey: ["ordem-checklists", ordemId] });
       handleBack();
     } catch (error: any) {
       console.error("Erro ao salvar APR:", error);
