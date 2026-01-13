@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Zap, Loader2, Smartphone, Car, Users, Clock, AlertTriangle, Calendar, Wifi, WifiOff, CloudOff } from "lucide-react";
+import { Loader2, Smartphone, Car, Users, Clock, AlertTriangle, Calendar, Wifi, WifiOff, CloudOff } from "lucide-react";
 import { TurnoExistente } from "@/lib/authUtils";
 import { format, parseISO, isToday, isBefore, startOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -131,8 +131,12 @@ export default function AppLogin() {
 
       {/* Logo e Título */}
       <div className="text-center mb-8">
-        <div className="inline-flex items-center justify-center h-20 w-20 rounded-3xl bg-gradient-to-br from-primary to-primary/80 shadow-xl shadow-primary/30 mb-4">
-          <Zap className="h-10 w-10 text-primary-foreground" />
+        <div className="inline-flex items-center justify-center mb-4">
+          <img 
+            src="/logo-sirtec.svg" 
+            alt="Sirtec" 
+            className="h-20 w-auto"
+          />
         </div>
         <h1 className="text-3xl font-bold text-foreground">SirtecRoute</h1>
         <p className="text-muted-foreground mt-1 flex items-center justify-center gap-2">
