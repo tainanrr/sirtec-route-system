@@ -244,6 +244,15 @@ interface OsPendenteRemocao {
   confirmado_at?: string;
   confirmado_status_app?: string;
   motivo_cancelamento?: string;
+  solicitado_por?: string;
+  equipe?: {
+    codigo: string;
+    nome?: string;
+  };
+  usuario_solicitante?: {
+    nome: string;
+    email?: string;
+  };
 }
 
 const Roteirizacao = () => {
@@ -3409,7 +3418,11 @@ const Roteirizacao = () => {
     try {
       const { data, error } = await supabase
         .from("os_pendentes_remocao")
-        .select("*")
+        .select(`
+          *,
+          equipe:equipe_id (codigo, nome),
+          usuario_solicitante:solicitado_por (nome, email)
+        `)
         .in("status", ["aguardando_sinal", "cancelado_em_execucao", "cancelado_concluida"])
         .order("solicitado_at", { ascending: false });
 
@@ -3419,6 +3432,24 @@ const Roteirizacao = () => {
       console.error("Erro ao buscar OSs pendentes:", error);
     } finally {
       setLoadingPendentes(false);
+    }
+  };
+
+  // Função para cancelar pendência de remoção
+  const cancelarPendenciaRemocao = async (pendenteId: string) => {
+    try {
+      const { error } = await supabase
+        .from("os_pendentes_remocao")
+        .delete()
+        .eq("id", pendenteId);
+
+      if (error) throw error;
+      
+      toast.success("Solicitação de remoção cancelada");
+      fetchOsPendentesRemocao();
+    } catch (error: any) {
+      console.error("Erro ao cancelar pendência:", error);
+      toast.error(`Erro ao cancelar: ${error.message}`);
     }
   };
 
@@ -3487,6 +3518,10 @@ const Roteirizacao = () => {
         return;
       }
 
+      // Obter ID do usuário logado
+      const sessionStr = localStorage.getItem("usuario_web_session");
+      const usuarioId = sessionStr ? JSON.parse(sessionStr)?.id : null;
+
       // Criar registro de pendência
       const { error: erroPendencia } = await supabase
         .from("os_pendentes_remocao")
@@ -3498,6 +3533,7 @@ const Roteirizacao = () => {
           os_numero: osParaRemoverComConfirmacao.osNumero,
           os_status_original: osParaRemoverComConfirmacao.osStatus,
           status: "aguardando_sinal",
+          solicitado_por: usuarioId,
         });
 
       if (erroPendencia) throw erroPendencia;
@@ -7713,21 +7749,39 @@ const Roteirizacao = () => {
                       .map(pendente => (
                         <Card key={pendente.id} className="border-amber-200 bg-amber-50/50">
                           <CardContent className="p-3">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-3">
-                                <div className="p-2 rounded-full bg-amber-100">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-3 flex-1 min-w-0">
+                                <div className="p-2 rounded-full bg-amber-100 shrink-0">
                                   <WifiOff className="h-4 w-4 text-amber-600" />
                                 </div>
-                                <div>
+                                <div className="min-w-0">
                                   <p className="font-medium">OS {pendente.os_numero}</p>
                                   <p className="text-xs text-muted-foreground">
-                                    Solicitado em {new Date(pendente.solicitado_at).toLocaleString("pt-BR")}
+                                    Equipe: <span className="font-medium text-foreground">{pendente.equipe?.codigo || "N/A"}</span>
+                                    {pendente.equipe?.nome && ` - ${pendente.equipe.nome}`}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    Solicitado por: <span className="font-medium text-foreground">{pendente.usuario_solicitante?.nome || "N/A"}</span>
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    Em {new Date(pendente.solicitado_at).toLocaleString("pt-BR")}
                                   </p>
                                 </div>
                               </div>
-                              <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-300">
-                                Aguardando sinal
-                              </Badge>
+                              <div className="flex flex-col items-end gap-2 shrink-0">
+                                <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-300">
+                                  Aguardando sinal
+                                </Badge>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                                  onClick={() => cancelarPendenciaRemocao(pendente.id)}
+                                >
+                                  <XCircle className="h-3 w-3 mr-1" />
+                                  Cancelar
+                                </Button>
+                              </div>
                             </div>
                           </CardContent>
                         </Card>
@@ -7751,13 +7805,20 @@ const Roteirizacao = () => {
                       .map(pendente => (
                         <Card key={pendente.id} className="border-red-200 bg-red-50/50">
                           <CardContent className="p-3">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-3">
-                                <div className="p-2 rounded-full bg-red-100">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-3 flex-1 min-w-0">
+                                <div className="p-2 rounded-full bg-red-100 shrink-0">
                                   <XCircle className="h-4 w-4 text-red-600" />
                                 </div>
-                                <div>
+                                <div className="min-w-0">
                                   <p className="font-medium">OS {pendente.os_numero}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    Equipe: <span className="font-medium text-foreground">{pendente.equipe?.codigo || "N/A"}</span>
+                                    {pendente.equipe?.nome && ` - ${pendente.equipe.nome}`}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    Solicitado por: <span className="font-medium text-foreground">{pendente.usuario_solicitante?.nome || "N/A"}</span>
+                                  </p>
                                   <p className="text-xs text-muted-foreground">
                                     {pendente.motivo_cancelamento || `Status no app: ${pendente.confirmado_status_app}`}
                                   </p>
@@ -7768,7 +7829,7 @@ const Roteirizacao = () => {
                                   )}
                                 </div>
                               </div>
-                              <Badge variant="outline" className="bg-red-100 text-red-700 border-red-300">
+                              <Badge variant="outline" className="bg-red-100 text-red-700 border-red-300 shrink-0">
                                 {pendente.status === "cancelado_concluida" ? "OS Concluída" : "Em Execução"}
                               </Badge>
                             </div>
