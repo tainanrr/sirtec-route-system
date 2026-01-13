@@ -48,6 +48,7 @@ import {
   Clock,
   Play,
   CheckCircle,
+  CheckCircle2,
   Camera,
   Navigation,
   Package,
