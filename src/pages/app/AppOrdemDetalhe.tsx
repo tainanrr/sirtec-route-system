@@ -493,7 +493,7 @@ export default function AppOrdemDetalhe() {
     verificarAprOffline();
   }, [isOnline, id, getFromCache, temAprPendente]); // Adiciona temAprPendente como dependência
 
-  const temAprPreenchida = aprOfflineCache || checklistsPreenchidos?.some(
+  const temAprPreenchida = aprOfflineCache || temAprPendente || checklistsPreenchidos?.some(
     (c: any) => c.checklists?.tipo === "apr" || c.checklists?.nome?.toLowerCase().includes("apr")
   ) || false;
 
