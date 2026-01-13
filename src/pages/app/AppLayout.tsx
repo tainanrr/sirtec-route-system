@@ -15,6 +15,7 @@ import { OfflineSyncIndicator, OfflineStatusBanner } from "@/components/app/Offl
 import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
 import { useOfflineData } from "@/hooks/useOfflineData";
 import { useSyncProcedimentos } from "@/hooks/useSyncProcedimentos";
+import { useHeartbeat } from "@/hooks/useHeartbeat";
 
 type AppSection = "home" | "ordens" | "estoque" | "chat" | "docs" | "resultados";
 
@@ -31,6 +32,9 @@ export default function AppLayout() {
   const { preloadEssentialData } = useOfflineData();
   const { syncAll: syncProcedimentos } = useSyncProcedimentos(equipe?.contrato_id);
   const [hasPreloaded, setHasPreloaded] = useState(false);
+  
+  // Sistema de heartbeat para detecção de conectividade
+  useHeartbeat();
   
   // Estado para contador de ociosidade
   const [tempoOcioso, setTempoOcioso] = useState(0);

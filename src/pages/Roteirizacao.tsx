@@ -612,15 +612,16 @@ const Roteirizacao = () => {
     fetchEquipes();
   }, []);
 
-  // Monitorar equipes offline (sem atividade há mais de 5 minutos)
-  // Busca turnos abertos e última atividade a cada 30 segundos
+  // Monitorar equipes offline usando sistema de Heartbeat
+  // O app envia um "ping" a cada 2 minutos. Se o último ping foi há mais de 3 minutos, está offline.
   // 
-  // LÓGICA: Uma equipe é considerada OFFLINE quando:
-  // - Não há nenhuma atualização (updated_at) em nenhuma OS ou intervalo nos últimos 5 minutos
-  // - Isso inclui equipes "em execução" que perderam sinal - o status da OS fica "em_execucao"
-  //   mas se não houver atualização em 5 min, a equipe está sem sinal
+  // LÓGICA:
+  // - ONLINE: último heartbeat < 3 minutos
+  // - INSTÁVEL: último heartbeat entre 3-10 minutos  
+  // - OFFLINE: último heartbeat > 10 minutos ou nunca conectou
   useEffect(() => {
-    const MINUTOS_PARA_OFFLINE = 5;
+    const MINUTOS_ONLINE = 3;      // Até 3 min = online
+    const MINUTOS_INSTAVEL = 10;   // 3-10 min = instável, >10 min = offline
     
     const verificarEquipesOffline = async () => {
       if (equipes.length === 0) return;
@@ -653,74 +654,57 @@ const Roteirizacao = () => {
           return;
         }
         
-        // Buscar última atividade de ordens de serviço (qualquer status)
-        // O que importa é o updated_at - se não atualizou em X minutos, está offline
-        const { data: ultimasAtividades, error: atividadesError } = await supabase
-          .from("ordens_servico")
-          .select("tecnico_id, updated_at, status")
-          .in("tecnico_id", equipesComTurno)
-          .gte("updated_at", dataHoje + "T00:00:00")
-          .order("updated_at", { ascending: false });
+        // Buscar heartbeats das equipes (principal fonte de verdade para conectividade)
+        const { data: heartbeats, error: heartbeatError } = await supabase
+          .from("equipe_heartbeat")
+          .select("equipe_id, ultimo_ping, conexao_tipo")
+          .in("equipe_id", equipesComTurno);
         
-        if (atividadesError) {
-          console.error("Erro ao buscar atividades:", atividadesError);
+        if (heartbeatError && heartbeatError.code !== "42P01") {
+          console.error("Erro ao buscar heartbeats:", heartbeatError);
         }
         
-        // Buscar últimos intervalos
-        const { data: ultimosIntervalos, error: intervalosError } = await supabase
-          .from("intervalos_equipe")
-          .select("equipe_id, hora_inicio, hora_fim, updated_at")
-          .in("equipe_id", equipesComTurno)
-          .gte("hora_inicio", dataHoje)
-          .order("hora_inicio", { ascending: false });
+        // Mapa de heartbeats por equipe
+        const heartbeatMap = new Map<string, { ultimoPing: Date; conexaoTipo: string }>();
+        (heartbeats || []).forEach((h: any) => {
+          heartbeatMap.set(h.equipe_id, {
+            ultimoPing: new Date(h.ultimo_ping),
+            conexaoTipo: h.conexao_tipo || "unknown",
+          });
+        });
         
-        if (intervalosError) {
-          console.error("Erro ao buscar intervalos:", intervalosError);
-        }
-        
-        // Calcular última atividade para cada equipe
+        // Calcular status de conectividade para cada equipe
         const novoMapaOffline = new Map<string, { turnoAberto: boolean; ultimaAtividade: Date | null; minutosOffline: number | null }>();
         const agora = new Date();
         
         equipesComTurno.forEach(equipeId => {
+          const heartbeat = heartbeatMap.get(equipeId);
+          
           let ultimaAtividade: Date | null = null;
-          
-          // Verificar última atividade de OS (usando updated_at)
-          const atividadesEquipe = (ultimasAtividades || []).filter((a: any) => a.tecnico_id === equipeId);
-          atividadesEquipe.forEach((a: any) => {
-            const dataOS = new Date(a.updated_at);
-            if (!ultimaAtividade || dataOS > ultimaAtividade) {
-              ultimaAtividade = dataOS;
-            }
-          });
-          
-          // Verificar último intervalo (usando updated_at ou hora_fim/hora_inicio)
-          const intervalosEquipe = (ultimosIntervalos || []).filter((i: any) => i.equipe_id === equipeId);
-          intervalosEquipe.forEach((i: any) => {
-            // Usar updated_at se disponível, senão hora_fim ou hora_inicio
-            const dataIntervalo = new Date(i.updated_at || i.hora_fim || i.hora_inicio);
-            if (!ultimaAtividade || dataIntervalo > ultimaAtividade) {
-              ultimaAtividade = dataIntervalo;
-            }
-          });
-          
-          // Se não houver atividade, usar hora de abertura do turno
-          if (!ultimaAtividade) {
-            ultimaAtividade = turnosMap.get(equipeId) || null;
-          }
-          
-          // Calcular minutos offline baseado no tempo desde a última atualização
           let minutosOffline: number | null = null;
-          if (ultimaAtividade) {
-            const diffMs = agora.getTime() - ultimaAtividade.getTime();
-            minutosOffline = Math.floor(diffMs / 60000);
+          
+          if (heartbeat) {
+            ultimaAtividade = heartbeat.ultimoPing;
+            const diffMs = agora.getTime() - heartbeat.ultimoPing.getTime();
+            const minutosSemPing = Math.floor(diffMs / 60000);
+            
+            // Se último ping foi há mais de X minutos, está offline
+            if (minutosSemPing >= MINUTOS_ONLINE) {
+              minutosOffline = minutosSemPing;
+            }
+          } else {
+            // Nunca enviou heartbeat - usar hora de abertura do turno como fallback
+            ultimaAtividade = turnosMap.get(equipeId) || null;
+            if (ultimaAtividade) {
+              const diffMs = agora.getTime() - ultimaAtividade.getTime();
+              minutosOffline = Math.floor(diffMs / 60000);
+            }
           }
           
           novoMapaOffline.set(equipeId, {
             turnoAberto: true,
             ultimaAtividade,
-            // Considera offline se não houve atualização em X minutos
-            minutosOffline: minutosOffline && minutosOffline >= MINUTOS_PARA_OFFLINE ? minutosOffline : null,
+            minutosOffline,
           });
         });
         
