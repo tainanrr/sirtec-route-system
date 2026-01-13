@@ -572,10 +572,9 @@ export default function DashboardProducaoMeta() {
 
   return (
     <MainLayout
-      title="Dashboard Produção x Meta"
-      subtitle="Acompanhe o desempenho das equipes em relação às metas"
+      title="Produção x Meta"
       breadcrumbs={[
-        { label: "Dashboard" },
+        { label: "Dashboards" },
         { label: "Produção x Meta" },
       ]}
     >

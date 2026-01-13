@@ -1373,6 +1373,16 @@ const Roteirizacao = () => {
     );
   }, [rotas]);
 
+  // Detectar se estamos no "Modo de Ação" - planejamento do dia atual carregado com rotas
+  const modoAcaoAtivo = useMemo(() => {
+    if (!planejamentoEditandoId || rotas.length === 0) return false;
+    if (!dataPlanejamento) return false;
+    
+    // Verificar se a data do planejamento é hoje
+    const dataPlan = parseISO(dataPlanejamento);
+    return isToday(dataPlan);
+  }, [planejamentoEditandoId, rotas.length, dataPlanejamento]);
+
   const equipesAtivas = useMemo(
     () => equipes.filter((e) => equipesSelecionadas.includes(e.id)),
     [equipes, equipesSelecionadas]
@@ -4077,15 +4087,21 @@ const Roteirizacao = () => {
 
   return (
     <MainLayout
-      title="Roteirização"
-      subtitle="Planejamento e otimização de rotas"
-      breadcrumbs={[{ label: "Roteirização" }]}
+      title={modoAcaoAtivo ? "Centro de Controle Ativo" : "Planejar Rotas"}
+      highlightMode={modoAcaoAtivo ? "action" : "none"}
     >
       {/* Header com Data e Ações */}
-      <div className="rounded-xl border border-border bg-card p-4 mb-6">
+      <div className={cn(
+        "rounded-xl border p-4 mb-6 transition-all duration-300",
+        modoAcaoAtivo 
+          ? "border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-950/20" 
+          : "border-border bg-card"
+      )}>
         <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
           <div>
-            <h2 className="text-lg font-semibold text-foreground">Roteirização do Dia</h2>
+            <h2 className="text-lg font-semibold text-foreground">
+              {modoAcaoAtivo ? "Controle de Rotas em Execução" : "Roteirização do Dia"}
+            </h2>
             <p className="text-sm text-muted-foreground">{formatarData()}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -4378,6 +4394,517 @@ const Roteirizacao = () => {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Seção de Filtros do Backlog - Posicionada entre Territórios/Equipes e Alertas */}
+      <div className="rounded-xl border border-border bg-card p-4 mb-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-3">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <h3 className="font-semibold text-foreground">Filtros do Backlog</h3>
+            {activeFiltersBacklogCount > 0 && (
+              <Badge variant="secondary" className="h-5 px-2 text-xs">
+                {activeFiltersBacklogCount} ativo{activeFiltersBacklogCount > 1 ? "s" : ""}
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="text-xs">
+              {filteredServicos.length.toLocaleString()} OS{filteredServicos.length !== 1 ? "s" : ""} encontrada{filteredServicos.length !== 1 ? "s" : ""}
+            </Badge>
+            {activeFiltersBacklogCount > 0 && (
+              <Button variant="ghost" size="sm" onClick={clearFiltersBacklog} className="text-muted-foreground h-7 text-xs">
+                <RotateCcw className="h-3 w-3 mr-1" />
+                Limpar
+              </Button>
+            )}
+            <Button 
+              variant="ghost" 
+              size="sm"
+              className="h-7"
+              onClick={() => setShowFiltersBacklog(!showFiltersBacklog)}
+            >
+              {showFiltersBacklog ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </Button>
+          </div>
+        </div>
+        
+        {/* Campo de busca sempre visível */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Buscar por número da OS, endereço, bairro..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        
+        {/* Filtros avançados expansíveis */}
+        {showFiltersBacklog && (
+          <div className="pt-4 mt-4 border-t border-border/50">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+              {/* Tipo de Serviço */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium">Tipo de Serviço</label>
+                <Popover open={tiposFilterOpen} onOpenChange={setTiposFilterOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full h-9 justify-between text-left font-normal">
+                      {tiposFilter.length === 0 ? (
+                        <span>Todos</span>
+                      ) : tiposFilter.length === 1 ? (
+                        <span className="truncate">{obterLabelTipo(tiposFilter[0])}</span>
+                      ) : (
+                        <span className="truncate">{tiposFilter.length} tipos</span>
+                      )}
+                      <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[280px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Buscar tipo..." />
+                      <CommandList>
+                        <CommandEmpty>Nenhum tipo encontrado.</CommandEmpty>
+                        <CommandGroup>
+                          {tiposFilter.length > 0 && (
+                            <CommandItem onSelect={() => setTiposFilter([])} className="text-muted-foreground">
+                              <X className="mr-2 h-4 w-4" />
+                              Limpar seleção
+                            </CommandItem>
+                          )}
+                          {tiposDisponiveis.map((tipo) => (
+                            <CommandItem
+                              key={tipo}
+                              value={obterLabelTipo(tipo)}
+                              onSelect={() => {
+                                if (tiposFilter.includes(tipo)) {
+                                  setTiposFilter(tiposFilter.filter(t => t !== tipo));
+                                } else {
+                                  setTiposFilter([...tiposFilter, tipo]);
+                                }
+                              }}
+                            >
+                              <Checkbox checked={tiposFilter.includes(tipo)} className="mr-2" />
+                              {obterLabelTipo(tipo)}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Contrato */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium">Contrato</label>
+                <Popover open={contratosFilterOpen} onOpenChange={setContratosFilterOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full h-9 justify-between text-left font-normal">
+                      {contratosFilter.length === 0 ? (
+                        <span>Todos</span>
+                      ) : (
+                        <span className="truncate">{contratosFilter.length} selecionado{contratosFilter.length > 1 ? "s" : ""}</span>
+                      )}
+                      <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[250px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Buscar contrato..." />
+                      <CommandList>
+                        <CommandEmpty>Nenhum contrato encontrado.</CommandEmpty>
+                        <CommandGroup>
+                          {contratosFilter.length > 0 && (
+                            <CommandItem onSelect={() => setContratosFilter([])} className="text-muted-foreground">
+                              <X className="mr-2 h-4 w-4" />
+                              Limpar seleção
+                            </CommandItem>
+                          )}
+                          {contratosDisponiveis.map((contrato) => (
+                            <CommandItem
+                              key={contrato.codigo}
+                              value={`${contrato.codigo} ${contrato.nome}`}
+                              onSelect={() => {
+                                if (contratosFilter.includes(contrato.codigo)) {
+                                  setContratosFilter(contratosFilter.filter(c => c !== contrato.codigo));
+                                } else {
+                                  setContratosFilter([...contratosFilter, contrato.codigo]);
+                                }
+                              }}
+                            >
+                              <Checkbox checked={contratosFilter.includes(contrato.codigo)} className="mr-2" />
+                              <span className="font-mono text-xs mr-2">{contrato.codigo}</span>
+                              <span className="truncate">{contrato.nome}</span>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Centro de Custo */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium">Centro de Custo</label>
+                <Popover open={centrosCustoFilterOpen} onOpenChange={setCentrosCustoFilterOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full h-9 justify-between text-left font-normal">
+                      {centrosCustoFilter.length === 0 ? (
+                        <span>Todos</span>
+                      ) : (
+                        <span className="truncate">{centrosCustoFilter.length} selecionado{centrosCustoFilter.length > 1 ? "s" : ""}</span>
+                      )}
+                      <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[220px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Buscar centro..." />
+                      <CommandList>
+                        <CommandEmpty>Nenhum centro encontrado.</CommandEmpty>
+                        <CommandGroup>
+                          {centrosCustoFilter.length > 0 && (
+                            <CommandItem onSelect={() => setCentrosCustoFilter([])} className="text-muted-foreground">
+                              <X className="mr-2 h-4 w-4" />
+                              Limpar seleção
+                            </CommandItem>
+                          )}
+                          {centrosCustoDisponiveis.map((cc) => (
+                            <CommandItem
+                              key={cc}
+                              value={cc}
+                              onSelect={() => {
+                                if (centrosCustoFilter.includes(cc)) {
+                                  setCentrosCustoFilter(centrosCustoFilter.filter(c => c !== cc));
+                                } else {
+                                  setCentrosCustoFilter([...centrosCustoFilter, cc]);
+                                }
+                              }}
+                            >
+                              <Checkbox checked={centrosCustoFilter.includes(cc)} className="mr-2" />
+                              {cc}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Município */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium">Município</label>
+                <Popover open={municipiosFilterOpen} onOpenChange={setMunicipiosFilterOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full h-9 justify-between text-left font-normal">
+                      {municipiosFilter.length === 0 ? (
+                        <span>Todos</span>
+                      ) : (
+                        <span className="truncate">{municipiosFilter.length} selecionado{municipiosFilter.length > 1 ? "s" : ""}</span>
+                      )}
+                      <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[220px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Buscar município..." />
+                      <CommandList>
+                        <CommandEmpty>Nenhum município encontrado.</CommandEmpty>
+                        <CommandGroup>
+                          {municipiosFilter.length > 0 && (
+                            <CommandItem onSelect={() => setMunicipiosFilter([])} className="text-muted-foreground">
+                              <X className="mr-2 h-4 w-4" />
+                              Limpar seleção
+                            </CommandItem>
+                          )}
+                          {municipiosDisponiveis.map((mun) => (
+                            <CommandItem
+                              key={mun}
+                              value={mun}
+                              onSelect={() => {
+                                if (municipiosFilter.includes(mun)) {
+                                  setMunicipiosFilter(municipiosFilter.filter(m => m !== mun));
+                                } else {
+                                  setMunicipiosFilter([...municipiosFilter, mun]);
+                                }
+                              }}
+                            >
+                              <Checkbox checked={municipiosFilter.includes(mun)} className="mr-2" />
+                              {mun}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Bairro */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium">Bairro</label>
+                <Popover open={bairrosFilterOpen} onOpenChange={setBairrosFilterOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full h-9 justify-between text-left font-normal">
+                      {bairrosFilter.length === 0 ? (
+                        <span>Todos</span>
+                      ) : (
+                        <span className="truncate">{bairrosFilter.length} selecionado{bairrosFilter.length > 1 ? "s" : ""}</span>
+                      )}
+                      <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[220px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Buscar bairro..." />
+                      <CommandList>
+                        <CommandEmpty>Nenhum bairro encontrado.</CommandEmpty>
+                        <CommandGroup>
+                          {bairrosFilter.length > 0 && (
+                            <CommandItem onSelect={() => setBairrosFilter([])} className="text-muted-foreground">
+                              <X className="mr-2 h-4 w-4" />
+                              Limpar seleção
+                            </CommandItem>
+                          )}
+                          {bairrosDisponiveis.map((bairro) => (
+                            <CommandItem
+                              key={bairro}
+                              value={bairro}
+                              onSelect={() => {
+                                if (bairrosFilter.includes(bairro)) {
+                                  setBairrosFilter(bairrosFilter.filter(b => b !== bairro));
+                                } else {
+                                  setBairrosFilter([...bairrosFilter, bairro]);
+                                }
+                              }}
+                            >
+                              <Checkbox checked={bairrosFilter.includes(bairro)} className="mr-2" />
+                              {bairro}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Status */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium">Status</label>
+                <Popover open={statusFilterOpen} onOpenChange={setStatusFilterOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full h-9 justify-between text-left font-normal">
+                      {statusFilter.length === 0 ? (
+                        <span>Todos</span>
+                      ) : (
+                        <span className="truncate">{statusFilter.length} selecionado{statusFilter.length > 1 ? "s" : ""}</span>
+                      )}
+                      <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[200px] p-0" align="start">
+                    <Command>
+                      <CommandList>
+                        <CommandGroup>
+                          {statusFilter.length > 0 && (
+                            <CommandItem onSelect={() => setStatusFilter([])} className="text-muted-foreground">
+                              <X className="mr-2 h-4 w-4" />
+                              Limpar seleção
+                            </CommandItem>
+                          )}
+                          {statusDisponiveis.map((st) => (
+                            <CommandItem
+                              key={st}
+                              value={st}
+                              onSelect={() => {
+                                if (statusFilter.includes(st)) {
+                                  setStatusFilter(statusFilter.filter(s => s !== st));
+                                } else {
+                                  setStatusFilter([...statusFilter, st]);
+                                }
+                              }}
+                            >
+                              <Checkbox checked={statusFilter.includes(st)} className="mr-2" />
+                              {st}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
+
+            {/* Segunda linha de filtros */}
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mt-3">
+              {/* Grupo de Serviço */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium">Grupo Serviço</label>
+                <Popover open={gruposFilterOpen} onOpenChange={setGruposFilterOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full h-9 justify-between text-left font-normal">
+                      {gruposFilter.length === 0 ? (
+                        <span>Todos</span>
+                      ) : (
+                        <span className="truncate">{gruposFilter.length} selecionado{gruposFilter.length > 1 ? "s" : ""}</span>
+                      )}
+                      <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[200px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Buscar grupo..." />
+                      <CommandList>
+                        <CommandEmpty>Nenhum grupo encontrado.</CommandEmpty>
+                        <CommandGroup>
+                          {gruposFilter.length > 0 && (
+                            <CommandItem onSelect={() => setGruposFilter([])} className="text-muted-foreground">
+                              Limpar seleção
+                            </CommandItem>
+                          )}
+                          {gruposDisponiveis.map((grupo) => (
+                            <CommandItem
+                              key={grupo}
+                              value={grupo}
+                              onSelect={() => {
+                                if (gruposFilter.includes(grupo)) {
+                                  setGruposFilter(gruposFilter.filter(g => g !== grupo));
+                                } else {
+                                  setGruposFilter([...gruposFilter, grupo]);
+                                }
+                              }}
+                            >
+                              <Checkbox checked={gruposFilter.includes(grupo)} className="mr-2" />
+                              {grupo}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Territórios */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium">Territórios</label>
+                <Popover open={territoriosFilterOpen} onOpenChange={setTerritoriosFilterOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full h-9 justify-between text-left font-normal">
+                      {territoriosFilter.length === 0 ? (
+                        <span>Todos</span>
+                      ) : (
+                        <span className="truncate">{territoriosFilter.length} selecionado{territoriosFilter.length > 1 ? "s" : ""}</span>
+                      )}
+                      <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[220px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Buscar território..." />
+                      <CommandList>
+                        <CommandEmpty>Nenhum território encontrado.</CommandEmpty>
+                        <CommandGroup>
+                          {territoriosFilter.length > 0 && (
+                            <CommandItem onSelect={() => setTerritoriosFilter([])} className="text-muted-foreground">
+                              Limpar seleção
+                            </CommandItem>
+                          )}
+                          {territoriosDisponiveis.map((territorio) => (
+                            <CommandItem
+                              key={territorio.id}
+                              value={territorio.nome}
+                              onSelect={() => {
+                                if (territoriosFilter.includes(territorio.id)) {
+                                  setTerritoriosFilter(territoriosFilter.filter(t => t !== territorio.id));
+                                } else {
+                                  setTerritoriosFilter([...territoriosFilter, territorio.id]);
+                                }
+                              }}
+                            >
+                              <Checkbox checked={territoriosFilter.includes(territorio.id)} className="mr-2" />
+                              <span className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: territorio.cor }} />
+                              {territorio.nome}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Regulada */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium flex items-center gap-1">
+                  <Zap className="h-3 w-3" />
+                  Regulada
+                </label>
+                <Select value={reguladaFilter} onValueChange={setReguladaFilter}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Todas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas</SelectItem>
+                    <SelectItem value="sim">Apenas Reguladas</SelectItem>
+                    <SelectItem value="nao">Apenas Não Reguladas</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Coordenadas */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium flex items-center gap-1">
+                  <MapPin className="h-3 w-3" />
+                  Coordenadas
+                </label>
+                <Select value={coordenadasFilter} onValueChange={setCoordenadasFilter}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Todas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas</SelectItem>
+                    <SelectItem value="com">Com Coordenadas</SelectItem>
+                    <SelectItem value="sem">Sem Coordenadas</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Data de Prazo - De */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium flex items-center gap-1">
+                  <Calendar className="h-3 w-3" />
+                  Prazo De
+                </label>
+                <Input
+                  type="date"
+                  value={prazoInicio}
+                  onChange={(e) => setPrazoInicio(e.target.value)}
+                  className="h-9"
+                />
+              </div>
+
+              {/* Data de Prazo - Até */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium flex items-center gap-1">
+                  <Calendar className="h-3 w-3" />
+                  Prazo Até
+                </label>
+                <Input
+                  type="date"
+                  value={prazoFim}
+                  onChange={(e) => setPrazoFim(e.target.value)}
+                  className="h-9"
+                />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* V19.6: Alerta de OSs Urgentes fora dos Territórios */}
@@ -5316,7 +5843,7 @@ const Roteirizacao = () => {
                                                 estaConcluida && !estaImpedida && !estaParcial && "opacity-60 cursor-default bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800",
                                                 estaImpedida && "opacity-60 cursor-default bg-red-50 dark:bg-red-950/30 border-red-300 dark:border-red-800 ring-1 ring-red-300",
                                                 estaParcial && "opacity-60 cursor-default bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800",
-                                                foraDoPrazo && !estaConcluida && "border-danger/50 bg-danger/5",
+                                                foraDoPrazo && !estaConcluida && os.regulada && "border-danger/50 bg-danger/5",
                                                 osSelecionadaNoEditor === os.id && "ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-950",
                                                 estaEmExecucao && "ring-2 ring-green-500 bg-green-50 dark:bg-green-950 border-green-300 dark:border-green-700"
                                               )}
@@ -5426,7 +5953,7 @@ const Roteirizacao = () => {
                                                   {statusBadge.label}
                                                 </Badge>
                                               )}
-                                              {foraDoPrazo && !estaConcluida && (
+                                              {foraDoPrazo && !estaConcluida && os.regulada && (
                                                 <Badge variant="destructive" className="text-[8px] px-1 py-0 h-4">
                                                   FORA
                                                 </Badge>
@@ -5661,12 +6188,12 @@ const Roteirizacao = () => {
         </div>
       </div>
 
-        {/* Backlog de Serviços */}
+        {/* Backlog de Serviços - Lista de OSs */}
         <div className="rounded-xl border border-border bg-card overflow-hidden">
           <div className="p-4 border-b border-border">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold text-foreground">Backlog de Serviços</h3>
-              <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-foreground">Lista de OSs do Backlog</h3>
+              <div className="flex items-center gap-3">
                 <Badge variant="secondary">
                   {loadingOrdens ? (
                     loadingProgress.total > 0 
@@ -5674,174 +6201,47 @@ const Roteirizacao = () => {
                       : "..."
                   ) : (
                     filteredServicos.length !== osPendentesTodas.length 
-                      ? `${filteredServicos.length.toLocaleString()} de ${osPendentesTodas.length.toLocaleString()}`
-                      : osPendentesTodas.length.toLocaleString()
+                      ? `${filteredServicos.length.toLocaleString()} de ${osPendentesTodas.length.toLocaleString()} OSs`
+                      : `${osPendentesTodas.length.toLocaleString()} OSs`
                   )}
                 </Badge>
-              </div>
-            </div>
-            
-            {/* Linha de busca e botão de filtros */}
-            <div className="flex gap-2 mb-3">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar OS, endereço..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
-              <Button 
-                variant={showFiltersBacklog ? "default" : "outline"} 
-                className="gap-2"
-                onClick={() => setShowFiltersBacklog(!showFiltersBacklog)}
-              >
-                <Filter className="h-4 w-4" />
-                Filtros
-                {activeFiltersBacklogCount > 0 && (
-                  <Badge variant="secondary" className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs">
-                    {activeFiltersBacklogCount}
-                  </Badge>
-                )}
-                {showFiltersBacklog ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              </Button>
-              {activeFiltersBacklogCount > 0 && (
-                <Button variant="ghost" size="sm" onClick={clearFiltersBacklog} className="text-muted-foreground">
-                  <RotateCcw className="h-4 w-4" />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs gap-1"
+                  onClick={() => {
+                    // Copiar todos os dados das OSs filtradas (com e sem coordenadas)
+                    const todasOSsFiltradas = [...filteredServicos, ...osSemCoordenadas];
+                    const header = "Número\tTipo\tStatus\tEndereço\tBairro\tMunicípio\tPrazo\tTempo Exec.\tValor\tRegulada\tLatitude\tLongitude\tContrato\tCentro Custo";
+                    const rows = todasOSsFiltradas.map(os => {
+                      return [
+                        os.numero,
+                        obterLabelTipo(os.tipo),
+                        os.status || "",
+                        os.endereco,
+                        os.bairro || "",
+                        os.municipio || "",
+                        os.prazo ? new Date(os.prazo).toLocaleString("pt-BR") : "",
+                        os.tempoExecucao || "",
+                        os.valor || "",
+                        os.regulada ? "Sim" : "Não",
+                        os.latitude !== null ? os.latitude : "",
+                        os.longitude !== null ? os.longitude : "",
+                        os.contrato || "",
+                        os.centroCusto || ""
+                      ].join("\t");
+                    });
+                    const texto = [header, ...rows].join("\n");
+                    navigator.clipboard.writeText(texto);
+                    toast.success(`${todasOSsFiltradas.length} OSs copiadas para área de transferência`);
+                  }}
+                >
+                  <Copy className="h-3 w-3" />
+                  Copiar
                 </Button>
-              )}
+              </div>
             </div>
-            
-            {/* Painel de filtros avançados */}
-            {showFiltersBacklog && (
-              <div className="pt-3 border-t border-border/50">
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                  {/* Tipo de Serviço - Multi-select com busca */}
-                  <div className="space-y-1 col-span-2 md:col-span-1">
-                    <label className="text-xs font-medium">Tipo de Serviço</label>
-                    <Popover open={tiposFilterOpen} onOpenChange={setTiposFilterOpen}>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          role="combobox"
-                          aria-expanded={tiposFilterOpen}
-                          className="w-full h-9 justify-between text-left font-normal"
-                        >
-                          {tiposFilter.length === 0 ? (
-                            <span>Todos os tipos</span>
-                          ) : tiposFilter.length === 1 ? (
-                            <span className="truncate">{obterLabelTipo(tiposFilter[0])}</span>
-                          ) : (
-                            <span className="truncate">{tiposFilter.length} tipos selecionados</span>
-                          )}
-                          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-[280px] p-0" align="start">
-                        <Command>
-                          <CommandInput placeholder="Buscar tipo de serviço..." />
-                          <CommandList>
-                            <CommandEmpty>Nenhum tipo encontrado.</CommandEmpty>
-                            <CommandGroup>
-                              {/* Opção para limpar seleção */}
-                              {tiposFilter.length > 0 && (
-                                <CommandItem
-                                  onSelect={() => setTiposFilter([])}
-                                  className="text-muted-foreground"
-                                >
-                                  <X className="mr-2 h-4 w-4" />
-                                  Limpar seleção
-                                </CommandItem>
-                              )}
-                              {tiposDisponiveis.map((tipo) => {
-                                const isSelected = tiposFilter.includes(tipo);
-                                return (
-                                  <CommandItem
-                                    key={tipo}
-                                    value={obterLabelTipo(tipo)}
-                                    onSelect={() => {
-                                      if (isSelected) {
-                                        setTiposFilter(tiposFilter.filter(t => t !== tipo));
-                                      } else {
-                                        setTiposFilter([...tiposFilter, tipo]);
-                                      }
-                                    }}
-                                  >
-                                    <Checkbox
-                                      checked={isSelected}
-                                      className="mr-2"
-                                    />
-                                    {obterLabelTipo(tipo)}
-                                  </CommandItem>
-                                );
-                              })}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-
-                  {/* Contrato - Multi-select com busca */}
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium">Contrato</label>
-                    <Popover open={contratosFilterOpen} onOpenChange={setContratosFilterOpen}>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          role="combobox"
-                          aria-expanded={contratosFilterOpen}
-                          className="w-full h-9 justify-between text-left font-normal"
-                        >
-                          {contratosFilter.length === 0 ? (
-                            <span>Todos</span>
-                          ) : contratosFilter.length === 1 ? (
-                            <span className="truncate">{contratosFilter[0]}</span>
-                          ) : (
-                            <span className="truncate">{contratosFilter.length} selecionados</span>
-                          )}
-                          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-[250px] p-0" align="start">
-                        <Command>
-                          <CommandInput placeholder="Buscar contrato..." />
-                          <CommandList>
-                            <CommandEmpty>Nenhum contrato encontrado.</CommandEmpty>
-                            <CommandGroup>
-                              {contratosFilter.length > 0 && (
-                                <CommandItem onSelect={() => setContratosFilter([])} className="text-muted-foreground">
-                                  <X className="mr-2 h-4 w-4" />
-                                  Limpar seleção
-                                </CommandItem>
-                              )}
-                              {contratosDisponiveis.map((contrato) => {
-                                const isSelected = contratosFilter.includes(contrato.codigo);
-                                return (
-                                  <CommandItem
-                                    key={contrato.codigo}
-                                    value={`${contrato.codigo} ${contrato.nome}`}
-                                    onSelect={() => {
-                                      if (isSelected) {
-                                        setContratosFilter(contratosFilter.filter(c => c !== contrato.codigo));
-                                      } else {
-                                        setContratosFilter([...contratosFilter, contrato.codigo]);
-                                      }
-                                    }}
-                                  >
-                                    <Checkbox checked={isSelected} className="mr-2" />
-                                    <span className="font-mono text-xs mr-2">{contrato.codigo}</span>
-                                    <span className="truncate">{contrato.nome}</span>
-                                  </CommandItem>
-                                );
-                              })}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
-                  </div>
+          </div>
 
                   {/* Centro de Custo - Multi-select com busca */}
                   <div className="space-y-1">

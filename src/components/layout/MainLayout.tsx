@@ -11,6 +11,10 @@ interface MainLayoutProps {
   subtitle?: string;
   breadcrumbs?: { label: string; href?: string }[];
   showDatePicker?: boolean;
+  /** Modo de destaque visual para telas de ação em tempo real */
+  highlightMode?: "action" | "warning" | "none";
+  /** Classe CSS customizada para o título do header */
+  titleClassName?: string;
 }
 
 export function MainLayout({
@@ -19,6 +23,8 @@ export function MainLayout({
   subtitle,
   breadcrumbs,
   showDatePicker = true,
+  highlightMode = "none",
+  titleClassName,
 }: MainLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window !== "undefined") {
@@ -89,7 +95,14 @@ export function MainLayout({
   }, [isDark]);
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className={cn(
+      "min-h-screen transition-colors duration-500",
+      highlightMode === "action" 
+        ? "bg-gradient-to-br from-emerald-50/50 via-background to-teal-50/30 dark:from-emerald-950/20 dark:via-background dark:to-teal-950/10" 
+        : highlightMode === "warning"
+        ? "bg-gradient-to-br from-amber-50/50 via-background to-orange-50/30 dark:from-amber-950/20 dark:via-background dark:to-orange-950/10"
+        : "bg-background"
+    )}>
       <Sidebar isDark={isDark} setIsDark={setIsDark} collapsed={sidebarCollapsed} />
       <div className={cn(
         "transition-all duration-300",
@@ -100,8 +113,13 @@ export function MainLayout({
           subtitle={subtitle}
           breadcrumbs={breadcrumbs}
           showDatePicker={showDatePicker}
+          titleClassName={titleClassName}
+          highlightMode={highlightMode}
         />
-        <main className="p-6">{children}</main>
+        <main className={cn(
+          "p-6 transition-all duration-300",
+          highlightMode === "action" && "border-l-4 border-emerald-500/50"
+        )}>{children}</main>
       </div>
       {/* Botão para colapsar/expandir sidebar - posicionado na borda direita do sidebar */}
       <Button

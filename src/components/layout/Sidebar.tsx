@@ -267,15 +267,15 @@ export function Sidebar({ isDark, setIsDark, collapsed = false }: SidebarProps) 
     <div className="flex h-full flex-col bg-sidebar">
       {/* Logo */}
       <div className={cn(
-        "flex h-16 items-center border-b border-sidebar-border transition-all",
-        collapsed ? "justify-center px-2" : "px-4"
+        "flex h-16 items-center border-b border-sidebar-border transition-all overflow-hidden",
+        collapsed ? "justify-center px-1" : "px-4"
       )}>
         <img 
           src="/logo-sirtec.png" 
           alt="Sirtec" 
           className={cn(
-            "transition-all",
-            collapsed ? "h-8 w-auto" : "h-10 w-auto",
+            "transition-all object-contain",
+            collapsed ? "h-8 max-w-[56px]" : "h-10 w-auto",
             isDark && "brightness-0 invert"
           )}
         />

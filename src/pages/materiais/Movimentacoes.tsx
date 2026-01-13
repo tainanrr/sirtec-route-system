@@ -599,7 +599,7 @@ export default function Movimentacoes() {
   }, [movimentacoes, sortConfig]);
 
   return (
-    <MainLayout title="Movimentações">
+    <MainLayout title="Movimentações" breadcrumbs={[{ label: "Materiais" }, { label: "Movimentações" }]}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">

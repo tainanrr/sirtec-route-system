@@ -586,7 +586,7 @@ export default function DashboardTempoOcioso() {
   };
 
   return (
-    <MainLayout title="Análise de Tempo Ocioso" breadcrumbs={[{ label: "Dashboard Tempo Ocioso" }]}>
+    <MainLayout title="Tempo Ocioso" breadcrumbs={[{ label: "Dashboards" }, { label: "Tempo Ocioso" }]}>
       <div className="space-y-6">
         {/* Header com filtros */}
         <div className="flex flex-wrap items-center justify-between gap-4">

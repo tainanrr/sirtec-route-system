@@ -25,9 +25,8 @@ export default function AdminLayout() {
   return (
     <MainLayout
       title={pageLabel || "Administração"}
-      subtitle={pageLabel ? "Configurações avançadas do sistema" : "Selecione uma opção no menu"}
       breadcrumbs={[
-        { label: "Admin", href: "/admin" },
+        { label: "Administração" },
         ...(pageLabel ? [{ label: pageLabel }] : []),
       ]}
     >

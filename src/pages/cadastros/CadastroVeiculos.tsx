@@ -336,9 +336,8 @@ export default function CadastroVeiculos() {
   return (
     <MainLayout
       title="Veículos"
-      subtitle="Gerencie a frota de veículos"
       breadcrumbs={[
-        { label: "Cadastros", href: "/cadastros" },
+        { label: "Cadastros" },
         { label: "Veículos" },
       ]}
     >

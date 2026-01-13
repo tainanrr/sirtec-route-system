@@ -849,9 +849,8 @@ export default function CadastroMetas() {
   return (
     <MainLayout
       title="Metas"
-      subtitle="Gerencie as metas de produção das equipes"
       breadcrumbs={[
-        { label: "Cadastros", href: "/cadastros" },
+        { label: "Cadastros" },
         { label: "Metas" },
       ]}
     >

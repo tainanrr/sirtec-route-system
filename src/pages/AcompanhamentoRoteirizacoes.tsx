@@ -936,9 +936,7 @@ const AcompanhamentoRoteirizacoes = () => {
 
   return (
     <MainLayout
-      title="Acompanhamento de Roteirizações"
-      subtitle="Acompanhe e gerencie todas as roteirizações planejadas"
-      breadcrumbs={[{ label: "Acompanhamento de Roteirizações" }]}
+      title="Acompanhar Rotas"
     >
       {/* Filtros e Estatísticas - Layout compacto */}
       <div className="flex items-center gap-2 mb-3 p-2 rounded-lg border bg-card flex-wrap">

@@ -149,10 +149,9 @@ export default function CadastroTecnicos() {
 
   return (
     <MainLayout
-      title="Cadastro de Técnicos"
-      subtitle="Gerencie as equipes e técnicos de campo"
+      title="Técnicos"
       breadcrumbs={[
-        { label: "Cadastros", href: "/cadastros" },
+        { label: "Cadastros" },
         { label: "Técnicos" },
       ]}
     >

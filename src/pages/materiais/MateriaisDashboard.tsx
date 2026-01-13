@@ -343,7 +343,7 @@ export default function MateriaisDashboard() {
   };
 
   return (
-    <MainLayout title="Gestão de Materiais">
+    <MainLayout title="Painel Geral" breadcrumbs={[{ label: "Materiais" }, { label: "Painel Geral" }]}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">

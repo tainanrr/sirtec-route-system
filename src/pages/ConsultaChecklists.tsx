@@ -1161,7 +1161,7 @@ export default function ConsultaChecklists() {
   }, [linhasPagina, selectedIds]);
 
   return (
-    <MainLayout title="Consulta de Checklists">
+    <MainLayout title="Checklists">
     <div className="container mx-auto py-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">

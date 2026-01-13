@@ -733,7 +733,7 @@ export default function EntregasEquipes() {
   };
 
   return (
-    <MainLayout title="Entregas às Equipes">
+    <MainLayout title="Entregas às Equipes" breadcrumbs={[{ label: "Materiais" }, { label: "Entregas às Equipes" }]}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">

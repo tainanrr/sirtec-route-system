@@ -466,10 +466,9 @@ export default function DashboardAssertividade() {
 
   return (
     <MainLayout
-      title="Dashboard de Assertividade"
-      subtitle="Análise de visitas produtivas vs improdutivas"
+      title="Assertividade"
       breadcrumbs={[
-        { label: "Dashboard" },
+        { label: "Dashboards" },
         { label: "Assertividade" },
       ]}
     >

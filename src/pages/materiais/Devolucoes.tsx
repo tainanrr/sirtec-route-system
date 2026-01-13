@@ -565,7 +565,7 @@ export default function Devolucoes() {
   });
 
   return (
-    <MainLayout title="Devoluções">
+    <MainLayout title="Devoluções" breadcrumbs={[{ label: "Materiais" }, { label: "Devoluções" }]}>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">

@@ -633,7 +633,7 @@ export default function CatalogoMateriais() {
   };
 
   return (
-    <MainLayout title="Catálogo de Materiais">
+    <MainLayout title="Catálogo" breadcrumbs={[{ label: "Materiais" }, { label: "Catálogo" }]}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">

@@ -543,8 +543,7 @@ export default function Checklists() {
   return (
     <MainLayout
       title="Checklists"
-      subtitle="Gerencie checklists de APR, qualidade e outros"
-      breadcrumbs={[{ label: "Cadastros" }, { label: "Checklists" }]}
+      breadcrumbs={[{ label: "Admin" }, { label: "Checklists" }]}
     >
       {/* Actions Bar */}
       <div className="rounded-xl border border-border bg-card p-4 mb-6">

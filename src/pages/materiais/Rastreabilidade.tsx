@@ -782,7 +782,7 @@ export default function Rastreabilidade() {
   };
 
   return (
-    <MainLayout title="Rastreabilidade">
+    <MainLayout title="Rastreabilidade" breadcrumbs={[{ label: "Materiais" }, { label: "Rastreabilidade" }]}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">

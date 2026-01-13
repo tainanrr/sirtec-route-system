@@ -230,7 +230,7 @@ export default function AplicacoesOS() {
   const totalPages = Math.ceil((totalCount || 0) / ITEMS_PER_PAGE);
 
   return (
-    <MainLayout title="Aplicações em OS">
+    <MainLayout title="Aplicações em OS" breadcrumbs={[{ label: "Materiais" }, { label: "Aplicações em OS" }]}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">

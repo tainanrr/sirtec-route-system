@@ -452,10 +452,9 @@ export default function CadastroCoordenadores() {
 
   return (
     <MainLayout
-      title="Coordenadores e Supervisores"
-      subtitle="Gerencie os coordenadores e supervisores das equipes"
+      title="Gestores"
       breadcrumbs={[
-        { label: "Cadastros", href: "/cadastros" },
+        { label: "Cadastros" },
         { label: "Coordenadores e Supervisores" },
       ]}
     >

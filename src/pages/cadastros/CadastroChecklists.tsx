@@ -183,7 +183,7 @@ export default function CadastroChecklists() {
   };
 
   return (
-    <MainLayout title="Checklists" subtitle="Gerencie os checklists por tipo de serviço">
+    <MainLayout title="Checklists" breadcrumbs={[{ label: "Cadastros" }, { label: "Checklists" }]}>
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-center gap-2">

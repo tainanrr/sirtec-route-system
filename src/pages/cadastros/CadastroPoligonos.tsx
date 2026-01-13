@@ -148,7 +148,7 @@ export default function CadastroPoligonos() {
   };
 
   return (
-    <MainLayout title="Polígonos" subtitle="Gerencie as áreas de atuação">
+    <MainLayout title="Polígonos" breadcrumbs={[{ label: "Cadastros" }, { label: "Polígonos" }]}>
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-center gap-2">

@@ -659,7 +659,7 @@ export default function RelatoriosMateriais() {
   };
 
   return (
-    <MainLayout title="Relatórios de Materiais">
+    <MainLayout title="Relatórios" breadcrumbs={[{ label: "Materiais" }, { label: "Relatórios" }]}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">

@@ -440,7 +440,7 @@ export default function EstoqueCentral() {
   }, [estoque, sortConfig]);
 
   return (
-    <MainLayout title="Estoque Central">
+    <MainLayout title="Estoque Central" breadcrumbs={[{ label: "Materiais" }, { label: "Estoque Central" }]}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">

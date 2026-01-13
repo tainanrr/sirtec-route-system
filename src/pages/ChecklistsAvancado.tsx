@@ -2040,9 +2040,8 @@ export default function ChecklistsAvancado() {
   // Se não estiver dentro do Admin, envolve com MainLayout
   return (
     <MainLayout
-      title="Checklists Avançado"
-      subtitle="Sistema completo de criação de formulários e checklists"
-      breadcrumbs={[{ label: "Cadastros" }, { label: "Checklists" }]}
+      title="Checklists"
+      breadcrumbs={[{ label: "Admin" }, { label: "Checklists" }]}
     >
       {content}
     </MainLayout>

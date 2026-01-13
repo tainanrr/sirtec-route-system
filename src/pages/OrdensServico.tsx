@@ -160,15 +160,18 @@ const OrdensServico = () => {
   const [coordenadorFilterOpen, setCoordenadorFilterOpen] = useState(false);
   const [supervisorFilterOpen, setSupervisorFilterOpen] = useState(false);
   const [municipioFilterOpen, setMunicipioFilterOpen] = useState(false);
+  const [municipioSearchTerm, setMunicipioSearchTerm] = useState("");
   const [bairroFilterOpen, setBairroFilterOpen] = useState(false);
+  const [bairroSearchTerm, setBairroSearchTerm] = useState("");
   
-  // Opções dinâmicas para filtros
+  // Opções dinâmicas para filtros (dependentes dos outros filtros)
   const [availableMunicipios, setAvailableMunicipios] = useState<string[]>([]);
   const [availableBairros, setAvailableBairros] = useState<string[]>([]);
   const [availableStatus, setAvailableStatus] = useState<string[]>([]);
   const [availableTipos, setAvailableTipos] = useState<string[]>([]);
   const [availableRetornos, setAvailableRetornos] = useState<string[]>([]);
   const [availableTerritorios, setAvailableTerritorios] = useState<string[]>([]);
+  const [availableCentrosCusto, setAvailableCentrosCusto] = useState<string[]>([]);
   const [loadingFilterOptions, setLoadingFilterOptions] = useState(false);
   
   // Dados para filtros
@@ -571,118 +574,188 @@ const OrdensServico = () => {
     }
   };
 
-  // Helper para aplicar filtros básicos
-  const applyBasicFilters = (query: any) => {
-    if (prazoInicio) query = query.gte("prazo", prazoInicio);
-    if (prazoFim) query = query.lte("prazo", prazoFim + "T23:59:59");
-    if (execucaoInicio) query = query.gte("concluido_at", execucaoInicio);
-    if (execucaoFim) query = query.lte("concluido_at", execucaoFim + "T23:59:59");
-    if (coordenadasFilter === "com") query = query.not("latitude", "is", null).not("longitude", "is", null);
-    else if (coordenadasFilter === "sem") query = query.or("latitude.is.null,longitude.is.null");
-    if (debouncedSearchTerm) {
-      const term = `%${debouncedSearchTerm}%`;
-      query = query.or(`numero.ilike.${term},endereco.ilike.${term},cliente_nome.ilike.${term},cliente_cpf.ilike.${term},instalacao.ilike.${term}`);
-    }
-    return query;
-  };
-
-  // Buscar opções dinâmicas para filtros (cada filtro NÃO aplica ele mesmo)
+  // Buscar opções dinâmicas para filtros - DEPENDENTES dos outros filtros ativos
+  // Similar à tela de Roteirização: cada filtro considera os outros filtros
   const fetchDynamicFilterOptions = async () => {
     setLoadingFilterOptions(true);
     try {
-      const QUERY_LIMIT = 50000;
+      const PAGE_SIZE_FILTER = 1000;
       
-      // Município (aplica todos EXCETO município)
-      let queryMunicipio = supabase.from("ordens_servico").select("municipio").limit(QUERY_LIMIT);
-      queryMunicipio = applyBasicFilters(queryMunicipio);
-      if (statusFilter.length > 0) queryMunicipio = queryMunicipio.in("status", statusFilter);
-      if (tipoFilter.length > 0) queryMunicipio = queryMunicipio.in("tipo", tipoFilter);
-      if (retornoFilter.length > 0 && !retornoFilter.includes("sem_retorno")) queryMunicipio = queryMunicipio.in("retorno_campo_id", retornoFilter);
-      if (territorioFilter.length > 0) queryMunicipio = queryMunicipio.overlaps("territorios", territorioFilter);
+      // Função auxiliar para aplicar TODOS os filtros a uma query (exceto o filtro especificado)
+      const applyOtherFilters = (query: any, excludeFilter: string) => {
+        // Filtros de array (multi-select)
+        if (excludeFilter !== "status" && statusFilter.length > 0) {
+          query = query.in("status", statusFilter);
+        }
+        if (excludeFilter !== "tipo" && tipoFilter.length > 0) {
+          query = query.in("tipo", tipoFilter);
+        }
+        if (excludeFilter !== "municipio" && municipioFilter.length > 0) {
+          query = query.in("municipio", municipioFilter);
+        }
+        if (excludeFilter !== "bairro" && bairroFilter.length > 0) {
+          query = query.in("bairro", bairroFilter);
+        }
+        if (excludeFilter !== "retorno" && retornoFilter.length > 0 && !retornoFilter.includes("sem_retorno")) {
+          query = query.in("retorno_campo_id", retornoFilter);
+        }
+        if (excludeFilter !== "territorio" && territorioFilter.length > 0) {
+          query = query.overlaps("territorios", territorioFilter);
+        }
+        if (excludeFilter !== "centroCusto" && centroCustoFilter.length > 0) {
+          query = query.in("centro_custo_id", centroCustoFilter);
+        }
+        // Filtros de data
+        if (prazoInicio) {
+          query = query.gte("prazo", prazoInicio);
+        }
+        if (prazoFim) {
+          query = query.lte("prazo", prazoFim + "T23:59:59");
+        }
+        if (execucaoInicio) {
+          query = query.gte("concluido_at", execucaoInicio);
+        }
+        if (execucaoFim) {
+          query = query.lte("concluido_at", execucaoFim + "T23:59:59");
+        }
+        // Filtro de coordenadas
+        if (coordenadasFilter === "com") {
+          query = query.not("latitude", "is", null).not("longitude", "is", null);
+        } else if (coordenadasFilter === "sem") {
+          query = query.or("latitude.is.null,longitude.is.null");
+        }
+        return query;
+      };
       
-      // Bairro (aplica todos EXCETO bairro, MAS inclui município)
-      let queryBairro = supabase.from("ordens_servico").select("bairro").limit(QUERY_LIMIT);
-      queryBairro = applyBasicFilters(queryBairro);
-      if (statusFilter.length > 0) queryBairro = queryBairro.in("status", statusFilter);
-      if (tipoFilter.length > 0) queryBairro = queryBairro.in("tipo", tipoFilter);
-      if (retornoFilter.length > 0 && !retornoFilter.includes("sem_retorno")) queryBairro = queryBairro.in("retorno_campo_id", retornoFilter);
-      if (territorioFilter.length > 0) queryBairro = queryBairro.overlaps("territorios", territorioFilter);
-      if (municipioFilter.length > 0) queryBairro = queryBairro.in("municipio", municipioFilter);
-      
-      // Status (aplica todos EXCETO status)
-      let queryStatus = supabase.from("ordens_servico").select("status").limit(QUERY_LIMIT);
-      queryStatus = applyBasicFilters(queryStatus);
-      if (tipoFilter.length > 0) queryStatus = queryStatus.in("tipo", tipoFilter);
-      if (retornoFilter.length > 0 && !retornoFilter.includes("sem_retorno")) queryStatus = queryStatus.in("retorno_campo_id", retornoFilter);
-      if (territorioFilter.length > 0) queryStatus = queryStatus.overlaps("territorios", territorioFilter);
-      if (municipioFilter.length > 0) queryStatus = queryStatus.in("municipio", municipioFilter);
-      if (bairroFilter.length > 0) queryStatus = queryStatus.in("bairro", bairroFilter);
-      
-      // Tipo (aplica todos EXCETO tipo)
-      let queryTipo = supabase.from("ordens_servico").select("tipo").limit(QUERY_LIMIT);
-      queryTipo = applyBasicFilters(queryTipo);
-      if (statusFilter.length > 0) queryTipo = queryTipo.in("status", statusFilter);
-      if (retornoFilter.length > 0 && !retornoFilter.includes("sem_retorno")) queryTipo = queryTipo.in("retorno_campo_id", retornoFilter);
-      if (territorioFilter.length > 0) queryTipo = queryTipo.overlaps("territorios", territorioFilter);
-      if (municipioFilter.length > 0) queryTipo = queryTipo.in("municipio", municipioFilter);
-      if (bairroFilter.length > 0) queryTipo = queryTipo.in("bairro", bairroFilter);
-      
-      // Retorno (aplica todos EXCETO retorno)
-      let queryRetorno = supabase.from("ordens_servico").select("retorno_campo_id").limit(QUERY_LIMIT);
-      queryRetorno = applyBasicFilters(queryRetorno);
-      if (statusFilter.length > 0) queryRetorno = queryRetorno.in("status", statusFilter);
-      if (tipoFilter.length > 0) queryRetorno = queryRetorno.in("tipo", tipoFilter);
-      if (territorioFilter.length > 0) queryRetorno = queryRetorno.overlaps("territorios", territorioFilter);
-      if (municipioFilter.length > 0) queryRetorno = queryRetorno.in("municipio", municipioFilter);
-      if (bairroFilter.length > 0) queryRetorno = queryRetorno.in("bairro", bairroFilter);
-      
-      // Território (aplica todos EXCETO território)
-      let queryTerritorio = supabase.from("ordens_servico").select("territorios").limit(QUERY_LIMIT);
-      queryTerritorio = applyBasicFilters(queryTerritorio);
-      if (statusFilter.length > 0) queryTerritorio = queryTerritorio.in("status", statusFilter);
-      if (tipoFilter.length > 0) queryTerritorio = queryTerritorio.in("tipo", tipoFilter);
-      if (retornoFilter.length > 0 && !retornoFilter.includes("sem_retorno")) queryTerritorio = queryTerritorio.in("retorno_campo_id", retornoFilter);
-      if (municipioFilter.length > 0) queryTerritorio = queryTerritorio.in("municipio", municipioFilter);
-      if (bairroFilter.length > 0) queryTerritorio = queryTerritorio.in("bairro", bairroFilter);
-
-      const [resMunicipio, resBairro, resStatus, resTipo, resRetorno, resTerritorio] = await Promise.all([
-        queryMunicipio, queryBairro, queryStatus, queryTipo, queryRetorno, queryTerritorio
-      ]);
-
-      if (resMunicipio.data) {
-        const set = new Set<string>();
-        resMunicipio.data.forEach((os: any) => { if (os.municipio) set.add(os.municipio); });
-        setAvailableMunicipios(Array.from(set).sort());
-      }
-      if (resBairro.data) {
-        const set = new Set<string>();
-        resBairro.data.forEach((os: any) => { if (os.bairro) set.add(os.bairro); });
-        setAvailableBairros(Array.from(set).sort());
-      }
-      if (resStatus.data) {
-        const set = new Set<string>();
-        resStatus.data.forEach((os: any) => { if (os.status) set.add(os.status); });
-        setAvailableStatus(Array.from(set));
-      }
-      if (resTipo.data) {
-        const set = new Set<string>();
-        resTipo.data.forEach((os: any) => { if (os.tipo) set.add(os.tipo); });
-        setAvailableTipos(Array.from(set));
-      }
-      if (resRetorno.data) {
-        const set = new Set<string>();
-        resRetorno.data.forEach((os: any) => { if (os.retorno_campo_id) set.add(os.retorno_campo_id); });
-        setAvailableRetornos(Array.from(set));
-      }
-      if (resTerritorio.data) {
-        const set = new Set<string>();
-        resTerritorio.data.forEach((os: any) => { 
-          if (os.territorios && Array.isArray(os.territorios)) {
-            os.territorios.forEach((t: string) => set.add(t));
+      // Função auxiliar para buscar todos os registros de um campo com paginação e filtros
+      const fetchAllDistinct = async (field: string, excludeFilter: string, isUuid: boolean = false): Promise<any[]> => {
+        let allData: any[] = [];
+        let page = 0;
+        let hasMore = true;
+        
+        while (hasMore) {
+          const from = page * PAGE_SIZE_FILTER;
+          const to = from + PAGE_SIZE_FILTER - 1;
+          
+          let query = supabase
+            .from("ordens_servico")
+            .select(field)
+            .not(field, "is", null);
+          
+          // Só aplica neq vazio para campos de texto (não UUID)
+          if (!isUuid) {
+            query = query.neq(field, "");
           }
-        });
-        setAvailableTerritorios(Array.from(set));
-      }
+          
+          query = applyOtherFilters(query, excludeFilter);
+          query = query.range(from, to);
+          
+          const { data, error } = await query;
+          
+          if (error) throw error;
+          
+          if (data && data.length > 0) {
+            allData = [...allData, ...data];
+            hasMore = data.length === PAGE_SIZE_FILTER;
+            page++;
+          } else {
+            hasMore = false;
+          }
+        }
+        
+        return allData;
+      };
+      
+      // Função especial para territorios (é um array, não pode usar neq)
+      const fetchAllTerritorios = async (): Promise<any[]> => {
+        let allData: any[] = [];
+        let page = 0;
+        let hasMore = true;
+        
+        while (hasMore) {
+          const from = page * PAGE_SIZE_FILTER;
+          const to = from + PAGE_SIZE_FILTER - 1;
+          
+          let query = supabase
+            .from("ordens_servico")
+            .select("territorios")
+            .not("territorios", "is", null);
+          
+          query = applyOtherFilters(query, "territorio");
+          query = query.range(from, to);
+          
+          const { data, error } = await query;
+          
+          if (error) throw error;
+          
+          if (data && data.length > 0) {
+            allData = [...allData, ...data];
+            hasMore = data.length === PAGE_SIZE_FILTER;
+            page++;
+          } else {
+            hasMore = false;
+          }
+        }
+        
+        return allData;
+      };
+
+      // Buscar todos os dados em paralelo - cada filtro exclui a si mesmo
+      // Usar Promise.allSettled para não interromper se uma falhar
+      const results = await Promise.allSettled([
+        fetchAllDistinct("municipio", "municipio", false),
+        fetchAllDistinct("bairro", "bairro", false),
+        fetchAllDistinct("status", "status", false),
+        fetchAllDistinct("tipo", "tipo", false),
+        fetchAllDistinct("retorno_campo_id", "retorno", true), // UUID - não pode usar neq vazio
+        fetchAllTerritorios(),
+        fetchAllDistinct("centro_custo_id", "centroCusto", true), // UUID
+      ]);
+      
+      const dataMunicipio = results[0].status === "fulfilled" ? results[0].value : [];
+      const dataBairro = results[1].status === "fulfilled" ? results[1].value : [];
+      const dataStatus = results[2].status === "fulfilled" ? results[2].value : [];
+      const dataTipo = results[3].status === "fulfilled" ? results[3].value : [];
+      const dataRetorno = results[4].status === "fulfilled" ? results[4].value : [];
+      const dataTerritorio = results[5].status === "fulfilled" ? results[5].value : [];
+      const dataCentroCusto = results[6].status === "fulfilled" ? results[6].value : [];
+
+      // Extrair valores únicos (filtrando strings vazias)
+      const setMunicipio = new Set<string>();
+      dataMunicipio.forEach((os: any) => { 
+        if (os.municipio && os.municipio.trim()) setMunicipio.add(os.municipio.trim()); 
+      });
+      setAvailableMunicipios(Array.from(setMunicipio).sort());
+
+      const setBairro = new Set<string>();
+      dataBairro.forEach((os: any) => { 
+        if (os.bairro && os.bairro.trim()) setBairro.add(os.bairro.trim()); 
+      });
+      setAvailableBairros(Array.from(setBairro).sort());
+
+      const setStatus = new Set<string>();
+      dataStatus.forEach((os: any) => { if (os.status) setStatus.add(os.status); });
+      setAvailableStatus(Array.from(setStatus));
+
+      const setTipo = new Set<string>();
+      dataTipo.forEach((os: any) => { if (os.tipo) setTipo.add(os.tipo); });
+      setAvailableTipos(Array.from(setTipo));
+
+      const setRetorno = new Set<string>();
+      dataRetorno.forEach((os: any) => { if (os.retorno_campo_id) setRetorno.add(os.retorno_campo_id); });
+      setAvailableRetornos(Array.from(setRetorno));
+
+      const setTerritorio = new Set<string>();
+      dataTerritorio.forEach((os: any) => { 
+        if (os.territorios && Array.isArray(os.territorios)) {
+          os.territorios.forEach((t: string) => { if (t && t.trim()) setTerritorio.add(t); });
+        }
+      });
+      setAvailableTerritorios(Array.from(setTerritorio));
+
+      const setCentroCusto = new Set<string>();
+      dataCentroCusto.forEach((os: any) => { if (os.centro_custo_id) setCentroCusto.add(os.centro_custo_id); });
+      setAvailableCentrosCusto(Array.from(setCentroCusto));
     } catch (err) {
       console.error("Erro ao buscar opções de filtros:", err);
     } finally {
@@ -731,22 +804,22 @@ const OrdensServico = () => {
     bairroFilter
   ]);
   
-  // Atualizar opções dinâmicas quando filtros mudarem
+  // Atualizar opções dos filtros quando QUALQUER filtro mudar (todos são dependentes)
   useEffect(() => {
     fetchDynamicFilterOptions();
   }, [
-    debouncedSearchTerm,
     statusFilter,
     tipoFilter,
-    execucaoInicio,
-    execucaoFim,
+    retornoFilter,
+    territorioFilter,
+    centroCustoFilter,
+    municipioFilter,
+    bairroFilter,
     prazoInicio,
     prazoFim,
-    retornoFilter,
-    coordenadasFilter,
-    territorioFilter,
-    municipioFilter,
-    bairroFilter
+    execucaoInicio,
+    execucaoFim,
+    coordenadasFilter
   ]);
   
   // Limpar filtros
@@ -1222,15 +1295,44 @@ const OrdensServico = () => {
   };
 
   const selectAllFiltered = async () => {
-    // Buscar todos os IDs filtrados (não só os visíveis)
-    let query = supabase.from("ordens_servico").select("id");
-    query = applyFiltersToQuery(query);
-    const { data } = await query;
-    if (data) {
+    // Buscar todos os IDs filtrados com paginação (não só os visíveis)
+    const PAGE_SIZE_SELECT = 1000;
+    let allIds: string[] = [];
+    let page = 0;
+    let hasMore = true;
+    
+    toast.info("Buscando todas as OSs filtradas...");
+    
+    while (hasMore) {
+      const from = page * PAGE_SIZE_SELECT;
+      const to = from + PAGE_SIZE_SELECT - 1;
+      
+      let query = supabase.from("ordens_servico").select("id");
+      query = applyFiltersToQuery(query);
+      query = query.range(from, to);
+      
+      const { data, error } = await query;
+      
+      if (error) {
+        toast.error("Erro ao buscar OSs");
+        console.error(error);
+        return;
+      }
+      
+      if (data && data.length > 0) {
+        allIds = [...allIds, ...data.map((os: any) => os.id)];
+        hasMore = data.length === PAGE_SIZE_SELECT;
+        page++;
+      } else {
+        hasMore = false;
+      }
+    }
+    
+    if (allIds.length > 0) {
       const newSelected = new Set(selectedOsIds);
-      data.forEach((os: any) => newSelected.add(os.id));
+      allIds.forEach(id => newSelected.add(id));
       setSelectedOsIds(newSelected);
-      toast.success(`${data.length} OSs selecionadas`);
+      toast.success(`${allIds.length} OSs selecionadas`);
     }
   };
 
@@ -1250,25 +1352,50 @@ const OrdensServico = () => {
 
   const isAllVisibleSelected = sortedOrdens.length > 0 && sortedOrdens.every(os => selectedOsIds.has(os.id));
 
-  // Cancelar OSs selecionadas
+  // Cancelar OSs selecionadas (updates individuais em paralelo)
   const handleCancelSelectedOs = async () => {
     if (selectedOsIds.size === 0) return;
     
-    const { error } = await supabase
-      .from("ordens_servico")
-      .update({ status: "cancelada", atualizado_at: new Date().toISOString() })
-      .in("id", Array.from(selectedOsIds));
-
-    if (error) {
-      toast.error("Erro ao cancelar ordens de serviço");
-      console.error(error);
-    } else {
-      toast.success(`${selectedOsIds.size} ordem(ns) de serviço cancelada(s)`);
-      setSelectedOsIds(new Set());
-      setClearAllDialogOpen(false);
-      setCancelConfirmText("");
-      fetchOrdens(0, false);
+    const idsArray = Array.from(selectedOsIds);
+    const CONCURRENT_LIMIT = 10; // Limite de requisições simultâneas
+    let totalCanceladas = 0;
+    let hasError = false;
+    
+    toast.info(`Cancelando ${idsArray.length} OSs...`);
+    
+    // Processar em grupos de CONCURRENT_LIMIT requisições simultâneas
+    for (let i = 0; i < idsArray.length; i += CONCURRENT_LIMIT) {
+      const batch = idsArray.slice(i, i + CONCURRENT_LIMIT);
+      
+      const results = await Promise.allSettled(
+        batch.map(id => 
+          supabase
+            .from("ordens_servico")
+            .update({ status: "cancelada" })
+            .eq("id", id)
+        )
+      );
+      
+      results.forEach((result, index) => {
+        if (result.status === "fulfilled" && !result.value.error) {
+          totalCanceladas++;
+        } else {
+          console.error("Erro ao cancelar OS:", batch[index], result);
+          hasError = true;
+        }
+      });
     }
+
+    if (hasError) {
+      toast.error(`Erro ao cancelar algumas ordens. ${totalCanceladas} foram canceladas.`);
+    } else {
+      toast.success(`${totalCanceladas} ordem(ns) de serviço cancelada(s)`);
+    }
+    
+    setSelectedOsIds(new Set());
+    setClearAllDialogOpen(false);
+    setCancelConfirmText("");
+    fetchOrdens(0, false);
   };
 
   const getStatusVariant = (status: string) => {
@@ -1283,9 +1410,7 @@ const OrdensServico = () => {
 
   return (
     <MainLayout
-      title="Consulta Serviços"
-      subtitle="Gestão completa das ordens de serviço"
-      breadcrumbs={[{ label: "Consulta Serviços" }]}
+      title="Ordens de Serviço"
     >
       {/* Actions Bar */}
       <div className="rounded-xl border border-border bg-card p-4 mb-6">
@@ -1698,7 +1823,10 @@ const OrdensServico = () => {
               {/* Município - Multi-select */}
               <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">Município</label>
-                <Popover open={municipioFilterOpen} onOpenChange={setMunicipioFilterOpen}>
+                <Popover open={municipioFilterOpen} onOpenChange={(open) => {
+                  setMunicipioFilterOpen(open);
+                  if (!open) setMunicipioSearchTerm("");
+                }}>
                   <PopoverTrigger asChild>
                     <Button variant="outline" className="h-9 w-full justify-between text-left font-normal">
                       {municipioFilter.length === 0 ? (
@@ -1712,15 +1840,21 @@ const OrdensServico = () => {
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-[250px] p-0" align="start">
-                    <Command>
-                      <CommandInput placeholder="Buscar município..." />
-                      <CommandList>
+                    <Command shouldFilter={false}>
+                      <CommandInput 
+                        placeholder="Buscar município..." 
+                        value={municipioSearchTerm}
+                        onValueChange={setMunicipioSearchTerm}
+                      />
+                      <CommandList className="max-h-[400px]">
                         <CommandEmpty>Nenhum município encontrado.</CommandEmpty>
                         <CommandGroup>
                           <CommandItem onSelect={() => setMunicipioFilter([])}>
                             <span className="text-muted-foreground">Limpar seleção</span>
                           </CommandItem>
-                          {availableMunicipios.map((municipio) => {
+                          {availableMunicipios
+                            .filter(m => m.toLowerCase().includes(municipioSearchTerm.toLowerCase()))
+                            .map((municipio) => {
                             const isSelected = municipioFilter.includes(municipio);
                             return (
                               <CommandItem key={municipio} onSelect={() => {
@@ -1745,7 +1879,10 @@ const OrdensServico = () => {
               {/* Bairro - Multi-select */}
               <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">Bairro</label>
-                <Popover open={bairroFilterOpen} onOpenChange={setBairroFilterOpen}>
+                <Popover open={bairroFilterOpen} onOpenChange={(open) => {
+                  setBairroFilterOpen(open);
+                  if (!open) setBairroSearchTerm("");
+                }}>
                   <PopoverTrigger asChild>
                     <Button variant="outline" className="h-9 w-full justify-between text-left font-normal">
                       {bairroFilter.length === 0 ? (
@@ -1759,15 +1896,21 @@ const OrdensServico = () => {
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-[250px] p-0" align="start">
-                    <Command>
-                      <CommandInput placeholder="Buscar bairro..." />
-                      <CommandList>
+                    <Command shouldFilter={false}>
+                      <CommandInput 
+                        placeholder="Buscar bairro..." 
+                        value={bairroSearchTerm}
+                        onValueChange={setBairroSearchTerm}
+                      />
+                      <CommandList className="max-h-[400px]">
                         <CommandEmpty>Nenhum bairro encontrado.</CommandEmpty>
                         <CommandGroup>
                           <CommandItem onSelect={() => setBairroFilter([])}>
                             <span className="text-muted-foreground">Limpar seleção</span>
                           </CommandItem>
-                          {availableBairros.map((bairro) => {
+                          {availableBairros
+                            .filter(b => b.toLowerCase().includes(bairroSearchTerm.toLowerCase()))
+                            .map((bairro) => {
                             const isSelected = bairroFilter.includes(bairro);
                             return (
                               <CommandItem key={bairro} onSelect={() => {
@@ -1814,7 +1957,9 @@ const OrdensServico = () => {
                           <CommandItem onSelect={() => setCentroCustoFilter([])}>
                             <span className="text-muted-foreground">Limpar seleção</span>
                           </CommandItem>
-                          {centrosCusto.map((cc) => {
+                          {centrosCusto
+                            .filter(cc => availableCentrosCusto.length === 0 || availableCentrosCusto.includes(cc.id))
+                            .map((cc) => {
                             const isSelected = centroCustoFilter.includes(cc.id);
                             return (
                               <CommandItem key={cc.id} onSelect={() => {

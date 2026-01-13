@@ -173,10 +173,9 @@ export default function Skills() {
 
   return (
     <MainLayout
-      title="Cadastro de Skills"
-      subtitle="Gerencie as habilidades e tempos de execução"
+      title="Skills"
       breadcrumbs={[
-        { label: "Cadastros", href: "/cadastros" },
+        { label: "Cadastros" },
         { label: "Skills" },
       ]}
     >

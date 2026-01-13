@@ -653,7 +653,7 @@ export default function CadastroTerritorios() {
   };
 
   return (
-    <MainLayout title="Cadastro de Territórios">
+    <MainLayout title="Territórios">
       <div className="flex h-[calc(100vh-8rem)] gap-4">
         {/* Sidebar */}
         <div className="w-[300px] bg-slate-900 rounded-lg p-4 flex flex-col gap-4 min-h-0">

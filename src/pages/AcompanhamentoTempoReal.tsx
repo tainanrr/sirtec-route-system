@@ -973,9 +973,7 @@ export default function AcompanhamentoTempoReal() {
 
   return (
     <MainLayout
-      title="Acompanhamento Tempo Real"
-      subtitle={`Rotas do dia ${format(new Date(), "dd/MM/yyyy")} - ${metricas.equipes} equipes em campo`}
-      breadcrumbs={[{ label: "Acompanhamento Tempo Real" }]}
+      title="Tempo Real"
     >
       {/* Barra de Controle Superior */}
       <div className="rounded-xl border border-border bg-card p-4 mb-4">

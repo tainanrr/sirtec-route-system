@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableBody,
@@ -51,6 +52,19 @@ import {
 } from "@/components/ui/collapsible";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
   Search,
   Filter,
   Calendar,
@@ -82,6 +96,9 @@ import {
   X,
   Activity,
   Truck,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { format, parseISO, differenceInMinutes } from "date-fns";
 import { verificarOsEmAndamento } from "@/lib/authUtils";
@@ -108,6 +125,7 @@ interface Turno {
     nome: string;
     tipo_equipe: string | null;
     centro_custo_id: string | null;
+    supervisor_id?: string | null;
   };
   turno_colaboradores?: {
     id: string;
@@ -215,6 +233,24 @@ interface OsPlanejadaTurno {
 // Constantes de paginação
 const PAGE_SIZE = 50;
 
+// Tipo para ordenação
+type SortDirection = "asc" | "desc" | null;
+type SortColumn = "equipe" | "dataInicio" | "dataFim" | "duracao" | "colaboradores" | "veiculo" | "status" | null;
+
+interface SortConfig {
+  column: SortColumn;
+  direction: SortDirection;
+}
+
+// Interfaces para coordenadores e supervisores
+interface CoordenadorSupervisor {
+  id: string;
+  codigo: string;
+  nome: string;
+  tipo: "coordenador" | "supervisor";
+  coordenador_id?: string | null;
+}
+
 export default function ConsultaTurnos() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -222,10 +258,26 @@ export default function ConsultaTurnos() {
   
   // Estados de filtro
   const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
   const [dataInicio, setDataInicio] = useState("");
   const [dataFim, setDataFim] = useState("");
-  const [equipeFilter, setEquipeFilter] = useState<string>("all");
+  
+  // Estados para filtros multi-select
+  const [equipeFilter, setEquipeFilter] = useState<string[]>([]);
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [coordenadorFilter, setCoordenadorFilter] = useState<string[]>([]);
+  const [supervisorFilter, setSupervisorFilter] = useState<string[]>([]);
+  const [veiculoFilter, setVeiculoFilter] = useState<string[]>([]);
+  
+  // Estados para popovers de filtro
+  const [equipesFilterOpen, setEquipesFilterOpen] = useState(false);
+  const [statusFilterOpen, setStatusFilterOpen] = useState(false);
+  const [coordenadorFilterOpen, setCoordenadorFilterOpen] = useState(false);
+  const [supervisorFilterOpen, setSupervisorFilterOpen] = useState(false);
+  const [veiculoFilterOpen, setVeiculoFilterOpen] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  
+  // Estado de ordenação
+  const [sortConfig, setSortConfig] = useState<SortConfig>({ column: "dataInicio", direction: "desc" });
   
   // Estados de UI
   const [selectedTurno, setSelectedTurno] = useState<Turno | null>(null);
@@ -244,17 +296,39 @@ export default function ConsultaTurnos() {
   // Paginação
   const [currentPage, setCurrentPage] = useState(0);
   
-  // Buscar equipes para filtro
+  // Buscar equipes para filtro (com supervisor_id)
   const { data: equipes } = useQuery({
-    queryKey: ["equipes-filtro"],
+    queryKey: ["equipes-filtro-turnos"],
     queryFn: async () => {
       const { data } = await supabase
         .from("tecnicos")
-        .select("id, codigo, nome")
+        .select("id, codigo, nome, supervisor_id")
         .order("codigo");
       return data || [];
     },
   });
+  
+  // Buscar coordenadores e supervisores
+  const { data: coordSup } = useQuery({
+    queryKey: ["coordenadores-supervisores-turnos"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("coordenadores_supervisores")
+        .select("id, codigo, nome, tipo, coordenador_id")
+        .eq("ativo", true)
+        .order("nome");
+      return data as CoordenadorSupervisor[] || [];
+    },
+  });
+  
+  // Separar coordenadores e supervisores
+  const coordenadores = useMemo(() => {
+    return (coordSup || []).filter(cs => cs.tipo === "coordenador");
+  }, [coordSup]);
+  
+  const supervisores = useMemo(() => {
+    return (coordSup || []).filter(cs => cs.tipo === "supervisor");
+  }, [coordSup]);
   
   // Buscar tipos de serviço (skills) para exibir nome
   const { data: tiposServico } = useQuery({
@@ -276,46 +350,85 @@ export default function ConsultaTurnos() {
 
   // Criar mapa de equipes para lookup rápido
   const equipesMap = useMemo(() => {
-    const map = new Map<string, { id: string; codigo: string; nome: string }>();
+    const map = new Map<string, { id: string; codigo: string; nome: string; supervisor_id?: string }>();
     (equipes || []).forEach(eq => {
       map.set(eq.id, eq);
     });
     return map;
   }, [equipes]);
+  
+  // Filtrar supervisores disponíveis baseado nos coordenadores selecionados
+  const supervisoresDisponiveis = useMemo(() => {
+    if (coordenadorFilter.length === 0) {
+      return supervisores;
+    }
+    // Retorna supervisores que estão vinculados aos coordenadores selecionados
+    return supervisores.filter(sup => 
+      sup.coordenador_id && coordenadorFilter.includes(sup.coordenador_id)
+    );
+  }, [supervisores, coordenadorFilter]);
+  
+  // Filtrar coordenadores disponíveis baseado nos supervisores selecionados
+  const coordenadoresDisponiveis = useMemo(() => {
+    if (supervisorFilter.length === 0) {
+      return coordenadores;
+    }
+    // Se há supervisores selecionados, mostrar coordenadores vinculados a eles
+    const coordenadoresIds = new Set<string>();
+    supervisorFilter.forEach(supId => {
+      const sup = supervisores.find(s => s.id === supId);
+      if (sup?.coordenador_id) {
+        coordenadoresIds.add(sup.coordenador_id);
+      }
+    });
+    return coordenadores.filter(coord => coordenadoresIds.has(coord.id));
+  }, [coordenadores, supervisores, supervisorFilter]);
+  
+  // Filtrar equipes disponíveis baseado nos coordenadores/supervisores selecionados
+  const equipesDisponiveis = useMemo(() => {
+    let filtered = equipes || [];
+    
+    // Filtrar por supervisor
+    if (supervisorFilter.length > 0) {
+      filtered = filtered.filter(eq => 
+        eq.supervisor_id && supervisorFilter.includes(eq.supervisor_id)
+      );
+    }
+    
+    // Filtrar por coordenador (equipes cujo supervisor pertence ao coordenador)
+    if (coordenadorFilter.length > 0) {
+      const supervisoresDosCoordenadores = supervisores
+        .filter(sup => sup.coordenador_id && coordenadorFilter.includes(sup.coordenador_id))
+        .map(sup => sup.id);
+      
+      filtered = filtered.filter(eq => 
+        eq.supervisor_id && supervisoresDosCoordenadores.includes(eq.supervisor_id)
+      );
+    }
+    
+    return filtered;
+  }, [equipes, supervisores, coordenadorFilter, supervisorFilter]);
 
   // Buscar turnos
   const { data: turnosData, isLoading, refetch } = useQuery({
-    queryKey: ["turnos", statusFilter, dataInicio, dataFim, equipeFilter, searchTerm, currentPage],
+    queryKey: ["turnos", dataInicio, dataFim, currentPage],
     queryFn: async () => {
       // Primeiro buscar turnos básicos
       let query = supabase
         .from("turnos")
         .select(`
           *,
-          tecnicos:equipe_id (id, codigo, nome, tipo_equipe, centro_custo_id)
+          tecnicos:equipe_id (id, codigo, nome, tipo_equipe, centro_custo_id, supervisor_id)
         `, { count: "exact" })
         .order("hora_inicio", { ascending: false });
       
-      // Aplicar filtros
-      if (statusFilter !== "all") {
-        query = query.eq("status", statusFilter);
-      }
-      
+      // Aplicar filtros de data na query (são filtros mais eficientes no banco)
       if (dataInicio) {
         query = query.gte("hora_inicio", dataInicio + "T00:00:00");
       }
       
       if (dataFim) {
         query = query.lte("hora_inicio", dataFim + "T23:59:59");
-      }
-      
-      if (equipeFilter !== "all") {
-        query = query.eq("equipe_id", equipeFilter);
-      }
-      
-      // Busca por placa
-      if (searchTerm) {
-        query = query.ilike("placa_veiculo", `%${searchTerm}%`);
       }
       
       // Paginação
@@ -329,8 +442,6 @@ export default function ConsultaTurnos() {
         console.error("Erro ao buscar turnos:", error);
         throw error;
       }
-      
-      console.log("Turnos encontrados:", data?.length, data);
       
       // Buscar colaboradores dos turnos separadamente
       if (data && data.length > 0) {
@@ -370,6 +481,168 @@ export default function ConsultaTurnos() {
       return { turnos: (data || []) as Turno[], total: count || 0 };
     },
   });
+  
+  // Obter veículos únicos dos turnos para o filtro
+  const veiculosDisponiveis = useMemo(() => {
+    const veiculos = new Set<string>();
+    (turnosData?.turnos || []).forEach(turno => {
+      if (turno.placa_veiculo) {
+        veiculos.add(turno.placa_veiculo);
+      }
+    });
+    return Array.from(veiculos).sort();
+  }, [turnosData?.turnos]);
+  
+  // Filtrar e ordenar turnos localmente
+  const turnosFiltradosOrdenados = useMemo(() => {
+    let filtered = turnosData?.turnos || [];
+    
+    // Filtro por status (multi-select)
+    if (statusFilter.length > 0) {
+      filtered = filtered.filter(t => statusFilter.includes(t.status));
+    }
+    
+    // Filtro por equipe (multi-select)
+    if (equipeFilter.length > 0) {
+      filtered = filtered.filter(t => equipeFilter.includes(t.equipe_id));
+    }
+    
+    // Filtro por veículo (multi-select)
+    if (veiculoFilter.length > 0) {
+      filtered = filtered.filter(t => t.placa_veiculo && veiculoFilter.includes(t.placa_veiculo));
+    }
+    
+    // Filtro por coordenador
+    if (coordenadorFilter.length > 0) {
+      // Buscar supervisores dos coordenadores selecionados
+      const supervisoresDosCoordenadores = supervisores
+        .filter(sup => sup.coordenador_id && coordenadorFilter.includes(sup.coordenador_id))
+        .map(sup => sup.id);
+      
+      filtered = filtered.filter(t => {
+        const tecnico = t.tecnicos as any;
+        return tecnico?.supervisor_id && supervisoresDosCoordenadores.includes(tecnico.supervisor_id);
+      });
+    }
+    
+    // Filtro por supervisor
+    if (supervisorFilter.length > 0) {
+      filtered = filtered.filter(t => {
+        const tecnico = t.tecnicos as any;
+        return tecnico?.supervisor_id && supervisorFilter.includes(tecnico.supervisor_id);
+      });
+    }
+    
+    // Filtro de texto livre (pesquisa em múltiplos campos)
+    if (searchTerm.trim()) {
+      const termo = searchTerm.toLowerCase().trim();
+      filtered = filtered.filter(t => {
+        const tecnico = t.tecnicos as any;
+        
+        // Pesquisar em código da equipe
+        if (tecnico?.codigo?.toLowerCase().includes(termo)) return true;
+        
+        // Pesquisar em nome da equipe
+        if (tecnico?.nome?.toLowerCase().includes(termo)) return true;
+        
+        // Pesquisar em placa do veículo
+        if (t.placa_veiculo?.toLowerCase().includes(termo)) return true;
+        
+        // Pesquisar em status
+        const statusLabel = t.status === "aberto" ? "em andamento" : t.status === "fechado" ? "finalizado" : t.status;
+        if (statusLabel.toLowerCase().includes(termo)) return true;
+        
+        // Pesquisar em nomes dos colaboradores
+        if (t.turno_colaboradores?.some(colab => colab.nome?.toLowerCase().includes(termo))) return true;
+        
+        // Pesquisar por coordenador/supervisor vinculado à equipe
+        if (tecnico?.supervisor_id) {
+          const supervisor = supervisores.find(s => s.id === tecnico.supervisor_id);
+          if (supervisor?.nome?.toLowerCase().includes(termo)) return true;
+          
+          if (supervisor?.coordenador_id) {
+            const coordenador = coordenadores.find(c => c.id === supervisor.coordenador_id);
+            if (coordenador?.nome?.toLowerCase().includes(termo)) return true;
+          }
+        }
+        
+        return false;
+      });
+    }
+    
+    // Ordenação
+    if (sortConfig.column && sortConfig.direction) {
+      filtered = [...filtered].sort((a, b) => {
+        const direction = sortConfig.direction === "asc" ? 1 : -1;
+        
+        switch (sortConfig.column) {
+          case "equipe":
+            const codigoA = (a.tecnicos as any)?.codigo || "";
+            const codigoB = (b.tecnicos as any)?.codigo || "";
+            return codigoA.localeCompare(codigoB) * direction;
+            
+          case "dataInicio":
+            return (new Date(a.hora_inicio).getTime() - new Date(b.hora_inicio).getTime()) * direction;
+            
+          case "dataFim":
+            const fimA = a.hora_fim ? new Date(a.hora_fim).getTime() : 0;
+            const fimB = b.hora_fim ? new Date(b.hora_fim).getTime() : 0;
+            return (fimA - fimB) * direction;
+            
+          case "duracao":
+            const duracaoA = a.hora_fim 
+              ? differenceInMinutes(parseISO(a.hora_fim), parseISO(a.hora_inicio))
+              : differenceInMinutes(new Date(), parseISO(a.hora_inicio));
+            const duracaoB = b.hora_fim 
+              ? differenceInMinutes(parseISO(b.hora_fim), parseISO(b.hora_inicio))
+              : differenceInMinutes(new Date(), parseISO(b.hora_inicio));
+            return (duracaoA - duracaoB) * direction;
+            
+          case "colaboradores":
+            const colabA = a.turno_colaboradores?.length || 0;
+            const colabB = b.turno_colaboradores?.length || 0;
+            return (colabA - colabB) * direction;
+            
+          case "veiculo":
+            const veicA = a.placa_veiculo || "";
+            const veicB = b.placa_veiculo || "";
+            return veicA.localeCompare(veicB) * direction;
+            
+          case "status":
+            return a.status.localeCompare(b.status) * direction;
+            
+          default:
+            return 0;
+        }
+      });
+    }
+    
+    return filtered;
+  }, [turnosData?.turnos, statusFilter, equipeFilter, veiculoFilter, coordenadorFilter, supervisorFilter, searchTerm, sortConfig, supervisores, coordenadores]);
+  
+  // Função para alternar ordenação de coluna
+  const handleSort = (column: SortColumn) => {
+    setSortConfig(prev => {
+      if (prev.column === column) {
+        // Ciclo: asc -> desc -> null -> asc
+        if (prev.direction === "asc") return { column, direction: "desc" };
+        if (prev.direction === "desc") return { column: null, direction: null };
+        return { column, direction: "asc" };
+      }
+      return { column, direction: "asc" };
+    });
+  };
+  
+  // Componente de ícone de ordenação
+  const SortIcon = ({ column }: { column: SortColumn }) => {
+    if (sortConfig.column !== column) {
+      return <ArrowUpDown className="h-4 w-4 ml-1 opacity-30" />;
+    }
+    if (sortConfig.direction === "asc") {
+      return <ArrowUp className="h-4 w-4 ml-1 text-primary" />;
+    }
+    return <ArrowDown className="h-4 w-4 ml-1 text-primary" />;
+  };
 
   // Buscar detalhes do turno selecionado
   const { data: turnoDetalhes, isLoading: isLoadingDetalhes } = useQuery({
@@ -823,31 +1096,41 @@ export default function ConsultaTurnos() {
   };
 
   const getStatusBadge = (status: string) => {
-    const config: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
-      aberto: { label: "Em Andamento", variant: "default" },
-      fechado: { label: "Finalizado", variant: "secondary" },
-      cancelado: { label: "Cancelado", variant: "destructive" },
-    };
-    const c = config[status] || { label: status, variant: "outline" };
-    return <Badge variant={c.variant}>{c.label}</Badge>;
+    switch (status) {
+      case "aberto":
+        return <Badge variant="default" className="bg-blue-500 hover:bg-blue-600">Em Andamento</Badge>;
+      case "fechado":
+        return <Badge variant="default" className="bg-green-500 hover:bg-green-600">Finalizado</Badge>;
+      case "cancelado":
+        return <Badge variant="destructive">Cancelado</Badge>;
+      default:
+        return <Badge variant="outline">{status}</Badge>;
+    }
   };
 
   // Limpar filtros
   const limparFiltros = () => {
     setSearchTerm("");
-    setStatusFilter("all");
+    setStatusFilter([]);
     setDataInicio("");
     setDataFim("");
-    setEquipeFilter("all");
+    setEquipeFilter([]);
+    setCoordenadorFilter([]);
+    setSupervisorFilter([]);
+    setVeiculoFilter([]);
     setCurrentPage(0);
+    setSortConfig({ column: "dataInicio", direction: "desc" });
   };
 
   // Contar filtros ativos
   const filtrosAtivos = [
-    statusFilter !== "all",
+    statusFilter.length > 0,
     dataInicio !== "",
     dataFim !== "",
-    equipeFilter !== "all",
+    equipeFilter.length > 0,
+    coordenadorFilter.length > 0,
+    supervisorFilter.length > 0,
+    veiculoFilter.length > 0,
     searchTerm !== "",
   ].filter(Boolean).length;
 
@@ -868,15 +1151,23 @@ export default function ConsultaTurnos() {
         return;
       }
 
+      const horaFim = new Date().toISOString();
       const { error } = await supabase
         .from("turnos")
         .update({
           status: "fechado",
-          hora_fim: new Date().toISOString(),
+          hora_fim: horaFim,
         })
         .eq("id", selectedTurno.id);
       
       if (error) throw error;
+      
+      // Atualizar o estado local do turno selecionado para refletir a mudança imediatamente
+      setSelectedTurno({
+        ...selectedTurno,
+        status: "fechado",
+        hora_fim: horaFim,
+      });
       
       toast.success("Turno encerrado com sucesso!");
       setActionSuccess(true);
@@ -895,15 +1186,23 @@ export default function ConsultaTurnos() {
     
     setIsProcessing(true);
     try {
+      const horaFim = new Date().toISOString();
       const { error } = await supabase
         .from("turnos")
         .update({
           status: "cancelado",
-          hora_fim: new Date().toISOString(),
+          hora_fim: horaFim,
         })
         .eq("id", selectedTurno.id);
       
       if (error) throw error;
+      
+      // Atualizar o estado local do turno selecionado para refletir a mudança imediatamente
+      setSelectedTurno({
+        ...selectedTurno,
+        status: "cancelado",
+        hora_fim: horaFim,
+      });
       
       toast.success("Turno cancelado!");
       setActionSuccess(true);
@@ -923,7 +1222,7 @@ export default function ConsultaTurnos() {
   };
 
   return (
-    <MainLayout title="Consulta de Turnos" breadcrumbs={[{ label: "Consulta de Turnos" }]}>
+    <MainLayout title="Turnos">
       <div className="space-y-6">
         {/* Ações */}
         <div className="flex justify-end">
@@ -936,69 +1235,368 @@ export default function ConsultaTurnos() {
         {/* Filtros */}
         <Card>
           <CardContent className="p-4">
-            <div className="flex flex-wrap items-center gap-4">
-              {/* Busca */}
-              <div className="relative flex-1 min-w-[200px]">
+            {/* Linha principal: busca + botão de filtros */}
+            <div className="flex gap-2 mb-3">
+              <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Buscar por equipe ou placa..."
+                  placeholder="Buscar por equipe, placa, colaborador, coordenador, supervisor..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-9"
                 />
               </div>
-
-              {/* Status */}
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-[160px]">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos Status</SelectItem>
-                  <SelectItem value="aberto">Em Andamento</SelectItem>
-                  <SelectItem value="fechado">Finalizados</SelectItem>
-                  <SelectItem value="cancelado">Cancelados</SelectItem>
-                </SelectContent>
-              </Select>
-
-              {/* Equipe */}
-              <Select value={equipeFilter} onValueChange={setEquipeFilter}>
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="Equipe" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas Equipes</SelectItem>
-                  {equipes?.map(eq => (
-                    <SelectItem key={eq.id} value={eq.id}>{eq.codigo} - {eq.nome}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              {/* Período */}
-              <div className="flex items-center gap-2">
-                <Input
-                  type="date"
-                  value={dataInicio}
-                  onChange={(e) => setDataInicio(e.target.value)}
-                  className="w-[140px]"
-                />
-                <span className="text-muted-foreground">-</span>
-                <Input
-                  type="date"
-                  value={dataFim}
-                  onChange={(e) => setDataFim(e.target.value)}
-                  className="w-[140px]"
-                />
-              </div>
-
-              {/* Limpar filtros */}
+              <Button 
+                variant={showFilters ? "default" : "outline"} 
+                className="gap-2"
+                onClick={() => setShowFilters(!showFilters)}
+              >
+                <Filter className="h-4 w-4" />
+                Filtros
+                {filtrosAtivos > 0 && (
+                  <Badge variant="secondary" className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs">
+                    {filtrosAtivos}
+                  </Badge>
+                )}
+                {showFilters ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </Button>
               {filtrosAtivos > 0 && (
-                <Button variant="ghost" size="sm" onClick={limparFiltros}>
-                  <RotateCcw className="h-4 w-4 mr-1" />
-                  Limpar ({filtrosAtivos})
+                <Button variant="ghost" size="sm" onClick={limparFiltros} className="text-muted-foreground">
+                  <RotateCcw className="h-4 w-4" />
                 </Button>
               )}
             </div>
+            
+            {/* Painel de filtros avançados */}
+            {showFilters && (
+              <div className="pt-3 border-t border-border/50">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                  {/* Equipe - Multi-select com busca */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium">Equipe</label>
+                    <Popover open={equipesFilterOpen} onOpenChange={setEquipesFilterOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={equipesFilterOpen}
+                          className="w-full h-9 justify-between text-left font-normal"
+                        >
+                          {equipeFilter.length === 0 ? (
+                            <span>Todas</span>
+                          ) : equipeFilter.length === 1 ? (
+                            <span className="truncate">{equipesMap.get(equipeFilter[0])?.codigo || equipeFilter[0]}</span>
+                          ) : (
+                            <span className="truncate">{equipeFilter.length} selecionadas</span>
+                          )}
+                          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[280px] p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="Buscar equipe..." />
+                          <CommandList>
+                            <CommandEmpty>Nenhuma equipe encontrada.</CommandEmpty>
+                            <CommandGroup>
+                              {equipeFilter.length > 0 && (
+                                <CommandItem onSelect={() => setEquipeFilter([])} className="text-muted-foreground">
+                                  <X className="mr-2 h-4 w-4" />
+                                  Limpar seleção
+                                </CommandItem>
+                              )}
+                              {equipesDisponiveis.map((eq) => {
+                                const isSelected = equipeFilter.includes(eq.id);
+                                return (
+                                  <CommandItem
+                                    key={eq.id}
+                                    value={`${eq.codigo} ${eq.nome}`}
+                                    onSelect={() => {
+                                      if (isSelected) {
+                                        setEquipeFilter(equipeFilter.filter(id => id !== eq.id));
+                                      } else {
+                                        setEquipeFilter([...equipeFilter, eq.id]);
+                                      }
+                                    }}
+                                  >
+                                    <Checkbox checked={isSelected} className="mr-2" />
+                                    <span className="font-mono text-xs mr-2">{eq.codigo}</span>
+                                    <span className="truncate">{eq.nome}</span>
+                                  </CommandItem>
+                                );
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+
+                  {/* Coordenador - Multi-select com busca */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium">Coordenador</label>
+                    <Popover open={coordenadorFilterOpen} onOpenChange={setCoordenadorFilterOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={coordenadorFilterOpen}
+                          className="w-full h-9 justify-between text-left font-normal"
+                        >
+                          {coordenadorFilter.length === 0 ? (
+                            <span>Todos</span>
+                          ) : coordenadorFilter.length === 1 ? (
+                            <span className="truncate">{coordenadores.find(c => c.id === coordenadorFilter[0])?.nome || coordenadorFilter[0]}</span>
+                          ) : (
+                            <span className="truncate">{coordenadorFilter.length} selecionados</span>
+                          )}
+                          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[280px] p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="Buscar coordenador..." />
+                          <CommandList>
+                            <CommandEmpty>Nenhum coordenador encontrado.</CommandEmpty>
+                            <CommandGroup>
+                              {coordenadorFilter.length > 0 && (
+                                <CommandItem onSelect={() => setCoordenadorFilter([])} className="text-muted-foreground">
+                                  <X className="mr-2 h-4 w-4" />
+                                  Limpar seleção
+                                </CommandItem>
+                              )}
+                              {coordenadoresDisponiveis.map((coord) => {
+                                const isSelected = coordenadorFilter.includes(coord.id);
+                                return (
+                                  <CommandItem
+                                    key={coord.id}
+                                    value={`${coord.codigo} ${coord.nome}`}
+                                    onSelect={() => {
+                                      if (isSelected) {
+                                        setCoordenadorFilter(coordenadorFilter.filter(id => id !== coord.id));
+                                      } else {
+                                        setCoordenadorFilter([...coordenadorFilter, coord.id]);
+                                      }
+                                    }}
+                                  >
+                                    <Checkbox checked={isSelected} className="mr-2" />
+                                    {coord.nome}
+                                  </CommandItem>
+                                );
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+
+                  {/* Supervisor - Multi-select com busca */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium">Supervisor</label>
+                    <Popover open={supervisorFilterOpen} onOpenChange={setSupervisorFilterOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={supervisorFilterOpen}
+                          className="w-full h-9 justify-between text-left font-normal"
+                        >
+                          {supervisorFilter.length === 0 ? (
+                            <span>Todos</span>
+                          ) : supervisorFilter.length === 1 ? (
+                            <span className="truncate">{supervisores.find(s => s.id === supervisorFilter[0])?.nome || supervisorFilter[0]}</span>
+                          ) : (
+                            <span className="truncate">{supervisorFilter.length} selecionados</span>
+                          )}
+                          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[280px] p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="Buscar supervisor..." />
+                          <CommandList>
+                            <CommandEmpty>Nenhum supervisor encontrado.</CommandEmpty>
+                            <CommandGroup>
+                              {supervisorFilter.length > 0 && (
+                                <CommandItem onSelect={() => setSupervisorFilter([])} className="text-muted-foreground">
+                                  <X className="mr-2 h-4 w-4" />
+                                  Limpar seleção
+                                </CommandItem>
+                              )}
+                              {supervisoresDisponiveis.map((sup) => {
+                                const isSelected = supervisorFilter.includes(sup.id);
+                                return (
+                                  <CommandItem
+                                    key={sup.id}
+                                    value={`${sup.codigo} ${sup.nome}`}
+                                    onSelect={() => {
+                                      if (isSelected) {
+                                        setSupervisorFilter(supervisorFilter.filter(id => id !== sup.id));
+                                      } else {
+                                        setSupervisorFilter([...supervisorFilter, sup.id]);
+                                      }
+                                    }}
+                                  >
+                                    <Checkbox checked={isSelected} className="mr-2" />
+                                    {sup.nome}
+                                  </CommandItem>
+                                );
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+
+                  {/* Status - Multi-select */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium">Status</label>
+                    <Popover open={statusFilterOpen} onOpenChange={setStatusFilterOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={statusFilterOpen}
+                          className="w-full h-9 justify-between text-left font-normal"
+                        >
+                          {statusFilter.length === 0 ? (
+                            <span>Todos</span>
+                          ) : statusFilter.length === 1 ? (
+                            <span className="truncate">
+                              {statusFilter[0] === "aberto" ? "Em Andamento" : 
+                               statusFilter[0] === "fechado" ? "Finalizado" : "Cancelado"}
+                            </span>
+                          ) : (
+                            <span className="truncate">{statusFilter.length} selecionados</span>
+                          )}
+                          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[200px] p-0" align="start">
+                        <Command>
+                          <CommandList>
+                            <CommandGroup>
+                              {statusFilter.length > 0 && (
+                                <CommandItem onSelect={() => setStatusFilter([])} className="text-muted-foreground">
+                                  <X className="mr-2 h-4 w-4" />
+                                  Limpar seleção
+                                </CommandItem>
+                              )}
+                              {[
+                                { value: "aberto", label: "Em Andamento" },
+                                { value: "fechado", label: "Finalizado" },
+                                { value: "cancelado", label: "Cancelado" },
+                              ].map((status) => {
+                                const isSelected = statusFilter.includes(status.value);
+                                return (
+                                  <CommandItem
+                                    key={status.value}
+                                    value={status.label}
+                                    onSelect={() => {
+                                      if (isSelected) {
+                                        setStatusFilter(statusFilter.filter(s => s !== status.value));
+                                      } else {
+                                        setStatusFilter([...statusFilter, status.value]);
+                                      }
+                                    }}
+                                  >
+                                    <Checkbox checked={isSelected} className="mr-2" />
+                                    {status.label}
+                                  </CommandItem>
+                                );
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+
+                  {/* Veículo - Multi-select */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium">Veículo</label>
+                    <Popover open={veiculoFilterOpen} onOpenChange={setVeiculoFilterOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={veiculoFilterOpen}
+                          className="w-full h-9 justify-between text-left font-normal"
+                        >
+                          {veiculoFilter.length === 0 ? (
+                            <span>Todos</span>
+                          ) : veiculoFilter.length === 1 ? (
+                            <span className="truncate">{veiculoFilter[0]}</span>
+                          ) : (
+                            <span className="truncate">{veiculoFilter.length} selecionados</span>
+                          )}
+                          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[200px] p-0" align="start">
+                        <Command>
+                          <CommandInput placeholder="Buscar placa..." />
+                          <CommandList>
+                            <CommandEmpty>Nenhum veículo encontrado.</CommandEmpty>
+                            <CommandGroup>
+                              {veiculoFilter.length > 0 && (
+                                <CommandItem onSelect={() => setVeiculoFilter([])} className="text-muted-foreground">
+                                  <X className="mr-2 h-4 w-4" />
+                                  Limpar seleção
+                                </CommandItem>
+                              )}
+                              {veiculosDisponiveis.map((placa) => {
+                                const isSelected = veiculoFilter.includes(placa);
+                                return (
+                                  <CommandItem
+                                    key={placa}
+                                    value={placa}
+                                    onSelect={() => {
+                                      if (isSelected) {
+                                        setVeiculoFilter(veiculoFilter.filter(v => v !== placa));
+                                      } else {
+                                        setVeiculoFilter([...veiculoFilter, placa]);
+                                      }
+                                    }}
+                                  >
+                                    <Checkbox checked={isSelected} className="mr-2" />
+                                    <Car className="h-3 w-3 mr-2 text-muted-foreground" />
+                                    {placa}
+                                  </CommandItem>
+                                );
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+
+                  {/* Período */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium">Período</label>
+                    <div className="flex items-center gap-1">
+                      <Input
+                        type="date"
+                        value={dataInicio}
+                        onChange={(e) => setDataInicio(e.target.value)}
+                        className="h-9 text-xs"
+                        placeholder="Início"
+                      />
+                      <span className="text-muted-foreground text-xs">-</span>
+                      <Input
+                        type="date"
+                        value={dataFim}
+                        onChange={(e) => setDataFim(e.target.value)}
+                        className="h-9 text-xs"
+                        placeholder="Fim"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -1011,7 +1609,7 @@ export default function ConsultaTurnos() {
                   <Skeleton key={i} className="h-16 w-full" />
                 ))}
               </div>
-            ) : turnosData?.turnos?.length === 0 ? (
+            ) : turnosFiltradosOrdenados.length === 0 ? (
               <div className="p-12 text-center">
                 <Clock className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                 <p className="text-lg font-medium">Nenhum turno encontrado</p>
@@ -1021,18 +1619,74 @@ export default function ConsultaTurnos() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Equipe</TableHead>
-                    <TableHead>Data/Hora Início</TableHead>
-                    <TableHead>Data/Hora Fim</TableHead>
-                    <TableHead>Duração</TableHead>
-                    <TableHead>Colaboradores</TableHead>
-                    <TableHead>Veículo</TableHead>
-                    <TableHead>Status</TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("equipe")}
+                    >
+                      <div className="flex items-center">
+                        Equipe
+                        <SortIcon column="equipe" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("dataInicio")}
+                    >
+                      <div className="flex items-center">
+                        Data/Hora Início
+                        <SortIcon column="dataInicio" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("dataFim")}
+                    >
+                      <div className="flex items-center">
+                        Data/Hora Fim
+                        <SortIcon column="dataFim" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("duracao")}
+                    >
+                      <div className="flex items-center">
+                        Duração
+                        <SortIcon column="duracao" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("colaboradores")}
+                    >
+                      <div className="flex items-center">
+                        Colaboradores
+                        <SortIcon column="colaboradores" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("veiculo")}
+                    >
+                      <div className="flex items-center">
+                        Veículo
+                        <SortIcon column="veiculo" />
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("status")}
+                    >
+                      <div className="flex items-center">
+                        Status
+                        <SortIcon column="status" />
+                      </div>
+                    </TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {turnosData?.turnos?.map((turno) => {
+                  {turnosFiltradosOrdenados.map((turno) => {
                     const duracao = turno.hora_fim 
                       ? differenceInMinutes(parseISO(turno.hora_fim), parseISO(turno.hora_inicio))
                       : differenceInMinutes(new Date(), parseISO(turno.hora_inicio));
@@ -1103,12 +1757,15 @@ export default function ConsultaTurnos() {
             )}
           </CardContent>
 
-          {/* Paginação */}
-          {turnosData && turnosData.total > PAGE_SIZE && (
-            <div className="border-t p-4 flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">
-                Mostrando {currentPage * PAGE_SIZE + 1} - {Math.min((currentPage + 1) * PAGE_SIZE, turnosData.total)} de {turnosData.total}
-              </p>
+          {/* Rodapé com contagem e paginação */}
+          <div className="border-t p-4 flex items-center justify-between">
+            <p className="text-sm text-muted-foreground">
+              Mostrando {turnosFiltradosOrdenados.length} turno{turnosFiltradosOrdenados.length !== 1 ? "s" : ""}
+              {turnosData && turnosFiltradosOrdenados.length !== turnosData.turnos.length && (
+                <span> (filtrados de {turnosData.turnos.length})</span>
+              )}
+            </p>
+            {turnosData && turnosData.total > PAGE_SIZE && (
               <div className="flex gap-2">
                 <Button
                   variant="outline"
@@ -1127,8 +1784,8 @@ export default function ConsultaTurnos() {
                   Próximo
                 </Button>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </Card>
 
         {/* Dialog de Detalhes do Turno */}

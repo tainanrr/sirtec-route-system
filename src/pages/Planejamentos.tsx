@@ -353,8 +353,6 @@ const Planejamentos = () => {
   return (
     <MainLayout
       title="Planejamentos"
-      subtitle="Consulta e gestão de planejamentos de rotas"
-      breadcrumbs={[{ label: "Planejamentos" }]}
     >
       {/* Filtros */}
       <div className="rounded-xl border border-border bg-card p-4 mb-6">
