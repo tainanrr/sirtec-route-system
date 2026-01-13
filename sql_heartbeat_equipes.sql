@@ -114,8 +114,7 @@ SELECT
     ELSE 'offline'
   END as status_conexao
 FROM tecnicos t
-LEFT JOIN equipe_heartbeat h ON h.equipe_id = t.id
-WHERE t.ativo = true;
+LEFT JOIN equipe_heartbeat h ON h.equipe_id = t.id;
 
 -- Comentários para documentação
 COMMENT ON TABLE public.equipe_heartbeat IS 'Armazena heartbeats (pings) das equipes para detectar conectividade em tempo real';
