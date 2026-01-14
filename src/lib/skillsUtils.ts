@@ -107,7 +107,7 @@ export async function refreshSkillsCache(): Promise<void> {
     skillsCache = new Map();
     
     skills.forEach((skill) => {
-      skillsCache!.set(skill.codigo.toUpperCase(), {
+      const skillData = {
         tempoExecucao: skill.tempo_execucao_minutos,
         valor: Number(skill.valor || 0),
         regulada: skill.regulada || false,
@@ -116,7 +116,18 @@ export async function refreshSkillsCache(): Promise<void> {
         sigla: (skill as any).sigla || undefined,
         cor: (skill as any).cor || undefined,
         nome: skill.nome || undefined,
-      });
+      };
+      
+      const codigoBase = skill.codigo.toUpperCase();
+      
+      // Adicionar código base
+      skillsCache!.set(codigoBase, skillData);
+      
+      // Também adicionar variações comuns com sufixos (para OSs que vêm com " -", " C -", etc)
+      skillsCache!.set(`${codigoBase} -`, skillData);
+      skillsCache!.set(`${codigoBase} C -`, skillData);
+      skillsCache!.set(`${codigoBase} A -`, skillData);
+      skillsCache!.set(`${codigoBase} B -`, skillData);
     });
 
     lastCacheUpdate = Date.now();
@@ -140,6 +151,17 @@ export async function getTemposExecucao(codigosSkills: string[]): Promise<Map<st
 }
 
 /**
+ * Extrai o código base de um tipo de OS (remove sufixos como " -", " C -", etc)
+ */
+function extrairCodigoBase(codigo: string): string {
+  return codigo
+    .toUpperCase()
+    .trim()
+    .replace(/\s+[A-Z0-9]*\s*-\s*$/i, '') // Remove sufixos como " -", " C -", " ABC -"
+    .trim();
+}
+
+/**
  * Busca todos os dados de múltiplas skills de uma vez
  * Retorna um Map com código -> dados completos
  */
@@ -155,10 +177,18 @@ export async function getDadosSkills(codigosSkills: string[]): Promise<Map<strin
   // Buscar todos os códigos únicos (normalizar para uppercase)
   const codigosUnicos = [...new Set(codigosSkills.map((c) => c.toUpperCase().trim()))];
 
-  // Buscar no cache primeiro
+  // Buscar no cache primeiro (tenta código original e depois código base)
   const codigosNaoEncontrados: string[] = [];
   codigosUnicos.forEach((codigo) => {
-    const skillData = skillsCache?.get(codigo);
+    // Primeiro tenta o código exato
+    let skillData = skillsCache?.get(codigo);
+    
+    // Se não encontrou, tenta o código base (sem sufixo)
+    if (!skillData) {
+      const codigoBase = extrairCodigoBase(codigo);
+      skillData = skillsCache?.get(codigoBase);
+    }
+    
     if (skillData) {
       dados.set(codigo, skillData);
     } else {
@@ -166,15 +196,20 @@ export async function getDadosSkills(codigosSkills: string[]): Promise<Map<strin
     }
   });
 
-  // Se houver códigos não encontrados, buscar no banco
+  // Se houver códigos não encontrados, buscar no banco usando código base
   if (codigosNaoEncontrados.length > 0) {
+    // Extrair códigos base para buscar no banco
+    const codigosBaseParaBuscar = [...new Set(codigosNaoEncontrados.map(c => extrairCodigoBase(c)))];
+    
     const { data, error } = await supabase
       .from("skills")
       .select("codigo, nome, tempo_execucao_minutos, valor, regulada, icone, icone_url, sigla, cor")
-      .in("codigo", codigosNaoEncontrados)
+      .in("codigo", codigosBaseParaBuscar)
       .eq("ativo", true);
 
     if (!error && data) {
+      // Criar mapa de código base -> dados
+      const dadosPorCodigoBase = new Map<string, SkillCacheData>();
       data.forEach((skill) => {
         const codigoUpper = skill.codigo.toUpperCase().trim();
         const skillData: SkillCacheData = {
@@ -187,10 +222,23 @@ export async function getDadosSkills(codigosSkills: string[]): Promise<Map<strin
           cor: (skill as any).cor || undefined,
           nome: skill.nome || undefined,
         };
-        dados.set(codigoUpper, skillData);
-        // Atualizar cache
+        dadosPorCodigoBase.set(codigoUpper, skillData);
+        // Atualizar cache com código base
         if (skillsCache) {
           skillsCache.set(codigoUpper, skillData);
+        }
+      });
+      
+      // Mapear códigos originais para os dados encontrados
+      codigosNaoEncontrados.forEach((codigoOriginal) => {
+        const codigoBase = extrairCodigoBase(codigoOriginal);
+        const skillData = dadosPorCodigoBase.get(codigoBase);
+        if (skillData) {
+          dados.set(codigoOriginal, skillData);
+          // Atualizar cache com código original também
+          if (skillsCache) {
+            skillsCache.set(codigoOriginal, skillData);
+          }
         }
       });
     }
