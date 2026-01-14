@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
-import { MapPin, Loader2, Maximize2, Minimize2, Filter, X, Edit, Save, XCircle, PlusCircle, Pentagon } from "lucide-react";
+import { MapPin, Loader2, Maximize2, Minimize2, X, Edit, Save, XCircle, PlusCircle, Pentagon, MousePointer2 } from "lucide-react";
 
 // Função de debounce para otimização de performance
 function useDebounce<T>(value: T, delay: number): T {
@@ -130,6 +130,8 @@ interface MapaLeafletProps {
   criandoPoligono?: boolean; // Modo de criação de novo polígono
   onPoligonoCriado?: (poligono: { lat: number; lng: number }[]) => void; // Callback quando polígono é criado
   onCriacaoCancelada?: () => void; // Callback quando criação é cancelada
+  // Funcionalidade de seleção de OSs por polígono
+  onOsSelecionadasPorPoligono?: (osIds: string[]) => void; // Callback quando OSs são selecionadas por polígono
   statusOSsTempoReal?: Map<string, StatusOSTempoReal>; // Status em tempo real das OSs
   // Rastreamento de Equipes em tempo real
   mostrarEquipesTempoReal?: boolean; // Se deve mostrar equipes com turno aberto
@@ -176,7 +178,7 @@ function getLucideIconSVG(iconName: string | undefined, color: string, size: num
   `;
 }
 
-export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEquipes, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, focarOSNoMapa, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear, selecionandoCoordNoMapa, onMapClick, osCoordenadasSuspeitas = [], criandoPoligono, onPoligonoCriado, onCriacaoCancelada, statusOSsTempoReal, mostrarEquipesTempoReal = true, equipesSelecionadasFiltro, onEquipeClick, prazoLimiteUrgente, versaoPrazoUrgente }: MapaLeafletProps) {
+export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEquipes, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, focarOSNoMapa, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear, selecionandoCoordNoMapa, onMapClick, osCoordenadasSuspeitas = [], criandoPoligono, onPoligonoCriado, onCriacaoCancelada, onOsSelecionadasPorPoligono, statusOSsTempoReal, mostrarEquipesTempoReal = true, equipesSelecionadasFiltro, onEquipeClick, prazoLimiteUrgente, versaoPrazoUrgente }: MapaLeafletProps) {
   
   const mapRef = useRef<HTMLDivElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -197,11 +199,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
   // Mapa de tipo -> dados das skills (sigla, cor, tempoExecucao, nome)
   const [skillsIcons, setSkillsIcons] = useState<Map<string, { tempoExecucao?: number; sigla?: string; cor?: string; nome?: string }>>(new Map());
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [filtroTipo, setFiltroTipo] = useState<string>("todos");
-  const [filtroEquipe, setFiltroEquipe] = useState<string>("todos");
-  const [filtroRegulada, setFiltroRegulada] = useState<string>("todos");
-  const [mostrarFiltros, setMostrarFiltros] = useState(false);
-  const [selectAberto, setSelectAberto] = useState<string | null>(null);
+  const [modoSelecaoPoligono, setModoSelecaoPoligono] = useState(false); // Modo de seleção de OSs por polígono
   const markersMapRef = useRef<Map<string, L.Marker>>(new Map());
   const osSequenciaRef = useRef<Array<{ os: OrdemServico; rota?: RotaEquipe; servico?: any; index: number }>>([]);
   
@@ -981,6 +979,128 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
     }
   }, [criandoPoligono, mapaInicializado, onPoligonoCriado]);
 
+  // useEffect para controlar modo de seleção de OSs por polígono
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapaInicializado) return;
+
+    if (modoSelecaoPoligono) {
+      console.log('[MapaLeaflet] Iniciando modo de seleção por polígono');
+      
+      // Inicializar drawn items se não existir
+      if (!drawnItemsRef.current) {
+        drawnItemsRef.current = new L.FeatureGroup();
+        map.addLayer(drawnItemsRef.current);
+      }
+
+      // Event listener para quando o polígono de seleção for criado
+      const handleSelecaoCreated = (e: any) => {
+        console.log('[MapaLeaflet] Polígono de seleção criado!', e);
+        const layer = e.layer as L.Polygon;
+        drawnItemsRef.current?.addLayer(layer);
+
+        // Extrair coordenadas do polígono
+        const latlngs = layer.getLatLngs()[0] as L.LatLng[];
+        const poligonoSeleção = latlngs.map((ll: L.LatLng) => ({
+          lat: ll.lat,
+          lng: ll.lng
+        }));
+
+        console.log('[MapaLeaflet] Verificando OSs dentro do polígono de seleção...');
+
+        // Encontrar todas as OSs que estão dentro do polígono
+        const osSelecionadas: string[] = [];
+        
+        // Verificar OSs pendentes
+        osPendentes.forEach(os => {
+          if (os.latitude && os.longitude) {
+            if (pontoNoPoligono(os.latitude, os.longitude, poligonoSeleção)) {
+              osSelecionadas.push(os.id);
+            }
+          }
+        });
+
+        // Verificar OSs em rotas
+        rotas.forEach(rota => {
+          rota.servicos.forEach(servico => {
+            if (servico.tipo === "SERVICO" && servico.ordemServico) {
+              const os = servico.ordemServico;
+              if (os.latitude && os.longitude) {
+                if (pontoNoPoligono(os.latitude, os.longitude, poligonoSeleção)) {
+                  // Evitar duplicatas
+                  if (!osSelecionadas.includes(os.id)) {
+                    osSelecionadas.push(os.id);
+                  }
+                }
+              }
+            }
+          });
+        });
+
+        console.log(`[MapaLeaflet] ${osSelecionadas.length} OSs selecionadas pelo polígono`);
+
+        // Chamar callback com as OSs selecionadas
+        if (onOsSelecionadasPorPoligono) {
+          onOsSelecionadasPorPoligono(osSelecionadas);
+        }
+
+        // Remover o polígono de seleção do mapa
+        map.removeLayer(layer);
+        
+        // Limpar modo de seleção
+        setModoSelecaoPoligono(false);
+        limparCriacao();
+      };
+
+      // @ts-ignore
+      map.on(L.Draw.Event.CREATED, handleSelecaoCreated);
+
+      // Configurar L.drawLocal para seleção
+      // @ts-ignore
+      if (L.drawLocal) {
+        // @ts-ignore
+        L.drawLocal.draw.handlers.polygon.tooltip = {
+          start: 'Clique para iniciar a seleção por área.',
+          cont: 'Clique para continuar a área de seleção.',
+          end: 'Clique no primeiro ponto para selecionar OSs dentro da área.'
+        };
+      }
+
+      // Criar o handler de desenho de polígono para seleção
+      // @ts-ignore
+      const polygonDrawer = new L.Draw.Polygon(map, {
+        allowIntersection: false,
+        showArea: false,
+        showLength: false,
+        metric: false,
+        drawError: {
+          color: '#e1e1e1',
+          message: '<strong>Erro:</strong> polígono inválido!'
+        },
+        shapeOptions: {
+          color: '#22c55e', // Verde para seleção
+          fillColor: '#22c55e',
+          fillOpacity: 0.2,
+          weight: 2,
+          dashArray: '5, 10' // Linha tracejada para diferenciar de criação de território
+        }
+      });
+
+      // Habilitar o desenho automaticamente
+      polygonDrawer.enable();
+      drawControlRef.current = polygonDrawer;
+      
+      console.log('[MapaLeaflet] Drawer de seleção habilitado');
+
+      return () => {
+        console.log('[MapaLeaflet] Limpando modo de seleção');
+        // @ts-ignore
+        map.off(L.Draw.Event.CREATED, handleSelecaoCreated);
+        limparCriacao();
+      };
+    }
+  }, [modoSelecaoPoligono, mapaInicializado, osPendentes, rotas, onOsSelecionadasPorPoligono]);
+
   // Adicionar animações CSS e estilos para tooltips otimizados
   useEffect(() => {
     const styleTag = document.createElement('style');
@@ -1432,54 +1552,9 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
     };
   }, [rotas]);
 
-  // Filtrar dados baseado nos filtros selecionados
+  // Dados para renderização no mapa (sem filtros internos - filtros são aplicados externamente)
   const dadosFiltrados = useMemo(() => {
-    let osPendentesFiltradas = osPendentes;
-    let rotasFiltradas = rotas;
-
-    // Filtro por tipo
-    if (filtroTipo !== "todos") {
-      osPendentesFiltradas = osPendentesFiltradas.filter(os => os.tipo === filtroTipo);
-      rotasFiltradas = rotasFiltradas.map(rota => ({
-        ...rota,
-        servicos: rota.servicos.filter(servico => 
-          servico.tipo === "ALMOCO" || servico.ordemServico?.tipo === filtroTipo
-        )
-      })).filter(rota => rota.servicos.some(s => s.tipo === "SERVICO"));
-    }
-
-    // Filtro por equipe - mas se equipeEditando estiver definida, mostrar todas mas destacar a selecionada
-    if (filtroEquipe !== "todos" && !equipeEditando) {
-      rotasFiltradas = rotasFiltradas.filter(rota => rota.equipe.id === filtroEquipe);
-    }
-
-    // Filtro por regulada
-    if (filtroRegulada !== "todos") {
-      const isRegulada = filtroRegulada === "sim";
-      osPendentesFiltradas = osPendentesFiltradas.filter(os => os.regulada === isRegulada);
-      rotasFiltradas = rotasFiltradas.map(rota => ({
-        ...rota,
-        servicos: rota.servicos.filter(servico => 
-          servico.tipo === "ALMOCO" || servico.ordemServico?.regulada === isRegulada
-        )
-      })).filter(rota => rota.servicos.some(s => s.tipo === "SERVICO"));
-    }
-
-    return { osPendentesFiltradas, rotasFiltradas };
-  }, [osPendentes, rotas, filtroTipo, filtroEquipe, filtroRegulada, equipeEditando]);
-
-  // Obter tipos únicos e equipes únicas para os filtros
-  const tiposDisponiveis = useMemo(() => {
-    const tipos = new Set<string>();
-    osPendentes.forEach(os => tipos.add(os.tipo));
-    rotas.forEach(rota => {
-      rota.servicos.forEach(servico => {
-        if (servico.ordemServico) {
-          tipos.add(servico.ordemServico.tipo);
-        }
-      });
-    });
-    return Array.from(tipos).sort();
+    return { osPendentesFiltradas: osPendentes, rotasFiltradas: rotas };
   }, [osPendentes, rotas]);
 
   // Função para entrar/sair de tela cheia
@@ -1515,28 +1590,6 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
     };
   }, []);
 
-  // Desabilitar interação do mapa quando os filtros estão abertos ou um select está aberto
-  useEffect(() => {
-    if (!mapInstanceRef.current) return;
-    
-    if (mostrarFiltros || selectAberto !== null) {
-      // Desabilitar interação do mapa temporariamente
-      mapInstanceRef.current.dragging.disable();
-      mapInstanceRef.current.touchZoom.disable();
-      mapInstanceRef.current.doubleClickZoom.disable();
-      mapInstanceRef.current.scrollWheelZoom.disable();
-      mapInstanceRef.current.boxZoom.disable();
-      mapInstanceRef.current.keyboard.disable();
-    } else {
-      // Reabilitar interação do mapa
-      mapInstanceRef.current.dragging.enable();
-      mapInstanceRef.current.touchZoom.enable();
-      mapInstanceRef.current.doubleClickZoom.enable();
-      mapInstanceRef.current.scrollWheelZoom.enable();
-      mapInstanceRef.current.boxZoom.enable();
-      mapInstanceRef.current.keyboard.enable();
-    }
-  }, [mostrarFiltros, selectAberto]);
 
   // Criar sequência ordenada de OSs para navegação
   const criarSequenciaOS = useMemo(() => {
@@ -1593,21 +1646,19 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
       });
       polylinesRef.current = [];
 
-      // Adicionar marcadores das equipes (bases) - apenas se não houver filtro de equipe ou se a equipe estiver selecionada
+      // Adicionar marcadores das equipes (bases)
       equipesMock.forEach((equipe) => {
-        if (filtroEquipe === "todos" || filtroEquipe === equipe.id) {
-          const marker = L.marker([equipe.latitude, equipe.longitude], {
-            icon: L.divIcon({
-              className: "custom-marker-base",
-              html: `<div style="background-color: ${equipe.color || "#3b82f6"}; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>`,
-              iconSize: [20, 20],
-              iconAnchor: [10, 10],
-            }),
-          });
-          marker.bindPopup(`<strong>${equipe.codigo}</strong><br>${equipe.tecnico}<br><span style="color: #666;">Base de Saída</span>`);
-          marker.addTo(map);
-          markersRef.current.push(marker);
-        }
+        const marker = L.marker([equipe.latitude, equipe.longitude], {
+          icon: L.divIcon({
+            className: "custom-marker-base",
+            html: `<div style="background-color: ${equipe.color || "#3b82f6"}; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>`,
+            iconSize: [20, 20],
+            iconAnchor: [10, 10],
+          }),
+        });
+        marker.bindPopup(`<strong>${equipe.codigo}</strong><br>${equipe.tecnico}<br><span style="color: #666;">Base de Saída</span>`);
+        marker.addTo(map);
+        markersRef.current.push(marker);
       });
 
       // ========== RENDERIZAÇÃO COM MARKERCLUSTER + SPIDERFY ==========
@@ -2324,7 +2375,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
         }
       });
 
-      // Ajustar zoom para mostrar todos os pontos (filtrados)
+      // Ajustar zoom para mostrar todos os pontos
       // IMPORTANTE: Só executa fitBounds na PRIMEIRA renderização para não resetar o zoom do usuário
       if (primeiraRenderizacaoRef.current && osPendentesDebounced.length > 0) {
         const bounds: [number, number][] = [];
@@ -2341,20 +2392,8 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
                 .forEach((s) => bounds.push([s.ordemServico!.latitude, s.ordemServico!.longitude]));
             }
           });
-        } else if (filtroEquipe === "todos") {
-          equipesMock.forEach((e) => bounds.push([e.latitude, e.longitude]));
-          // IMPORTANTE: Usar osPendentes (todas) e não osPendentesFiltradas para incluir OSs fora dos territórios
-          osPendentes.forEach((os) => bounds.push([os.latitude, os.longitude]));
-          rotasParaMostrar.forEach((rota) => {
-            rota.servicos
-              .filter((s) => s.tipo === "SERVICO" && s.ordemServico)
-              .forEach((s) => bounds.push([s.ordemServico!.latitude, s.ordemServico!.longitude]));
-          });
         } else {
-          const equipeSelecionada = equipesMock.find(e => e.id === filtroEquipe);
-          if (equipeSelecionada) {
-            bounds.push([equipeSelecionada.latitude, equipeSelecionada.longitude]);
-          }
+          equipesMock.forEach((e) => bounds.push([e.latitude, e.longitude]));
           // IMPORTANTE: Usar osPendentes (todas) e não osPendentesFiltradas para incluir OSs fora dos territórios
           osPendentes.forEach((os) => bounds.push([os.latitude, os.longitude]));
           rotasParaMostrar.forEach((rota) => {
@@ -2427,7 +2466,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
         }, 100);
       }
     }
-  }, [dadosFiltrados, equipesMock, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, routesGeometry, skillsIcons, filtroEquipe, criarSequenciaOS, osPendentesDebounced, prazoLimiteUrgente, versaoPrazoUrgente]);
+  }, [dadosFiltrados, equipesMock, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, routesGeometry, skillsIcons, criarSequenciaOS, osPendentesDebounced, prazoLimiteUrgente, versaoPrazoUrgente]);
 
   // Função auxiliar para calcular centroide
   const calcularCentroide = (poligono: { lat: number; lng: number }[]): { lat: number; lng: number } => {
@@ -2659,15 +2698,6 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
     <div ref={mapContainerRef} className={`relative h-full w-full ${isFullscreen ? 'fixed inset-0 z-[9999] bg-background' : ''}`}>
       <div ref={mapRef} className="h-full w-full rounded-lg" style={{ minHeight: "600px" }} />
       
-      {/* Overlay para bloquear interação do mapa quando filtros estão abertos */}
-      {mostrarFiltros && (
-        <div 
-          className="absolute inset-0 z-[9998]"
-          style={{ pointerEvents: 'none' }}
-          onClick={() => setMostrarFiltros(false)}
-        />
-      )}
-      
       {/* Botões de controle */}
       <div 
         className="absolute top-4 right-4 flex flex-col gap-2"
@@ -2754,16 +2784,34 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
           </>
         ) : null}
 
-        {/* Botão de filtros */}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setMostrarFiltros(!mostrarFiltros)}
-          className="bg-card/90 backdrop-blur-sm shadow-lg"
-        >
-          <Filter className="h-4 w-4 mr-2" />
-          Filtros
-        </Button>
+        {/* Botão de seleção por polígono */}
+        {!modoEdicao && !criandoPoligono && (
+          modoSelecaoPoligono ? (
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                setModoSelecaoPoligono(false);
+                limparCriacao();
+              }}
+              className="shadow-lg"
+            >
+              <XCircle className="h-4 w-4 mr-2" />
+              Cancelar Seleção
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setModoSelecaoPoligono(true)}
+              className="bg-card/90 backdrop-blur-sm shadow-lg"
+              title="Desenhe um polígono para selecionar OSs dentro da área"
+            >
+              <MousePointer2 className="h-4 w-4 mr-2" />
+              Seleção
+            </Button>
+          )
+        )}
         
         {/* Botão de tela cheia */}
         <Button
@@ -2785,155 +2833,6 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
           )}
         </Button>
       </div>
-
-      {/* Painel de filtros */}
-      {mostrarFiltros && (
-        <div 
-          className="absolute top-4 left-4 bg-card/95 backdrop-blur-sm rounded-lg p-4 border border-border shadow-lg min-w-[280px]"
-          style={{ 
-            pointerEvents: 'auto',
-            zIndex: isFullscreen ? 100000 : 10000
-          }}
-        >
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold">Filtros do Mapa</h3>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setMostrarFiltros(false)}
-              className="h-6 w-6 p-0"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-          
-          <div className="space-y-4">
-            {/* Filtro por Tipo */}
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">
-                Tipo de OS
-              </label>
-              <Select 
-                value={filtroTipo} 
-                onValueChange={(value) => {
-                  setFiltroTipo(value);
-                  setSelectAberto(null);
-                }}
-                onOpenChange={(open) => setSelectAberto(open ? 'tipo' : null)}
-              >
-                <SelectTrigger className="h-8 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent 
-                  className="z-[99999] !z-[99999]" 
-                  style={{ 
-                    zIndex: isFullscreen ? 100001 : 99999, 
-                    pointerEvents: 'auto'
-                  }}
-                  onPointerDownOutside={(e) => {
-                    e.preventDefault();
-                    setSelectAberto(null);
-                  }}
-                >
-                  <SelectItem value="todos">Todos os tipos</SelectItem>
-                  {tiposDisponiveis.map((tipo) => (
-                    <SelectItem key={tipo} value={tipo}>
-                      {tipo}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Filtro por Equipe */}
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">
-                Equipe
-              </label>
-              <Select 
-                value={filtroEquipe} 
-                onValueChange={(value) => {
-                  setFiltroEquipe(value);
-                  setSelectAberto(null);
-                }}
-                onOpenChange={(open) => setSelectAberto(open ? 'equipe' : null)}
-              >
-                <SelectTrigger className="h-8 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent 
-                  className="z-[99999] !z-[99999]" 
-                  style={{ 
-                    zIndex: isFullscreen ? 100001 : 99999, 
-                    pointerEvents: 'auto'
-                  }}
-                  onPointerDownOutside={(e) => {
-                    e.preventDefault();
-                    setSelectAberto(null);
-                  }}
-                >
-                  <SelectItem value="todos">Todas as equipes</SelectItem>
-                  {equipesMock.map((equipe) => (
-                    <SelectItem key={equipe.id} value={equipe.id}>
-                      {equipe.codigo} - {equipe.tecnico}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Filtro por Regulada */}
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">
-                Regulada
-              </label>
-              <Select 
-                value={filtroRegulada} 
-                onValueChange={(value) => {
-                  setFiltroRegulada(value);
-                  setSelectAberto(null);
-                }}
-                onOpenChange={(open) => setSelectAberto(open ? 'regulada' : null)}
-              >
-                <SelectTrigger className="h-8 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent 
-                  className="z-[99999] !z-[99999]" 
-                  style={{ 
-                    zIndex: isFullscreen ? 100001 : 99999, 
-                    pointerEvents: 'auto'
-                  }}
-                  onPointerDownOutside={(e) => {
-                    e.preventDefault();
-                    setSelectAberto(null);
-                  }}
-                >
-                  <SelectItem value="todos">Todas</SelectItem>
-                  <SelectItem value="sim">Apenas Reguladas</SelectItem>
-                  <SelectItem value="nao">Apenas Não Reguladas</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Botão limpar filtros */}
-            {(filtroTipo !== "todos" || filtroEquipe !== "todos" || filtroRegulada !== "todos") && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setFiltroTipo("todos");
-                  setFiltroEquipe("todos");
-                  setFiltroRegulada("todos");
-                }}
-                className="w-full"
-              >
-                Limpar Filtros
-              </Button>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Indicador de carregamento */}
       {calculandoRotas && (

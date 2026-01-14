@@ -3829,6 +3829,104 @@ const Roteirizacao = () => {
     toast.success(`OS ${os.numero} adicionada à rota`);
   };
 
+  // Função para incluir múltiplas OSs selecionadas na rota
+  const handleIncluirOSsSelecionadasNaRota = async () => {
+    if (!equipeEditando) {
+      toast.error("Selecione uma equipe para editar primeiro");
+      return;
+    }
+    
+    if (ossSelecionadasParaRemocao.size === 0) {
+      toast.warning("Nenhuma OS selecionada para inclusão");
+      return;
+    }
+    
+    const equipe = equipes.find(e => e.id === equipeEditando);
+    if (!equipe) {
+      toast.error("Equipe não encontrada");
+      return;
+    }
+    
+    // Filtrar apenas OSs pendentes (não alocadas) que estão selecionadas
+    const osIdsParaIncluir = Array.from(ossSelecionadasParaRemocao);
+    const ossParaIncluir: OrdemServico[] = [];
+    const ossJaAlocadas: string[] = [];
+    const ossSemHabilidade: string[] = [];
+    
+    for (const osId of osIdsParaIncluir) {
+      // Verificar se a OS já está em alguma rota
+      const jaAlocada = rotas.some(r => 
+        r.servicos.some(s => s.tipo === 'SERVICO' && s.ordemServico?.id === osId)
+      );
+      
+      if (jaAlocada) {
+        ossJaAlocadas.push(osId);
+        continue;
+      }
+      
+      // Buscar a OS nas pendentes
+      const os = osPendentesTodas.find(o => o.id === osId);
+      if (!os) continue;
+      
+      // Verificar se a equipe tem habilidade para a OS
+      if (!(equipe.skills || equipe.habilidades).includes(os.tipo)) {
+        ossSemHabilidade.push(os.numero);
+        continue;
+      }
+      
+      ossParaIncluir.push(os);
+    }
+    
+    if (ossParaIncluir.length === 0) {
+      if (ossJaAlocadas.length > 0) {
+        toast.warning(`${ossJaAlocadas.length} OS(s) já estão alocadas em rotas`);
+      } else if (ossSemHabilidade.length > 0) {
+        toast.error(`A equipe ${equipe.codigo} não possui habilidade para as OSs selecionadas: ${ossSemHabilidade.join(', ')}`);
+      } else {
+        toast.warning("Nenhuma OS válida para inclusão");
+      }
+      return;
+    }
+    
+    // Adicionar todas as OSs válidas à rota
+    const novasRotas = rotas.map(r => {
+      if (r.equipe.id === equipeEditando) {
+        let novosServicos = [...r.servicos];
+        
+        ossParaIncluir.forEach((os, idx) => {
+          const novoServico: RotaServico = {
+            tipo: "SERVICO",
+            ordemServico: os,
+            ordemNaRota: novosServicos.length + 1,
+            tempoDeslocamento: 0,
+            distancia: 0,
+            tempoTotal: 0,
+            horaInicio: "",
+            horaFim: "",
+            eta: "",
+          };
+          novosServicos.push(novoServico);
+        });
+        
+        const rotaAtualizada = { ...r, servicos: novosServicos };
+        return recalcularRota(rotaAtualizada).rota;
+      }
+      return r;
+    });
+    
+    setRotas(novasRotas);
+    setOssSelecionadasParaRemocao(new Set()); // Limpar seleção
+    
+    let mensagem = `${ossParaIncluir.length} OS(s) adicionada(s) à rota`;
+    if (ossJaAlocadas.length > 0) {
+      mensagem += ` (${ossJaAlocadas.length} já alocadas foram ignoradas)`;
+    }
+    if (ossSemHabilidade.length > 0) {
+      mensagem += ` (${ossSemHabilidade.length} sem habilidade foram ignoradas)`;
+    }
+    toast.success(mensagem);
+  };
+
   // Função para buscar OSs pendentes de remoção
   const fetchOsPendentesRemocao = async () => {
     setLoadingPendentes(true);
@@ -6276,6 +6374,21 @@ const Roteirizacao = () => {
                   setCriandoPoligono(false);
                   setNovoPoligono(null);
                 }}
+                onOsSelecionadasPorPoligono={(osIds) => {
+                  if (osIds.length > 0) {
+                    // Adicionar as OSs selecionadas ao conjunto de seleção para remoção/inclusão
+                    setOssSelecionadasParaRemocao(prev => {
+                      const novoSet = new Set(prev);
+                      osIds.forEach(id => novoSet.add(id));
+                      return novoSet;
+                    });
+                    toast.success(`${osIds.length} OS(s) selecionada(s) pelo polígono`, {
+                      description: "Use os botões no Editor de Rotas para incluir ou remover as OSs selecionadas."
+                    });
+                  } else {
+                    toast.info("Nenhuma OS encontrada dentro da área selecionada");
+                  }
+                }}
                 equipesSelecionadasFiltro={equipesSelecionadas}
               />
 
@@ -6598,11 +6711,22 @@ const Roteirizacao = () => {
                             <Button
                               variant="default"
                               size="sm"
+                              className="h-6 text-[10px] px-2 bg-green-600 hover:bg-green-700 text-white"
+                              onClick={handleIncluirOSsSelecionadasNaRota}
+                              title="Incluir OSs selecionadas (do backlog) na rota"
+                            >
+                              <Plus className="h-3 w-3 mr-1" />
+                              Incluir na Rota ({ossSelecionadasParaRemocao.size})
+                            </Button>
+                            <Button
+                              variant="default"
+                              size="sm"
                               className="h-6 text-[10px] px-2 bg-orange-500 hover:bg-orange-600 text-white"
                               onClick={handleRemoverOSsSelecionadas}
+                              title="Remover OSs selecionadas da rota"
                             >
                               <Trash2 className="h-3 w-3 mr-1" />
-                              Marcar p/ Remoção ({ossSelecionadasParaRemocao.size})
+                              Remover ({ossSelecionadasParaRemocao.size})
                             </Button>
                           </>
                         )}

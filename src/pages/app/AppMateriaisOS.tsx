@@ -583,23 +583,48 @@ export default function AppMateriaisOS() {
         observacao: `${data.tipo === "aplicado" ? "Aplicado" : "Retirado"} na OS #${ordem?.numero}`,
       });
 
-      // Se for item serializado, atualizar status
+      // Se for item serializado, atualizar ou criar registro
       if (data.numero_serie) {
-        await supabase
+        // Verificar se já existe registro para esse número de série
+        const { data: existente } = await supabase
           .from("materiais_serializados")
-          .update({
-            status: data.tipo === "aplicado" ? "instalado" : "retirado",
-            localizacao_tipo: data.tipo === "aplicado" ? "campo" : "equipe",
-            localizacao_id: data.tipo === "aplicado" ? ordemId : equipeId,
-            ordem_servico_id: data.tipo === "aplicado" ? ordemId : null,
-          })
-          .eq("numero_serie", data.numero_serie);
+          .select("id")
+          .eq("numero_serie", data.numero_serie)
+          .maybeSingle();
+
+        if (existente) {
+          // Atualizar registro existente
+          await supabase
+            .from("materiais_serializados")
+            .update({
+              status: data.tipo === "aplicado" ? "instalado" : "retirado",
+              localizacao_tipo: data.tipo === "aplicado" ? "campo" : "equipe",
+              localizacao_id: data.tipo === "aplicado" ? ordemId : equipeId,
+              ordem_servico_id: data.tipo === "aplicado" ? ordemId : null,
+            })
+            .eq("numero_serie", data.numero_serie);
+        } else if (data.tipo === "retirado") {
+          // Criar novo registro para material retirado de campo
+          // (apenas para retirados, pois aplicados precisam ter registro prévio)
+          await supabase
+            .from("materiais_serializados")
+            .insert({
+              material_id: data.material_id,
+              numero_serie: data.numero_serie,
+              status: "retirado",
+              localizacao_tipo: "equipe",
+              localizacao_id: equipeId,
+              ordem_servico_id: null,
+            });
+          console.log("[AppMateriaisOS] Criado registro de material serializado retirado de campo:", data.numero_serie);
+        }
       }
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["materiais-os", ordemId] });
       queryClient.invalidateQueries({ queryKey: ["estoque-equipe-os", equipeId] });
       queryClient.invalidateQueries({ queryKey: ["rastros-disponiveis-equipe", equipeId] });
+      queryClient.invalidateQueries({ queryKey: ["materiais-serializados-equipe", equipeId] }); // Atualizar aba Rastros
       toast.success(variables.tipo === "aplicado" ? "Material aplicado!" : "Material retirado!");
       setDialogOpen(false);
       setFormData({ material_id: "", quantidade: "" as unknown as number, numero_serie: "", observacao: "" });
