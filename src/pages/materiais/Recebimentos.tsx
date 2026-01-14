@@ -521,18 +521,36 @@ export default function Recebimentos() {
     },
   });
 
-  // Query para materiais (buscar todos para validação de importação)
+  // Query para materiais (buscar TODOS para validação de importação)
   const { data: materiais, refetch: refetchMateriais } = useQuery({
     queryKey: ["materiais-todos-recebimento"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("materiais")
-        .select("id, codigo, nome, unidade, requer_serial, valor_unitario, ativo")
-        .order("codigo");
+      // Supabase limita a 1000 por padrão, precisamos paginar para buscar todos
+      const allMateriais: any[] = [];
+      let from = 0;
+      const pageSize = 1000;
+      let hasMore = true;
 
-      if (error) throw error;
-      console.log("[Recebimentos] Materiais carregados:", data?.length);
-      return data;
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from("materiais")
+          .select("id, codigo, nome, unidade, requer_serial, valor_unitario, ativo")
+          .range(from, from + pageSize - 1)
+          .order("codigo");
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          allMateriais.push(...data);
+          from += pageSize;
+          hasMore = data.length === pageSize; // Se retornou menos que pageSize, não há mais
+        } else {
+          hasMore = false;
+        }
+      }
+
+      console.log("[Recebimentos] Materiais carregados (TOTAL):", allMateriais.length);
+      return allMateriais;
     },
     staleTime: 0, // Sempre buscar dados frescos
   });
