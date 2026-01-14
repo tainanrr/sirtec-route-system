@@ -148,17 +148,17 @@ export default function AppLayout() {
           
           console.log(`[AppLayout] OS ${pendencia.os_numero} está em andamento (${motivoStatus}) - cancelando pendência e RESTAURANDO`);
           
-          // RESTAURAR: Se a OS foi desvinculada da equipe, restaurar a vinculação
+          // Usar data que já estava na OS, ou data atual como fallback
+          const dataParaRestaurar = osAtual.data_planejada || 
+            new Date().toISOString().split('T')[0];
+          
+          let restauracaoRealizada = false;
+          
+          // 1. Restaurar a vinculação em ordens_servico (se necessário)
           if (osAtual.equipe_planejada_id !== equipeId) {
-            console.log(`[AppLayout] 🔧 Restaurando OS ${pendencia.os_numero} para equipe ${equipeId}`);
+            console.log(`[AppLayout] 🔧 Restaurando vinculação em ordens_servico para OS ${pendencia.os_numero}`);
             
-            // Usar data que já estava na OS, ou data atual como fallback
-            // NOTA: data_planejamento pode não existir na tabela ainda
-            const dataParaRestaurar = osAtual.data_planejada || 
-              new Date().toISOString().split('T')[0];
-            
-            // Restaurar a vinculação da OS com a equipe
-            const { error: erroRestaurar } = await supabase
+            const { error: erroRestaurarOS } = await supabase
               .from("ordens_servico")
               .update({
                 equipe_planejada_id: equipeId,
@@ -166,12 +166,51 @@ export default function AppLayout() {
               })
               .eq("id", pendencia.ordem_servico_id);
             
-            if (erroRestaurar) {
-              console.error(`[AppLayout] ❌ Erro ao restaurar OS ${pendencia.os_numero}:`, erroRestaurar);
+            if (erroRestaurarOS) {
+              console.error(`[AppLayout] ❌ Erro ao restaurar ordens_servico:`, erroRestaurarOS);
             } else {
-              console.log(`[AppLayout] ✅ OS ${pendencia.os_numero} restaurada com sucesso!`);
-              osRestauradas++;
+              restauracaoRealizada = true;
             }
+          }
+          
+          // 2. Verificar e restaurar o registro em planejamento_ordens (CRÍTICO!)
+          // O app busca OSs através de planejamento_ordens, então precisamos garantir que existe
+          if (pendencia.planejamento_id) {
+            // Verificar se existe registro em planejamento_ordens
+            const { data: planejamentoOrdemExistente, error: erroVerificar } = await supabase
+              .from("planejamento_ordens")
+              .select("id")
+              .eq("planejamento_id", pendencia.planejamento_id)
+              .eq("ordem_servico_id", pendencia.ordem_servico_id)
+              .maybeSingle();
+            
+            if (!erroVerificar && !planejamentoOrdemExistente) {
+              console.log(`[AppLayout] 🔧 Restaurando registro em planejamento_ordens para OS ${pendencia.os_numero}`);
+              
+              // Recriar o registro em planejamento_ordens
+              const { error: erroRecriarPO } = await supabase
+                .from("planejamento_ordens")
+                .insert({
+                  planejamento_id: pendencia.planejamento_id,
+                  ordem_servico_id: pendencia.ordem_servico_id,
+                  equipe_id: equipeId,
+                  ordem_na_rota: 999 // Será reordenado quando a equipe atualizar
+                });
+              
+              if (erroRecriarPO) {
+                console.error(`[AppLayout] ❌ Erro ao restaurar planejamento_ordens:`, erroRecriarPO);
+              } else {
+                console.log(`[AppLayout] ✅ Registro planejamento_ordens restaurado para OS ${pendencia.os_numero}`);
+                restauracaoRealizada = true;
+              }
+            } else if (planejamentoOrdemExistente) {
+              console.log(`[AppLayout] ℹ️ Registro planejamento_ordens já existe para OS ${pendencia.os_numero}`);
+            }
+          }
+          
+          if (restauracaoRealizada) {
+            console.log(`[AppLayout] ✅ OS ${pendencia.os_numero} restaurada com sucesso!`);
+            osRestauradas++;
           }
           
           await supabase
@@ -180,14 +219,14 @@ export default function AppLayout() {
               status: "cancelado_em_execucao",
               confirmado_at: new Date().toISOString(),
               confirmado_status_app: osAtual.status,
-              motivo_cancelamento: `OS estava em andamento quando o app confirmou: ${motivoStatus}. OS restaurada.`
+              motivo_cancelamento: `OS estava em andamento quando o app confirmou: ${motivoStatus}. ${restauracaoRealizada ? 'OS restaurada.' : 'OS já vinculada.'}`
             })
             .eq("id", pendencia.id);
           
           // Coletar para notificação - OS não foi removida pois estava em andamento
           osNaoRemovidas.push({
             numero: pendencia.os_numero,
-            motivo: osAtual.equipe_planejada_id !== equipeId ? "foi restaurada - trabalho em andamento" : "não removida - trabalho em andamento"
+            motivo: restauracaoRealizada ? "foi restaurada - trabalho em andamento" : "mantida - trabalho em andamento"
           });
         }
         // Se a OS está concluída, cancelar a pendência
