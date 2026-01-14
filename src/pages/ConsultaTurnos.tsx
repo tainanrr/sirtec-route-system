@@ -101,6 +101,8 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  Download,
+  FileSpreadsheet,
 } from "lucide-react";
 import { format, parseISO, differenceInMinutes } from "date-fns";
 import { verificarOsEmAndamento } from "@/lib/authUtils";
@@ -297,6 +299,11 @@ export default function ConsultaTurnos() {
   const [osDialogOpen, setOsDialogOpen] = useState(false);
   const [selectedOsId, setSelectedOsId] = useState<string | null>(null);
   const [checklistDialogOpen, setChecklistDialogOpen] = useState(false);
+  
+  // Estados para exportação
+  const [exportando, setExportando] = useState(false);
+  const [exportandoChecklists, setExportandoChecklists] = useState(false);
+  const [exportProgress, setExportProgress] = useState<{ current: number; total: number; fase: string } | null>(null);
   const [selectedChecklistId, setSelectedChecklistId] = useState<string | null>(null);
   
   // Paginação
@@ -1240,14 +1247,358 @@ export default function ConsultaTurnos() {
     setDetalhesOpen(true);
   };
 
+  // Função para escapar campos CSV
+  const escapeCsv = (val: any) => {
+    if (val === null || val === undefined) return "";
+    const str = String(val);
+    if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes(";")) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  };
+
+  // Exportar turnos para CSV
+  const handleExportarTurnos = async () => {
+    try {
+      setExportando(true);
+      setExportProgress({ current: 0, total: turnosFiltrados.length, fase: "Preparando exportação..." });
+      
+      if (turnosFiltrados.length === 0) {
+        toast.warning("Nenhum turno para exportar");
+        setExportando(false);
+        return;
+      }
+      
+      // Buscar detalhes de produção para cada turno em lotes
+      const BATCH_SIZE = 50;
+      const turnosComDetalhes: any[] = [];
+      
+      for (let i = 0; i < turnosFiltrados.length; i += BATCH_SIZE) {
+        const batch = turnosFiltrados.slice(i, i + BATCH_SIZE);
+        
+        // Buscar produção de cada turno do batch
+        const producaoPromises = batch.map(async (turno) => {
+          const dataInicio = turno.hora_inicio.substring(0, 10);
+          const dataFim = turno.hora_fim?.substring(0, 10) || format(new Date(), "yyyy-MM-dd");
+          
+          const { data: producao } = await supabase
+            .from("producao_equipes")
+            .select("valor_total")
+            .eq("equipe_id", turno.equipe_id)
+            .gte("created_at", dataInicio + "T00:00:00")
+            .lte("created_at", dataFim + "T23:59:59");
+          
+          const valorTotal = (producao || []).reduce((acc, p) => acc + (p.valor_total || 0), 0);
+          const qtdOS = (producao || []).length;
+          
+          return {
+            ...turno,
+            valorProducao: valorTotal,
+            qtdOSExecutadas: qtdOS,
+          };
+        });
+        
+        const resultados = await Promise.all(producaoPromises);
+        turnosComDetalhes.push(...resultados);
+        
+        setExportProgress({ 
+          current: Math.min(i + BATCH_SIZE, turnosFiltrados.length), 
+          total: turnosFiltrados.length, 
+          fase: `Carregando produção (${Math.min(i + BATCH_SIZE, turnosFiltrados.length)}/${turnosFiltrados.length})...` 
+        });
+      }
+      
+      setExportProgress({ current: 0, total: turnosComDetalhes.length, fase: "Gerando CSV..." });
+      
+      // Headers
+      const headers = [
+        "Equipe_Codigo", "Equipe_Nome", "Tipo_Equipe",
+        "Data_Inicio", "Hora_Inicio", "Data_Fim", "Hora_Fim",
+        "Duracao_Minutos", "Status",
+        "Placa_Veiculo", "KM_Inicial", "KM_Final", "KM_Rodado",
+        "Colaboradores", "Qtd_OS_Executadas", "Valor_Producao"
+      ];
+      
+      // Montar linhas
+      const linhas: string[] = [headers.join(";")];
+      
+      turnosComDetalhes.forEach((turno, index) => {
+        const horaInicio = turno.hora_inicio ? new Date(turno.hora_inicio) : null;
+        const horaFim = turno.hora_fim ? new Date(turno.hora_fim) : null;
+        const duracaoMin = horaInicio && horaFim ? differenceInMinutes(horaFim, horaInicio) : "";
+        const kmRodado = turno.km_inicial != null && turno.km_final != null ? turno.km_final - turno.km_inicial : "";
+        
+        // Colaboradores
+        const colaboradores = (turno.turno_colaboradores || [])
+          .map((c: any) => `${c.nome}${c.responsavel ? " (Resp)" : ""}`)
+          .join(", ");
+        
+        const linha = [
+          turno.tecnicos?.codigo || "",
+          turno.tecnicos?.nome || "",
+          turno.tecnicos?.tipo_equipe || "",
+          horaInicio ? format(horaInicio, "dd/MM/yyyy") : "",
+          horaInicio ? format(horaInicio, "HH:mm") : "",
+          horaFim ? format(horaFim, "dd/MM/yyyy") : "",
+          horaFim ? format(horaFim, "HH:mm") : "",
+          duracaoMin,
+          turno.status || "",
+          turno.placa_veiculo || "",
+          turno.km_inicial ?? "",
+          turno.km_final ?? "",
+          kmRodado,
+          colaboradores,
+          turno.qtdOSExecutadas || 0,
+          turno.valorProducao ? String(turno.valorProducao).replace(".", ",") : "0",
+        ].map(escapeCsv);
+        
+        linhas.push(linha.join(";"));
+      });
+      
+      // Criar e baixar CSV
+      const csvContent = "\uFEFF" + linhas.join("\n");
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `turnos_${format(new Date(), "yyyy-MM-dd_HH-mm")}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      toast.success(`${turnosComDetalhes.length} turnos exportados com sucesso!`);
+    } catch (error: any) {
+      console.error("Erro ao exportar:", error);
+      toast.error("Erro ao exportar turnos: " + error.message);
+    } finally {
+      setExportando(false);
+      setExportProgress(null);
+    }
+  };
+
+  // Exportar checklists detalhado (com perguntas e respostas)
+  const handleExportarChecklistsDetalhado = async () => {
+    try {
+      setExportandoChecklists(true);
+      setExportProgress({ current: 0, total: 0, fase: "Buscando checklists..." });
+      
+      // Buscar todos os IDs de turnos filtrados
+      const turnoIds = turnosFiltrados.map(t => t.id);
+      const equipeIds = turnosFiltrados.map(t => t.equipe_id);
+      
+      if (turnoIds.length === 0) {
+        toast.warning("Nenhum turno para exportar");
+        setExportandoChecklists(false);
+        return;
+      }
+      
+      // Determinar período baseado nos turnos
+      const dataMin = turnosFiltrados.reduce((min, t) => {
+        const d = t.hora_inicio.substring(0, 10);
+        return d < min ? d : min;
+      }, turnosFiltrados[0].hora_inicio.substring(0, 10));
+      
+      const dataMax = turnosFiltrados.reduce((max, t) => {
+        const d = (t.hora_fim || t.hora_inicio).substring(0, 10);
+        return d > max ? d : max;
+      }, turnosFiltrados[0].hora_inicio.substring(0, 10));
+      
+      // Buscar checklists respostas das equipes no período em lotes
+      const BATCH_SIZE = 50;
+      let allChecklists: any[] = [];
+      
+      for (let i = 0; i < equipeIds.length; i += BATCH_SIZE) {
+        const batchIds = equipeIds.slice(i, i + BATCH_SIZE);
+        
+        const { data: checklistsData, error } = await supabase
+          .from("checklist_respostas")
+          .select(`
+            id,
+            checklist_id,
+            equipe_id,
+            ordem_servico_id,
+            status,
+            respostas,
+            created_at,
+            codigo_unico,
+            checklists:checklist_id (id, nome, tipo, grupos, perguntas),
+            ordens_servico:ordem_servico_id (numero, tipo),
+            tecnicos:equipe_id (codigo, nome)
+          `)
+          .in("equipe_id", batchIds)
+          .gte("created_at", dataMin + "T00:00:00")
+          .lte("created_at", dataMax + "T23:59:59")
+          .order("created_at");
+        
+        if (error) {
+          console.error("Erro ao buscar checklists:", error);
+        }
+        
+        if (checklistsData) {
+          allChecklists = allChecklists.concat(checklistsData);
+        }
+        
+        setExportProgress({ 
+          current: Math.min(i + BATCH_SIZE, equipeIds.length), 
+          total: equipeIds.length, 
+          fase: `Buscando checklists (${Math.min(i + BATCH_SIZE, equipeIds.length)}/${equipeIds.length})...` 
+        });
+      }
+      
+      if (allChecklists.length === 0) {
+        toast.warning("Nenhum checklist encontrado no período");
+        setExportandoChecklists(false);
+        return;
+      }
+      
+      setExportProgress({ current: 0, total: allChecklists.length, fase: "Processando checklists..." });
+      
+      // Headers
+      const headers = [
+        "Data_Hora", "Equipe_Codigo", "Equipe_Nome",
+        "Checklist_Nome", "Checklist_Tipo", "Status",
+        "OS_Numero", "OS_Tipo", "Codigo_Unico",
+        "Grupo", "Pergunta", "Resposta", "Observacao"
+      ];
+      
+      // Montar linhas (uma linha por pergunta/resposta)
+      const linhas: string[] = [headers.join(";")];
+      
+      allChecklists.forEach((checklist: any, idx: number) => {
+        if (idx % 100 === 0) {
+          setExportProgress({ 
+            current: idx, 
+            total: allChecklists.length, 
+            fase: `Processando (${idx}/${allChecklists.length})...` 
+          });
+        }
+        
+        const checklistDef = checklist.checklists as any;
+        const respostasMap = checklist.respostas 
+          ? (Array.isArray(checklist.respostas) 
+              ? checklist.respostas.reduce((acc: any, r: any) => ({ ...acc, [r.pergunta_id]: r }), {})
+              : checklist.respostas)
+          : {};
+        
+        // Obter grupos e perguntas
+        const grupos = checklistDef?.grupos as any[] || [];
+        const perguntasAvulsas = checklistDef?.perguntas as any[] || [];
+        
+        // Se não tem grupos, criar um grupo fictício com as perguntas
+        const gruposProcessar = grupos.length > 0 
+          ? grupos 
+          : [{ id: "geral", nome: "Geral", perguntas: perguntasAvulsas }];
+        
+        gruposProcessar.forEach((grupo: any) => {
+          const perguntas = grupo.perguntas || [];
+          
+          perguntas.forEach((pergunta: any) => {
+            const resposta = respostasMap[pergunta.id] || {};
+            
+            // Formatar resposta baseado no tipo
+            let respostaTexto = "";
+            let observacao = "";
+            
+            if (resposta.valor !== undefined) {
+              if (typeof resposta.valor === "boolean") {
+                respostaTexto = resposta.valor ? "Sim" : "Não";
+              } else if (Array.isArray(resposta.valor)) {
+                respostaTexto = resposta.valor.join(", ");
+              } else {
+                respostaTexto = String(resposta.valor);
+              }
+            }
+            
+            if (resposta.observacao) {
+              observacao = resposta.observacao;
+            }
+            
+            const linha = [
+              checklist.created_at ? format(new Date(checklist.created_at), "dd/MM/yyyy HH:mm") : "",
+              checklist.tecnicos?.codigo || "",
+              checklist.tecnicos?.nome || "",
+              checklistDef?.nome || "",
+              checklistDef?.tipo || "",
+              checklist.status || "",
+              checklist.ordens_servico?.numero || "",
+              checklist.ordens_servico?.tipo || "",
+              checklist.codigo_unico || "",
+              grupo.nome || "",
+              pergunta.texto || "",
+              respostaTexto,
+              observacao,
+            ].map(escapeCsv);
+            
+            linhas.push(linha.join(";"));
+          });
+        });
+      });
+      
+      // Criar e baixar CSV
+      const csvContent = "\uFEFF" + linhas.join("\n");
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `checklists_detalhado_${format(new Date(), "yyyy-MM-dd_HH-mm")}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      toast.success(`${allChecklists.length} checklists exportados com ${linhas.length - 1} linhas de respostas!`);
+    } catch (error: any) {
+      console.error("Erro ao exportar checklists:", error);
+      toast.error("Erro ao exportar checklists: " + error.message);
+    } finally {
+      setExportandoChecklists(false);
+      setExportProgress(null);
+    }
+  };
+
   return (
     <MainLayout title="Turnos">
       <div className="space-y-6">
         {/* Ações */}
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={() => refetch()}>
             <RefreshCw className="h-4 w-4 mr-2" />
             Atualizar
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={handleExportarTurnos}
+            disabled={exportando || exportandoChecklists || turnosFiltrados.length === 0}
+          >
+            {exportando ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                {exportProgress?.fase || "Exportando..."}
+              </>
+            ) : (
+              <>
+                <Download className="h-4 w-4 mr-2" />
+                Exportar Turnos
+              </>
+            )}
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={handleExportarChecklistsDetalhado}
+            disabled={exportando || exportandoChecklists || turnosFiltrados.length === 0}
+          >
+            {exportandoChecklists ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                {exportProgress?.fase || "Exportando..."}
+              </>
+            ) : (
+              <>
+                <FileSpreadsheet className="h-4 w-4 mr-2" />
+                Exportar Checklists
+              </>
+            )}
           </Button>
         </div>
 
