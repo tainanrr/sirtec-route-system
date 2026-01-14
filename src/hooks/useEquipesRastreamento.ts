@@ -141,19 +141,203 @@ export function useEquipesRastreamento(options?: {
   } = useQuery({
     queryKey: ["equipes-turno-aberto"],
     queryFn: async (): Promise<EquipeTurnoAberto[]> => {
-      const { data, error } = await supabase
+      console.log("[useEquipesRastreamento] Buscando equipes com turno aberto...");
+      
+      // Primeiro, tentar usar a view otimizada
+      const { data: viewData, error: viewError } = await supabase
         .from("vw_equipes_turno_aberto")
         .select("*");
 
-      if (error) {
-        console.error("[useEquipesRastreamento] Erro ao buscar equipes:", error);
-        throw error;
+      // Se a view existir e funcionar, usar ela
+      if (!viewError && viewData) {
+        console.log("[useEquipesRastreamento] View encontrada, equipes:", viewData.length);
+        return viewData as EquipeTurnoAberto[];
       }
 
-      return (data || []) as EquipeTurnoAberto[];
+      // Fallback: buscar diretamente das tabelas se a view não existir
+      console.log("[useEquipesRastreamento] View não disponível, usando fallback. Erro:", viewError?.message);
+      
+      // Buscar turnos abertos de hoje
+      const hoje = new Date().toISOString().split('T')[0];
+      
+      // Primeiro, buscar turnos abertos
+      const { data: turnosData, error: turnosError } = await supabase
+        .from("turnos")
+        .select("id, equipe_id, data_turno, hora_inicio, placa_veiculo, km_inicial, status")
+        .eq("status", "aberto")
+        .eq("data_turno", hoje);
+
+      if (turnosError) {
+        console.error("[useEquipesRastreamento] Erro ao buscar turnos:", turnosError);
+        throw turnosError;
+      }
+
+      console.log("[useEquipesRastreamento] Turnos abertos encontrados:", turnosData?.length || 0);
+
+      if (!turnosData || turnosData.length === 0) {
+        return [];
+      }
+
+      // Buscar dados das equipes separadamente
+      const equipeIdsParaBuscar = turnosData.map(t => t.equipe_id);
+      const { data: equipesData, error: equipesError } = await supabase
+        .from("tecnicos")
+        .select("id, codigo, nome, status")
+        .in("id", equipeIdsParaBuscar);
+
+      if (equipesError) {
+        console.error("[useEquipesRastreamento] Erro ao buscar equipes:", equipesError);
+      }
+
+      // Mapear equipes por ID
+      const equipesMap = new Map<string, any>();
+      (equipesData || []).forEach(eq => {
+        equipesMap.set(eq.id, eq);
+      });
+
+      // Buscar última posição de cada equipe
+      const equipeIds = equipeIdsParaBuscar;
+      
+      // Tentar usar a view primeiro
+      let posicoesData: any[] | null = null;
+      const { data: viewPosData, error: viewPosError } = await supabase
+        .from("vw_tecnicos_posicao_atual")
+        .select("*")
+        .in("equipe_id", equipeIds);
+
+      if (!viewPosError && viewPosData) {
+        posicoesData = viewPosData;
+      } else {
+        // Fallback: buscar direto da tabela de posições (última de cada equipe)
+        console.log("[useEquipesRastreamento] View de posições não disponível, buscando direto da tabela");
+        const { data: posDireto } = await supabase
+          .from("tecnicos_posicoes")
+          .select("*")
+          .in("equipe_id", equipeIds)
+          .order("recorded_at", { ascending: false });
+        
+        // Pegar apenas a última posição de cada equipe
+        if (posDireto) {
+          const posMap = new Map<string, any>();
+          posDireto.forEach(p => {
+            if (!posMap.has(p.equipe_id)) {
+              posMap.set(p.equipe_id, p);
+            }
+          });
+          posicoesData = Array.from(posMap.values());
+        }
+      }
+
+      // Mapear posições por equipe
+      const posicoesMap = new Map<string, any>();
+      (posicoesData || []).forEach(pos => {
+        posicoesMap.set(pos.equipe_id, pos);
+      });
+
+      // Buscar colaboradores dos turnos (se a tabela existir)
+      const turnoIds = turnosData.map(t => t.id);
+      const colaboradoresMap = new Map<string, ColaboradorTurno[]>();
+      
+      try {
+        const { data: colaboradoresData, error: colabError } = await supabase
+          .from("turno_colaboradores")
+          .select(`
+            turno_id,
+            colaborador_id,
+            funcao_turno,
+            colaboradores (
+              id,
+              nome
+            )
+          `)
+          .in("turno_id", turnoIds);
+
+        if (!colabError && colaboradoresData) {
+          // Agrupar colaboradores por turno
+          colaboradoresData.forEach(tc => {
+            const turnoId = tc.turno_id;
+            if (!colaboradoresMap.has(turnoId)) {
+              colaboradoresMap.set(turnoId, []);
+            }
+            if (tc.colaboradores) {
+              colaboradoresMap.get(turnoId)!.push({
+                id: (tc.colaboradores as any).id,
+                nome: (tc.colaboradores as any).nome,
+                funcao: tc.funcao_turno,
+              });
+            }
+          });
+        }
+      } catch (e) {
+        console.log("[useEquipesRastreamento] Tabela turno_colaboradores não disponível");
+      }
+
+      // Buscar OS em andamento de cada equipe
+      const { data: osData } = await supabase
+        .from("ordens_servico")
+        .select("id, numero, tipo, status, endereco, tecnico_id")
+        .in("tecnico_id", equipeIds)
+        .in("status", ["em_deslocamento", "no_local", "em_execucao", "em_andamento"]);
+
+      // Mapear OS por equipe (pegar a primeira)
+      const osMap = new Map<string, OSAtual>();
+      (osData || []).forEach(os => {
+        if (!osMap.has(os.tecnico_id)) {
+          osMap.set(os.tecnico_id, {
+            id: os.id,
+            numero: os.numero,
+            tipo: os.tipo,
+            status: os.status,
+            endereco: os.endereco || "",
+          });
+        }
+      });
+
+      // Montar resultado final
+      const resultado: EquipeTurnoAberto[] = turnosData.map(turno => {
+        const pos = posicoesMap.get(turno.equipe_id);
+        const equipe = equipesMap.get(turno.equipe_id);
+        
+        // Determinar último evento baseado na OS atual
+        let ultimoEvento = "inicio_turno";
+        const osAtual = osMap.get(turno.equipe_id);
+        if (osAtual) {
+          if (osAtual.status === "em_deslocamento") ultimoEvento = "inicio_deslocamento";
+          else if (osAtual.status === "no_local") ultimoEvento = "chegada_local";
+          else if (osAtual.status === "em_execucao" || osAtual.status === "em_andamento") ultimoEvento = "inicio_servico";
+        }
+
+        return {
+          turno_id: turno.id,
+          equipe_id: turno.equipe_id,
+          data_turno: turno.data_turno,
+          hora_inicio: turno.hora_inicio,
+          placa_veiculo: turno.placa_veiculo,
+          km_inicial: turno.km_inicial,
+          turno_status: turno.status,
+          equipe_codigo: equipe?.codigo || "",
+          equipe_nome: equipe?.nome || "",
+          equipe_status: equipe?.status || "",
+          ultima_latitude: pos?.latitude || null,
+          ultima_longitude: pos?.longitude || null,
+          ultima_posicao_at: pos?.recorded_at || null,
+          accuracy_m: pos?.accuracy_m || null,
+          speed_mps: pos?.speed_mps || null,
+          battery_pct: pos?.battery_pct || null,
+          gps_ativo: pos?.gps_ativo ?? null,
+          ultimo_evento_tipo: ultimoEvento,
+          ultimo_evento_at: turno.hora_inicio,
+          colaboradores: colaboradoresMap.get(turno.id) || null,
+          os_atual: osAtual || null,
+        };
+      });
+
+      console.log("[useEquipesRastreamento] Resultado fallback:", resultado.length, "equipes");
+      return resultado;
     },
     refetchInterval: autoRefresh ? refreshInterval : false,
     staleTime: 10000, // 10 segundos
+    retry: 1, // Tentar apenas uma vez em caso de erro
   });
 
   // =====================================================
