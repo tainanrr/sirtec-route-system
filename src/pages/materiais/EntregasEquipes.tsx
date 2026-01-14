@@ -71,6 +71,8 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import * as XLSX from "xlsx";
+import { Upload } from "lucide-react";
 
 interface EntregaItem {
   material_id: string;
@@ -110,6 +112,44 @@ interface NovaEntregaForm {
   itens: EntregaItem[];
 }
 
+// Tipos para importação
+interface ImportEntregaRow {
+  rowIndex: number;
+  nomSolicitante: string;
+  codMaterial: string;
+  quantidadeOuSerial: string;
+  observacao: string;
+  equipeId?: string;
+  equipeNome?: string;
+  materialId?: string;
+  materialNome?: string;
+  requerSerial?: boolean;
+  quantidade?: number;
+  numeroSerie?: string;
+  error?: string;
+}
+
+interface ImportEntregaAgrupada {
+  equipeId: string;
+  equipeNome: string;
+  itens: {
+    materialId: string;
+    materialCodigo: string;
+    materialNome: string;
+    quantidade: number;
+    numeroSerie?: string;
+  }[];
+  observacao: string;
+}
+
+function normalizeHeader(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
 export default function EntregasEquipes() {
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState("");
@@ -139,6 +179,12 @@ export default function EntregasEquipes() {
   const [rangeInicio, setRangeInicio] = useState("");
   const [rangeFim, setRangeFim] = useState("");
   const [importarTexto, setImportarTexto] = useState("");
+
+  // Estados para importação de entregas
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importRows, setImportRows] = useState<ImportEntregaRow[]>([]);
+  const [importLoading, setImportLoading] = useState(false);
 
   // Query para entregas
   const { data: entregas, isLoading } = useQuery({
@@ -247,20 +293,85 @@ export default function EntregasEquipes() {
     );
   }, [equipes, buscaEquipe]);
 
-  // Query para materiais
-  const { data: materiais } = useQuery({
-    queryKey: ["materiais-ativos-entrega"],
+  // Query para materiais (com paginação para buscar todos)
+  const { data: materiais, refetch: refetchMateriais } = useQuery({
+    queryKey: ["materiais-todos-entrega"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("materiais")
-        .select("id, codigo, nome, unidade, requer_serial")
-        .eq("ativo", true)
-        .order("codigo");
+      const allMateriais: any[] = [];
+      let from = 0;
+      const pageSize = 1000;
+      let hasMore = true;
 
-      if (error) throw error;
-      return data;
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from("materiais")
+          .select("id, codigo, nome, unidade, requer_serial")
+          .range(from, from + pageSize - 1)
+          .order("codigo");
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          allMateriais.push(...data);
+          from += pageSize;
+          hasMore = data.length === pageSize;
+        } else {
+          hasMore = false;
+        }
+      }
+
+      return allMateriais;
     },
   });
+
+  // Query para buscar membros de todas as equipes (para importação)
+  const { data: membrosEquipes } = useQuery({
+    queryKey: ["membros-equipes-todos"],
+    queryFn: async () => {
+      // Buscar tecnicos_membros com nome do membro e equipe_id
+      const { data, error } = await supabase
+        .from("tecnicos_membros")
+        .select(`
+          id,
+          nome,
+          equipe_id,
+          tecnicos:equipe_id (id, codigo, nome)
+        `);
+
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // Mapa de nome de membro para equipe
+  const membroParaEquipe = useMemo(() => {
+    const map = new Map<string, { equipeId: string; equipeNome: string }>();
+    (membrosEquipes || []).forEach((m: any) => {
+      const nomeNormalizado = String(m.nome || "").trim().toUpperCase();
+      if (nomeNormalizado && m.tecnicos) {
+        map.set(nomeNormalizado, {
+          equipeId: m.tecnicos.id,
+          equipeNome: `${m.tecnicos.codigo} - ${m.tecnicos.nome}`,
+        });
+      }
+    });
+    return map;
+  }, [membrosEquipes]);
+
+  // Mapa de códigos de materiais
+  const materiaisByCodigo = useMemo(() => {
+    const map = new Map<string, any>();
+    (materiais || []).forEach((m: any) => {
+      const codigo = String(m.codigo || "").trim().toUpperCase();
+      map.set(codigo, m);
+      // Também indexar sem zeros à esquerda
+      const codigoSemZeros = codigo.replace(/^0+/, "");
+      if (codigoSemZeros && codigoSemZeros !== codigo) {
+        map.set(codigoSemZeros, m);
+      }
+    });
+    return map;
+  }, [materiais]);
 
   // Query para estoque disponível
   const { data: estoqueDisponivel } = useQuery({
@@ -471,6 +582,322 @@ export default function EntregasEquipes() {
       toast.error(error.message || "Erro ao cancelar entrega");
     },
   });
+
+  // ====== IMPORTAÇÃO DE ENTREGAS ======
+
+  // Função para processar arquivo de importação
+  const handleImportFile = async (file: File) => {
+    setImportFile(file);
+    setImportLoading(true);
+    try {
+      const buffer = await file.arrayBuffer();
+      const wb = XLSX.read(buffer, { type: "array" });
+      const sheetName = wb.SheetNames[0];
+      const ws = wb.Sheets[sheetName];
+
+      const json = XLSX.utils.sheet_to_json<Record<string, any>>(ws, { defval: "" });
+      if (!json.length) {
+        toast.error("Planilha vazia");
+        setImportLoading(false);
+        return;
+      }
+
+      const keys = Object.keys(json[0] || {});
+      const keyMap = new Map<string, string>();
+      keys.forEach((k) => keyMap.set(normalizeHeader(k), k));
+
+      // Mapear colunas do formato externo
+      const colNomSolicitante = keyMap.get("nomsolicitante");
+      const colCodMater = keyMap.get("codmater");
+      const colQuantidadeSerial = keyMap.get("quantidadeserial");
+      const colObservacao = keyMap.get("observacao");
+
+      if (!colNomSolicitante || !colCodMater) {
+        toast.error('Template inválido: colunas "nom_solicitante" e "cod_mater" são obrigatórias.');
+        setImportLoading(false);
+        return;
+      }
+
+      const rows: ImportEntregaRow[] = json.map((row, idx) => {
+        const nomSolicitante = String(row[colNomSolicitante] || "").trim().toUpperCase();
+        const codMaterial = String(row[colCodMater] || "").trim().toUpperCase();
+        const quantidadeOuSerial = String(row[colQuantidadeSerial!] || "").trim();
+        const observacao = colObservacao ? String(row[colObservacao] || "").trim() : "";
+
+        if (!nomSolicitante) {
+          return { 
+            rowIndex: idx + 2, nomSolicitante: "", codMaterial, quantidadeOuSerial, observacao, 
+            error: "Nome do solicitante vazio" 
+          };
+        }
+
+        if (!codMaterial) {
+          return { 
+            rowIndex: idx + 2, nomSolicitante, codMaterial: "", quantidadeOuSerial, observacao, 
+            error: "Código do material vazio" 
+          };
+        }
+
+        // Buscar equipe pelo nome do membro
+        const equipeInfo = membroParaEquipe.get(nomSolicitante);
+        if (!equipeInfo) {
+          return { 
+            rowIndex: idx + 2, nomSolicitante, codMaterial, quantidadeOuSerial, observacao, 
+            error: `Colaborador "${nomSolicitante}" não encontrado em nenhuma equipe` 
+          };
+        }
+
+        // Buscar material
+        let material = materiaisByCodigo.get(codMaterial);
+        if (!material) {
+          const codigoSemZeros = codMaterial.replace(/^0+/, "");
+          material = materiaisByCodigo.get(codigoSemZeros);
+        }
+        if (!material) {
+          return { 
+            rowIndex: idx + 2, nomSolicitante, codMaterial, quantidadeOuSerial, observacao, 
+            equipeId: equipeInfo.equipeId, equipeNome: equipeInfo.equipeNome,
+            error: "Código do material não encontrado no catálogo" 
+          };
+        }
+
+        const requerSerial = material.requer_serial || material.unidade === "SR";
+
+        // Se requer serial, quantidadeOuSerial é o número de série (qtd = 1)
+        // Senão, é a quantidade
+        let quantidade = 1;
+        let numeroSerie: string | undefined;
+
+        if (requerSerial) {
+          numeroSerie = quantidadeOuSerial.toUpperCase();
+          quantidade = 1;
+        } else {
+          const qtdParsed = parseFloat(quantidadeOuSerial.replace(",", "."));
+          quantidade = Number.isFinite(qtdParsed) ? qtdParsed : 0;
+          if (quantidade <= 0) {
+            return { 
+              rowIndex: idx + 2, nomSolicitante, codMaterial, quantidadeOuSerial, observacao,
+              equipeId: equipeInfo.equipeId, equipeNome: equipeInfo.equipeNome,
+              materialId: material.id, materialNome: `${material.codigo} - ${material.nome}`,
+              requerSerial,
+              error: "Quantidade inválida" 
+            };
+          }
+        }
+
+        return {
+          rowIndex: idx + 2,
+          nomSolicitante,
+          codMaterial,
+          quantidadeOuSerial,
+          observacao,
+          equipeId: equipeInfo.equipeId,
+          equipeNome: equipeInfo.equipeNome,
+          materialId: material.id,
+          materialNome: `${material.codigo} - ${material.nome}`,
+          requerSerial,
+          quantidade,
+          numeroSerie,
+        };
+      });
+
+      setImportRows(rows);
+      const validos = rows.filter(r => !r.error).length;
+      const comErro = rows.filter(r => r.error).length;
+      toast.success(`Planilha carregada: ${validos} válido(s), ${comErro} com erro`);
+    } catch (err: any) {
+      console.error(err);
+      toast.error("Erro ao ler planilha");
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
+  // Reset importação
+  const resetImportState = () => {
+    setImportFile(null);
+    setImportRows([]);
+  };
+
+  // Agrupar linhas válidas por equipe para criar entregas
+  const importRowsAgrupados = useMemo(() => {
+    const validos = importRows.filter(r => !r.error && r.equipeId && r.materialId);
+    const agrupados = new Map<string, ImportEntregaAgrupada>();
+
+    for (const row of validos) {
+      const key = row.equipeId!;
+      if (!agrupados.has(key)) {
+        agrupados.set(key, {
+          equipeId: row.equipeId!,
+          equipeNome: row.equipeNome!,
+          itens: [],
+          observacao: row.observacao || "",
+        });
+      }
+
+      const grupo = agrupados.get(key)!;
+      grupo.itens.push({
+        materialId: row.materialId!,
+        materialCodigo: row.codMaterial,
+        materialNome: row.materialNome!,
+        quantidade: row.quantidade || 1,
+        numeroSerie: row.numeroSerie,
+      });
+
+      // Concatenar observações
+      if (row.observacao && !grupo.observacao.includes(row.observacao)) {
+        grupo.observacao = grupo.observacao 
+          ? `${grupo.observacao} | ${row.observacao}` 
+          : row.observacao;
+      }
+    }
+
+    return Array.from(agrupados.values());
+  }, [importRows]);
+
+  // Mutation para importar entregas
+  const importEntregasMutation = useMutation({
+    mutationFn: async (grupos: ImportEntregaAgrupada[]) => {
+      if (grupos.length === 0) {
+        throw new Error("Nenhuma entrega válida para importar.");
+      }
+
+      let entregasCriadas = 0;
+
+      for (const grupo of grupos) {
+        // Criar entrega
+        const { data: entrega, error: entregaError } = await supabase
+          .from("materiais_entregas")
+          .insert({
+            equipe_id: grupo.equipeId,
+            data_entrega: new Date().toISOString(),
+            status: "pendente",
+            observacao: grupo.observacao || null,
+          })
+          .select()
+          .single();
+
+        if (entregaError) {
+          console.error(`Erro ao criar entrega para equipe ${grupo.equipeNome}:`, entregaError);
+          continue;
+        }
+
+        // Criar itens da entrega
+        const itensPayload = grupo.itens.map((item) => ({
+          entrega_id: entrega.id,
+          material_id: item.materialId,
+          quantidade: item.quantidade,
+          numero_serie: item.numeroSerie || null,
+        }));
+
+        const { error: itensError } = await supabase
+          .from("materiais_entregas_itens")
+          .insert(itensPayload);
+
+        if (itensError) {
+          console.error(`Erro ao criar itens da entrega:`, itensError);
+          // Reverter a entrega criada
+          await supabase.from("materiais_entregas").delete().eq("id", entrega.id);
+          continue;
+        }
+
+        // Dar baixa no estoque central e entrada no estoque da equipe
+        for (const item of grupo.itens) {
+          // Baixa no estoque central
+          const { data: estoqueCentral } = await supabase
+            .from("materiais_estoque")
+            .select("id, quantidade")
+            .eq("material_id", item.materialId)
+            .eq("local_tipo", "central")
+            .maybeSingle();
+
+          if (estoqueCentral) {
+            await supabase
+              .from("materiais_estoque")
+              .update({ quantidade: Math.max(0, estoqueCentral.quantidade - item.quantidade) })
+              .eq("id", estoqueCentral.id);
+          }
+
+          // Entrada no estoque da equipe
+          const { data: estoqueEquipe } = await supabase
+            .from("materiais_estoque")
+            .select("id, quantidade")
+            .eq("material_id", item.materialId)
+            .eq("local_tipo", "equipe")
+            .eq("local_id", grupo.equipeId)
+            .maybeSingle();
+
+          if (estoqueEquipe) {
+            await supabase
+              .from("materiais_estoque")
+              .update({ quantidade: estoqueEquipe.quantidade + item.quantidade })
+              .eq("id", estoqueEquipe.id);
+          } else {
+            await supabase.from("materiais_estoque").insert({
+              material_id: item.materialId,
+              quantidade: item.quantidade,
+              local_tipo: "equipe",
+              local_id: grupo.equipeId,
+            });
+          }
+
+          // Atualizar localização dos serializados (se houver)
+          if (item.numeroSerie) {
+            await supabase
+              .from("materiais_serializados")
+              .update({
+                localizacao_tipo: "equipe",
+                localizacao_id: grupo.equipeId,
+                status: "em_uso",
+              })
+              .eq("numero_serie", item.numeroSerie);
+          }
+
+          // Registrar movimentação
+          await supabase.from("materiais_movimentacoes").insert({
+            material_id: item.materialId,
+            tipo: "transferencia",
+            quantidade: item.quantidade,
+            local_origem_tipo: "central",
+            local_destino_tipo: "equipe",
+            local_destino_id: grupo.equipeId,
+            observacao: `Importação de entrega - ${grupo.equipeNome}`,
+          });
+        }
+
+        entregasCriadas++;
+      }
+
+      return { entregasCriadas, totalEquipes: grupos.length };
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["entregas-equipes"] });
+      queryClient.invalidateQueries({ queryKey: ["estoque-disponivel"] });
+      queryClient.invalidateQueries({ queryKey: ["estoque-central"] });
+      toast.success(`Importação concluída! ${result.entregasCriadas} entrega(s) criada(s) para ${result.totalEquipes} equipe(s).`);
+      setImportDialogOpen(false);
+      resetImportState();
+    },
+    onError: (error: any) => {
+      console.error("Erro na importação:", error);
+      toast.error(error.message || "Erro ao importar entregas");
+    },
+  });
+
+  // Download template de importação
+  const handleDownloadImportTemplate = () => {
+    const rows = [
+      ["cod_transferencia", "nom_solicitante", "cod_mater", "material", "unidade", "quantidade/serial", "observacao"],
+      ["12345", "JOÃO DA SILVA", "0802149", "MEDIDOR MONOFÁSICO", "SR", "ABC123456", "Observação opcional"],
+      ["12345", "JOÃO DA SILVA", "2227024", "CABO 10MM", "M", "100", ""],
+      ["12346", "MARIA SOUZA", "3430547", "ALÇA PREF RAM", "UN", "20", ""],
+    ];
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    XLSX.utils.book_append_sheet(wb, ws, "Entregas");
+    XLSX.writeFile(wb, `template-importacao-entregas-${format(new Date(), "yyyyMMdd")}.xlsx`);
+  };
 
   // Função para buscar respostas do checklist vinculadas à entrega
   const buscarRespostasChecklist = async (entrega: Entrega) => {
@@ -753,6 +1180,13 @@ export default function EntregasEquipes() {
               </p>
             </div>
           </div>
+          <Button 
+            variant="outline"
+            onClick={() => setImportDialogOpen(true)}
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            Importar
+          </Button>
           <Button onClick={() => {
             setBuscaEquipe("");
             setDialogOpen(true);
@@ -2026,6 +2460,175 @@ export default function EntregasEquipes() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Dialog de Importação de Entregas */}
+        <Dialog
+          open={importDialogOpen}
+          onOpenChange={(open) => {
+            setImportDialogOpen(open);
+            if (!open) resetImportState();
+          }}
+        >
+          <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Importar Entregas (Excel)</DialogTitle>
+              <DialogDescription>
+                Envie uma planilha com as transferências do almoxarifado. O sistema cruza o nome do solicitante com as equipes cadastradas.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-6">
+              <div className="flex flex-col md:flex-row gap-3 md:items-end md:justify-between">
+                <div className="space-y-2 flex-1">
+                  <Label>Planilha (.xlsx)</Label>
+                  <Input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] || null;
+                      if (file) void handleImportFile(file);
+                      e.currentTarget.value = "";
+                    }}
+                  />
+                  {importFile && (
+                    <p className="text-xs text-muted-foreground">Arquivo: {importFile.name}</p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button 
+                    variant="outline" 
+                    onClick={() => {
+                      refetchMateriais();
+                      toast.info("Atualizando lista de materiais...");
+                    }}
+                  >
+                    <Search className="h-4 w-4 mr-2" />
+                    Atualizar Catálogo
+                  </Button>
+                  <Button variant="outline" onClick={handleDownloadImportTemplate}>
+                    <Download className="h-4 w-4 mr-2" />
+                    Baixar template
+                  </Button>
+                </div>
+              </div>
+
+              {importLoading && (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                </div>
+              )}
+
+              {importRows.length > 0 && !importLoading && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Pré-visualização</CardTitle>
+                    <div className="flex flex-wrap gap-2 text-sm">
+                      <Badge variant="default">
+                        {importRows.filter((r) => !r.error).length} válidos
+                      </Badge>
+                      <Badge variant="destructive">
+                        {importRows.filter((r) => r.error).length} com erro
+                      </Badge>
+                      <Badge variant="secondary">
+                        {importRowsAgrupados.length} equipe(s)
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="border rounded-lg overflow-hidden max-h-[350px] overflow-y-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-16">Linha</TableHead>
+                            <TableHead>Solicitante</TableHead>
+                            <TableHead>Equipe</TableHead>
+                            <TableHead>Código</TableHead>
+                            <TableHead>Material</TableHead>
+                            <TableHead className="text-center">Qtd/Serial</TableHead>
+                            <TableHead>Status</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {importRows.map((r) => (
+                            <TableRow 
+                              key={`${r.rowIndex}-${r.codMaterial}`}
+                              className={r.error ? "bg-destructive/10" : ""}
+                            >
+                              <TableCell className="text-muted-foreground">{r.rowIndex}</TableCell>
+                              <TableCell className="max-w-[150px] truncate">{r.nomSolicitante || "-"}</TableCell>
+                              <TableCell className="max-w-[150px] truncate">
+                                {r.equipeNome || <span className="text-muted-foreground">-</span>}
+                              </TableCell>
+                              <TableCell className="font-mono">{r.codMaterial || "-"}</TableCell>
+                              <TableCell className="max-w-[200px] truncate">
+                                {r.materialNome || <span className="text-muted-foreground">-</span>}
+                              </TableCell>
+                              <TableCell className="text-center">
+                                {r.requerSerial ? (
+                                  <Badge variant="outline" className="font-mono text-xs">
+                                    {r.numeroSerie}
+                                  </Badge>
+                                ) : (
+                                  r.quantidade || r.quantidadeOuSerial
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {r.error ? (
+                                  <Badge variant="destructive" className="text-xs max-w-[200px] truncate">
+                                    {r.error}
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="text-xs text-green-600 border-green-600">
+                                    OK
+                                  </Badge>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+
+                    {/* Resumo por equipe */}
+                    {importRowsAgrupados.length > 0 && (
+                      <div className="mt-4">
+                        <p className="text-sm font-medium mb-2">Entregas a serem criadas:</p>
+                        <div className="flex flex-wrap gap-2">
+                          {importRowsAgrupados.map((grupo) => (
+                            <Badge key={grupo.equipeId} variant="secondary">
+                              {grupo.equipeNome}: {grupo.itens.length} item(ns)
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setImportDialogOpen(false);
+                    resetImportState();
+                  }}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={() => importEntregasMutation.mutate(importRowsAgrupados)}
+                  disabled={
+                    importEntregasMutation.isPending ||
+                    importRowsAgrupados.length === 0
+                  }
+                >
+                  {importEntregasMutation.isPending ? "Importando..." : `Criar ${importRowsAgrupados.length} Entrega(s)`}
+                </Button>
+              </DialogFooter>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </MainLayout>
   );
