@@ -917,12 +917,14 @@ export default function EntregasEquipes() {
       queryClient.invalidateQueries({ queryKey: ["estoque-disponivel"] });
       queryClient.invalidateQueries({ queryKey: ["estoque-central"] });
       toast.success(`Importação concluída! ${result.entregasCriadas} entrega(s) criada(s) para ${result.totalEquipes} equipe(s).`);
+      setImportProgress({ current: 0, total: 0, equipeAtual: "" });
       setImportDialogOpen(false);
       resetImportState();
     },
     onError: (error: any) => {
       console.error("Erro na importação:", error);
       toast.error(error.message || "Erro ao importar entregas");
+      setImportProgress({ current: 0, total: 0, equipeAtual: "" });
     },
   });
 
@@ -2509,11 +2511,13 @@ export default function EntregasEquipes() {
         <Dialog
           open={importDialogOpen}
           onOpenChange={(open) => {
-            setImportDialogOpen(open);
-            if (!open) resetImportState();
+            if (!importEntregasMutation.isPending) {
+              setImportDialogOpen(open);
+              if (!open) resetImportState();
+            }
           }}
         >
-          <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Importar Entregas (Excel)</DialogTitle>
               <DialogDescription>
@@ -2521,13 +2525,14 @@ export default function EntregasEquipes() {
               </DialogDescription>
             </DialogHeader>
 
-            <div className="space-y-6">
+            <div className="space-y-4">
               <div className="flex flex-col md:flex-row gap-3 md:items-end md:justify-between">
                 <div className="space-y-2 flex-1">
                   <Label>Planilha (.xlsx)</Label>
                   <Input
                     type="file"
                     accept=".xlsx,.xls,.csv"
+                    disabled={importEntregasMutation.isPending}
                     onChange={(e) => {
                       const file = e.target.files?.[0] || null;
                       if (file) void handleImportFile(file);
@@ -2540,17 +2545,19 @@ export default function EntregasEquipes() {
                 </div>
                 <div className="flex gap-2">
                   <Button 
-                    variant="outline" 
+                    variant="outline"
+                    size="sm"
+                    disabled={importEntregasMutation.isPending}
                     onClick={() => {
                       refetchMateriais();
                       toast.info("Atualizando lista de materiais...");
                     }}
                   >
-                    <Search className="h-4 w-4 mr-2" />
+                    <Search className="h-4 w-4 mr-1" />
                     Atualizar Catálogo
                   </Button>
-                  <Button variant="outline" onClick={handleDownloadImportTemplate}>
-                    <Download className="h-4 w-4 mr-2" />
+                  <Button variant="outline" size="sm" onClick={handleDownloadImportTemplate}>
+                    <Download className="h-4 w-4 mr-1" />
                     Baixar template
                   </Button>
                 </div>
@@ -2562,9 +2569,36 @@ export default function EntregasEquipes() {
                 </div>
               )}
 
-              {importRows.length > 0 && !importLoading && (
+              {/* Indicador de Progresso durante Importação */}
+              {importEntregasMutation.isPending && importProgress.total > 0 && (
+                <Card className="border-primary/50 bg-primary/5">
+                  <CardContent className="pt-4 pb-4">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="font-medium">Processando entregas...</span>
+                        <span className="text-muted-foreground">
+                          {importProgress.current} de {importProgress.total}
+                        </span>
+                      </div>
+                      <div className="w-full bg-secondary rounded-full h-3">
+                        <div 
+                          className="bg-primary h-3 rounded-full transition-all duration-300"
+                          style={{ width: `${(importProgress.current / importProgress.total) * 100}%` }}
+                        />
+                      </div>
+                      {importProgress.equipeAtual && (
+                        <p className="text-xs text-muted-foreground">
+                          Criando entrega para: <span className="font-medium">{importProgress.equipeAtual}</span>
+                        </p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {importRows.length > 0 && !importLoading && !importEntregasMutation.isPending && (
                 <Card>
-                  <CardHeader>
+                  <CardHeader className="py-3">
                     <CardTitle className="text-base">Pré-visualização</CardTitle>
                     <div className="flex flex-wrap gap-2 text-sm">
                       <Badge variant="default">
@@ -2578,51 +2612,53 @@ export default function EntregasEquipes() {
                       </Badge>
                     </div>
                   </CardHeader>
-                  <CardContent>
-                    <div className="border rounded-lg overflow-hidden max-h-[350px] overflow-y-auto">
+                  <CardContent className="pt-0">
+                    <div className="border rounded-lg overflow-hidden max-h-[280px] overflow-y-auto">
                       <Table>
                         <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-16">Linha</TableHead>
-                            <TableHead>Solicitante</TableHead>
-                            <TableHead>Equipe</TableHead>
-                            <TableHead>Código</TableHead>
-                            <TableHead>Material</TableHead>
-                            <TableHead className="text-center">Qtd/Serial</TableHead>
-                            <TableHead>Status</TableHead>
+                          <TableRow className="text-xs">
+                            <TableHead className="w-12 py-2">#</TableHead>
+                            <TableHead className="py-2">Solicitante</TableHead>
+                            <TableHead className="py-2">Equipe</TableHead>
+                            <TableHead className="py-2">Código</TableHead>
+                            <TableHead className="py-2">Material</TableHead>
+                            <TableHead className="text-center py-2">Qtd/Serial</TableHead>
+                            <TableHead className="py-2">Status</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {importRows.map((r) => (
                             <TableRow 
                               key={`${r.rowIndex}-${r.codMaterial}`}
-                              className={r.error ? "bg-destructive/10" : ""}
+                              className={`text-xs ${r.error ? "bg-destructive/10" : ""}`}
                             >
-                              <TableCell className="text-muted-foreground">{r.rowIndex}</TableCell>
-                              <TableCell className="max-w-[150px] truncate">{r.nomSolicitante || "-"}</TableCell>
-                              <TableCell className="max-w-[150px] truncate">
+                              <TableCell className="text-muted-foreground py-1.5">{r.rowIndex}</TableCell>
+                              <TableCell className="max-w-[100px] truncate py-1.5" title={r.nomSolicitante || ""}>
+                                {r.nomSolicitante || "-"}
+                              </TableCell>
+                              <TableCell className="max-w-[100px] truncate py-1.5" title={r.equipeNome || ""}>
                                 {r.equipeNome || <span className="text-muted-foreground">-</span>}
                               </TableCell>
-                              <TableCell className="font-mono">{r.codMaterial || "-"}</TableCell>
-                              <TableCell className="max-w-[200px] truncate">
+                              <TableCell className="font-mono py-1.5">{r.codMaterial || "-"}</TableCell>
+                              <TableCell className="max-w-[140px] truncate py-1.5" title={r.materialNome || ""}>
                                 {r.materialNome || <span className="text-muted-foreground">-</span>}
                               </TableCell>
-                              <TableCell className="text-center">
+                              <TableCell className="text-center py-1.5">
                                 {r.requerSerial ? (
-                                  <Badge variant="outline" className="font-mono text-xs">
+                                  <Badge variant="outline" className="font-mono text-[10px] px-1">
                                     {r.numeroSerie}
                                   </Badge>
                                 ) : (
                                   r.quantidade || r.quantidadeOuSerial
                                 )}
                               </TableCell>
-                              <TableCell>
+                              <TableCell className="py-1.5">
                                 {r.error ? (
-                                  <Badge variant="destructive" className="text-xs max-w-[200px] truncate">
-                                    {r.error}
+                                  <Badge variant="destructive" className="text-[10px] px-1" title={r.error}>
+                                    {r.error.length > 20 ? r.error.substring(0, 20) + "..." : r.error}
                                   </Badge>
                                 ) : (
-                                  <Badge variant="outline" className="text-xs text-green-600 border-green-600">
+                                  <Badge variant="outline" className="text-[10px] px-1 text-green-600 border-green-600">
                                     OK
                                   </Badge>
                                 )}
@@ -2635,11 +2671,11 @@ export default function EntregasEquipes() {
 
                     {/* Resumo por equipe */}
                     {importRowsAgrupados.length > 0 && (
-                      <div className="mt-4">
-                        <p className="text-sm font-medium mb-2">Entregas a serem criadas:</p>
-                        <div className="flex flex-wrap gap-2">
+                      <div className="mt-3">
+                        <p className="text-xs font-medium mb-2">Entregas a serem criadas:</p>
+                        <div className="flex flex-wrap gap-1.5">
                           {importRowsAgrupados.map((grupo) => (
-                            <Badge key={grupo.equipeId} variant="secondary">
+                            <Badge key={grupo.equipeId} variant="secondary" className="text-xs">
                               {grupo.equipeNome}: {grupo.itens.length} item(ns)
                             </Badge>
                           ))}
@@ -2653,6 +2689,7 @@ export default function EntregasEquipes() {
               <DialogFooter>
                 <Button
                   variant="outline"
+                  disabled={importEntregasMutation.isPending}
                   onClick={() => {
                     setImportDialogOpen(false);
                     resetImportState();
@@ -2667,7 +2704,9 @@ export default function EntregasEquipes() {
                     importRowsAgrupados.length === 0
                   }
                 >
-                  {importEntregasMutation.isPending ? "Importando..." : `Criar ${importRowsAgrupados.length} Entrega(s)`}
+                  {importEntregasMutation.isPending 
+                    ? `Importando ${importProgress.current}/${importProgress.total}...` 
+                    : `Importar ${importRowsAgrupados.length} Entrega(s)`}
                 </Button>
               </DialogFooter>
             </div>
