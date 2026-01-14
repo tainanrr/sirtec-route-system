@@ -740,13 +740,16 @@ export default function Recebimentos() {
       }
 
       const headerFromFirst = json[0];
+      // Sempre usar o usuário logado como padrão para "Recebido por"
+      const usuarioAtual = getUserDisplayName(user);
+      
       const header: Partial<NovoRecebimentoForm> = isFormatoCoelba 
         ? {
             // Formato COELBA
             numero_documento: colObsPedido ? String(headerFromFirst[colObsPedido] || "").replace(/"/g, "").trim() : "",
             cod_baixa: colCodBaixa ? String(headerFromFirst[colCodBaixa] || "") : "",
             fornecedor: "Coelba", // Fornecedor padrão para formato COELBA
-            recebido_por: getUserDisplayName(user),
+            recebido_por: usuarioAtual, // Sempre usa o usuário logado
             chave_nfe: "",
             canal_entrada: "planilha",
             observacao: "",
@@ -756,7 +759,8 @@ export default function Recebimentos() {
             numero_documento: colDocumento ? String(headerFromFirst[colDocumento] || "") : "",
             cod_baixa: "",
             fornecedor: colFornecedor ? String(headerFromFirst[colFornecedor] || "") : "",
-            recebido_por: colRecebidoPor ? String(headerFromFirst[colRecebidoPor] || "") : getUserDisplayName(user),
+            // Usa valor da planilha se existir, senão usa usuário logado
+            recebido_por: (colRecebidoPor && String(headerFromFirst[colRecebidoPor] || "").trim()) || usuarioAtual,
             chave_nfe: colChave ? String(headerFromFirst[colChave] || "") : "",
             canal_entrada: "planilha",
             observacao: "",
