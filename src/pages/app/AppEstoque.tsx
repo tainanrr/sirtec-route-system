@@ -457,6 +457,7 @@ export default function AppEstoque() {
 
   // Query para materiais serializados (com rastro) da equipe
   // Busca materiais que foram entregues para a equipe e ainda não foram aplicados/devolvidos
+  // E também materiais retirados de campo
   const { data: materiaisSerializados } = useQuery({
     queryKey: ["materiais-serializados-equipe", equipeId, refreshKey],
     queryFn: async () => {
@@ -472,7 +473,9 @@ export default function AppEstoque() {
         return [];
       }
 
-      // Primeiro, buscar entregas confirmadas da equipe
+      let itensDeEntregas: any[] = [];
+
+      // Buscar entregas confirmadas da equipe
       const { data: entregas, error: entregasError } = await supabase
         .from("materiais_entregas")
         .select("id, data_entrega, data_confirmacao")
@@ -480,70 +483,73 @@ export default function AppEstoque() {
         .eq("status", "confirmado");
 
       if (entregasError) throw entregasError;
-      if (!entregas || entregas.length === 0) return [];
 
-      // Buscar itens das entregas que têm número de série
-      const entregaIds = entregas.map((e: any) => e.id);
-      const { data: itensEntrega, error: itensError } = await supabase
-        .from("materiais_entregas_itens")
-        .select(`
-          id,
-          entrega_id,
-          numero_serie,
-          material_id,
-          materiais (
-            codigo,
-            nome,
-            dias_alerta_retencao
-          )
-        `)
-        .in("entrega_id", entregaIds)
-        .not("numero_serie", "is", null);
+      // Se houver entregas, buscar os itens serializados
+      if (entregas && entregas.length > 0) {
+        const entregaIds = entregas.map((e: any) => e.id);
+        const { data: itensEntrega, error: itensError } = await supabase
+          .from("materiais_entregas_itens")
+          .select(`
+            id,
+            entrega_id,
+            numero_serie,
+            material_id,
+            materiais (
+              codigo,
+              nome,
+              dias_alerta_retencao
+            )
+          `)
+          .in("entrega_id", entregaIds)
+          .not("numero_serie", "is", null);
 
-      if (itensError) throw itensError;
-      if (!itensEntrega || itensEntrega.length === 0) return [];
+        if (itensError) throw itensError;
 
-      // Verificar quais materiais ainda estão com a equipe (não foram aplicados)
-      const numerosSerieEntregues = itensEntrega.map((i: any) => i.numero_serie).filter(Boolean);
-      
-      const { data: serializados, error: serializadosError } = await supabase
-        .from("materiais_serializados")
-        .select("numero_serie, status")
-        .in("numero_serie", numerosSerieEntregues);
+        if (itensEntrega && itensEntrega.length > 0) {
+          // Verificar quais materiais ainda estão com a equipe (não foram aplicados)
+          const numerosSerieEntregues = itensEntrega.map((i: any) => i.numero_serie).filter(Boolean);
+          
+          const { data: serializados, error: serializadosError } = await supabase
+            .from("materiais_serializados")
+            .select("numero_serie, status")
+            .in("numero_serie", numerosSerieEntregues);
 
-      if (serializadosError) throw serializadosError;
+          if (serializadosError) throw serializadosError;
 
-      // Filtrar apenas os que ainda não foram instalados/retirados
-      const serializadosMap = new Map(
-        (serializados || []).map((s: any) => [s.numero_serie, s.status])
-      );
+          // Filtrar apenas os que ainda não foram instalados/retirados
+          const serializadosMap = new Map(
+            (serializados || []).map((s: any) => [s.numero_serie, s.status])
+          );
 
-      // Montar resultado com data de entrega
-      const entregasMap = new Map(
-        entregas.map((e: any) => [e.id, e])
-      );
+          // Montar resultado com data de entrega
+          const entregasMap = new Map(
+            entregas.map((e: any) => [e.id, e])
+          );
 
-      const itensDeEntregas = itensEntrega
-        .filter((item: any) => {
-          const status = serializadosMap.get(item.numero_serie);
-          // Manter se status é em_estoque (ainda não aplicado) ou não existe registro
-          return !status || status === "em_estoque" || status === "com_equipe";
-        })
-        .map((item: any) => {
-          const entrega = entregasMap.get(item.entrega_id);
-          return {
-            id: item.id,
-            numero_serie: item.numero_serie,
-            data_entrega_equipe: entrega?.data_confirmacao || entrega?.data_entrega,
-            created_at: entrega?.data_entrega,
-            updated_at: entrega?.data_confirmacao,
-            materiais: item.materiais,
-            retirado_campo: false, // Veio de entrega normal
-          };
-        });
+          itensDeEntregas = itensEntrega
+            .filter((item: any) => {
+              const status = serializadosMap.get(item.numero_serie);
+              // Manter se status é em_estoque (ainda não aplicado) ou não existe registro
+              return !status || status === "em_estoque" || status === "com_equipe";
+            })
+            .map((item: any) => {
+              const entrega = entregasMap.get(item.entrega_id);
+              return {
+                id: item.id,
+                numero_serie: item.numero_serie,
+                data_entrega_equipe: entrega?.data_confirmacao || entrega?.data_entrega,
+                created_at: entrega?.data_entrega,
+                updated_at: entrega?.data_confirmacao,
+                materiais: item.materiais,
+                retirado_campo: false, // Veio de entrega normal
+              };
+            });
+        }
+      }
 
-      // Também buscar materiais serializados retirados de campo que estão com a equipe
-      const { data: retiradosCampo } = await supabase
+      // SEMPRE buscar materiais serializados retirados de campo que estão com a equipe
+      // (independente de haver entregas ou não)
+      const { data: retiradosCampo, error: retiradosError } = await supabase
         .from("materiais_serializados")
         .select(`
           id,
@@ -561,6 +567,10 @@ export default function AppEstoque() {
         .eq("localizacao_id", equipeId)
         .eq("status", "retirado");
 
+      if (retiradosError) {
+        console.error("[AppEstoque] Erro ao buscar retirados de campo:", retiradosError);
+      }
+
       const itensRetiradosCampo = (retiradosCampo || []).map((item: any) => ({
         id: item.id,
         numero_serie: item.numero_serie,
@@ -570,6 +580,8 @@ export default function AppEstoque() {
         materiais: item.materiais,
         retirado_campo: true, // Veio de retirada de campo
       }));
+
+      console.log("[AppEstoque] Itens de entregas:", itensDeEntregas.length, "| Retirados de campo:", itensRetiradosCampo.length);
 
       // Combinar e ordenar: primeiro os de entrega, depois os retirados de campo
       return [...itensDeEntregas, ...itensRetiradosCampo];
