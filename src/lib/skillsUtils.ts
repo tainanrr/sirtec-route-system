@@ -151,12 +151,14 @@ export async function getTemposExecucao(codigosSkills: string[]): Promise<Map<st
 }
 
 /**
- * Extrai o código base de um tipo de OS (remove sufixos como " -", " C -", etc)
+ * Extrai o código base de um tipo de OS (remove acentos e sufixos como " -", " C -", etc)
  */
 function extrairCodigoBase(codigo: string): string {
   return codigo
     .toUpperCase()
     .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // Remove acentos (ã->a, é->e, ç->c, etc)
     .replace(/\s+[A-Z0-9]*\s*-\s*$/i, '') // Remove sufixos como " -", " C -", " ABC -"
     .trim();
 }
