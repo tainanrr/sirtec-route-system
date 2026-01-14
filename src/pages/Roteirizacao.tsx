@@ -4187,10 +4187,8 @@ const Roteirizacao = () => {
       return;
     }
 
-    if (!planejamentoEditandoId) {
-      toast.error("Nenhum planejamento em edição");
-      return;
-    }
+    // Se não tem planejamento salvo, é uma rota nova sendo criada - remover diretamente da rota local
+    const isRotaNovaSendoCriada = !planejamentoEditandoId;
 
     const osIdsParaMarcar: string[] = [];
     const osIdsParaRemoverDireto: { equipeId: string; osId: string; osNumero: string; indice: number }[] = [];
@@ -4221,8 +4219,17 @@ const Roteirizacao = () => {
           // Verificar se o turno da equipe está aberto
           const turnoAberto = equipesOfflineInfo.has(rota.equipe.id);
           
-          if (isRotaDoDiaAtual() && turnoAberto) {
-            // Turno aberto e rota do dia atual - criar pendência
+          // Se é rota nova (não salva), turno fechado ou data futura - remover diretamente
+          if (isRotaNovaSendoCriada || !isRotaDoDiaAtual() || !turnoAberto) {
+            // Remover diretamente da rota local
+            osIdsParaRemoverDireto.push({
+              equipeId: rota.equipe.id,
+              osId,
+              osNumero: servico.ordemServico.numero,
+              indice
+            });
+          } else {
+            // Turno aberto e rota do dia atual com planejamento salvo - criar pendência
             setOsPendentesRemocaoLocal(prev => {
               if (prev.some(p => p.osId === osId)) return prev;
               return [...prev, {
@@ -4233,14 +4240,6 @@ const Roteirizacao = () => {
               }];
             });
             osIdsParaMarcar.push(osId);
-          } else {
-            // Turno fechado ou data futura - remover diretamente
-            osIdsParaRemoverDireto.push({
-              equipeId: rota.equipe.id,
-              osId,
-              osNumero: servico.ordemServico.numero,
-              indice
-            });
           }
           break;
         }
@@ -4275,8 +4274,10 @@ const Roteirizacao = () => {
         });
       });
       
-      const turnoInfo = osIdsParaRemoverDireto.length === 1 ? "(turno fechado)" : "(turnos fechados)";
-      toast.success(`${osIdsParaRemoverDireto.length} OS(s) removida(s) diretamente ${turnoInfo}`);
+      const motivo = isRotaNovaSendoCriada 
+        ? "(rota em criação)" 
+        : (osIdsParaRemoverDireto.length === 1 ? "(turno fechado)" : "(turnos fechados)");
+      toast.success(`${osIdsParaRemoverDireto.length} OS(s) removida(s) ${motivo}`);
     }
 
     if (osIdsParaMarcar.length > 0) {
@@ -6714,6 +6715,68 @@ const Roteirizacao = () => {
                       {/* Linha 2: Botões de ação (só aparece quando há seleção) */}
                       {ossSelecionadasParaRemocao.size > 0 && (
                         <div className="flex items-center gap-1 justify-end">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-5 text-[9px] px-1.5"
+                            onClick={() => {
+                              // Copiar dados das OSs selecionadas para área de transferência
+                              const ossSelecionadasArray = Array.from(ossSelecionadasParaRemocao);
+                              const ossParaCopiar: OrdemServico[] = [];
+                              
+                              // Buscar OSs pendentes
+                              osPendentesTodas.forEach(os => {
+                                if (ossSelecionadasArray.includes(os.id)) {
+                                  ossParaCopiar.push(os);
+                                }
+                              });
+                              
+                              // Buscar OSs em rotas
+                              rotas.forEach(rota => {
+                                rota.servicos.forEach(servico => {
+                                  if (servico.tipo === "SERVICO" && servico.ordemServico) {
+                                    if (ossSelecionadasArray.includes(servico.ordemServico.id)) {
+                                      if (!ossParaCopiar.some(o => o.id === servico.ordemServico!.id)) {
+                                        ossParaCopiar.push(servico.ordemServico);
+                                      }
+                                    }
+                                  }
+                                });
+                              });
+                              
+                              if (ossParaCopiar.length === 0) {
+                                toast.warning("Nenhuma OS encontrada para copiar");
+                                return;
+                              }
+                              
+                              const header = "Número\tTipo\tStatus\tEndereço\tBairro\tMunicípio\tPrazo\tTempo Exec.\tValor\tRegulada\tLatitude\tLongitude\tContrato\tCentro Custo";
+                              const rows = ossParaCopiar.map(os => {
+                                return [
+                                  os.numero,
+                                  obterLabelTipo(os.tipo),
+                                  os.status || "",
+                                  os.endereco,
+                                  os.bairro || "",
+                                  os.municipio || "",
+                                  os.prazo ? new Date(os.prazo).toLocaleString("pt-BR") : "",
+                                  os.tempoExecucao || "",
+                                  os.valor || "",
+                                  os.regulada ? "Sim" : "Não",
+                                  os.latitude !== null ? os.latitude : "",
+                                  os.longitude !== null ? os.longitude : "",
+                                  os.contrato || "",
+                                  os.centroCusto || ""
+                                ].join("\t");
+                              });
+                              const texto = [header, ...rows].join("\n");
+                              navigator.clipboard.writeText(texto);
+                              toast.success(`${ossParaCopiar.length} OS(s) copiada(s) para área de transferência`);
+                            }}
+                            title="Copiar dados das OSs selecionadas"
+                          >
+                            <Copy className="h-3 w-3 mr-0.5" />
+                            Copiar
+                          </Button>
                           <Button
                             variant="default"
                             size="sm"
