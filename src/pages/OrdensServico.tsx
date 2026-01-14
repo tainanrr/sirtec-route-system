@@ -958,11 +958,10 @@ const OrdensServico = () => {
       setExportando(true);
       setExportProgress({ current: 0, total: totalCount, fase: "Preparando exportação..." });
       
-      // Buscar OSs em lotes maiores com apenas campos necessários
-      const PAGE_SIZE_EXPORT = 5000; // Lote maior para menos round-trips
+      // Buscar OSs em lotes (Supabase tem limite de 1000 por padrão)
+      const PAGE_SIZE_EXPORT = 1000; // Limite do Supabase
       let allOrdens: any[] = [];
       let page = 0;
-      let hasMoreData = true;
       
       // Campos selecionados (sem campos desnecessários para reduzir tamanho)
       const camposOS = `
@@ -981,7 +980,10 @@ const OrdensServico = () => {
       
       setExportProgress({ current: 0, total: totalCount, fase: "Buscando ordens de serviço..." });
       
-      while (hasMoreData) {
+      // Calcular número total de páginas
+      const totalPages = Math.ceil(totalCount / PAGE_SIZE_EXPORT);
+      
+      while (page < totalPages) {
         const from = page * PAGE_SIZE_EXPORT;
         const to = from + PAGE_SIZE_EXPORT - 1;
         
@@ -1010,8 +1012,10 @@ const OrdensServico = () => {
           });
         }
         
-        hasMoreData = data && data.length === PAGE_SIZE_EXPORT;
         page++;
+        
+        // Se não veio dados, parar
+        if (!data || data.length === 0) break;
       }
       
       if (allOrdens.length === 0) {
