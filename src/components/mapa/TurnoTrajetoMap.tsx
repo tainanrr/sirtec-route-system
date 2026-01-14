@@ -250,6 +250,7 @@ export default function TurnoTrajetoMap({
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
   const [mapaInicializado, setMapaInicializado] = useState(false);
   const [pontoSelecionado, setPontoSelecionado] = useState<string | null>(null);
+  const [componenteVisivel, setComponenteVisivel] = useState(false);
 
   // Estados de filtro - todos marcados por padrão
   const [filtrosVisiveis, setFiltrosVisiveis] = useState<Record<TipoFiltro, boolean>>({
@@ -533,12 +534,43 @@ export default function TurnoTrajetoMap({
       .map(p => [p.latitude, p.longitude] as [number, number]);
   }, [dadosTurno?.pontos, filtrosVisiveis.trajeto_gps]);
 
-  // Inicializar mapa
+  // Observer para detectar quando o componente fica visível
   useEffect(() => {
+    if (!mapRef.current) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            setComponenteVisivel(true);
+            // Se o mapa já existe, redimensionar
+            if (mapInstanceRef.current) {
+              setTimeout(() => {
+                mapInstanceRef.current?.invalidateSize();
+              }, 100);
+            }
+          }
+        });
+      },
+      { threshold: 0.1 }
+    );
+
+    observer.observe(mapRef.current);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
+  // Inicializar mapa quando o componente estiver visível
+  useEffect(() => {
+    if (!componenteVisivel || !mapRef.current || mapInstanceRef.current) return;
+
     const timer = setTimeout(() => {
       if (!mapRef.current || mapInstanceRef.current) return;
 
       try {
+        console.log("[TurnoTrajetoMap] Inicializando mapa...");
         const map = L.map(mapRef.current, {
           center: [-14.235, -51.925],
           zoom: 5,
@@ -553,14 +585,25 @@ export default function TurnoTrajetoMap({
         markersLayerRef.current = L.layerGroup().addTo(map);
         setMapaInicializado(true);
 
+        // Múltiplas chamadas de invalidateSize para garantir renderização
         setTimeout(() => map.invalidateSize(), 100);
+        setTimeout(() => map.invalidateSize(), 300);
+        setTimeout(() => map.invalidateSize(), 500);
+        
+        console.log("[TurnoTrajetoMap] Mapa inicializado com sucesso");
       } catch (error) {
         console.error("[TurnoTrajetoMap] Erro ao inicializar mapa:", error);
       }
-    }, 300);
+    }, 200);
 
     return () => {
       clearTimeout(timer);
+    };
+  }, [componenteVisivel]);
+
+  // Cleanup do mapa
+  useEffect(() => {
+    return () => {
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
