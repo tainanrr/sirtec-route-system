@@ -1011,52 +1011,73 @@ const OrdensServico = () => {
         return;
       }
       
-      // Buscar produção em lotes
+      // Buscar produção em lotes (batch menor para evitar URL muito grande com UUIDs)
       setExportProgress({ current: 0, total: allOrdens.length, fase: "Buscando produção..." });
       const ordensIds = allOrdens.map(o => o.id);
       const producaoMap = new Map<string, any>();
+      const BATCH_SIZE = 100; // Reduzido de 1000 para 100 - UUIDs são grandes (36 chars cada)
       
-      for (let i = 0; i < ordensIds.length; i += 1000) {
-        const batchIds = ordensIds.slice(i, i + 1000);
-        const { data: producaoData, error: producaoError } = await supabase
-          .from("producao_equipes")
-          .select(`ordem_servico_id,valor_total,created_at,tecnicos:equipe_id(codigo,nome)`)
-          .in("ordem_servico_id", batchIds);
-        
-        if (producaoError) {
-          console.error("[Exportar] Erro ao buscar produção:", producaoError);
+      for (let i = 0; i < ordensIds.length; i += BATCH_SIZE) {
+        const batchIds = ordensIds.slice(i, i + BATCH_SIZE);
+        try {
+          const { data: producaoData, error: producaoError } = await supabase
+            .from("producao_equipes")
+            .select(`ordem_servico_id,valor_total,created_at,tecnicos:equipe_id(codigo,nome)`)
+            .in("ordem_servico_id", batchIds);
+          
+          if (producaoError) {
+            console.error(`[Exportar] Erro ao buscar produção (lote ${i}-${i+BATCH_SIZE}):`, producaoError);
+          }
+          
+          if (producaoData && producaoData.length > 0) {
+            producaoData.forEach(p => {
+              producaoMap.set(p.ordem_servico_id, p);
+            });
+          }
+        } catch (err) {
+          console.error(`[Exportar] Exceção ao buscar produção (lote ${i}-${i+BATCH_SIZE}):`, err);
         }
         
-        if (producaoData) {
-          console.log(`[Exportar] Produção encontrada: ${producaoData.length} registros no lote`);
-          producaoData.forEach(p => {
-            producaoMap.set(p.ordem_servico_id, p);
+        if (i % 500 === 0 || i + BATCH_SIZE >= ordensIds.length) {
+          setExportProgress({ 
+            current: Math.min(i + BATCH_SIZE, ordensIds.length), 
+            total: ordensIds.length, 
+            fase: `Produção (${Math.min(i + BATCH_SIZE, ordensIds.length).toLocaleString()}/${ordensIds.length.toLocaleString()})...` 
           });
-        } else {
-          console.log("[Exportar] Nenhum dado de produção retornado para o lote");
         }
-        setExportProgress({ 
-          current: Math.min(i + 1000, ordensIds.length), 
-          total: ordensIds.length, 
-          fase: `Produção (${Math.min(i + 1000, ordensIds.length).toLocaleString()}/${ordensIds.length.toLocaleString()})...` 
-        });
       }
       
       console.log(`[Exportar] Total de produções mapeadas: ${producaoMap.size} de ${ordensIds.length} OSs`);
       
-      // Buscar planejamentos em lotes
+      // Buscar planejamentos em lotes (usa mesmo BATCH_SIZE)
       setExportProgress({ current: 0, total: allOrdens.length, fase: "Buscando planejamentos..." });
       const planejamentoMap = new Map<string, any>();
       
-      for (let i = 0; i < ordensIds.length; i += 1000) {
-        const batchIds = ordensIds.slice(i, i + 1000);
-        const { data: planejamentoData } = await supabase
-          .from("planejamento_ordens")
-          .select(`ordem_servico_id,ordem_na_rota,planejamentos:planejamento_id(data_planejamento),tecnicos:equipe_id(codigo,nome)`)
-          .in("ordem_servico_id", batchIds);
+      for (let i = 0; i < ordensIds.length; i += BATCH_SIZE) {
+        const batchIds = ordensIds.slice(i, i + BATCH_SIZE);
+        try {
+          const { data: planejamentoData, error: planejamentoError } = await supabase
+            .from("planejamento_ordens")
+            .select(`ordem_servico_id,ordem_na_rota,planejamentos:planejamento_id(data_planejamento),tecnicos:equipe_id(codigo,nome)`)
+            .in("ordem_servico_id", batchIds);
+          
+          if (planejamentoError) {
+            console.error(`[Exportar] Erro ao buscar planejamento (lote ${i}-${i+BATCH_SIZE}):`, planejamentoError);
+          }
+          
+          if (planejamentoData && planejamentoData.length > 0) {
+            planejamentoData.forEach(p => planejamentoMap.set(p.ordem_servico_id, p));
+          }
+        } catch (err) {
+          console.error(`[Exportar] Exceção ao buscar planejamento (lote ${i}-${i+BATCH_SIZE}):`, err);
+        }
         
-        if (planejamentoData) {
-          planejamentoData.forEach(p => planejamentoMap.set(p.ordem_servico_id, p));
+        if (i % 500 === 0 || i + BATCH_SIZE >= ordensIds.length) {
+          setExportProgress({ 
+            current: Math.min(i + BATCH_SIZE, ordensIds.length), 
+            total: ordensIds.length, 
+            fase: `Planejamentos (${Math.min(i + BATCH_SIZE, ordensIds.length).toLocaleString()}/${ordensIds.length.toLocaleString()})...` 
+          });
         }
       }
       
