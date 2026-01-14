@@ -174,8 +174,9 @@ SELECT
 FROM public.turnos t
 JOIN public.tecnicos eq ON eq.id = t.equipe_id
 LEFT JOIN public.vw_tecnicos_posicao_atual pos ON pos.equipe_id = t.equipe_id
-WHERE t.status = 'aberto'
-  AND t.data_turno = CURRENT_DATE;
+WHERE t.status = 'aberto';
+-- Nota: Removido filtro de data para evitar problemas de timezone
+-- Turnos abertos são sempre relevantes independente da data
 
 COMMENT ON VIEW public.vw_equipes_turno_aberto IS 'Equipes com turno aberto hoje e suas últimas posições';
 
