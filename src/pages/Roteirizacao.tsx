@@ -3792,6 +3792,120 @@ const Roteirizacao = () => {
     }
   };
 
+  // Função para restaurar OS na rota quando pendência for cancelada
+  const restaurarOSNaRota = async (osId: string, equipeId: string, planejamentoId: string) => {
+    console.log(`[PENDÊNCIAS] Restaurando OS ${osId} na rota da equipe ${equipeId}`);
+    
+    try {
+      // Buscar dados da OS e sua posição no planejamento_ordens
+      const { data: dadosPlanejamento, error: erroPlanejamento } = await supabase
+        .from("planejamento_ordens")
+        .select(`
+          *,
+          ordens_servico:ordem_servico_id (*)
+        `)
+        .eq("planejamento_id", planejamentoId)
+        .eq("ordem_servico_id", osId)
+        .single();
+      
+      if (erroPlanejamento || !dadosPlanejamento || !dadosPlanejamento.ordens_servico) {
+        console.error("[PENDÊNCIAS] Erro ao buscar OS para restaurar:", erroPlanejamento);
+        return;
+      }
+      
+      const os = dadosPlanejamento.ordens_servico;
+      
+      // Criar o serviço para adicionar na rota
+      const novoServico: RotaServico = {
+        tipo: 'SERVICO',
+        ordemServico: os,
+        latitude: os.latitude,
+        longitude: os.longitude,
+        distancia: dadosPlanejamento.distancia_km || 0,
+        tempoViagem: 0,
+        tempoServico: os.tempo_estimado || 30,
+        tempoTotal: os.tempo_estimado || 30,
+        horaInicio: dadosPlanejamento.hora_inicio_estimada,
+        horaFim: dadosPlanejamento.hora_fim_estimada,
+      };
+      
+      // Adicionar a OS de volta na rota da equipe
+      setRotas(prevRotas => {
+        const novasRotas = prevRotas.map(rota => {
+          if (rota.equipe.id === equipeId) {
+            // Verificar se a OS já está na rota
+            const osJaExiste = rota.servicos.some(
+              s => s.tipo === 'SERVICO' && s.ordemServico?.id === osId
+            );
+            
+            if (osJaExiste) {
+              console.log(`[PENDÊNCIAS] OS ${os.numero} já existe na rota, ignorando`);
+              return rota;
+            }
+            
+            // Adicionar na posição correta (ou no final)
+            const posicao = dadosPlanejamento.ordem_na_rota || rota.servicos.length;
+            const novosServicos = [...rota.servicos];
+            
+            // Inserir na posição correta
+            const posicaoInserir = Math.min(posicao - 1, novosServicos.length);
+            novosServicos.splice(posicaoInserir, 0, novoServico);
+            
+            console.log(`[PENDÊNCIAS] OS ${os.numero} restaurada na rota da equipe ${rota.equipe.codigo} na posição ${posicaoInserir + 1}`);
+            
+            const rotaAtualizada = { ...rota, servicos: novosServicos };
+            return recalcularRota(rotaAtualizada).rota;
+          }
+          return rota;
+        });
+        
+        return novasRotas;
+      });
+      
+      toast.info(`OS ${os.numero} foi restaurada na rota (estava em andamento)`);
+    } catch (error: any) {
+      console.error("[PENDÊNCIAS] Erro ao restaurar OS na rota:", error);
+    }
+  };
+
+  // Subscription Realtime para monitorar mudanças nas pendências de remoção
+  useEffect(() => {
+    if (!planejamentoEditandoId) return;
+    
+    const channel = supabase
+      .channel(`pendencias-remocao-${planejamentoEditandoId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'os_pendentes_remocao',
+          filter: `planejamento_id=eq.${planejamentoEditandoId}`
+        },
+        async (payload) => {
+          const pendenciaAtualizada = payload.new as any;
+          console.log("[PENDÊNCIAS] Pendência atualizada:", pendenciaAtualizada.os_numero, "->", pendenciaAtualizada.status);
+          
+          // Se a pendência foi cancelada (OS estava em andamento), restaurar na rota
+          if (pendenciaAtualizada.status === "cancelado_em_execucao" || pendenciaAtualizada.status === "cancelado_concluida") {
+            await restaurarOSNaRota(
+              pendenciaAtualizada.ordem_servico_id,
+              pendenciaAtualizada.equipe_id,
+              pendenciaAtualizada.planejamento_id
+            );
+          }
+          
+          // Atualizar lista de pendências
+          fetchOsPendentesRemocao();
+        }
+      )
+      .subscribe();
+    
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [planejamentoEditandoId]);
+
   // Função para cancelar pendência de remoção
   const cancelarPendenciaRemocao = async (pendenteId: string) => {
     try {
