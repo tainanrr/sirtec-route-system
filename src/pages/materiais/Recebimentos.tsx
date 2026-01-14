@@ -90,6 +90,7 @@ interface RecebimentoItem {
 interface Recebimento {
   id: string;
   numero_documento: string | null;
+  cod_baixa: string | null;
   data_recebimento: string;
   fornecedor: string | null;
   observacao: string | null;
@@ -116,6 +117,7 @@ interface RecebimentoAnexo {
 
 interface NovoRecebimentoForm {
   numero_documento: string;
+  cod_baixa: string;
   fornecedor: string;
   recebido_por: string;
   chave_nfe: string;
@@ -382,6 +384,7 @@ export default function Recebimentos() {
   // Form para novo recebimento
   const [novoRecebimento, setNovoRecebimento] = useState<NovoRecebimentoForm>({
     numero_documento: "",
+    cod_baixa: "",
     fornecedor: "",
     recebido_por: "",
     chave_nfe: "",
@@ -508,6 +511,7 @@ export default function Recebimentos() {
         return recebimentosComItens.filter(
           (r: any) =>
             r.numero_documento?.toLowerCase().includes(term) ||
+            r.cod_baixa?.toLowerCase().includes(term) ||
             r.fornecedor?.toLowerCase().includes(term) ||
             r.recebido_por?.toLowerCase().includes(term)
         );
@@ -652,6 +656,17 @@ export default function Recebimentos() {
       const keyMap = new Map<string, string>();
       keys.forEach((k) => keyMap.set(normalizeHeader(k), k));
 
+      // Detectar formato COELBA (possui cod_baixa, cod_reduz_material, etc.)
+      const isFormatoCoelba = keyMap.has("codbaixa") || keyMap.has("codreduzmaterial");
+
+      // Colunas para formato COELBA
+      const colCodBaixa = keyMap.get("codbaixa");
+      const colObsPedido = keyMap.get("obspedido"); // vai para numero_documento
+      const colCodReduzMaterial = keyMap.get("codreduzmaterial");
+      const colQtdMater = keyMap.get("qtdmater");
+      const colCodRastro = keyMap.get("codrastro");
+
+      // Colunas para formato padrão
       const colDocumento = keyMap.get("documento") || keyMap.get("numerodocumento") || keyMap.get("nf");
       const colFornecedor = keyMap.get("fornecedor") || keyMap.get("origem");
       const colRecebidoPor = keyMap.get("recebidopor") || keyMap.get("recebedor");
@@ -662,27 +677,49 @@ export default function Recebimentos() {
       const colRastros = keyMap.get("rastros") || keyMap.get("numeroserie") || keyMap.get("numero_serie") || keyMap.get("serial") || keyMap.get("series");
       const colValor = keyMap.get("valorunitario") || keyMap.get("valor") || keyMap.get("preco") || keyMap.get("preco_unitario") || keyMap.get("preçounitario");
 
-      if (!colCodigo || !colQtd) {
-        toast.error('Template inválido: colunas obrigatórias "Código Material" e "Quantidade" não encontradas.');
+      // Usar colunas conforme o formato detectado
+      const colCodigoFinal = isFormatoCoelba ? colCodReduzMaterial : colCodigo;
+      const colQtdFinal = isFormatoCoelba ? colQtdMater : colQtd;
+      const colRastrosFinal = isFormatoCoelba ? colCodRastro : colRastros;
+
+      if (!colCodigoFinal) {
+        toast.error('Template inválido: coluna de código do material não encontrada.');
+        return;
+      }
+
+      // Para formato COELBA, não exigimos quantidade (será calculada por linha para materiais com rastro)
+      if (!isFormatoCoelba && !colQtdFinal) {
+        toast.error('Template inválido: coluna "Quantidade" não encontrada.');
         return;
       }
 
       const headerFromFirst = json[0];
-      const header: Partial<NovoRecebimentoForm> = {
-        numero_documento: colDocumento ? String(headerFromFirst[colDocumento] || "") : "",
-        fornecedor: colFornecedor ? String(headerFromFirst[colFornecedor] || "") : "",
-        recebido_por: colRecebidoPor ? String(headerFromFirst[colRecebidoPor] || "") : getUserDisplayName(user),
-        chave_nfe: colChave ? String(headerFromFirst[colChave] || "") : "",
-        canal_entrada: "planilha",
-        observacao: "",
-      };
+      const header: Partial<NovoRecebimentoForm> = isFormatoCoelba 
+        ? {
+            // Formato COELBA
+            numero_documento: colObsPedido ? String(headerFromFirst[colObsPedido] || "").replace(/"/g, "").trim() : "",
+            cod_baixa: colCodBaixa ? String(headerFromFirst[colCodBaixa] || "") : "",
+            fornecedor: "Coelba", // Fornecedor padrão para formato COELBA
+            recebido_por: getUserDisplayName(user),
+            chave_nfe: "",
+            canal_entrada: "planilha",
+            observacao: "",
+          }
+        : {
+            // Formato padrão
+            numero_documento: colDocumento ? String(headerFromFirst[colDocumento] || "") : "",
+            cod_baixa: "",
+            fornecedor: colFornecedor ? String(headerFromFirst[colFornecedor] || "") : "",
+            recebido_por: colRecebidoPor ? String(headerFromFirst[colRecebidoPor] || "") : getUserDisplayName(user),
+            chave_nfe: colChave ? String(headerFromFirst[colChave] || "") : "",
+            canal_entrada: "planilha",
+            observacao: "",
+          };
       setImportHeader(header);
 
       const rows: ImportRow[] = json.map((row, idx) => {
-        const codigo = String(row[colCodigo] || "").trim().toUpperCase();
-        const qtd = parseNumero(row[colQtd]);
+        const codigo = String(row[colCodigoFinal!] || "").trim().toUpperCase();
         const obs = colObs ? String(row[colObs] || "").trim() : "";
-        const rastrosRaw = colRastros ? String(row[colRastros] || "").trim() : "";
         const valorRaw = colValor ? row[colValor] : "";
 
         if (!codigo) {
@@ -691,7 +728,7 @@ export default function Recebimentos() {
 
         const material = materiaisByCodigo.get(codigo);
         if (!material) {
-          return { rowIndex: idx + 2, codigo, quantidade: qtd || 0, observacao: obs, error: "Código não encontrado no catálogo" };
+          return { rowIndex: idx + 2, codigo, quantidade: 0, observacao: obs, error: "Código não encontrado no catálogo" };
         }
 
         const valorDefault = typeof material.valor_unitario === "number" ? material.valor_unitario : null;
@@ -699,7 +736,38 @@ export default function Recebimentos() {
         const valorUnitario = valorPlanilha != null ? valorPlanilha : valorDefault;
 
         const requerSerial = isSerialMaterial(material);
+
+        // Para formato COELBA com materiais que requerem serial
+        if (isFormatoCoelba && requerSerial) {
+          // Cada linha é um item único - usar cod_rastro como número de série
+          const rastroRaw = colRastrosFinal ? String(row[colRastrosFinal] || "").trim() : "";
+          if (!rastroRaw) {
+            return {
+              rowIndex: idx + 2,
+              codigo,
+              quantidade: 0,
+              observacao: obs,
+              error: "Material com rastro: campo 'cod_rastro' vazio",
+            };
+          }
+          return {
+            rowIndex: idx + 2,
+            codigo,
+            quantidade: 1, // Cada linha = 1 item para materiais com rastro
+            rastros: [rastroRaw.toUpperCase()],
+            valor_unitario: valorUnitario,
+            observacao: obs,
+            material_id: material.id,
+            materialLabel: `${material.codigo} - ${material.nome}`,
+          };
+        }
+
+        // Para formato padrão ou formato COELBA sem serial
+        const rastrosRaw = colRastrosFinal ? String(row[colRastrosFinal] || "").trim() : "";
         const rastros = rastrosRaw ? parseRastrosText(rastrosRaw) : [];
+
+        // Quantidade: para COELBA sem serial, usar qtd_mater; para padrão, usar coluna quantidade
+        const qtd = colQtdFinal ? parseNumero(row[colQtdFinal]) : null;
 
         if (requerSerial) {
           if (rastros.length === 0) {
@@ -830,6 +898,7 @@ export default function Recebimentos() {
 
     const form: NovoRecebimentoForm = {
       numero_documento: String((importHeader as any).numero_documento || ""),
+      cod_baixa: String((importHeader as any).cod_baixa || ""),
       fornecedor: String((importHeader as any).fornecedor || ""),
       recebido_por: String((importHeader as any).recebido_por || getUserDisplayName(user)),
       chave_nfe: String((importHeader as any).chave_nfe || ""),
@@ -1063,6 +1132,7 @@ Regras:
           .from("materiais_recebimentos")
           .insert({
             numero_documento: form.numero_documento || null,
+            cod_baixa: form.cod_baixa || null,
             fornecedor: form.fornecedor || null,
             recebido_por: form.recebido_por || null,
             recebido_por_user_id: user?.id || null,
@@ -1174,6 +1244,7 @@ Regras:
       setDialogOpen(false);
       setNovoRecebimento({
         numero_documento: "",
+        cod_baixa: "",
         fornecedor: "",
         recebido_por: getUserDisplayName(user),
         chave_nfe: "",
@@ -1894,6 +1965,7 @@ Regras:
                   <TableRow>
                     <SortableTableHead column="data_recebimento" label="Data" sortConfig={sortConfig} onSort={handleSort} />
                     <SortableTableHead column="numero_documento" label="Documento" sortConfig={sortConfig} onSort={handleSort} />
+                    <SortableTableHead column="cod_baixa" label="Cód. Baixa" sortConfig={sortConfig} onSort={handleSort} />
                     <SortableTableHead column="fornecedor" label="Fornecedor" sortConfig={sortConfig} onSort={handleSort} />
                     <SortableTableHead column="recebido_por" label="Recebido por" sortConfig={sortConfig} onSort={handleSort} />
                     <SortableTableHead
@@ -1926,6 +1998,13 @@ Regras:
                             <FileText className="h-3 w-3 mr-1" />
                             {rec.numero_documento}
                           </Badge>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {rec.cod_baixa ? (
+                          <span className="font-mono text-sm">{rec.cod_baixa}</span>
                         ) : (
                           <span className="text-muted-foreground">-</span>
                         )}
@@ -2538,6 +2617,14 @@ Regras:
                         />
                       </div>
                       <div className="space-y-2">
+                        <Label>Cód. Baixa (Referência Externa)</Label>
+                        <Input
+                          value={String((importHeader as any).cod_baixa || "")}
+                          onChange={(e) => setImportHeader((prev) => ({ ...prev, cod_baixa: e.target.value }))}
+                          placeholder="Ex: 700578339"
+                        />
+                      </div>
+                      <div className="space-y-2">
                         <Label>Fornecedor</Label>
                         <Input
                           value={String((importHeader as any).fornecedor || "")}
@@ -2991,6 +3078,12 @@ Regras:
                     <div>
                       <p className="text-sm text-muted-foreground">Documento</p>
                       <p className="font-medium">{selectedRecebimento.numero_documento}</p>
+                    </div>
+                  )}
+                  {selectedRecebimento.cod_baixa && (
+                    <div>
+                      <p className="text-sm text-muted-foreground">Cód. Baixa (Ref. Externa)</p>
+                      <p className="font-mono font-medium">{selectedRecebimento.cod_baixa}</p>
                     </div>
                   )}
                   {selectedRecebimento.fornecedor && (
