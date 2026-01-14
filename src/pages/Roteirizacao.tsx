@@ -5383,18 +5383,18 @@ const Roteirizacao = () => {
                           )}
                           {centrosCustoDisponiveis.map((cc) => (
                             <CommandItem
-                              key={cc}
-                              value={cc}
+                              key={cc.codigo}
+                              value={`${cc.codigo} ${cc.nome}`}
                               onSelect={() => {
-                                if (centrosCustoFilter.includes(cc)) {
-                                  setCentrosCustoFilter(centrosCustoFilter.filter(c => c !== cc));
+                                if (centrosCustoFilter.includes(cc.codigo)) {
+                                  setCentrosCustoFilter(centrosCustoFilter.filter(c => c !== cc.codigo));
                                 } else {
-                                  setCentrosCustoFilter([...centrosCustoFilter, cc]);
+                                  setCentrosCustoFilter([...centrosCustoFilter, cc.codigo]);
                                 }
                               }}
                             >
-                              <Checkbox checked={centrosCustoFilter.includes(cc)} className="mr-2" />
-                              {cc}
+                              <Checkbox checked={centrosCustoFilter.includes(cc.codigo)} className="mr-2" />
+                              {cc.codigo} - {cc.nome}
                             </CommandItem>
                           ))}
                         </CommandGroup>
