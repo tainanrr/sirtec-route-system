@@ -96,10 +96,11 @@ export default function AppLayout() {
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
       
-      // Buscar pendências de remoção para esta equipe (incluir planejamento_id para restauração)
+      // Buscar pendências de remoção para esta equipe
+      // NOTA: Não buscar data_planejamento pois a coluna pode não existir ainda na tabela
       const { data: pendencias, error: erroPendencias } = await supabase
         .from("os_pendentes_remocao")
-        .select("id, ordem_servico_id, os_numero, planejamento_id, planejamento_ordem_id, data_planejamento")
+        .select("id, ordem_servico_id, os_numero, planejamento_id, planejamento_ordem_id")
         .eq("equipe_id", equipeId)
         .eq("status", "aguardando_sinal");
       
@@ -151,9 +152,9 @@ export default function AppLayout() {
           if (osAtual.equipe_planejada_id !== equipeId) {
             console.log(`[AppLayout] 🔧 Restaurando OS ${pendencia.os_numero} para equipe ${equipeId}`);
             
-            // Usar data do planejamento salva, ou data atual, ou data que já estava na OS
-            const dataParaRestaurar = pendencia.data_planejamento || 
-              osAtual.data_planejada || 
+            // Usar data que já estava na OS, ou data atual como fallback
+            // NOTA: data_planejamento pode não existir na tabela ainda
+            const dataParaRestaurar = osAtual.data_planejada || 
               new Date().toISOString().split('T')[0];
             
             // Restaurar a vinculação da OS com a equipe

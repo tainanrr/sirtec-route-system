@@ -2512,7 +2512,6 @@ const Roteirizacao = () => {
               equipe_id: pendencia.equipeId,
               os_numero: pendencia.osNumero,
               os_status_original: pendencia.osStatus,
-              data_planejamento: dataPlanejamento, // Para restauração caso OS esteja em andamento
               status: "aguardando_sinal",
               solicitado_por: user.id,
             };
@@ -3209,6 +3208,36 @@ const Roteirizacao = () => {
       
       if (!rotaOrigem || !rotaDestino || !servicoMovido) return;
 
+      // VERIFICAÇÃO: Se é planejamento existente do dia atual, verificar regras de remoção
+      if (planejamentoEditandoId && isRotaDoDiaAtual() && osMovida) {
+        console.log(`[DRAG] Movendo OS ${osMovida.numero} entre equipes - verificando regras`);
+        
+        // Verificar se OS está concluída ou em andamento
+        if (osMovida.status === "concluida") {
+          toast.error("Não é possível mover uma OS que já foi concluída!");
+          return;
+        }
+        if (["em_deslocamento", "no_local", "em_execucao", "em_andamento"].includes(osMovida.status || "")) {
+          toast.error("Esta OS está em andamento! Não é possível mover.", {
+            description: `Status atual: ${osMovida.status}`,
+          });
+          return;
+        }
+        
+        // Adicionar à lista de pendências de remoção da equipe de origem
+        // A OS será "removida" da equipe original e adicionada à nova
+        console.log(`[DRAG] OS ${osMovida.numero} será movida - criando pendência para equipe origem ${equipeIdOrigem}`);
+        setOsPendentesRemocaoLocal(prev => {
+          if (prev.some(p => p.osId === osMovida.id)) return prev;
+          return [...prev, {
+            osId: osMovida.id,
+            osNumero: osMovida.numero,
+            osStatus: osMovida.status || "pendente",
+            equipeId: equipeIdOrigem,
+          }];
+        });
+      }
+
       // Verificar se a equipe destino tem a skill necessária
       const equipe = equipes.find((e) => e.id === equipeIdDestino);
       if (equipe && !(equipe.skills || equipe.habilidades).includes(osMovida.tipo)) {
@@ -3262,6 +3291,35 @@ const Roteirizacao = () => {
       const rotaOrigem = novasRotas.find((r) => r.equipe.id === equipeIdOrigem);
       
       if (!rotaOrigem) return;
+
+      // VERIFICAÇÃO: Se é planejamento existente do dia atual, verificar regras de remoção
+      if (planejamentoEditandoId && isRotaDoDiaAtual() && osMovida) {
+        console.log(`[DRAG] Movendo OS ${osMovida.numero} para backlog - verificando regras`);
+        
+        // Verificar se OS está concluída ou em andamento
+        if (osMovida.status === "concluida") {
+          toast.error("Não é possível mover uma OS que já foi concluída!");
+          return;
+        }
+        if (["em_deslocamento", "no_local", "em_execucao", "em_andamento"].includes(osMovida.status || "")) {
+          toast.error("Esta OS está em andamento! Não é possível mover.", {
+            description: `Status atual: ${osMovida.status}`,
+          });
+          return;
+        }
+        
+        // Adicionar à lista de pendências de remoção
+        console.log(`[DRAG] OS ${osMovida.numero} será removida - criando pendência para equipe ${equipeIdOrigem}`);
+        setOsPendentesRemocaoLocal(prev => {
+          if (prev.some(p => p.osId === osMovida.id)) return prev;
+          return [...prev, {
+            osId: osMovida.id,
+            osNumero: osMovida.numero,
+            osStatus: osMovida.status || "pendente",
+            equipeId: equipeIdOrigem,
+          }];
+        });
+      }
 
       // Remover da origem (criar novo array)
       const novosServicos = [...rotaOrigem.servicos];
@@ -3692,11 +3750,16 @@ const Roteirizacao = () => {
     const servicoParaRemover = servicos[indiceRemover];
     const os = servicoParaRemover?.ordemServico;
 
+    console.log(`[REMOVER OS] Tentando remover OS ${osNumero} - planejamentoEditandoId: ${planejamentoEditandoId}, isRotaDoDiaAtual: ${isRotaDoDiaAtual()}, dataPlanejamento: ${dataPlanejamento}`);
+
     if (!os) {
       // Se não tem OS associada, remover diretamente
+      console.log(`[REMOVER OS] OS ${osNumero} sem objeto OS associado - removendo diretamente`);
       removerOSDaRotaEfetivo(equipeId, servicos, indiceRemover, osNumero);
       return;
     }
+
+    console.log(`[REMOVER OS] OS ${osNumero} - status local: ${os.status}`);
 
     // Regra 1: OS concluída não pode ser removida
     if (os.status === "concluida") {
@@ -3718,13 +3781,17 @@ const Roteirizacao = () => {
 
     // Regra 3: Se estamos editando um planejamento existente do dia atual
     // e a OS já foi sincronizada, criar pendência
+    console.log(`[REMOVER OS] Verificando se deve criar pendência - planejamentoEditandoId: ${planejamentoEditandoId}, isRotaDoDiaAtual(): ${isRotaDoDiaAtual()}`);
     if (planejamentoEditandoId && isRotaDoDiaAtual()) {
+      console.log(`[REMOVER OS] É planejamento existente do dia atual - verificando status atual no banco`);
       // Buscar status atual da OS no banco (pode ter mudado)
       const { data: osAtual, error } = await supabase
         .from("ordens_servico")
-        .select("status")
+        .select("status, deslocamento_iniciado_at, chegada_local_at, execucao_iniciada_at")
         .eq("id", os.id)
         .single();
+
+      console.log(`[REMOVER OS] Status no banco: ${osAtual?.status}, deslocamento: ${osAtual?.deslocamento_iniciado_at}, chegada: ${osAtual?.chegada_local_at}, execucao: ${osAtual?.execucao_iniciada_at}`);
 
       if (!error && osAtual) {
         // Verificar novamente com dados atualizados
@@ -3733,14 +3800,18 @@ const Roteirizacao = () => {
           return;
         }
 
-        if (["em_deslocamento", "no_local", "em_execucao", "em_andamento"].includes(osAtual.status)) {
-          toast.error("Esta OS está em andamento! Não é possível remover.", {
-            description: `Status atual: ${osAtual.status}`,
+        // Verificar se há trabalho iniciado (timestamps preenchidos)
+        const trabalhoIniciado = osAtual.deslocamento_iniciado_at || osAtual.chegada_local_at || osAtual.execucao_iniciada_at;
+
+        if (["em_deslocamento", "no_local", "em_execucao", "em_andamento"].includes(osAtual.status) || trabalhoIniciado) {
+          toast.error("Esta OS está em andamento ou já foi iniciada! Não é possível remover.", {
+            description: trabalhoIniciado ? "Trabalho já iniciado pela equipe" : `Status atual: ${osAtual.status}`,
           });
           return;
         }
 
         // Criar pendência para confirmação do app
+        console.log(`[REMOVER OS] Criando pendência de remoção para OS ${osNumero}`);
         setOsParaRemoverComConfirmacao({
           equipeId,
           servicos,
@@ -3755,6 +3826,7 @@ const Roteirizacao = () => {
     }
 
     // Para planejamentos novos ou futuros, remover diretamente
+    console.log(`[REMOVER OS] Removendo diretamente (planejamento novo ou futuro)`);
     removerOSDaRotaEfetivo(equipeId, servicos, indiceRemover, osNumero);
   };
 
