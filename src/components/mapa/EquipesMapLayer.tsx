@@ -54,16 +54,16 @@ export default function EquipesMapLayer({
   });
 
   // =====================================================
-  // CRIAR ÍCONE DA EQUIPE
+  // CRIAR ÍCONE DA EQUIPE (formato de carro/van)
   // =====================================================
   const criarIconeEquipe = useCallback((equipe: EquipeTurnoAberto, isSelecionada: boolean) => {
     const statusConfig = STATUS_CORES[equipe.ultimo_evento_tipo || "default"] || STATUS_CORES.default;
-    const tamanho = isSelecionada ? 48 : 40;
+    const largura = isSelecionada ? 56 : 48;
+    const altura = isSelecionada ? 32 : 28;
     const corFundo = statusConfig.bg;
     const corBorda = isSelecionada ? "#ffffff" : statusConfig.border;
     
     // Calcular tempo desde última posição
-    let tempoStr = "";
     let gpsStatus = "🟢";
     if (equipe.ultima_posicao_at) {
       const diffMinutos = (Date.now() - new Date(equipe.ultima_posicao_at).getTime()) / 60000;
@@ -76,59 +76,112 @@ export default function EquipesMapLayer({
       gpsStatus = "⚫"; // Sem posição
     }
 
-    // Pegar iniciais da equipe
-    const iniciais = equipe.equipe_codigo?.slice(0, 3).toUpperCase() || "EQ";
+    // Pegar os 3 ÚLTIMOS caracteres do código da equipe
+    const codigo = equipe.equipe_codigo || "EQP";
+    const ultimos3 = codigo.slice(-3).toUpperCase();
 
     const html = `
-      <div class="equipe-marker ${isSelecionada ? 'selecionada' : ''}" style="
-        width: ${tamanho}px;
-        height: ${tamanho}px;
-        background: linear-gradient(135deg, ${corFundo} 0%, ${statusConfig.border} 100%);
-        border: ${isSelecionada ? '4px' : '3px'} solid ${corBorda};
-        border-radius: 50%;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      <div class="equipe-marker-car ${isSelecionada ? 'selecionada' : ''}" style="
+        position: relative;
+        width: ${largura}px;
+        height: ${altura + 12}px;
         cursor: pointer;
         transition: all 0.2s ease;
-        position: relative;
       ">
-        <span style="
-          font-weight: 700;
-          font-size: ${isSelecionada ? '13px' : '11px'};
-          color: white;
-          text-shadow: 0 1px 2px rgba(0,0,0,0.5);
-          line-height: 1;
-        ">${iniciais}</span>
-        <span style="
+        <!-- Corpo do carro/van -->
+        <div style="
+          width: ${largura}px;
+          height: ${altura}px;
+          background: linear-gradient(180deg, ${corFundo} 0%, ${statusConfig.border} 100%);
+          border: ${isSelecionada ? '3px' : '2px'} solid ${corBorda};
+          border-radius: 6px 6px 4px 4px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+          position: relative;
+          overflow: hidden;
+        ">
+          <!-- Janela do carro -->
+          <div style="
+            position: absolute;
+            top: 3px;
+            left: 4px;
+            right: 4px;
+            height: ${isSelecionada ? '10px' : '8px'};
+            background: linear-gradient(180deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0.2) 100%);
+            border-radius: 3px 3px 0 0;
+          "></div>
+          
+          <!-- Código da equipe -->
+          <div style="
+            position: absolute;
+            bottom: 2px;
+            left: 0;
+            right: 0;
+            text-align: center;
+            font-weight: 800;
+            font-size: ${isSelecionada ? '13px' : '11px'};
+            color: white;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+            letter-spacing: 0.5px;
+          ">${ultimos3}</div>
+        </div>
+        
+        <!-- Rodas -->
+        <div style="
           position: absolute;
-          bottom: -4px;
-          right: -4px;
+          bottom: 0;
+          left: 6px;
+          width: 8px;
+          height: 8px;
+          background: #1f2937;
+          border-radius: 50%;
+          border: 2px solid #374151;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        "></div>
+        <div style="
+          position: absolute;
+          bottom: 0;
+          right: 6px;
+          width: 8px;
+          height: 8px;
+          background: #1f2937;
+          border-radius: 50%;
+          border: 2px solid #374151;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        "></div>
+        
+        <!-- Indicador de GPS -->
+        <div style="
+          position: absolute;
+          top: -6px;
+          right: -6px;
           font-size: 10px;
-        ">${gpsStatus}</span>
+          filter: drop-shadow(0 1px 1px rgba(0,0,0,0.3));
+        ">${gpsStatus}</div>
+        
         ${statusConfig.pulse ? `
           <div style="
             position: absolute;
-            inset: -4px;
-            border-radius: 50%;
+            top: -4px;
+            left: -4px;
+            right: -4px;
+            bottom: 4px;
+            border-radius: 8px;
             border: 2px solid ${corFundo};
-            animation: pulse 2s infinite;
+            animation: pulse-car 2s infinite;
             pointer-events: none;
           "></div>
         ` : ''}
       </div>
       <style>
-        @keyframes pulse {
+        @keyframes pulse-car {
           0% { opacity: 1; transform: scale(1); }
-          50% { opacity: 0.5; transform: scale(1.2); }
-          100% { opacity: 0; transform: scale(1.4); }
+          50% { opacity: 0.5; transform: scale(1.15); }
+          100% { opacity: 0; transform: scale(1.3); }
         }
-        .equipe-marker:hover {
-          transform: scale(1.1);
+        .equipe-marker-car:hover {
+          transform: scale(1.1) translateY(-2px);
         }
-        .equipe-marker.selecionada {
+        .equipe-marker-car.selecionada {
           z-index: 10000 !important;
         }
       </style>
@@ -137,9 +190,9 @@ export default function EquipesMapLayer({
     return L.divIcon({
       className: "custom-equipe-marker",
       html,
-      iconSize: [tamanho, tamanho],
-      iconAnchor: [tamanho / 2, tamanho / 2],
-      popupAnchor: [0, -tamanho / 2 - 5],
+      iconSize: [largura, altura + 12],
+      iconAnchor: [largura / 2, (altura + 12) / 2],
+      popupAnchor: [0, -(altura / 2) - 10],
     });
   }, []);
 
