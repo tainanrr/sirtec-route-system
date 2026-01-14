@@ -662,8 +662,11 @@ export default function AppEstoque() {
       );
     },
     onSuccess: () => {
+      // Invalidar todas as queries relacionadas a estoque e materiais
       queryClient.invalidateQueries({ queryKey: ["entregas-pendentes-equipe"] });
       queryClient.invalidateQueries({ queryKey: ["estoque-equipe"] });
+      queryClient.invalidateQueries({ queryKey: ["estoque-equipe-os"] }); // Query usada em AppMateriaisOS
+      queryClient.invalidateQueries({ queryKey: ["rastros-disponiveis-equipe"] }); // Query de rastros em AppMateriaisOS
       queryClient.invalidateQueries({ queryKey: ["movimentacoes-equipe"] });
       queryClient.invalidateQueries({ queryKey: ["materiais-serializados-equipe"] });
       toast.success("Recebimento confirmado com sucesso!");
