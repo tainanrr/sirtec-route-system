@@ -1028,7 +1028,12 @@ const OrdensServico = () => {
         }
         
         if (producaoData) {
-          producaoData.forEach(p => producaoMap.set(p.ordem_servico_id, p));
+          console.log(`[Exportar] Produção encontrada: ${producaoData.length} registros no lote`);
+          producaoData.forEach(p => {
+            producaoMap.set(p.ordem_servico_id, p);
+          });
+        } else {
+          console.log("[Exportar] Nenhum dado de produção retornado para o lote");
         }
         setExportProgress({ 
           current: Math.min(i + 1000, ordensIds.length), 
@@ -1036,6 +1041,8 @@ const OrdensServico = () => {
           fase: `Produção (${Math.min(i + 1000, ordensIds.length).toLocaleString()}/${ordensIds.length.toLocaleString()})...` 
         });
       }
+      
+      console.log(`[Exportar] Total de produções mapeadas: ${producaoMap.size} de ${ordensIds.length} OSs`);
       
       // Buscar planejamentos em lotes
       setExportProgress({ current: 0, total: allOrdens.length, fase: "Buscando planejamentos..." });
@@ -1151,7 +1158,7 @@ const OrdensServico = () => {
           producao?.tecnicos?.codigo || "",
           producao?.tecnicos?.nome || "",
           producao?.created_at ? new Date(producao.created_at).toLocaleDateString("pt-BR") : "",
-          producao?.valor_total || "",
+          producao?.valor_total !== undefined && producao?.valor_total !== null ? String(producao.valor_total) : "",
           os.retornos_campo?.codigo || "",
           os.retornos_campo?.descricao || "",
           os.retornos_campo?.tipo || "",
