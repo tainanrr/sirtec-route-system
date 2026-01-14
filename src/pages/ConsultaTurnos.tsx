@@ -507,7 +507,7 @@ export default function ConsultaTurnos() {
   }, [turnosData?.turnos]);
   
   // Filtrar e ordenar turnos localmente
-  const turnosFiltradosOrdenados = useMemo(() => {
+  const turnosFiltradosOrdenadosOrdenados = useMemo(() => {
     let filtered = turnosData?.turnos || [];
     
     // Filtro por status (multi-select)
@@ -1261,9 +1261,9 @@ export default function ConsultaTurnos() {
   const handleExportarTurnos = async () => {
     try {
       setExportando(true);
-      setExportProgress({ current: 0, total: turnosFiltrados.length, fase: "Preparando exportação..." });
+      setExportProgress({ current: 0, total: turnosFiltradosOrdenados.length, fase: "Preparando exportação..." });
       
-      if (turnosFiltrados.length === 0) {
+      if (turnosFiltradosOrdenados.length === 0) {
         toast.warning("Nenhum turno para exportar");
         setExportando(false);
         return;
@@ -1273,8 +1273,8 @@ export default function ConsultaTurnos() {
       const BATCH_SIZE = 50;
       const turnosComDetalhes: any[] = [];
       
-      for (let i = 0; i < turnosFiltrados.length; i += BATCH_SIZE) {
-        const batch = turnosFiltrados.slice(i, i + BATCH_SIZE);
+      for (let i = 0; i < turnosFiltradosOrdenados.length; i += BATCH_SIZE) {
+        const batch = turnosFiltradosOrdenados.slice(i, i + BATCH_SIZE);
         
         // Buscar produção de cada turno do batch
         const producaoPromises = batch.map(async (turno) => {
@@ -1302,9 +1302,9 @@ export default function ConsultaTurnos() {
         turnosComDetalhes.push(...resultados);
         
         setExportProgress({ 
-          current: Math.min(i + BATCH_SIZE, turnosFiltrados.length), 
-          total: turnosFiltrados.length, 
-          fase: `Carregando produção (${Math.min(i + BATCH_SIZE, turnosFiltrados.length)}/${turnosFiltrados.length})...` 
+          current: Math.min(i + BATCH_SIZE, turnosFiltradosOrdenados.length), 
+          total: turnosFiltradosOrdenados.length, 
+          fase: `Carregando produção (${Math.min(i + BATCH_SIZE, turnosFiltradosOrdenados.length)}/${turnosFiltradosOrdenados.length})...` 
         });
       }
       
@@ -1384,8 +1384,8 @@ export default function ConsultaTurnos() {
       setExportProgress({ current: 0, total: 0, fase: "Buscando checklists..." });
       
       // Buscar todos os IDs de turnos filtrados
-      const turnoIds = turnosFiltrados.map(t => t.id);
-      const equipeIds = turnosFiltrados.map(t => t.equipe_id);
+      const turnoIds = turnosFiltradosOrdenados.map(t => t.id);
+      const equipeIds = turnosFiltradosOrdenados.map(t => t.equipe_id);
       
       if (turnoIds.length === 0) {
         toast.warning("Nenhum turno para exportar");
@@ -1394,15 +1394,15 @@ export default function ConsultaTurnos() {
       }
       
       // Determinar período baseado nos turnos
-      const dataMin = turnosFiltrados.reduce((min, t) => {
+      const dataMin = turnosFiltradosOrdenados.reduce((min, t) => {
         const d = t.hora_inicio.substring(0, 10);
         return d < min ? d : min;
-      }, turnosFiltrados[0].hora_inicio.substring(0, 10));
+      }, turnosFiltradosOrdenados[0].hora_inicio.substring(0, 10));
       
-      const dataMax = turnosFiltrados.reduce((max, t) => {
+      const dataMax = turnosFiltradosOrdenados.reduce((max, t) => {
         const d = (t.hora_fim || t.hora_inicio).substring(0, 10);
         return d > max ? d : max;
-      }, turnosFiltrados[0].hora_inicio.substring(0, 10));
+      }, turnosFiltradosOrdenados[0].hora_inicio.substring(0, 10));
       
       // Buscar checklists respostas das equipes no período em lotes
       const BATCH_SIZE = 50;
@@ -1569,7 +1569,7 @@ export default function ConsultaTurnos() {
           <Button 
             variant="outline" 
             onClick={handleExportarTurnos}
-            disabled={exportando || exportandoChecklists || turnosFiltrados.length === 0}
+            disabled={exportando || exportandoChecklists || turnosFiltradosOrdenados.length === 0}
           >
             {exportando ? (
               <>
@@ -1586,7 +1586,7 @@ export default function ConsultaTurnos() {
           <Button 
             variant="outline" 
             onClick={handleExportarChecklistsDetalhado}
-            disabled={exportando || exportandoChecklists || turnosFiltrados.length === 0}
+            disabled={exportando || exportandoChecklists || turnosFiltradosOrdenados.length === 0}
           >
             {exportandoChecklists ? (
               <>
@@ -1979,7 +1979,7 @@ export default function ConsultaTurnos() {
                   <Skeleton key={i} className="h-16 w-full" />
                 ))}
               </div>
-            ) : turnosFiltradosOrdenados.length === 0 ? (
+            ) : turnosFiltradosOrdenadosOrdenados.length === 0 ? (
               <div className="p-12 text-center">
                 <Clock className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                 <p className="text-lg font-medium">Nenhum turno encontrado</p>
@@ -2056,7 +2056,7 @@ export default function ConsultaTurnos() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {turnosFiltradosOrdenados.map((turno) => {
+                  {turnosFiltradosOrdenadosOrdenados.map((turno) => {
                     const duracao = turno.hora_fim 
                       ? differenceInMinutes(parseISO(turno.hora_fim), parseISO(turno.hora_inicio))
                       : differenceInMinutes(new Date(), parseISO(turno.hora_inicio));
@@ -2130,8 +2130,8 @@ export default function ConsultaTurnos() {
           {/* Rodapé com contagem e paginação */}
           <div className="border-t p-4 flex items-center justify-between">
             <p className="text-sm text-muted-foreground">
-              Mostrando {turnosFiltradosOrdenados.length} turno{turnosFiltradosOrdenados.length !== 1 ? "s" : ""}
-              {turnosData && turnosFiltradosOrdenados.length !== turnosData.turnos.length && (
+              Mostrando {turnosFiltradosOrdenadosOrdenados.length} turno{turnosFiltradosOrdenadosOrdenados.length !== 1 ? "s" : ""}
+              {turnosData && turnosFiltradosOrdenadosOrdenados.length !== turnosData.turnos.length && (
                 <span> (filtrados de {turnosData.turnos.length})</span>
               )}
             </p>
