@@ -610,6 +610,7 @@ const AcompanhamentoRoteirizacoes = () => {
           equipe_id: osParaRemoverComConfirmacao.equipeId,
           os_numero: osParaRemoverComConfirmacao.osNumero,
           os_status_original: osParaRemoverComConfirmacao.osStatus,
+          data_planejamento: osParaRemoverComConfirmacao.dataPlanejamento, // Para restauração caso OS esteja em andamento
           status: "aguardando_sinal",
           solicitado_por: user.id,
         });

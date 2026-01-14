@@ -16,6 +16,7 @@ import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
 import { useOfflineData } from "@/hooks/useOfflineData";
 import { useSyncProcedimentos } from "@/hooks/useSyncProcedimentos";
 import { useHeartbeat } from "@/hooks/useHeartbeat";
+import { notificarAlteracaoRota } from "@/lib/chatNotificacaoUtils";
 
 type AppSection = "home" | "ordens" | "estoque" | "chat" | "docs" | "resultados";
 
@@ -85,6 +86,7 @@ export default function AppLayout() {
 
   // Função para confirmar pendências de remoção de OSs
   // IMPORTANTE: Verificar não apenas o status, mas também timestamps que indicam trabalho iniciado
+  // Se a OS estava em andamento quando foi removida, RESTAURAR a vinculação com a equipe
   const confirmarPendenciasRemocao = useCallback(async (equipeId: string, aposSync: boolean = false) => {
     console.log("[AppLayout] 🔄 Verificando pendências de remoção para equipe:", equipeId, aposSync ? "(após sync)" : "");
     
@@ -94,10 +96,10 @@ export default function AppLayout() {
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
       
-      // Buscar pendências de remoção para esta equipe
+      // Buscar pendências de remoção para esta equipe (incluir planejamento_id para restauração)
       const { data: pendencias, error: erroPendencias } = await supabase
         .from("os_pendentes_remocao")
-        .select("id, ordem_servico_id, os_numero")
+        .select("id, ordem_servico_id, os_numero, planejamento_id, planejamento_ordem_id, data_planejamento")
         .eq("equipe_id", equipeId)
         .eq("status", "aguardando_sinal");
       
@@ -108,6 +110,12 @@ export default function AppLayout() {
       
       console.log(`[AppLayout] Encontradas ${pendencias.length} pendências de remoção`);
       
+      let osRestauradas = 0;
+      
+      // Coletar alterações para notificação de chat
+      const osRemovidas: { numero: string; tipo: string }[] = [];
+      const osNaoRemovidas: { numero: string; motivo: string }[] = [];
+      
       // Para cada pendência, verificar se a OS ainda está em andamento
       for (const pendencia of pendencias) {
         // Verificar status atual da OS E timestamps de trabalho iniciado
@@ -115,7 +123,7 @@ export default function AppLayout() {
         // pois esses indicam que a equipe já começou a trabalhar na OS mesmo que status ainda não atualizou
         const { data: osAtual, error: erroOS } = await supabase
           .from("ordens_servico")
-          .select("status, deslocamento_iniciado_at, chegada_local_at, execucao_iniciada_at, concluido_at")
+          .select("status, deslocamento_iniciado_at, chegada_local_at, execucao_iniciada_at, concluido_at, equipe_planejada_id, data_planejada")
           .eq("id", pendencia.ordem_servico_id)
           .single();
         
@@ -131,13 +139,39 @@ export default function AppLayout() {
           osAtual.execucao_iniciada_at
         );
         
-        // Se a OS está em andamento OU tem timestamps de trabalho iniciado, cancelar a pendência
+        // Se a OS está em andamento OU tem timestamps de trabalho iniciado, cancelar a pendência E RESTAURAR
         if (osAtual && (["em_deslocamento", "no_local", "em_execucao", "em_andamento"].includes(osAtual.status) || trabalhoIniciado)) {
           const motivoStatus = trabalhoIniciado && !["em_deslocamento", "no_local", "em_execucao", "em_andamento"].includes(osAtual.status)
             ? `Trabalho já iniciado (deslocamento: ${osAtual.deslocamento_iniciado_at ? 'sim' : 'não'})`
             : `Status: ${osAtual.status}`;
           
-          console.log(`[AppLayout] OS ${pendencia.os_numero} está em andamento (${motivoStatus}) - cancelando pendência`);
+          console.log(`[AppLayout] OS ${pendencia.os_numero} está em andamento (${motivoStatus}) - cancelando pendência e RESTAURANDO`);
+          
+          // RESTAURAR: Se a OS foi desvinculada da equipe, restaurar a vinculação
+          if (osAtual.equipe_planejada_id !== equipeId) {
+            console.log(`[AppLayout] 🔧 Restaurando OS ${pendencia.os_numero} para equipe ${equipeId}`);
+            
+            // Usar data do planejamento salva, ou data atual, ou data que já estava na OS
+            const dataParaRestaurar = pendencia.data_planejamento || 
+              osAtual.data_planejada || 
+              new Date().toISOString().split('T')[0];
+            
+            // Restaurar a vinculação da OS com a equipe
+            const { error: erroRestaurar } = await supabase
+              .from("ordens_servico")
+              .update({
+                equipe_planejada_id: equipeId,
+                data_planejada: dataParaRestaurar
+              })
+              .eq("id", pendencia.ordem_servico_id);
+            
+            if (erroRestaurar) {
+              console.error(`[AppLayout] ❌ Erro ao restaurar OS ${pendencia.os_numero}:`, erroRestaurar);
+            } else {
+              console.log(`[AppLayout] ✅ OS ${pendencia.os_numero} restaurada com sucesso!`);
+              osRestauradas++;
+            }
+          }
           
           await supabase
             .from("os_pendentes_remocao")
@@ -145,9 +179,15 @@ export default function AppLayout() {
               status: "cancelado_em_execucao",
               confirmado_at: new Date().toISOString(),
               confirmado_status_app: osAtual.status,
-              motivo_cancelamento: `OS estava em andamento quando o app confirmou: ${motivoStatus}`
+              motivo_cancelamento: `OS estava em andamento quando o app confirmou: ${motivoStatus}. OS restaurada.`
             })
             .eq("id", pendencia.id);
+          
+          // Coletar para notificação - OS não foi removida pois estava em andamento
+          osNaoRemovidas.push({
+            numero: pendencia.os_numero,
+            motivo: osAtual.equipe_planejada_id !== equipeId ? "foi restaurada - trabalho em andamento" : "não removida - trabalho em andamento"
+          });
         }
         // Se a OS está concluída, cancelar a pendência
         else if (osAtual && (osAtual.status === "concluida" || osAtual.concluido_at)) {
@@ -162,6 +202,12 @@ export default function AppLayout() {
               motivo_cancelamento: "OS foi concluída antes da confirmação de remoção"
             })
             .eq("id", pendencia.id);
+          
+          // Coletar para notificação - OS não foi removida pois foi concluída
+          osNaoRemovidas.push({
+            numero: pendencia.os_numero,
+            motivo: "não removida - já foi concluída"
+          });
         }
         // Se a OS está planejada ou pendente SEM indicadores de trabalho, confirmar a remoção
         else {
@@ -175,14 +221,52 @@ export default function AppLayout() {
               confirmado_status_app: osAtual?.status || "desconhecido"
             })
             .eq("id", pendencia.id);
+          
+          // Coletar para notificação - OS foi removida
+          osRemovidas.push({
+            numero: pendencia.os_numero,
+            tipo: "Removida da rota"
+          });
         }
       }
       
-      console.log("[AppLayout] ✅ Pendências de remoção processadas");
+      console.log("[AppLayout] ✅ Pendências de remoção processadas" + (osRestauradas > 0 ? ` (${osRestauradas} OS(s) restaurada(s))` : ""));
+      
+      // Enviar notificação de chat se houver alterações
+      if (equipe && (osRemovidas.length > 0 || osNaoRemovidas.length > 0)) {
+        console.log(`[AppLayout] 💬 Enviando notificação de chat: ${osRemovidas.length} removidas, ${osNaoRemovidas.length} não removidas`);
+        
+        try {
+          // Converter osNaoRemovidas para o formato esperado
+          const osIncluidas = osNaoRemovidas.map(os => ({
+            numero: os.numero,
+            tipo: os.motivo
+          }));
+          
+          await notificarAlteracaoRota(
+            equipeId,
+            equipe.codigo || "Equipe",
+            {
+              osIncluidas, // Usando para OSs que NÃO foram removidas (mantidas/restauradas)
+              osRemovidas  // OSs que foram efetivamente removidas
+            }
+          );
+        } catch (notifError) {
+          console.error("[AppLayout] Erro ao enviar notificação de chat:", notifError);
+        }
+      }
+      
+      // Se restaurou alguma OS, forçar reload dos dados
+      if (osRestauradas > 0) {
+        console.log("[AppLayout] 🔄 OSs restauradas - forçando atualização dos dados...");
+        // Usar window.location.reload() seria muito agressivo
+        // Vamos invalidar o cache do React Query através de um evento customizado
+        window.dispatchEvent(new CustomEvent('os-restaurada'));
+      }
     } catch (error) {
       console.error("[AppLayout] Erro ao processar pendências de remoção:", error);
     }
-  }, []);
+  }, [equipe]);
 
   // Efeito separado para detectar quando a sincronização REALMENTE terminou
   // (quando pendingOperations.length === 0) e só então buscar dados do servidor

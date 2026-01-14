@@ -2512,6 +2512,7 @@ const Roteirizacao = () => {
               equipe_id: pendencia.equipeId,
               os_numero: pendencia.osNumero,
               os_status_original: pendencia.osStatus,
+              data_planejamento: dataPlanejamento, // Para restauração caso OS esteja em andamento
               status: "aguardando_sinal",
               solicitado_por: user.id,
             };
