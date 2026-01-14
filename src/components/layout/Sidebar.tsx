@@ -118,6 +118,7 @@ export const navItemsConfig: NavItem[] = [
       { icon: Package, label: "Painel Geral", href: "/materiais" },
       { icon: Boxes, label: "Catálogo", href: "/materiais/catalogo" },
       { icon: Warehouse, label: "Estoque Central", href: "/materiais/estoque" },
+      { icon: Users, label: "Estoque Equipes", href: "/materiais/estoque-equipes" },
       { icon: ArrowLeftRight, label: "Movimentações", href: "/materiais/movimentacoes" },
       { icon: PackageCheck, label: "Recebimentos", href: "/materiais/recebimentos" },
       { icon: Undo2, label: "Devoluções", href: "/materiais/devolucoes" },

@@ -60,6 +60,7 @@ import RelatoriosMateriais from "./pages/materiais/RelatoriosMateriais";
 import Recebimentos from "./pages/materiais/Recebimentos";
 import AplicacoesOS from "./pages/materiais/AplicacoesOS";
 import Devolucoes from "./pages/materiais/Devolucoes";
+import EstoqueEquipes from "./pages/materiais/EstoqueEquipes";
 
 // App Mobile
 import AppLayout from "./pages/app/AppLayout";
@@ -169,6 +170,7 @@ const App = () => (
             <Route path="/materiais" element={<ProtectedRoute><MateriaisDashboard /></ProtectedRoute>} />
             <Route path="/materiais/catalogo" element={<ProtectedRoute><CatalogoMateriais /></ProtectedRoute>} />
             <Route path="/materiais/estoque" element={<ProtectedRoute><EstoqueCentral /></ProtectedRoute>} />
+            <Route path="/materiais/estoque-equipes" element={<ProtectedRoute><EstoqueEquipes /></ProtectedRoute>} />
             <Route path="/materiais/entregas" element={<ProtectedRoute><EntregasEquipes /></ProtectedRoute>} />
             <Route path="/materiais/rastreabilidade" element={<ProtectedRoute><Rastreabilidade /></ProtectedRoute>} />
             <Route path="/materiais/movimentacoes" element={<ProtectedRoute><Movimentacoes /></ProtectedRoute>} />

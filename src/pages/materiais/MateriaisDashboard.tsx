@@ -49,6 +49,13 @@ const quickAccessCards = [
     color: "bg-emerald-500",
   },
   {
+    title: "Estoque Equipes",
+    description: "Materiais com as equipes",
+    icon: Users,
+    href: "/materiais/estoque-equipes",
+    color: "bg-indigo-500",
+  },
+  {
     title: "Movimentações",
     description: "Histórico de entradas/saídas",
     icon: History,
