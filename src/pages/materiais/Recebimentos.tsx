@@ -539,7 +539,14 @@ export default function Recebimentos() {
   const materiaisByCodigo = useMemo(() => {
     const map = new Map<string, any>();
     (materiais || []).forEach((m: any) => {
-      map.set(String(m.codigo || "").trim().toUpperCase(), m);
+      const codigo = String(m.codigo || "").trim().toUpperCase();
+      // Indexar pelo código original
+      map.set(codigo, m);
+      // Também indexar pelo código sem zeros à esquerda (para compatibilidade com planilhas)
+      const codigoSemZeros = codigo.replace(/^0+/, "");
+      if (codigoSemZeros && codigoSemZeros !== codigo) {
+        map.set(codigoSemZeros, m);
+      }
     });
     return map;
   }, [materiais]);
@@ -718,17 +725,29 @@ export default function Recebimentos() {
       setImportHeader(header);
 
       const rows: ImportRow[] = json.map((row, idx) => {
-        const codigo = String(row[colCodigoFinal!] || "").trim().toUpperCase();
+        const codigoRaw = String(row[colCodigoFinal!] || "").trim().toUpperCase();
         const obs = colObs ? String(row[colObs] || "").trim() : "";
         const valorRaw = colValor ? row[colValor] : "";
 
-        if (!codigo) {
+        if (!codigoRaw) {
           return { rowIndex: idx + 2, codigo: "", quantidade: 0, observacao: obs, error: "Código do material vazio" };
         }
 
-        const material = materiaisByCodigo.get(codigo);
+        // Tentar buscar com o código original primeiro
+        let material = materiaisByCodigo.get(codigoRaw);
+        let codigo = codigoRaw;
+        
+        // Se não encontrou, tentar sem zeros à esquerda
         if (!material) {
-          return { rowIndex: idx + 2, codigo, quantidade: 0, observacao: obs, error: "Código não encontrado no catálogo" };
+          const codigoSemZeros = codigoRaw.replace(/^0+/, "");
+          material = materiaisByCodigo.get(codigoSemZeros);
+          if (material) {
+            codigo = codigoSemZeros;
+          }
+        }
+        
+        if (!material) {
+          return { rowIndex: idx + 2, codigo: codigoRaw, quantidade: 0, observacao: obs, error: "Código não encontrado no catálogo" };
         }
 
         const valorDefault = typeof material.valor_unitario === "number" ? material.valor_unitario : null;
