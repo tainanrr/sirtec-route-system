@@ -60,7 +60,9 @@ export function useConfigUrgencia() {
 
   // Carregar configuração do usuário
   const loadConfig = useCallback(async () => {
+    // Se não há usuário, usar padrão sem bloquear
     if (!usuarioWeb?.id) {
+      console.log("[useConfigUrgencia] Sem usuário, usando prazo padrão");
       setIsLoading(false);
       return;
     }
@@ -74,32 +76,48 @@ export function useConfigUrgencia() {
         .eq("usuario_id", usuarioWeb.id)
         .maybeSingle();
 
+      // Se tabela não existe ou outro erro, usar padrão silenciosamente
       if (error) {
-        console.error("[useConfigUrgencia] Erro ao carregar config:", error);
+        // Erro 42P01 = tabela não existe, ignorar silenciosamente
+        if (error.code === "42P01" || error.message?.includes("does not exist")) {
+          console.warn("[useConfigUrgencia] Tabela não existe, usando prazo padrão. Execute a migração.");
+        } else {
+          console.error("[useConfigUrgencia] Erro ao carregar config:", error);
+        }
+        setIsLoading(false);
         return;
       }
 
       if (data) {
         setConfig(data);
       } else {
-        // Se não existe, criar com o padrão
-        const prazoPadrao = calcularPrazoPadrao();
-        const novaConfig = {
-          usuario_id: usuarioWeb.id,
-          prazo_limite_urgente: prazoPadrao.toISOString(),
-          atualizado_automaticamente: true,
-        };
+        // Se não existe registro, tentar criar
+        try {
+          const prazoPadrao = calcularPrazoPadrao();
+          const novaConfig = {
+            usuario_id: usuarioWeb.id,
+            prazo_limite_urgente: prazoPadrao.toISOString(),
+            atualizado_automaticamente: true,
+          };
 
-        const { data: insertedData, error: insertError } = await supabase
-          .from("config_prazo_urgente")
-          .insert(novaConfig)
-          .select()
-          .single();
+          const { data: insertedData, error: insertError } = await supabase
+            .from("config_prazo_urgente")
+            .insert(novaConfig)
+            .select()
+            .single();
 
-        if (insertError) {
-          console.error("[useConfigUrgencia] Erro ao criar config:", insertError);
-        } else if (insertedData) {
-          setConfig(insertedData);
+          if (insertError) {
+            // Se erro ao inserir (tabela não existe), ignorar
+            if (insertError.code === "42P01" || insertError.message?.includes("does not exist")) {
+              console.warn("[useConfigUrgencia] Tabela não existe, usando prazo padrão.");
+            } else {
+              console.error("[useConfigUrgencia] Erro ao criar config:", insertError);
+            }
+          } else if (insertedData) {
+            setConfig(insertedData);
+          }
+        } catch (insertErr) {
+          console.warn("[useConfigUrgencia] Erro ao criar config, usando padrão:", insertErr);
         }
       }
     } catch (err) {
@@ -133,6 +151,20 @@ export function useConfigUrgencia() {
         .single();
 
       if (error) {
+        // Se tabela não existe, salvar apenas localmente
+        if (error.code === "42P01" || error.message?.includes("does not exist")) {
+          console.warn("[useConfigUrgencia] Tabela não existe, salvando apenas em memória");
+          setConfig({
+            id: "local",
+            usuario_id: usuarioWeb.id,
+            prazo_limite_urgente: novoPrazo.toISOString(),
+            atualizado_em: new Date().toISOString(),
+            atualizado_automaticamente: false,
+          });
+          invalidarQueries();
+          toast.success("Prazo limite atualizado! (Execute a migração para persistir)");
+          return true;
+        }
         console.error("[useConfigUrgencia] Erro ao salvar:", error);
         toast.error("Erro ao salvar configuração");
         return false;
@@ -181,6 +213,13 @@ export function useConfigUrgencia() {
   // Carregar ao montar ou quando usuário mudar
   useEffect(() => {
     loadConfig();
+    
+    // Timeout de segurança para nunca ficar em loading infinito
+    const timeout = setTimeout(() => {
+      setIsLoading(false);
+    }, 5000);
+    
+    return () => clearTimeout(timeout);
   }, [loadConfig]);
 
   // Verificar se precisa resetar (às 00:01 de cada dia)
