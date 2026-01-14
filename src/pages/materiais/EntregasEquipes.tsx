@@ -324,39 +324,71 @@ export default function EntregasEquipes() {
     },
   });
 
-  // Query para buscar membros de todas as equipes (para importação)
-  const { data: membrosEquipes } = useQuery({
-    queryKey: ["membros-equipes-todos"],
+  // Query para buscar colaboradores vinculados a equipes (para importação)
+  const { data: colaboradoresVinculados } = useQuery({
+    queryKey: ["colaboradores-equipes-vinculados"],
     queryFn: async () => {
-      // Buscar tecnicos_membros com nome do membro e equipe_id
+      // Buscar vínculos ativos de colaboradores com equipes
       const { data, error } = await supabase
-        .from("tecnicos_membros")
+        .from("equipe_colaboradores")
         .select(`
           id,
-          nome,
           equipe_id,
+          colaborador_id,
+          ativo,
+          colaboradores:colaborador_id (id, nome, cpf, ativo),
           tecnicos:equipe_id (id, codigo, nome)
-        `);
+        `)
+        .eq("ativo", true);
 
       if (error) throw error;
       return data || [];
     },
   });
 
-  // Mapa de nome de membro para equipe
+  // Query para buscar todos os colaboradores (para identificar quem não está vinculado)
+  const { data: todosColaboradores } = useQuery({
+    queryKey: ["todos-colaboradores"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("colaboradores")
+        .select("id, nome, cpf, ativo")
+        .eq("ativo", true);
+
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // Mapa de nome de colaborador para equipe
   const membroParaEquipe = useMemo(() => {
-    const map = new Map<string, { equipeId: string; equipeNome: string }>();
-    (membrosEquipes || []).forEach((m: any) => {
-      const nomeNormalizado = String(m.nome || "").trim().toUpperCase();
-      if (nomeNormalizado && m.tecnicos) {
-        map.set(nomeNormalizado, {
-          equipeId: m.tecnicos.id,
-          equipeNome: `${m.tecnicos.codigo} - ${m.tecnicos.nome}`,
-        });
+    const map = new Map<string, { equipeId: string; equipeNome: string; colaboradorId: string }>();
+    (colaboradoresVinculados || []).forEach((v: any) => {
+      if (v.colaboradores && v.tecnicos) {
+        const nomeNormalizado = String(v.colaboradores.nome || "").trim().toUpperCase();
+        if (nomeNormalizado) {
+          map.set(nomeNormalizado, {
+            equipeId: v.tecnicos.id,
+            equipeNome: `${v.tecnicos.codigo} - ${v.tecnicos.nome}`,
+            colaboradorId: v.colaboradores.id,
+          });
+        }
       }
     });
     return map;
-  }, [membrosEquipes]);
+  }, [colaboradoresVinculados]);
+
+  // Set de nomes de colaboradores cadastrados (para diferenciar "não cadastrado" de "não vinculado")
+  const colaboradoresCadastrados = useMemo(() => {
+    const set = new Set<string>();
+    (todosColaboradores || []).forEach((c: any) => {
+      const nomeNormalizado = String(c.nome || "").trim().toUpperCase();
+      if (nomeNormalizado) {
+        set.add(nomeNormalizado);
+      }
+    });
+    return set;
+  }, [todosColaboradores]);
 
   // Mapa de códigos de materiais
   const materiaisByCodigo = useMemo(() => {
@@ -638,12 +670,18 @@ export default function EntregasEquipes() {
           };
         }
 
-        // Buscar equipe pelo nome do membro
+        // Buscar equipe pelo nome do colaborador
         const equipeInfo = membroParaEquipe.get(nomSolicitante);
         if (!equipeInfo) {
+          // Verificar se o colaborador existe mas não está vinculado a nenhuma equipe
+          const estaCadastrado = colaboradoresCadastrados.has(nomSolicitante);
+          const mensagemErro = estaCadastrado
+            ? `Colaborador "${nomSolicitante}" não está vinculado a nenhuma equipe`
+            : `Colaborador "${nomSolicitante}" não está cadastrado no sistema`;
+          
           return { 
             rowIndex: idx + 2, nomSolicitante, codMaterial, quantidadeOuSerial, observacao, 
-            error: `Colaborador "${nomSolicitante}" não encontrado em nenhuma equipe` 
+            error: mensagemErro
           };
         }
 
