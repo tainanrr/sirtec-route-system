@@ -94,6 +94,7 @@ export default function TurnoTrajetoMap({
   const mapInstanceRef = useRef<L.Map | null>(null);
   const trajetoLayerRef = useRef<L.Polyline | null>(null);
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
+  const [mapaInicializado, setMapaInicializado] = useState(false);
   
   const [tiposVisiveis, setTiposVisiveis] = useState<Set<string>>(
     new Set(Object.keys(EVENTO_CONFIG))
@@ -301,33 +302,59 @@ export default function TurnoTrajetoMap({
       .map(e => [e.latitude!, e.longitude!] as [number, number]);
   }, [eventos]);
 
-  // Inicializar mapa
+  // Inicializar mapa com delay para garantir que o container está pronto
   useEffect(() => {
-    if (!mapRef.current || mapInstanceRef.current) return;
+    // Delay para garantir que o container está renderizado (especialmente em tabs)
+    const timer = setTimeout(() => {
+      if (!mapRef.current || mapInstanceRef.current) return;
 
-    const map = L.map(mapRef.current, {
-      center: [-14.235, -51.925], // Centro do Brasil
-      zoom: 5,
-      zoomControl: true,
-    });
+      try {
+        const map = L.map(mapRef.current, {
+          center: [-14.235, -51.925], // Centro do Brasil
+          zoom: 5,
+          zoomControl: true,
+        });
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: '&copy; OpenStreetMap contributors',
-    }).addTo(map);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          attribution: '&copy; OpenStreetMap contributors',
+        }).addTo(map);
 
-    mapInstanceRef.current = map;
-    markersLayerRef.current = L.layerGroup().addTo(map);
+        mapInstanceRef.current = map;
+        markersLayerRef.current = L.layerGroup().addTo(map);
+        setMapaInicializado(true);
+
+        // Forçar invalidação do tamanho após inicialização
+        setTimeout(() => {
+          map.invalidateSize();
+        }, 100);
+      } catch (error) {
+        console.error("[TurnoTrajetoMap] Erro ao inicializar mapa:", error);
+      }
+    }, 300); // Aumentar delay para 300ms
 
     return () => {
-      map.remove();
-      mapInstanceRef.current = null;
+      clearTimeout(timer);
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+        setMapaInicializado(false);
+      }
     };
   }, []);
+
+  // Efeito para invalidar tamanho do mapa quando dados mudam
+  useEffect(() => {
+    if (mapInstanceRef.current && mapaInicializado) {
+      setTimeout(() => {
+        mapInstanceRef.current?.invalidateSize();
+      }, 100);
+    }
+  }, [eventos, mapaInicializado]);
 
   // Atualizar trajeto e marcadores
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map || !markersLayerRef.current) return;
+    if (!map || !markersLayerRef.current || !mapaInicializado) return;
 
     // Limpar layers
     markersLayerRef.current.clearLayers();
@@ -437,7 +464,7 @@ export default function TurnoTrajetoMap({
     if (bounds.length > 0) {
       map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
     }
-  }, [eventosFiltrados, mostrarTrajeto, coordenadasTrajeto, eventoSelecionado]);
+  }, [eventosFiltrados, mostrarTrajeto, coordenadasTrajeto, eventoSelecionado, mapaInicializado]);
 
   // Toggle tipo de evento
   const toggleTipoEvento = useCallback((tipo: string) => {
