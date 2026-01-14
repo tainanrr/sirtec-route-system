@@ -1006,7 +1006,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
           lng: ll.lng
         }));
 
-        console.log('[MapaLeaflet] Verificando OSs dentro do polígono de seleção...');
+        console.log('[MapaLeaflet] Verificando OSs dentro do polígono de seleção...', poligonoSeleção);
 
         // Encontrar todas as OSs que estão dentro do polígono
         const osSelecionadas: string[] = [];
@@ -1014,7 +1014,8 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
         // Verificar OSs pendentes
         osPendentes.forEach(os => {
           if (os.latitude && os.longitude) {
-            if (pontoNoPoligono(os.latitude, os.longitude, poligonoSeleção)) {
+            const ponto = { lat: os.latitude, lng: os.longitude };
+            if (pontoNoPoligono(ponto, poligonoSeleção)) {
               osSelecionadas.push(os.id);
             }
           }
@@ -1026,7 +1027,8 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
             if (servico.tipo === "SERVICO" && servico.ordemServico) {
               const os = servico.ordemServico;
               if (os.latitude && os.longitude) {
-                if (pontoNoPoligono(os.latitude, os.longitude, poligonoSeleção)) {
+                const ponto = { lat: os.latitude, lng: os.longitude };
+                if (pontoNoPoligono(ponto, poligonoSeleção)) {
                   // Evitar duplicatas
                   if (!osSelecionadas.includes(os.id)) {
                     osSelecionadas.push(os.id);
