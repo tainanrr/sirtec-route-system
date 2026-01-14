@@ -185,6 +185,7 @@ export default function EntregasEquipes() {
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importRows, setImportRows] = useState<ImportEntregaRow[]>([]);
   const [importLoading, setImportLoading] = useState(false);
+  const [importProgress, setImportProgress] = useState({ current: 0, total: 0, equipeAtual: "" });
 
   // Query para entregas
   const { data: entregas, isLoading } = useQuery({
@@ -801,8 +802,11 @@ export default function EntregasEquipes() {
       }
 
       let entregasCriadas = 0;
+      setImportProgress({ current: 0, total: grupos.length, equipeAtual: "" });
 
-      for (const grupo of grupos) {
+      for (let i = 0; i < grupos.length; i++) {
+        const grupo = grupos[i];
+        setImportProgress({ current: i + 1, total: grupos.length, equipeAtual: grupo.equipeNome });
         // Criar entrega
         const { data: entrega, error: entregaError } = await supabase
           .from("materiais_entregas")
