@@ -16,6 +16,7 @@ import { useOfflineSyncContext } from "@/hooks/useOfflineSync";
 import { useOfflineData } from "@/hooks/useOfflineData";
 import { useSyncProcedimentos } from "@/hooks/useSyncProcedimentos";
 import { useHeartbeat } from "@/hooks/useHeartbeat";
+import { useLocationTracking } from "@/hooks/useLocationTracking";
 import { notificarAlteracaoRota } from "@/lib/chatNotificacaoUtils";
 
 type AppSection = "home" | "ordens" | "estoque" | "chat" | "docs" | "resultados";
@@ -36,6 +37,21 @@ export default function AppLayout() {
   
   // Sistema de heartbeat para detecção de conectividade
   useHeartbeat();
+  
+  // Sistema de rastreamento de localização em tempo real
+  // Envia a posição da equipe a cada 30 segundos quando há turno aberto
+  const locationTracking = useLocationTracking({
+    enabled: temTurnoAberto,
+    intervalMs: 30000, // 30 segundos
+    highAccuracy: true,
+  });
+
+  // Log de status do rastreamento (apenas em dev)
+  useEffect(() => {
+    if (locationTracking.isTracking) {
+      console.log("[AppLayout] 📍 Rastreamento de localização ativo");
+    }
+  }, [locationTracking.isTracking]);
   
   // Estado para contador de ociosidade
   const [tempoOcioso, setTempoOcioso] = useState(0);
