@@ -132,6 +132,7 @@ interface MapaLeafletProps {
   onCriacaoCancelada?: () => void; // Callback quando criação é cancelada
   // Funcionalidade de seleção de OSs por polígono
   onOsSelecionadasPorPoligono?: (osIds: string[]) => void; // Callback quando OSs são selecionadas por polígono
+  ossSelecionadas?: Set<string>; // IDs das OSs selecionadas para destacar no mapa
   statusOSsTempoReal?: Map<string, StatusOSTempoReal>; // Status em tempo real das OSs
   // Rastreamento de Equipes em tempo real
   mostrarEquipesTempoReal?: boolean; // Se deve mostrar equipes com turno aberto
@@ -178,7 +179,7 @@ function getLucideIconSVG(iconName: string | undefined, color: string, size: num
   `;
 }
 
-export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEquipes, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, focarOSNoMapa, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear, selecionandoCoordNoMapa, onMapClick, osCoordenadasSuspeitas = [], criandoPoligono, onPoligonoCriado, onCriacaoCancelada, onOsSelecionadasPorPoligono, statusOSsTempoReal, mostrarEquipesTempoReal = true, equipesSelecionadasFiltro, onEquipeClick, prazoLimiteUrgente, versaoPrazoUrgente }: MapaLeafletProps) {
+export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEquipes, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, focarOSNoMapa, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear, selecionandoCoordNoMapa, onMapClick, osCoordenadasSuspeitas = [], criandoPoligono, onPoligonoCriado, onCriacaoCancelada, onOsSelecionadasPorPoligono, ossSelecionadas, statusOSsTempoReal, mostrarEquipesTempoReal = true, equipesSelecionadasFiltro, onEquipeClick, prazoLimiteUrgente, versaoPrazoUrgente }: MapaLeafletProps) {
   
   const mapRef = useRef<HTMLDivElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -1174,6 +1175,20 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
       .marker-coord-suspeita {
         animation: pulse-purple-suspeita 1.2s ease-in-out infinite !important;
       }
+      @keyframes pulse-green-selecionada {
+        0%, 100% {
+          box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.9), 0 0 12px 4px rgba(34, 197, 94, 0.8);
+          transform: scale(1.1);
+        }
+        50% {
+          box-shadow: 0 0 0 10px rgba(34, 197, 94, 0), 0 0 16px 6px rgba(34, 197, 94, 0.9);
+          transform: scale(1.15);
+        }
+      }
+      .marker-selecionada {
+        animation: pulse-green-selecionada 0.8s ease-in-out infinite !important;
+        z-index: 9999 !important;
+      }
       /* Estilos para clusters com destaques */
       .cluster-vencida {
         animation: pulse-black-vencida 1s ease-in-out infinite !important;
@@ -1900,10 +1915,15 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
         const osSuspeita = osCoordenadasSuspeitas.find(s => s.id === os.id);
         const isCoordSuspeita = !!osSuspeita;
         
+        // Verificar se a OS está selecionada
+        const isSelecionada = ossSelecionadas?.has(os.id) || false;
+        
         // Calcular prioridade do marcador para uso nos clusters
-        // Prioridade: 3=vencida, 2=urgente (até prazo limite), 1=fora de território/suspeita, 0=normal
+        // Prioridade: 4=selecionada, 3=vencida, 2=urgente (até prazo limite), 1=fora de território/suspeita, 0=normal
         let markerPriority = 0;
-        if (isReguladaVencida) {
+        if (isSelecionada) {
+          markerPriority = 4; // Prioridade máxima: selecionada
+        } else if (isReguladaVencida) {
           markerPriority = 3; // Maior prioridade: vencida
         } else if (isReguladaUrgente) {
           markerPriority = 2; // Segunda prioridade: urgente (até prazo limite configurado)
@@ -1917,20 +1937,27 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
         const corMarcador = skillData?.cor || '#6b7280';
         const corBorda = obterCorBordaPrioridade(os);
         
-        // Determinar classe de animação (coordenada suspeita tem prioridade visual)
-        const animationClass = isCoordSuspeita ? 'marker-coord-suspeita' : 
+        // Determinar classe de animação (selecionada tem prioridade máxima visual)
+        const animationClass = isSelecionada ? 'marker-selecionada' :
+                              isCoordSuspeita ? 'marker-coord-suspeita' : 
                               isReguladaUrgente ? 'marker-regulada-urgente' : 
                               isReguladaVencida ? 'marker-vencida' : '';
         
-        // Determinar borda e sombra
-        const borderStyle = isCoordSuspeita ? '3px solid #9333ea' :
+        // Determinar borda e sombra (selecionada tem visual verde destacado)
+        const borderStyle = isSelecionada ? '3px solid #22c55e' :
+                           isCoordSuspeita ? '3px solid #9333ea' :
                            isReguladaUrgente ? '3px solid #dc2626' : 
                            isReguladaVencida ? '3px solid #000000' : 
                            `2px solid ${corBorda}`;
-        const shadowStyle = isCoordSuspeita ? '0 0 8px 2px rgba(147, 51, 234, 0.6)' :
+        const shadowStyle = isSelecionada ? '0 0 12px 4px rgba(34, 197, 94, 0.8)' :
+                           isCoordSuspeita ? '0 0 8px 2px rgba(147, 51, 234, 0.6)' :
                            isReguladaUrgente ? '0 0 8px 2px rgba(220, 38, 38, 0.6)' : 
                            isReguladaVencida ? '0 0 8px 2px rgba(0, 0, 0, 0.6)' : 
                            '0 2px 6px rgba(0,0,0,0.3)';
+        
+        // Tamanho do marcador (maior se selecionado)
+        const markerSize = isSelecionada ? 34 : 28;
+        const fontSize = isSelecionada ? '13px' : '11px';
         
         // Criar ícone do marcador
         const markerIcon = L.divIcon({
@@ -1938,8 +1965,8 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
           html: `
             <div class="${animationClass}" style="
               background-color: ${corMarcador};
-              width: 28px;
-              height: 28px;
+              width: ${markerSize}px;
+              height: ${markerSize}px;
               border-radius: 50%;
               border: ${borderStyle};
               box-shadow: ${shadowStyle};
@@ -1947,13 +1974,14 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
               align-items: center;
               justify-content: center;
               color: white;
-              font-size: 11px;
+              font-size: ${fontSize};
               font-weight: bold;
-            ">${sigla}</div>
+              ${isSelecionada ? 'transform: scale(1.1);' : ''}
+            ">${sigla}${isSelecionada ? '<span style="position:absolute;top:-8px;right:-8px;font-size:14px;">✓</span>' : ''}</div>
           `,
-          iconSize: [28, 28],
-          iconAnchor: [14, 14],
-          popupAnchor: [0, -14],
+          iconSize: [markerSize, markerSize],
+          iconAnchor: [markerSize/2, markerSize/2],
+          popupAnchor: [0, -markerSize/2],
         });
         
         // Criar marcador (com prioridade customizada para destaque em clusters)
@@ -2090,6 +2118,9 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
           // Verificar se esta OS está selecionada no editor
           const isSelecionadaNoEditor = osSelecionadaNoEditor === servico.ordemServico.id;
           
+          // Verificar se esta OS está selecionada para ação em massa
+          const isSelecionadaParaAcao = ossSelecionadas?.has(servico.ordemServico.id) || false;
+          
           // Verificar se é regulada urgente ou vencida (para efeito piscante)
           const classificacaoOSRoteirizada = classificarPrazo(servico.ordemServico.prazo ? new Date(servico.ordemServico.prazo) : null);
           const isReguladaRoteirizada = servico.ordemServico.regulada === true;
@@ -2129,13 +2160,16 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
           
           // Determinar animação:
           // 1. OS em execução → pulse-green (verde) PRIORIDADE MÁXIMA
-          // 2. OS selecionada no editor → pulse-blue (azul)
-          // 3. Regulada urgente (até prazo limite) → pulse-red-urgente (vermelho)
-          // 4. Regulada VENCIDA → pulse-black-vencida (preto)
-          // 5. Demais → sem animação
+          // 2. OS selecionada para ação em massa → pulse-green-selecionada (verde brilhante)
+          // 3. OS selecionada no editor → pulse-blue (azul)
+          // 4. Regulada urgente (até prazo limite) → pulse-red-urgente (vermelho)
+          // 5. Regulada VENCIDA → pulse-black-vencida (preto)
+          // 6. Demais → sem animação
           let animacaoRoteirizada = '';
           if (isEmExecucao) {
             animacaoRoteirizada = 'animation: pulse-green-execucao 1s ease-in-out infinite;';
+          } else if (isSelecionadaParaAcao) {
+            animacaoRoteirizada = 'animation: pulse-green-selecionada 0.8s ease-in-out infinite;';
           } else if (isSelecionadaNoEditor) {
             animacaoRoteirizada = 'animation: pulse-blue 1.5s infinite;';
           } else if (isReguladaUrgenteRoteirizada && !isConcluida) {
@@ -2148,6 +2182,8 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
           let bordaRoteirizada = `${isEditando ? '3px' : '2px'} solid ${corBorda}`;
           if (isEmExecucao) {
             bordaRoteirizada = '4px solid #22c55e'; // Verde para em execução
+          } else if (isSelecionadaParaAcao) {
+            bordaRoteirizada = '4px solid #22c55e'; // Verde brilhante para selecionada
           } else if (isImpedida) {
             bordaRoteirizada = '3px solid #dc2626'; // Vermelho para impedida
           } else if (isParcial) {
@@ -2166,6 +2202,8 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
           let sombraRoteirizada = isEditando ? '0 4px 12px rgba(0,0,0,0.6)' : '0 2px 6px rgba(0,0,0,0.4)';
           if (isEmExecucao) {
             sombraRoteirizada = '0 0 16px 4px rgba(34, 197, 94, 0.7)';
+          } else if (isSelecionadaParaAcao) {
+            sombraRoteirizada = '0 0 12px 4px rgba(34, 197, 94, 0.8)'; // Verde brilhante para selecionada
           } else if (isImpedida) {
             sombraRoteirizada = '0 0 8px 2px rgba(220, 38, 38, 0.5)';
           } else if (isSelecionadaNoEditor) {
@@ -2468,7 +2506,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
         }, 100);
       }
     }
-  }, [dadosFiltrados, equipesMock, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, routesGeometry, skillsIcons, criarSequenciaOS, osPendentesDebounced, prazoLimiteUrgente, versaoPrazoUrgente]);
+  }, [dadosFiltrados, equipesMock, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, routesGeometry, skillsIcons, criarSequenciaOS, osPendentesDebounced, prazoLimiteUrgente, versaoPrazoUrgente, ossSelecionadas]);
 
   // Função auxiliar para calcular centroide
   const calcularCentroide = (poligono: { lat: number; lng: number }[]): { lat: number; lng: number } => {

@@ -6389,6 +6389,7 @@ const Roteirizacao = () => {
                     toast.info("Nenhuma OS encontrada dentro da área selecionada");
                   }
                 }}
+                ossSelecionadas={ossSelecionadasParaRemocao}
                 equipesSelecionadasFiltro={equipesSelecionadas}
               />
 
