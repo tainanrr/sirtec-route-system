@@ -521,19 +521,20 @@ export default function Recebimentos() {
     },
   });
 
-  // Query para materiais
-  const { data: materiais } = useQuery({
-    queryKey: ["materiais-ativos-recebimento"],
+  // Query para materiais (buscar todos para validação de importação)
+  const { data: materiais, refetch: refetchMateriais } = useQuery({
+    queryKey: ["materiais-todos-recebimento"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("materiais")
-        .select("id, codigo, nome, unidade, requer_serial, valor_unitario")
-        .eq("ativo", true)
+        .select("id, codigo, nome, unidade, requer_serial, valor_unitario, ativo")
         .order("codigo");
 
       if (error) throw error;
+      console.log("[Recebimentos] Materiais carregados:", data?.length);
       return data;
     },
+    staleTime: 0, // Sempre buscar dados frescos
   });
 
   const materiaisByCodigo = useMemo(() => {
@@ -548,8 +549,28 @@ export default function Recebimentos() {
         map.set(codigoSemZeros, m);
       }
     });
+    console.log("[Recebimentos] Mapa de códigos criado com", map.size, "entradas");
     return map;
   }, [materiais]);
+
+  // Função para buscar material com log de debug
+  const buscarMaterial = (codigoRaw: string) => {
+    const codigo = codigoRaw.trim().toUpperCase();
+    let material = materiaisByCodigo.get(codigo);
+    
+    if (!material) {
+      // Tentar sem zeros à esquerda
+      const codigoSemZeros = codigo.replace(/^0+/, "");
+      material = materiaisByCodigo.get(codigoSemZeros);
+    }
+    
+    if (!material) {
+      console.log("[Recebimentos] Código NÃO encontrado:", codigo, "| Códigos disponíveis (amostra):", 
+        Array.from(materiaisByCodigo.keys()).slice(0, 20));
+    }
+    
+    return material;
+  };
 
   // Query para anexos (somente quando abre o detalhe)
   const { data: anexosRecebimento } = useQuery({
@@ -733,18 +754,9 @@ export default function Recebimentos() {
           return { rowIndex: idx + 2, codigo: "", quantidade: 0, observacao: obs, error: "Código do material vazio" };
         }
 
-        // Tentar buscar com o código original primeiro
-        let material = materiaisByCodigo.get(codigoRaw);
-        let codigo = codigoRaw;
-        
-        // Se não encontrou, tentar sem zeros à esquerda
-        if (!material) {
-          const codigoSemZeros = codigoRaw.replace(/^0+/, "");
-          material = materiaisByCodigo.get(codigoSemZeros);
-          if (material) {
-            codigo = codigoSemZeros;
-          }
-        }
+        // Usar função de busca com debug
+        const material = buscarMaterial(codigoRaw);
+        const codigo = codigoRaw;
         
         if (!material) {
           return { rowIndex: idx + 2, codigo: codigoRaw, quantidade: 0, observacao: obs, error: "Código não encontrado no catálogo" };
@@ -2611,6 +2623,16 @@ Regras:
                   )}
                 </div>
                 <div className="flex gap-2">
+                  <Button 
+                    variant="outline" 
+                    onClick={() => {
+                      refetchMateriais();
+                      toast.info("Atualizando lista de materiais...");
+                    }}
+                  >
+                    <Search className="h-4 w-4 mr-2" />
+                    Atualizar Catálogo
+                  </Button>
                   <Button variant="outline" onClick={handleDownloadTemplate}>
                     <Download className="h-4 w-4 mr-2" />
                     Baixar template
