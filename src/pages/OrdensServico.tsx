@@ -1581,8 +1581,8 @@ const OrdensServico = () => {
     >
       {/* Actions Bar */}
       <div className="rounded-xl border border-border bg-card p-4 mb-6">
-        {/* Linha principal de busca e ações */}
-        <div className="flex flex-col lg:flex-row gap-3">
+        {/* Linha 1: Busca */}
+        <div className="flex gap-3 mb-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
@@ -1592,121 +1592,126 @@ const OrdensServico = () => {
               className="pl-9"
             />
           </div>
+          <Button 
+            className="gap-1.5" 
+            onClick={() => { setSelectedOrdem(null); setFormOpen(true); }}
+            disabled={!podeEditar}
+            title={!podeEditar ? "Você não tem permissão para criar" : undefined}
+          >
+            <Plus className="h-4 w-4" />
+            Nova OS
+          </Button>
+        </div>
 
-          <div className="flex gap-2 flex-wrap">
-            <Button 
-              variant={showFilters ? "default" : "outline"} 
-              className="gap-2"
-              onClick={() => setShowFilters(!showFilters)}
-            >
-              <Filter className="h-4 w-4" />
-              Filtros
-              {activeFiltersCount > 0 && (
-                <Badge variant="secondary" className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs">
-                  {activeFiltersCount}
-                </Badge>
-              )}
-              {showFilters ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-            </Button>
-            
+        {/* Linha 2: Todos os botões de ação */}
+        <div className="flex gap-1.5 flex-wrap items-center">
+          <Button 
+            variant={showFilters ? "default" : "outline"} 
+            size="sm"
+            className="gap-1.5"
+            onClick={() => setShowFilters(!showFilters)}
+          >
+            <Filter className="h-3.5 w-3.5" />
+            Filtros
             {activeFiltersCount > 0 && (
-              <Button variant="ghost" size="sm" onClick={clearFilters} className="text-muted-foreground">
-                <RotateCcw className="h-4 w-4 mr-1" />
-                Limpar
-              </Button>
+              <Badge variant="secondary" className="ml-0.5 h-4 min-w-4 px-1 flex items-center justify-center text-[10px]">
+                {activeFiltersCount}
+              </Badge>
             )}
+          </Button>
+          
+          {activeFiltersCount > 0 && (
+            <Button variant="ghost" size="sm" onClick={clearFilters} className="text-muted-foreground gap-1 px-2">
+              <RotateCcw className="h-3.5 w-3.5" />
+              Limpar
+            </Button>
+          )}
+
+          <div className="w-px h-6 bg-border mx-1" />
+
+          <Button 
+            variant="outline" 
+            size="sm"
+            className="gap-1.5"
+            onClick={handleExportar}
+            disabled={exportando || totalCount === 0}
+            title={`Exportar ${totalCount.toLocaleString()} OS(s)`}
+          >
+            {exportando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            Exportar
+          </Button>
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={handleDownloadModel}>
+            <FileText className="h-3.5 w-3.5" />
+            Modelo
+          </Button>
+          <Button 
+            variant="outline" 
+            size="sm"
+            className="gap-1.5" 
+            onClick={() => setImportDialogOpen(true)}
+            disabled={!podeEditar}
+            title={!podeEditar ? "Sem permissão" : "Importar OSs"}
+          >
+            <Upload className="h-3.5 w-3.5" />
+            Importar
+          </Button>
+          {ordensSemCoordenadas.length > 0 && (
             <Button 
               variant="outline" 
-              className="gap-2"
-              onClick={handleExportar}
-              disabled={exportando || totalCount === 0}
-              title={totalCount === 0 ? "Nenhuma OS para exportar" : `Exportar ${totalCount} OS(s)`}
+              size="sm"
+              className="gap-1.5" 
+              onClick={handleGeocodeAll}
+              disabled={geocodingInProgress}
             >
-              {exportando ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Download className="h-4 w-4" />
-              )}
-              Exportar {totalCount > 0 && `(${totalCount})`}
+              {geocodingInProgress ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Globe className="h-3.5 w-3.5" />}
+              Geo ({ordensSemCoordenadas.length})
             </Button>
-            <Button variant="outline" className="gap-2" onClick={handleDownloadModel}>
-              <FileText className="h-4 w-4" />
-              Modelo de Importação
-            </Button>
+          )}
+
+          <div className="w-px h-6 bg-border mx-1" />
+
+          <Button 
+            variant="outline" 
+            size="sm"
+            className="gap-1.5"
+            onClick={selectAllVisible}
+            title="Selecionar OSs visíveis"
+          >
+            <CheckSquare className="h-3.5 w-3.5" />
+            Visíveis
+          </Button>
+          <Button 
+            variant="outline" 
+            size="sm"
+            className="gap-1.5"
+            onClick={selectAllFiltered}
+            title={`Selecionar todas ${totalCount.toLocaleString()} OSs filtradas`}
+          >
+            <CheckSquare className="h-3.5 w-3.5" />
+            Todas ({totalCount.toLocaleString()})
+          </Button>
+          {selectedOsIds.size > 0 && (
             <Button 
-              variant="outline" 
-              className="gap-2" 
-              onClick={() => setImportDialogOpen(true)}
-              disabled={!podeEditar}
-              title={!podeEditar ? "Você não tem permissão para importar" : undefined}
+              variant="ghost" 
+              size="sm"
+              className="gap-1 px-2"
+              onClick={clearSelection}
             >
-              <Upload className="h-4 w-4" />
-              Importar OSS
+              <Square className="h-3.5 w-3.5" />
+              Limpar ({selectedOsIds.size})
             </Button>
-            {ordensSemCoordenadas.length > 0 && (
-              <Button 
-                variant="outline" 
-                className="gap-2" 
-                onClick={handleGeocodeAll}
-                disabled={geocodingInProgress}
-              >
-                {geocodingInProgress ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Globe className="h-4 w-4" />
-                )}
-                Geocodificar ({ordensSemCoordenadas.length})
-              </Button>
-            )}
-            {/* Botões de seleção */}
-            <Button 
-              variant="outline" 
-              className="gap-2"
-              onClick={selectAllVisible}
-              title="Selecionar todas as OSs visíveis"
-            >
-              <CheckSquare className="h-4 w-4" />
-              Sel. Visíveis
-            </Button>
-            <Button 
-              variant="outline" 
-              className="gap-2"
-              onClick={selectAllFiltered}
-              title="Selecionar todas as OSs filtradas (mesmo não visíveis)"
-            >
-              <CheckSquare className="h-4 w-4" />
-              Sel. Filtradas ({totalCount})
-            </Button>
-            {selectedOsIds.size > 0 && (
-              <Button 
-                variant="ghost" 
-                className="gap-2"
-                onClick={clearSelection}
-              >
-                <Square className="h-4 w-4" />
-                Limpar ({selectedOsIds.size})
-              </Button>
-            )}
-            <Button 
-              variant="destructive" 
-              className="gap-2" 
-              onClick={() => setClearAllDialogOpen(true)}
-              disabled={!podeEditar || selectedOsIds.size === 0}
-              title={!podeEditar ? "Você não tem permissão para cancelar" : selectedOsIds.size === 0 ? "Selecione OSs para cancelar" : `Cancelar ${selectedOsIds.size} OS(s) selecionada(s)`}
-            >
-              <AlertTriangle className="h-4 w-4" />
-              Cancelar Selecionadas ({selectedOsIds.size})
-            </Button>
-            <Button 
-              className="gap-2" 
-              onClick={() => { setSelectedOrdem(null); setFormOpen(true); }}
-              disabled={!podeEditar}
-              title={!podeEditar ? "Você não tem permissão para criar" : undefined}
-            >
-              <Plus className="h-4 w-4" />
-              Nova OS
-            </Button>
-          </div>
+          )}
+          <Button 
+            variant="destructive" 
+            size="sm"
+            className="gap-1.5" 
+            onClick={() => setClearAllDialogOpen(true)}
+            disabled={!podeEditar || selectedOsIds.size === 0}
+            title={selectedOsIds.size === 0 ? "Selecione OSs" : `Cancelar ${selectedOsIds.size} OS(s)`}
+          >
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Cancelar ({selectedOsIds.size})
+          </Button>
         </div>
 
         {/* Painel de filtros avançados */}
