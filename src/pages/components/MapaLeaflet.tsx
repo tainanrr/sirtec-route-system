@@ -259,6 +259,10 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
       equipesLayerRef.current = L.layerGroup().addTo(map);
     }
 
+    // Log para debug
+    console.log("[MapaLeaflet] Equipes com turno aberto:", equipesComTurno.length, equipesComTurno.map(e => ({ id: e.equipe_id, codigo: e.equipe_codigo, lat: e.ultima_latitude, lng: e.ultima_longitude })));
+    console.log("[MapaLeaflet] Filtro de equipes selecionadas:", equipesSelecionadasFiltro?.length, equipesSelecionadasFiltro?.slice(0, 5));
+
     // Equipes atuais - filtrar por equipesSelecionadasFiltro
     const equipesIds = new Set<string>();
 
@@ -272,6 +276,8 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
         ? equipesComTurno.filter(eq => equipesSelecionadasFiltro.includes(eq.equipe_id))
         : []; // Nenhuma equipe selecionada = não mostrar nenhuma
     }
+    
+    console.log("[MapaLeaflet] Equipes filtradas para exibição:", equipesFiltradas.length, equipesFiltradas.map(e => e.equipe_codigo));
 
     equipesFiltradas.forEach(equipe => {
       if (!equipe.ultima_latitude || !equipe.ultima_longitude) return;
