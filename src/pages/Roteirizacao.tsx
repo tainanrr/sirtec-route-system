@@ -262,8 +262,8 @@ const Roteirizacao = () => {
   // Permissões da tela
   const { podeEditar } = useTelaPermissao("roteirizacao");
   
-  // Configuração de prazo para OSs urgentes
-  const { prazoLimiteDate, isOSUrgente: verificarOSUrgente } = useConfigUrgencia();
+  // Configuração de prazo para OSs urgentes (versao força re-render quando prazo muda)
+  const { prazoLimiteDate, isOSUrgente: verificarOSUrgente, versao: versaoPrazoUrgente } = useConfigUrgencia();
 
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -1658,7 +1658,7 @@ const Roteirizacao = () => {
       // Não é urgente
       return false;
     });
-  }, [osPendentesTodas, usarTerritorios, territoriosSelecionados, territorios, prazoLimiteDate]);
+  }, [osPendentesTodas, usarTerritorios, territoriosSelecionados, territorios, prazoLimiteDate, versaoPrazoUrgente]);
   
   // Estado para controlar exibição do dialog de OSs urgentes fora de territórios
   const [mostrarOsUrgentesForaDialog, setMostrarOsUrgentesForaDialog] = useState(false);
@@ -6192,6 +6192,7 @@ const Roteirizacao = () => {
                 focarOSNoMapa={focarOSNoMapa}
                 statusOSsTempoReal={statusOSsTempoReal}
                 prazoLimiteUrgente={prazoLimiteDate}
+                versaoPrazoUrgente={versaoPrazoUrgente}
                 onOSSelecionada={(osId) => {
                   setOsSelecionadaNoMapa(osId);
                   // Também destacar no Editor de Rotas (sem focar no mapa)

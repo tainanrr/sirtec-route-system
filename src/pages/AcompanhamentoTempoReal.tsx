@@ -167,8 +167,8 @@ export default function AcompanhamentoTempoReal() {
   const queryClient = useQueryClient();
   const { podeEditar } = useTelaPermissao("acompanhamento_tempo_real");
   
-  // Configuração de prazo para OSs urgentes
-  const { prazoLimiteDate } = useConfigUrgencia();
+  // Configuração de prazo para OSs urgentes (versao força re-render quando prazo muda)
+  const { prazoLimiteDate, versao: versaoPrazoUrgente } = useConfigUrgencia();
   
   // Data atual (sempre hoje)
   const hoje = format(new Date(), "yyyy-MM-dd");
@@ -1653,6 +1653,7 @@ export default function AcompanhamentoTempoReal() {
                     osSelecionada={selectedOSId}
                     territorios={territorios || []}
                     prazoLimiteUrgente={prazoLimiteDate}
+                    versaoPrazoUrgente={versaoPrazoUrgente}
                     onOSSelecionada={(osId) => {
                       setSelectedOSId(osId);
                       if (osId) {

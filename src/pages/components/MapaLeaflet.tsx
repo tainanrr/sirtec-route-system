@@ -137,6 +137,8 @@ interface MapaLeafletProps {
   onEquipeClick?: (equipeId: string, lat: number, lng: number) => void; // Callback quando equipe é clicada
   // Prazo limite para considerar OS como urgente (configurável pelo usuário)
   prazoLimiteUrgente?: Date; // Se não fornecido, usa o padrão (fim do dia atual)
+  // Versão do prazo (incrementa a cada alteração para forçar re-render do mapa)
+  versaoPrazoUrgente?: number;
 }
 
 interface RouteGeometryData {
@@ -174,7 +176,7 @@ function getLucideIconSVG(iconName: string | undefined, color: string, size: num
   `;
 }
 
-export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEquipes, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, focarOSNoMapa, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear, selecionandoCoordNoMapa, onMapClick, osCoordenadasSuspeitas = [], criandoPoligono, onPoligonoCriado, onCriacaoCancelada, statusOSsTempoReal, mostrarEquipesTempoReal = true, equipesSelecionadasFiltro, onEquipeClick, prazoLimiteUrgente }: MapaLeafletProps) {
+export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEquipes, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, focarOSNoMapa, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear, selecionandoCoordNoMapa, onMapClick, osCoordenadasSuspeitas = [], criandoPoligono, onPoligonoCriado, onCriacaoCancelada, statusOSsTempoReal, mostrarEquipesTempoReal = true, equipesSelecionadasFiltro, onEquipeClick, prazoLimiteUrgente, versaoPrazoUrgente }: MapaLeafletProps) {
   
   const mapRef = useRef<HTMLDivElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -1834,23 +1836,24 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
         
         contadorOSsValidas++;
         
-        // Verificar se é regulada vencendo hoje ou vencida
+        // Verificar se é regulada urgente (usando prazo limite configurável) ou vencida
         const classificacaoOS = classificarPrazo(os.prazo);
         const isRegulada = os.regulada === true;
-        const isReguladaHoje = isRegulada && classificacaoOS === 'hoje'; // Regulada vencendo HOJE → vermelho
         const isReguladaVencida = isRegulada && classificacaoOS === 'passado'; // Regulada VENCIDA → preto
+        // Usar isOSUrgente que considera o prazo limite configurável pelo usuário
+        const isReguladaUrgente = !isReguladaVencida && isOSUrgente(os); // Regulada urgente (até prazo limite) → vermelho
         
         // Verificar se é coordenada suspeita
         const osSuspeita = osCoordenadasSuspeitas.find(s => s.id === os.id);
         const isCoordSuspeita = !!osSuspeita;
         
         // Calcular prioridade do marcador para uso nos clusters
-        // Prioridade: 3=vencida, 2=vencendo hoje, 1=fora de território/suspeita, 0=normal
+        // Prioridade: 3=vencida, 2=urgente (até prazo limite), 1=fora de território/suspeita, 0=normal
         let markerPriority = 0;
         if (isReguladaVencida) {
           markerPriority = 3; // Maior prioridade: vencida
-        } else if (isReguladaHoje) {
-          markerPriority = 2; // Segunda prioridade: vencendo hoje
+        } else if (isReguladaUrgente) {
+          markerPriority = 2; // Segunda prioridade: urgente (até prazo limite configurado)
         } else if (isCoordSuspeita) {
           markerPriority = 1; // Terceira prioridade: fora de território
         }
@@ -1863,16 +1866,16 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
         
         // Determinar classe de animação (coordenada suspeita tem prioridade visual)
         const animationClass = isCoordSuspeita ? 'marker-coord-suspeita' : 
-                              isReguladaHoje ? 'marker-regulada-urgente' : 
+                              isReguladaUrgente ? 'marker-regulada-urgente' : 
                               isReguladaVencida ? 'marker-vencida' : '';
         
         // Determinar borda e sombra
         const borderStyle = isCoordSuspeita ? '3px solid #9333ea' :
-                           isReguladaHoje ? '3px solid #dc2626' : 
+                           isReguladaUrgente ? '3px solid #dc2626' : 
                            isReguladaVencida ? '3px solid #000000' : 
                            `2px solid ${corBorda}`;
         const shadowStyle = isCoordSuspeita ? '0 0 8px 2px rgba(147, 51, 234, 0.6)' :
-                           isReguladaHoje ? '0 0 8px 2px rgba(220, 38, 38, 0.6)' : 
+                           isReguladaUrgente ? '0 0 8px 2px rgba(220, 38, 38, 0.6)' : 
                            isReguladaVencida ? '0 0 8px 2px rgba(0, 0, 0, 0.6)' : 
                            '0 2px 6px rgba(0,0,0,0.3)';
         
@@ -2034,11 +2037,12 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
           // Verificar se esta OS está selecionada no editor
           const isSelecionadaNoEditor = osSelecionadaNoEditor === servico.ordemServico.id;
           
-          // Verificar se é regulada vencendo hoje ou vencida (para efeito piscante)
+          // Verificar se é regulada urgente ou vencida (para efeito piscante)
           const classificacaoOSRoteirizada = classificarPrazo(servico.ordemServico.prazo ? new Date(servico.ordemServico.prazo) : null);
           const isReguladaRoteirizada = servico.ordemServico.regulada === true;
-          const isReguladaHojeRoteirizada = isReguladaRoteirizada && classificacaoOSRoteirizada === 'hoje';
           const isReguladaVencidaRoteirizada = isReguladaRoteirizada && classificacaoOSRoteirizada === 'passado';
+          // Usar isOSUrgente que considera o prazo limite configurável pelo usuário
+          const isReguladaUrgenteRoteirizada = !isReguladaVencidaRoteirizada && isOSUrgente(servico.ordemServico as any);
           
           // STATUS EM TEMPO REAL - Verificar status atual da OS
           const statusInfo = statusOSsTempoReal?.get(servico.ordemServico.id);
@@ -2073,7 +2077,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
           // Determinar animação:
           // 1. OS em execução → pulse-green (verde) PRIORIDADE MÁXIMA
           // 2. OS selecionada no editor → pulse-blue (azul)
-          // 3. Regulada vencendo HOJE → pulse-red-urgente (vermelho)
+          // 3. Regulada urgente (até prazo limite) → pulse-red-urgente (vermelho)
           // 4. Regulada VENCIDA → pulse-black-vencida (preto)
           // 5. Demais → sem animação
           let animacaoRoteirizada = '';
@@ -2081,7 +2085,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
             animacaoRoteirizada = 'animation: pulse-green-execucao 1s ease-in-out infinite;';
           } else if (isSelecionadaNoEditor) {
             animacaoRoteirizada = 'animation: pulse-blue 1.5s infinite;';
-          } else if (isReguladaHojeRoteirizada && !isConcluida) {
+          } else if (isReguladaUrgenteRoteirizada && !isConcluida) {
             animacaoRoteirizada = 'animation: pulse-red-urgente 1s ease-in-out infinite;';
           } else if (isReguladaVencidaRoteirizada && !isConcluida) {
             animacaoRoteirizada = 'animation: pulse-black-vencida 1s ease-in-out infinite;';
@@ -2099,7 +2103,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
             bordaRoteirizada = '3px solid #10b981'; // Verde esmeralda para concluída com sucesso
           } else if (isSelecionadaNoEditor) {
             bordaRoteirizada = '4px solid #3b82f6';
-          } else if (isReguladaHojeRoteirizada) {
+          } else if (isReguladaUrgenteRoteirizada) {
             bordaRoteirizada = '3px solid #dc2626';
           } else if (isReguladaVencidaRoteirizada) {
             bordaRoteirizada = '3px solid #000000';

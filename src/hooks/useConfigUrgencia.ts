@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useWebAuth } from "@/contexts/WebAuthContext";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 interface ConfigUrgencia {
@@ -11,6 +12,15 @@ interface ConfigUrgencia {
   atualizado_automaticamente: boolean;
 }
 
+// Lista de query keys que devem ser invalidadas quando o prazo muda
+const QUERY_KEYS_TO_INVALIDATE = [
+  "ordens-servico",
+  "os-pendentes",
+  "roteirizacao",
+  "acompanhamento",
+  "planejamentos",
+];
+
 /**
  * Hook para gerenciar a configuração de prazo limite para OSs urgentes.
  * 
@@ -20,9 +30,14 @@ interface ConfigUrgencia {
  */
 export function useConfigUrgencia() {
   const { usuarioWeb } = useWebAuth();
+  const queryClient = useQueryClient();
   const [config, setConfig] = useState<ConfigUrgencia | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  // Contador para forçar re-renderização quando o prazo muda
+  const [versao, setVersao] = useState(0);
+  // Ref para evitar invalidação na primeira renderização
+  const isFirstRender = useRef(true);
 
   // Calcular prazo padrão (próximo dia às 10h no horário de Brasília)
   const calcularPrazoPadrao = useCallback((): Date => {
@@ -32,6 +47,16 @@ export function useConfigUrgencia() {
     amanha.setHours(10, 0, 0, 0);
     return amanha;
   }, []);
+
+  // Função para invalidar todas as queries relacionadas
+  const invalidarQueries = useCallback(() => {
+    console.log("[useConfigUrgencia] Invalidando queries relacionadas...");
+    QUERY_KEYS_TO_INVALIDATE.forEach(key => {
+      queryClient.invalidateQueries({ queryKey: [key] });
+    });
+    // Incrementar versão para forçar re-renderização de componentes
+    setVersao(v => v + 1);
+  }, [queryClient]);
 
   // Carregar configuração do usuário
   const loadConfig = useCallback(async () => {
@@ -114,7 +139,9 @@ export function useConfigUrgencia() {
       }
 
       setConfig(data);
-      toast.success("Prazo limite atualizado!");
+      // Invalidar queries para forçar recálculo em todos os componentes
+      invalidarQueries();
+      toast.success("Prazo limite atualizado! Dados recarregados.");
       return true;
     } catch (err) {
       console.error("[useConfigUrgencia] Erro:", err);
@@ -123,7 +150,7 @@ export function useConfigUrgencia() {
     } finally {
       setIsSaving(false);
     }
-  }, [usuarioWeb?.id]);
+  }, [usuarioWeb?.id, invalidarQueries]);
 
   // Resetar para o padrão
   const resetarParaPadrao = useCallback(async (): Promise<boolean> => {
@@ -210,6 +237,10 @@ export function useConfigUrgencia() {
     isOSUrgente,
     /** Recarregar configuração do banco */
     recarregar: loadConfig,
+    /** Invalidar queries relacionadas (força recálculo) */
+    invalidarQueries,
+    /** Versão do prazo (incrementa a cada alteração para forçar re-render) */
+    versao,
   };
 }
 
