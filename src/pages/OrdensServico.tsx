@@ -233,6 +233,10 @@ const OrdensServico = () => {
   const [geocodingProgress, setGeocodingProgress] = useState({ current: 0, total: 0, endereco: "" });
   const [detalhesOpen, setDetalhesOpen] = useState(false);
   const [ordemDetalhesId, setOrdemDetalhesId] = useState<string | null>(null);
+  
+  // Estados para exportação
+  const [exportando, setExportando] = useState(false);
+  const [exportProgress, setExportProgress] = useState({ current: 0, total: 0, fase: "" });
 
   // Buscar skills uma vez e cachear
   const fetchSkillsOnce = async () => {
@@ -948,6 +952,268 @@ const OrdensServico = () => {
     setClearAllDialogOpen(false);
   };
 
+  // Função para exportar TODAS as OSs filtradas
+  const handleExportar = async () => {
+    try {
+      setExportando(true);
+      setExportProgress({ current: 0, total: totalCount, fase: "Preparando exportação..." });
+      
+      // Buscar TODAS as OSs com filtros em lotes
+      const PAGE_SIZE_EXPORT = 1000;
+      let allOrdens: any[] = [];
+      let page = 0;
+      let hasMoreData = true;
+      
+      setExportProgress({ current: 0, total: totalCount, fase: "Buscando ordens de serviço..." });
+      
+      while (hasMoreData) {
+        const from = page * PAGE_SIZE_EXPORT;
+        const to = from + PAGE_SIZE_EXPORT - 1;
+        
+        let query = supabase
+          .from("ordens_servico")
+          .select(`
+            *,
+            tecnicos:tecnico_id (codigo, nome),
+            retornos_campo:retorno_campo_id (id, codigo, descricao, tipo, cor),
+            centros_custo:centro_custo_id (codigo, nome),
+            contratos:contrato_id (codigo, nome)
+          `);
+        
+        query = applyFiltersToQuery(query);
+        query = query.order("created_at", { ascending: false }).range(from, to);
+        
+        const { data, error } = await query;
+        
+        if (error) {
+          console.error("Erro ao buscar OSs para exportação:", error);
+          toast.error("Erro ao exportar ordens de serviço");
+          setExportando(false);
+          return;
+        }
+        
+        if (data && data.length > 0) {
+          allOrdens = [...allOrdens, ...data];
+          setExportProgress({ 
+            current: allOrdens.length, 
+            total: totalCount, 
+            fase: `Carregando OSs (${allOrdens.length}/${totalCount})...` 
+          });
+        }
+        
+        hasMoreData = data && data.length === PAGE_SIZE_EXPORT;
+        page++;
+      }
+      
+      if (allOrdens.length === 0) {
+        toast.warning("Nenhuma ordem de serviço encontrada para exportar");
+        setExportando(false);
+        return;
+      }
+      
+      // Buscar dados de produção para todas as OSs
+      setExportProgress({ current: 0, total: allOrdens.length, fase: "Buscando dados de produção..." });
+      
+      const ordensIds = allOrdens.map(o => o.id);
+      const producaoMap = new Map<string, any>();
+      
+      // Buscar produção em lotes
+      for (let i = 0; i < ordensIds.length; i += 1000) {
+        const batchIds = ordensIds.slice(i, i + 1000);
+        const { data: producaoData } = await supabase
+          .from("producao_equipes")
+          .select(`
+            ordem_servico_id,
+            valor_total,
+            data_execucao,
+            equipes:equipe_id (codigo, nome)
+          `)
+          .in("ordem_servico_id", batchIds);
+        
+        if (producaoData) {
+          producaoData.forEach(p => {
+            producaoMap.set(p.ordem_servico_id, p);
+          });
+        }
+        
+        setExportProgress({ 
+          current: Math.min(i + 1000, ordensIds.length), 
+          total: ordensIds.length, 
+          fase: `Buscando produção (${Math.min(i + 1000, ordensIds.length)}/${ordensIds.length})...` 
+        });
+      }
+      
+      // Buscar planejamentos
+      setExportProgress({ current: 0, total: allOrdens.length, fase: "Buscando planejamentos..." });
+      
+      const planejamentoMap = new Map<string, any>();
+      for (let i = 0; i < ordensIds.length; i += 1000) {
+        const batchIds = ordensIds.slice(i, i + 1000);
+        const { data: planejamentoData } = await supabase
+          .from("planejamento_ordens")
+          .select(`
+            ordem_servico_id,
+            ordem_na_rota,
+            planejamentos:planejamento_id (
+              data_planejamento,
+              equipes:equipe_id (codigo, nome)
+            )
+          `)
+          .in("ordem_servico_id", batchIds);
+        
+        if (planejamentoData) {
+          planejamentoData.forEach(p => {
+            planejamentoMap.set(p.ordem_servico_id, p);
+          });
+        }
+      }
+      
+      // Montar dados para exportação
+      setExportProgress({ current: 0, total: allOrdens.length, fase: "Preparando arquivo Excel..." });
+      
+      const dadosExportacao = allOrdens.map((os, index) => {
+        const producao = producaoMap.get(os.id);
+        const planejamento = planejamentoMap.get(os.id);
+        
+        // Atualizar progresso a cada 100 registros
+        if (index % 100 === 0) {
+          setExportProgress({ 
+            current: index, 
+            total: allOrdens.length, 
+            fase: `Processando (${index}/${allOrdens.length})...` 
+          });
+        }
+        
+        return {
+          "ID": os.id,
+          "Código": os.codigo || "",
+          "Número": os.numero,
+          "Tipo": os.tipo,
+          "Nome do Tipo": skillsMap[os.tipo?.toLowerCase()] || skillsMap[os.tipo?.toUpperCase()] || os.tipo,
+          "Status": statusLabels[os.status] || os.status,
+          "Prioridade": os.prioridade || "NORMAL",
+          "Cliente - Nome": os.cliente_nome || "",
+          "Cliente - CPF/CNPJ": os.cliente_cpf || "",
+          "Cliente - Telefone": os.cliente_telefone || "",
+          "Instalação": os.instalacao || "",
+          "Medidor": os.medidor || "",
+          "Endereço": os.endereco,
+          "Número End.": os.numero_endereco || "",
+          "Complemento": os.complemento || "",
+          "Bairro": os.bairro || "",
+          "Município": os.municipio || "",
+          "UF": os.uf || "",
+          "CEP": os.cep || "",
+          "Latitude": os.latitude,
+          "Longitude": os.longitude,
+          "Prazo": os.prazo ? new Date(os.prazo).toLocaleString("pt-BR") : "",
+          "Data Criação": os.created_at ? new Date(os.created_at).toLocaleString("pt-BR") : "",
+          "Data Conclusão": os.concluido_at ? new Date(os.concluido_at).toLocaleString("pt-BR") : "",
+          "Tempo Execução (min)": os.duracao_estimada || "",
+          "Valor OS": os.valor ? Number(os.valor).toFixed(2) : "",
+          "Regulada": os.regulada ? "Sim" : "Não",
+          "Contrato": os.contratos?.codigo ? `${os.contratos.codigo} - ${os.contratos.nome}` : "",
+          "Centro de Custo": os.centros_custo?.codigo ? `${os.centros_custo.codigo} - ${os.centros_custo.nome}` : "",
+          "Técnico Responsável": os.tecnicos?.codigo ? `${os.tecnicos.codigo} - ${os.tecnicos.nome}` : "",
+          "Equipe Planejada": planejamento?.planejamentos?.equipes?.codigo ? 
+            `${planejamento.planejamentos.equipes.codigo} - ${planejamento.planejamentos.equipes.nome || ""}` : "",
+          "Data Planejamento": planejamento?.planejamentos?.data_planejamento ? 
+            new Date(planejamento.planejamentos.data_planejamento).toLocaleDateString("pt-BR") : "",
+          "Ordem na Rota": planejamento?.ordem_na_rota || "",
+          "Equipe Execução": producao?.equipes?.codigo ? 
+            `${producao.equipes.codigo} - ${producao.equipes.nome || ""}` : "",
+          "Data Execução": producao?.data_execucao ? 
+            new Date(producao.data_execucao).toLocaleDateString("pt-BR") : "",
+          "Valor Produção": producao?.valor_total ? Number(producao.valor_total).toFixed(2) : "",
+          "Retorno de Campo": os.retornos_campo?.codigo ? 
+            `${os.retornos_campo.codigo} - ${os.retornos_campo.descricao}` : "",
+          "Tipo Retorno": os.retornos_campo?.tipo || "",
+          "Territórios": os.territorios?.join(", ") || "",
+          "Observações": os.observacoes || "",
+          "Grupo de Serviço": os.grupo_servico || "",
+        };
+      });
+      
+      setExportProgress({ current: allOrdens.length, total: allOrdens.length, fase: "Gerando arquivo Excel..." });
+      
+      // Criar workbook
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(dadosExportacao);
+      
+      // Ajustar largura das colunas
+      const colWidths = [
+        { wch: 36 }, // ID
+        { wch: 15 }, // Código
+        { wch: 15 }, // Número
+        { wch: 20 }, // Tipo
+        { wch: 25 }, // Nome do Tipo
+        { wch: 12 }, // Status
+        { wch: 10 }, // Prioridade
+        { wch: 30 }, // Cliente Nome
+        { wch: 18 }, // Cliente CPF
+        { wch: 15 }, // Cliente Telefone
+        { wch: 15 }, // Instalação
+        { wch: 15 }, // Medidor
+        { wch: 50 }, // Endereço
+        { wch: 10 }, // Número End
+        { wch: 20 }, // Complemento
+        { wch: 20 }, // Bairro
+        { wch: 20 }, // Município
+        { wch: 5 },  // UF
+        { wch: 10 }, // CEP
+        { wch: 12 }, // Latitude
+        { wch: 12 }, // Longitude
+        { wch: 18 }, // Prazo
+        { wch: 18 }, // Data Criação
+        { wch: 18 }, // Data Conclusão
+        { wch: 18 }, // Tempo Execução
+        { wch: 12 }, // Valor OS
+        { wch: 8 },  // Regulada
+        { wch: 25 }, // Contrato
+        { wch: 25 }, // Centro de Custo
+        { wch: 25 }, // Técnico Responsável
+        { wch: 25 }, // Equipe Planejada
+        { wch: 15 }, // Data Planejamento
+        { wch: 12 }, // Ordem na Rota
+        { wch: 25 }, // Equipe Execução
+        { wch: 15 }, // Data Execução
+        { wch: 12 }, // Valor Produção
+        { wch: 30 }, // Retorno de Campo
+        { wch: 15 }, // Tipo Retorno
+        { wch: 30 }, // Territórios
+        { wch: 50 }, // Observações
+        { wch: 20 }, // Grupo de Serviço
+      ];
+      ws["!cols"] = colWidths;
+      
+      XLSX.utils.book_append_sheet(wb, ws, "Ordens de Serviço");
+      
+      // Gerar nome do arquivo
+      const agora = new Date();
+      const dataHora = agora.toLocaleString("pt-BR", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).replace(/[\/\s:]/g, "-");
+      
+      const nomeArquivo = `ordens_servico_${dataHora}.xlsx`;
+      
+      // Baixar arquivo
+      XLSX.writeFile(wb, nomeArquivo);
+      
+      toast.success(`${allOrdens.length} ordens de serviço exportadas com sucesso!`);
+      
+    } catch (error: any) {
+      console.error("Erro ao exportar:", error);
+      toast.error("Erro ao exportar ordens de serviço: " + (error.message || "Erro desconhecido"));
+    } finally {
+      setExportando(false);
+      setExportProgress({ current: 0, total: 0, fase: "" });
+    }
+  };
+
   const handleDownloadModel = async () => {
     try {
       // Buscar skills disponíveis do banco
@@ -1448,9 +1714,19 @@ const OrdensServico = () => {
                 Limpar
               </Button>
             )}
-            <Button variant="outline" className="gap-2">
-              <Download className="h-4 w-4" />
-              Exportar
+            <Button 
+              variant="outline" 
+              className="gap-2"
+              onClick={handleExportar}
+              disabled={exportando || totalCount === 0}
+              title={totalCount === 0 ? "Nenhuma OS para exportar" : `Exportar ${totalCount} OS(s)`}
+            >
+              {exportando ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+              Exportar {totalCount > 0 && `(${totalCount})`}
             </Button>
             <Button variant="outline" className="gap-2" onClick={handleDownloadModel}>
               <FileText className="h-4 w-4" />
@@ -2190,6 +2466,30 @@ const OrdensServico = () => {
             />
             <p className="mt-2 text-xs text-blue-600 dark:text-blue-400 truncate">
               {geocodingProgress.endereco}
+            </p>
+          </div>
+        )}
+
+        {/* Barra de progresso de exportação */}
+        {exportando && (
+          <div className="mt-4 p-4 bg-green-50 dark:bg-green-950 rounded-lg border border-green-200 dark:border-green-800">
+            <div className="flex items-center gap-2 mb-2">
+              <Loader2 className="h-4 w-4 animate-spin text-green-600" />
+              <span className="text-sm font-medium text-green-800 dark:text-green-200">
+                Exportando ordens de serviço...
+              </span>
+              {exportProgress.total > 0 && (
+                <span className="text-sm text-green-600 dark:text-green-400">
+                  {exportProgress.current} de {exportProgress.total}
+                </span>
+              )}
+            </div>
+            <Progress 
+              value={exportProgress.total > 0 ? (exportProgress.current / exportProgress.total) * 100 : 0} 
+              className="h-2"
+            />
+            <p className="mt-2 text-xs text-green-600 dark:text-green-400">
+              {exportProgress.fase}
             </p>
           </div>
         )}
