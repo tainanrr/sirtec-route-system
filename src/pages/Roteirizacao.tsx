@@ -643,15 +643,13 @@ const Roteirizacao = () => {
     const verificarEquipesOffline = async () => {
       if (equipes.length === 0) return;
       
-      const hoje = new Date();
-      const dataHoje = hoje.toISOString().split('T')[0];
-      
       try {
-        // Buscar turnos abertos hoje (sem hora_fim)
+        // Buscar TODOS os turnos abertos (sem hora_fim)
+        // IMPORTANTE: Não filtrar por data, pois um turno pode ter sido aberto ontem e ainda estar aberto
         const { data: turnosAbertos, error: turnosError } = await supabase
           .from("turnos")
           .select("equipe_id, hora_inicio")
-          .gte("hora_inicio", dataHoje)
+          .eq("status", "aberto")
           .is("hora_fim", null);
         
         if (turnosError) {
