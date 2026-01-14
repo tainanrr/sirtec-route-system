@@ -1020,7 +1020,7 @@ const OrdensServico = () => {
         const batchIds = ordensIds.slice(i, i + 1000);
         const { data: producaoData } = await supabase
           .from("producao_equipes")
-          .select(`ordem_servico_id,valor_total,data_execucao,equipes:equipe_id(codigo,nome)`)
+          .select(`ordem_servico_id,valor_total,data_execucao,tecnicos:equipe_id(codigo,nome)`)
           .in("ordem_servico_id", batchIds);
         
         if (producaoData) {
@@ -1041,7 +1041,7 @@ const OrdensServico = () => {
         const batchIds = ordensIds.slice(i, i + 1000);
         const { data: planejamentoData } = await supabase
           .from("planejamento_ordens")
-          .select(`ordem_servico_id,ordem_na_rota,planejamentos:planejamento_id(data_planejamento,equipes:equipe_id(codigo,nome))`)
+          .select(`ordem_servico_id,ordem_na_rota,planejamentos:planejamento_id(data_planejamento,tecnicos:equipe_id(codigo,nome))`)
           .in("ordem_servico_id", batchIds);
         
         if (planejamentoData) {
@@ -1140,12 +1140,12 @@ const OrdensServico = () => {
           os.centros_custo?.nome || "",
           os.tecnicos?.codigo || "",
           os.tecnicos?.nome || "",
-          planejamento?.planejamentos?.equipes?.codigo || "",
-          planejamento?.planejamentos?.equipes?.nome || "",
+          planejamento?.planejamentos?.tecnicos?.codigo || "",
+          planejamento?.planejamentos?.tecnicos?.nome || "",
           planejamento?.planejamentos?.data_planejamento ? new Date(planejamento.planejamentos.data_planejamento).toLocaleDateString("pt-BR") : "",
           planejamento?.ordem_na_rota || "",
-          producao?.equipes?.codigo || "",
-          producao?.equipes?.nome || "",
+          producao?.tecnicos?.codigo || "",
+          producao?.tecnicos?.nome || "",
           producao?.data_execucao ? new Date(producao.data_execucao).toLocaleDateString("pt-BR") : "",
           producao?.valor_total || "",
           os.retornos_campo?.codigo || "",
