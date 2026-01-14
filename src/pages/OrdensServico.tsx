@@ -1090,13 +1090,16 @@ const OrdensServico = () => {
           "Número": os.numero,
           "Tipo": os.tipo,
           "Nome do Tipo": skillsMap[os.tipo?.toLowerCase()] || skillsMap[os.tipo?.toUpperCase()] || os.tipo,
+          "Grupo de Serviço": os.grupo_servico || "",
           "Status": statusLabels[os.status] || os.status,
           "Prioridade": os.prioridade || "NORMAL",
+          "Avulsa": os.avulsa ? "Sim" : "Não",
           "Cliente - Nome": os.cliente_nome || "",
           "Cliente - CPF/CNPJ": os.cliente_cpf || "",
           "Cliente - Telefone": os.cliente_telefone || "",
           "Instalação": os.instalacao || "",
           "Medidor": os.medidor || "",
+          "Tensão Medição": os.tensao_medicao || "",
           "Endereço": os.endereco,
           "Número End.": os.numero_endereco || "",
           "Complemento": os.complemento || "",
@@ -1104,12 +1107,17 @@ const OrdensServico = () => {
           "Município": os.municipio || "",
           "UF": os.uf || "",
           "CEP": os.cep || "",
+          "Zona Cadastral": os.zona_cadastral || "",
           "Latitude": os.latitude,
           "Longitude": os.longitude,
+          "Territórios": os.territorios?.join(", ") || "",
           "Prazo": os.prazo ? new Date(os.prazo).toLocaleString("pt-BR") : "",
+          "Data Geração": os.data_geracao ? new Date(os.data_geracao).toLocaleString("pt-BR") : "",
           "Data Criação": os.created_at ? new Date(os.created_at).toLocaleString("pt-BR") : "",
+          "Data Início": os.iniciado_at ? new Date(os.iniciado_at).toLocaleString("pt-BR") : "",
           "Data Conclusão": os.concluido_at ? new Date(os.concluido_at).toLocaleString("pt-BR") : "",
-          "Tempo Execução (min)": os.duracao_estimada || "",
+          "Tempo Estimado (min)": os.duracao_estimada || "",
+          "Tempo Total (min)": os.tempo_total_minutos || "",
           "Valor OS": os.valor ? Number(os.valor).toFixed(2) : "",
           "Regulada": os.regulada ? "Sim" : "Não",
           "Contrato": os.contratos?.codigo ? `${os.contratos.codigo} - ${os.contratos.nome}` : "",
@@ -1128,9 +1136,8 @@ const OrdensServico = () => {
           "Retorno de Campo": os.retornos_campo?.codigo ? 
             `${os.retornos_campo.codigo} - ${os.retornos_campo.descricao}` : "",
           "Tipo Retorno": os.retornos_campo?.tipo || "",
-          "Territórios": os.territorios?.join(", ") || "",
           "Observações": os.observacoes || "",
-          "Grupo de Serviço": os.grupo_servico || "",
+          "Data Última Atualização": os.updated_at ? new Date(os.updated_at).toLocaleString("pt-BR") : "",
         };
       });
       
@@ -1147,13 +1154,16 @@ const OrdensServico = () => {
         { wch: 15 }, // Número
         { wch: 20 }, // Tipo
         { wch: 25 }, // Nome do Tipo
+        { wch: 20 }, // Grupo de Serviço
         { wch: 12 }, // Status
         { wch: 10 }, // Prioridade
+        { wch: 8 },  // Avulsa
         { wch: 30 }, // Cliente Nome
         { wch: 18 }, // Cliente CPF
         { wch: 15 }, // Cliente Telefone
         { wch: 15 }, // Instalação
         { wch: 15 }, // Medidor
+        { wch: 15 }, // Tensão Medição
         { wch: 50 }, // Endereço
         { wch: 10 }, // Número End
         { wch: 20 }, // Complemento
@@ -1161,12 +1171,17 @@ const OrdensServico = () => {
         { wch: 20 }, // Município
         { wch: 5 },  // UF
         { wch: 10 }, // CEP
+        { wch: 15 }, // Zona Cadastral
         { wch: 12 }, // Latitude
         { wch: 12 }, // Longitude
+        { wch: 30 }, // Territórios
         { wch: 18 }, // Prazo
+        { wch: 18 }, // Data Geração
         { wch: 18 }, // Data Criação
+        { wch: 18 }, // Data Início
         { wch: 18 }, // Data Conclusão
-        { wch: 18 }, // Tempo Execução
+        { wch: 18 }, // Tempo Estimado
+        { wch: 18 }, // Tempo Total
         { wch: 12 }, // Valor OS
         { wch: 8 },  // Regulada
         { wch: 25 }, // Contrato
@@ -1180,9 +1195,8 @@ const OrdensServico = () => {
         { wch: 12 }, // Valor Produção
         { wch: 30 }, // Retorno de Campo
         { wch: 15 }, // Tipo Retorno
-        { wch: 30 }, // Territórios
         { wch: 50 }, // Observações
-        { wch: 20 }, // Grupo de Serviço
+        { wch: 18 }, // Data Última Atualização
       ];
       ws["!cols"] = colWidths;
       
