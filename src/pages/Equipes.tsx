@@ -121,6 +121,10 @@ const tipoEquipeConfig = {
   kit: { label: "Kit", color: "bg-purple-100 text-purple-700 border-purple-300" },
 };
 
+// Tipos para ordenação
+type SortColumn = "codigo" | "tipo" | "jornada" | "status" | "supervisor" | "centroCusto" | null;
+type SortDirection = "asc" | "desc";
+
 const Equipes = () => {
   // Permissões da tela
   const { podeEditar, apenasLeitura } = useTelaPermissao("equipes");
@@ -148,6 +152,15 @@ const Equipes = () => {
   const [tipoEdicaoMassa, setTipoEdicaoMassa] = useState<"tipos" | "jornada" | "status" | "supervisor" | "centroCusto" | null>(null);
   const [valorEdicaoMassa, setValorEdicaoMassa] = useState<string>("");
   const [salvandoMassa, setSalvandoMassa] = useState(false);
+  
+  // Estados para filtros adicionais
+  const [tipoEquipeFilter, setTipoEquipeFilter] = useState<string>("all");
+  const [supervisorFilter, setSupervisorFilter] = useState<string>("all");
+  const [centroCustoFilter, setCentroCustoFilter] = useState<string>("all");
+  
+  // Estados para ordenação
+  const [sortColumn, setSortColumn] = useState<SortColumn>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
   // Buscar todos os colaboradores disponíveis
   const fetchTodosColaboradores = async () => {
@@ -635,18 +648,97 @@ const Equipes = () => {
     );
   };
 
-  const filteredEquipes = tecnicos.filter((tecnico) => {
-    const matchesSearch =
-      tecnico.codigo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      tecnico.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      tecnico.colaboradores?.some(c => 
-        c.colaborador?.nome?.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    // Normalizar status para filtro
-    const normalizedStatus = tecnico.status === "offline" ? "offline" : "disponivel";
-    const matchesStatus = statusFilter === "all" || normalizedStatus === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  // Função de ordenação
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      if (sortDirection === "asc") {
+        setSortDirection("desc");
+      } else {
+        // Terceiro clique remove a ordenação
+        setSortColumn(null);
+        setSortDirection("asc");
+      }
+    } else {
+      setSortColumn(column);
+      setSortDirection("asc");
+    }
+  };
+
+  // Função para obter valor de ordenação
+  const getSortValue = (tecnico: EquipeComColaboradores, column: SortColumn): string => {
+    switch (column) {
+      case "codigo":
+        return tecnico.codigo.toLowerCase();
+      case "tipo":
+        return (tecnico as any).tipo_equipe || "normal";
+      case "jornada":
+        return (tecnico as any).hora_inicio || "07:30";
+      case "status":
+        return tecnico.status === "offline" ? "offline" : "disponivel";
+      case "supervisor":
+        return (tecnico as any).supervisor?.nome?.toLowerCase() || "zzz";
+      case "centroCusto":
+        return (tecnico as any).centros_custo?.nome?.toLowerCase() || "zzz";
+      default:
+        return "";
+    }
+  };
+
+  // Verificar se há filtros ativos (além do padrão)
+  const hasActiveFilters = searchTerm !== "" || 
+    statusFilter !== "all" || 
+    tipoEquipeFilter !== "all" || 
+    supervisorFilter !== "all" || 
+    centroCustoFilter !== "all";
+
+  // Limpar todos os filtros
+  const limparFiltros = () => {
+    setSearchTerm("");
+    setStatusFilter("all");
+    setTipoEquipeFilter("all");
+    setSupervisorFilter("all");
+    setCentroCustoFilter("all");
+    setSortColumn(null);
+    setSortDirection("asc");
+  };
+
+  const filteredEquipes = tecnicos
+    .filter((tecnico) => {
+      const matchesSearch =
+        tecnico.codigo.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        tecnico.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        tecnico.colaboradores?.some(c => 
+          c.colaborador?.nome?.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+      // Normalizar status para filtro
+      const normalizedStatus = tecnico.status === "offline" ? "offline" : "disponivel";
+      const matchesStatus = statusFilter === "all" || normalizedStatus === statusFilter;
+      
+      // Filtro de tipo de equipe
+      const tipoEquipe = (tecnico as any).tipo_equipe || "normal";
+      const matchesTipo = tipoEquipeFilter === "all" || tipoEquipe === tipoEquipeFilter;
+      
+      // Filtro de supervisor
+      const supervisorId = (tecnico as any).supervisor_id || "";
+      const matchesSupervisor = supervisorFilter === "all" || supervisorId === supervisorFilter;
+      
+      // Filtro de centro de custo
+      const centroCustoId = (tecnico as any).centro_custo_id || "";
+      const matchesCentroCusto = centroCustoFilter === "all" || 
+        (centroCustoFilter === "_none_" && !centroCustoId) ||
+        centroCustoId === centroCustoFilter;
+      
+      return matchesSearch && matchesStatus && matchesTipo && matchesSupervisor && matchesCentroCusto;
+    })
+    .sort((a, b) => {
+      if (!sortColumn) return 0;
+      
+      const valueA = getSortValue(a, sortColumn);
+      const valueB = getSortValue(b, sortColumn);
+      
+      const comparison = valueA.localeCompare(valueB);
+      return sortDirection === "asc" ? comparison : -comparison;
+    });
 
   // Verificar se todas as equipes visíveis estão selecionadas
   const todasSelecionadas = filteredEquipes.length > 0 && 
@@ -1044,60 +1136,139 @@ const Equipes = () => {
 
       {/* Filters */}
       <div className="rounded-xl border border-border bg-card p-4 mb-6">
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Buscar equipe ou colaborador..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9"
+        <div className="flex flex-col gap-4">
+          {/* Linha principal de filtros */}
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar equipe ou colaborador..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-[150px]">
+                <SelectValue placeholder="Todos os status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os status</SelectItem>
+                {Object.entries(statusConfig).map(([key, config]) => (
+                  <SelectItem key={key} value={key}>
+                    {config.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={tipoEquipeFilter} onValueChange={setTipoEquipeFilter}>
+              <SelectTrigger className="w-[130px]">
+                <SelectValue placeholder="Tipo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os tipos</SelectItem>
+                <SelectItem value="normal">Normal</SelectItem>
+                <SelectItem value="gaviao">Gavião</SelectItem>
+                <SelectItem value="kit">Kit</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select value={supervisorFilter} onValueChange={setSupervisorFilter}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Supervisor" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos supervisores</SelectItem>
+                {supervisores.map((sup) => (
+                  <SelectItem key={sup.id} value={sup.id}>
+                    {sup.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={centroCustoFilter} onValueChange={setCentroCustoFilter}>
+              <SelectTrigger className="w-[160px]">
+                <SelectValue placeholder="Centro de Custo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos C.C.</SelectItem>
+                <SelectItem value="_none_">Sem C.C.</SelectItem>
+                {centrosCusto.map((cc) => (
+                  <SelectItem key={cc.id} value={cc.id}>
+                    {cc.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {hasActiveFilters && (
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={limparFiltros}
+                title="Limpar todos os filtros"
+                className="shrink-0"
+              >
+                <FilterX className="h-4 w-4" />
+              </Button>
+            )}
+
+            <ExportButton
+              data={tecnicos}
+              filename="equipes"
+              columns={[
+                { key: "codigo", label: "Código" },
+                { key: "nome", label: "Nome" },
+                { key: "status", label: "Status", format: (v) => v === "offline" ? "Inativa" : "Ativa" },
+                { key: "tipo_equipe", label: "Tipo", format: (v) => v === "gaviao" ? "Gavião" : v === "kit" ? "Kit" : "Normal" },
+                { key: "hora_inicio", label: "Jornada Início" },
+                { key: "jornada_horas", label: "Jornada (horas)" },
+                { key: "max_horas_trabalho", label: "Máx Horas Trabalho" },
+                { key: "habilidades", label: "Habilidades", format: (v) => Array.isArray(v) ? v.join(", ") : "" },
+                { key: "color", label: "Cor" },
+                { key: "placa_veiculo", label: "Placa Veículo" },
+                { key: "min_colaboradores", label: "Mín Colaboradores" },
+                { key: "max_colaboradores", label: "Máx Colaboradores" },
+                { key: "colaboradores", label: "Colaboradores", format: (v) => Array.isArray(v) ? v.map((c: any) => c.colaborador?.nome).join(", ") : "" },
+              ]}
+              disabled={loading}
             />
+            <Button 
+              className="gap-2" 
+              onClick={() => { setSelectedTecnico(null); setFormOpen(true); }}
+              disabled={!podeEditar}
+              title={!podeEditar ? "Você não tem permissão para criar equipes" : undefined}
+            >
+              <Plus className="h-4 w-4" />
+              Nova Equipe
+            </Button>
           </div>
 
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Todos os status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos os status</SelectItem>
-              {Object.entries(statusConfig).map(([key, config]) => (
-                <SelectItem key={key} value={key}>
-                  {config.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <ExportButton
-            data={tecnicos}
-            filename="equipes"
-            columns={[
-              { key: "codigo", label: "Código" },
-              { key: "nome", label: "Nome" },
-              { key: "status", label: "Status", format: (v) => v === "offline" ? "Inativa" : "Ativa" },
-              { key: "tipo_equipe", label: "Tipo", format: (v) => v === "gaviao" ? "Gavião" : v === "kit" ? "Kit" : "Normal" },
-              { key: "hora_inicio", label: "Jornada Início" },
-              { key: "jornada_horas", label: "Jornada (horas)" },
-              { key: "max_horas_trabalho", label: "Máx Horas Trabalho" },
-              { key: "habilidades", label: "Habilidades", format: (v) => Array.isArray(v) ? v.join(", ") : "" },
-              { key: "color", label: "Cor" },
-              { key: "placa_veiculo", label: "Placa Veículo" },
-              { key: "min_colaboradores", label: "Mín Colaboradores" },
-              { key: "max_colaboradores", label: "Máx Colaboradores" },
-              { key: "colaboradores", label: "Colaboradores", format: (v) => Array.isArray(v) ? v.map((c: any) => c.colaborador?.nome).join(", ") : "" },
-            ]}
-            disabled={loading}
-          />
-          <Button 
-            className="gap-2" 
-            onClick={() => { setSelectedTecnico(null); setFormOpen(true); }}
-            disabled={!podeEditar}
-            title={!podeEditar ? "Você não tem permissão para criar equipes" : undefined}
-          >
-            <Plus className="h-4 w-4" />
-            Nova Equipe
-          </Button>
+          {/* Indicadores de filtros ativos e ordenação */}
+          {(hasActiveFilters || sortColumn) && (
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <Filter className="h-4 w-4 text-muted-foreground" />
+              <span className="text-muted-foreground">
+                {filteredEquipes.length} de {tecnicos.length} equipes
+              </span>
+              {sortColumn && (
+                <Badge variant="secondary" className="gap-1">
+                  Ordenado por: {
+                    sortColumn === "codigo" ? "Código" :
+                    sortColumn === "tipo" ? "Tipo" :
+                    sortColumn === "jornada" ? "Jornada" :
+                    sortColumn === "status" ? "Status" :
+                    sortColumn === "supervisor" ? "Supervisor" :
+                    sortColumn === "centroCusto" ? "Centro Custo" : sortColumn
+                  }
+                  {sortDirection === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+                </Badge>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1212,15 +1383,93 @@ const Equipes = () => {
                       />
                     </div>
                   </TableHead>
-                  <TableHead className="w-[100px]">Código</TableHead>
-                  <TableHead className="w-[100px]">Tipo</TableHead>
-                  <TableHead className="w-[100px]">Jornada</TableHead>
+                  <TableHead 
+                    className="w-[100px] cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                    onClick={() => handleSort("codigo")}
+                    title="Clique para ordenar por código"
+                  >
+                    <div className="flex items-center gap-1">
+                      Código
+                      {sortColumn === "codigo" ? (
+                        sortDirection === "asc" ? <ArrowUp className="h-3 w-3 text-primary" /> : <ArrowDown className="h-3 w-3 text-primary" />
+                      ) : (
+                        <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead 
+                    className="w-[100px] cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                    onClick={() => handleSort("tipo")}
+                    title="Clique para ordenar por tipo"
+                  >
+                    <div className="flex items-center gap-1">
+                      Tipo
+                      {sortColumn === "tipo" ? (
+                        sortDirection === "asc" ? <ArrowUp className="h-3 w-3 text-primary" /> : <ArrowDown className="h-3 w-3 text-primary" />
+                      ) : (
+                        <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead 
+                    className="w-[100px] cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                    onClick={() => handleSort("jornada")}
+                    title="Clique para ordenar por jornada"
+                  >
+                    <div className="flex items-center gap-1">
+                      Jornada
+                      {sortColumn === "jornada" ? (
+                        sortDirection === "asc" ? <ArrowUp className="h-3 w-3 text-primary" /> : <ArrowDown className="h-3 w-3 text-primary" />
+                      ) : (
+                        <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />
+                      )}
+                    </div>
+                  </TableHead>
                   <TableHead className="w-[180px]">Colaborador 1</TableHead>
                   <TableHead className="w-[180px]">Colaborador 2</TableHead>
                   <TableHead className="w-[180px]">Colaborador 3</TableHead>
-                  <TableHead className="w-[100px]">Status</TableHead>
-                  <TableHead className="w-[150px]">Supervisor</TableHead>
-                  <TableHead className="w-[140px]">Centro Custo</TableHead>
+                  <TableHead 
+                    className="w-[100px] cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                    onClick={() => handleSort("status")}
+                    title="Clique para ordenar por status"
+                  >
+                    <div className="flex items-center gap-1">
+                      Status
+                      {sortColumn === "status" ? (
+                        sortDirection === "asc" ? <ArrowUp className="h-3 w-3 text-primary" /> : <ArrowDown className="h-3 w-3 text-primary" />
+                      ) : (
+                        <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead 
+                    className="w-[150px] cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                    onClick={() => handleSort("supervisor")}
+                    title="Clique para ordenar por supervisor"
+                  >
+                    <div className="flex items-center gap-1">
+                      Supervisor
+                      {sortColumn === "supervisor" ? (
+                        sortDirection === "asc" ? <ArrowUp className="h-3 w-3 text-primary" /> : <ArrowDown className="h-3 w-3 text-primary" />
+                      ) : (
+                        <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />
+                      )}
+                    </div>
+                  </TableHead>
+                  <TableHead 
+                    className="w-[140px] cursor-pointer select-none hover:bg-muted/50 transition-colors"
+                    onClick={() => handleSort("centroCusto")}
+                    title="Clique para ordenar por centro de custo"
+                  >
+                    <div className="flex items-center gap-1">
+                      Centro Custo
+                      {sortColumn === "centroCusto" ? (
+                        sortDirection === "asc" ? <ArrowUp className="h-3 w-3 text-primary" /> : <ArrowDown className="h-3 w-3 text-primary" />
+                      ) : (
+                        <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />
+                      )}
+                    </div>
+                  </TableHead>
                   <TableHead>Habilidades</TableHead>
                   <TableHead className="w-[120px] text-right">Ações</TableHead>
                 </TableRow>
