@@ -1920,7 +1920,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
             <div style="font-weight: bold; margin-bottom: 2px; color: #ffffff;">${os.numero}</div>
             <div style="color: #d1d5db;">${nomeServico}</div>
             ${prazoTooltip ? `<div style="color: #fca5a5; font-size: 11px;">⏰ ${prazoTooltip}</div>` : ''}
-            ${isReguladaHoje ? '<div style="color: #fca5a5; font-weight: bold; font-size: 10px;">⚠️ REGULADA - VENCE HOJE</div>' : ''}
+            ${isReguladaUrgente ? '<div style="color: #fca5a5; font-weight: bold; font-size: 10px;">⚠️ REGULADA - URGENTE</div>' : ''}
             ${isReguladaVencida ? '<div style="color: #a1a1aa; font-weight: bold; font-size: 10px;">⚠️ REGULADA - VENCIDA</div>' : ''}
             ${isCoordSuspeita ? `<div style="color: #c084fc; font-weight: bold; font-size: 10px; margin-top: 4px;">⚠️ COORD. SUSPEITA<br/>Bairro: ${os.bairro}<br/>Esperado: ${osSuspeita?.territorioEsperado}<br/>Atual: ${osSuspeita?.territorioReal}</div>` : ''}
           </div>
@@ -2117,7 +2117,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
             sombraRoteirizada = '0 0 8px 2px rgba(220, 38, 38, 0.5)';
           } else if (isSelecionadaNoEditor) {
             sombraRoteirizada = '0 6px 16px rgba(59, 130, 246, 0.8)';
-          } else if (isReguladaHojeRoteirizada && !isConcluida) {
+          } else if (isReguladaUrgenteRoteirizada && !isConcluida) {
             sombraRoteirizada = '0 0 8px 2px rgba(220, 38, 38, 0.6)';
           } else if (isReguladaVencidaRoteirizada && !isConcluida) {
             sombraRoteirizada = '0 0 8px 2px rgba(0, 0, 0, 0.6)';
