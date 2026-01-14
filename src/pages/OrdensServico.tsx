@@ -1018,10 +1018,14 @@ const OrdensServico = () => {
       
       for (let i = 0; i < ordensIds.length; i += 1000) {
         const batchIds = ordensIds.slice(i, i + 1000);
-        const { data: producaoData } = await supabase
+        const { data: producaoData, error: producaoError } = await supabase
           .from("producao_equipes")
-          .select(`ordem_servico_id,valor_total,data_execucao,tecnicos:equipe_id(codigo,nome)`)
+          .select(`ordem_servico_id,valor_total,created_at,tecnicos:equipe_id(codigo,nome)`)
           .in("ordem_servico_id", batchIds);
+        
+        if (producaoError) {
+          console.error("[Exportar] Erro ao buscar produção:", producaoError);
+        }
         
         if (producaoData) {
           producaoData.forEach(p => producaoMap.set(p.ordem_servico_id, p));
@@ -1146,7 +1150,7 @@ const OrdensServico = () => {
           planejamento?.ordem_na_rota || "",
           producao?.tecnicos?.codigo || "",
           producao?.tecnicos?.nome || "",
-          producao?.data_execucao ? new Date(producao.data_execucao).toLocaleDateString("pt-BR") : "",
+          producao?.created_at ? new Date(producao.created_at).toLocaleDateString("pt-BR") : "",
           producao?.valor_total || "",
           os.retornos_campo?.codigo || "",
           os.retornos_campo?.descricao || "",
