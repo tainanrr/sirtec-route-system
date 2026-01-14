@@ -72,6 +72,7 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import * as XLSX from "xlsx";
+import JSZip from "jszip";
 import { Upload } from "lucide-react";
 
 interface EntregaItem {
@@ -618,12 +619,50 @@ export default function EntregasEquipes() {
 
   // ====== IMPORTAÇÃO DE ENTREGAS ======
 
+  // Função auxiliar para extrair CSV de arquivo ZIP
+  const extractCsvFromZip = async (zipBuffer: ArrayBuffer): Promise<ArrayBuffer | null> => {
+    try {
+      const zip = await JSZip.loadAsync(zipBuffer);
+      const fileNames = Object.keys(zip.files);
+      
+      // Procurar por arquivo CSV dentro do ZIP
+      const csvFile = fileNames.find(name => 
+        name.toLowerCase().endsWith('.csv') && !name.startsWith('__MACOSX')
+      );
+      
+      if (!csvFile) {
+        toast.error("Nenhum arquivo CSV encontrado dentro do ZIP");
+        return null;
+      }
+      
+      const csvContent = await zip.files[csvFile].async("arraybuffer");
+      return csvContent;
+    } catch (err) {
+      console.error("Erro ao extrair CSV do ZIP:", err);
+      toast.error("Erro ao extrair arquivo do ZIP");
+      return null;
+    }
+  };
+
   // Função para processar arquivo de importação
   const handleImportFile = async (file: File) => {
     setImportFile(file);
     setImportLoading(true);
     try {
-      const buffer = await file.arrayBuffer();
+      let buffer = await file.arrayBuffer();
+      const fileName = file.name.toLowerCase();
+      
+      // Se for arquivo ZIP, extrair o CSV de dentro
+      if (fileName.endsWith('.zip')) {
+        const csvBuffer = await extractCsvFromZip(buffer);
+        if (!csvBuffer) {
+          setImportLoading(false);
+          return;
+        }
+        buffer = csvBuffer;
+        toast.info("Arquivo CSV extraído do ZIP com sucesso");
+      }
+      
       const wb = XLSX.read(buffer, { type: "array" });
       const sheetName = wb.SheetNames[0];
       const ws = wb.Sheets[sheetName];
@@ -2528,10 +2567,10 @@ export default function EntregasEquipes() {
             <div className="space-y-4">
               <div className="flex flex-col md:flex-row gap-3 md:items-end md:justify-between">
                 <div className="space-y-2 flex-1">
-                  <Label>Planilha (.xlsx)</Label>
+                  <Label>Planilha (.xlsx, .csv ou .zip)</Label>
                   <Input
                     type="file"
-                    accept=".xlsx,.xls,.csv"
+                    accept=".xlsx,.xls,.csv,.zip"
                     disabled={importEntregasMutation.isPending}
                     onChange={(e) => {
                       const file = e.target.files?.[0] || null;
