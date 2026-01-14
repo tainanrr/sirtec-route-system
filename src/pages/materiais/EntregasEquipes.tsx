@@ -833,109 +833,139 @@ export default function EntregasEquipes() {
     return Array.from(agrupados.values());
   }, [importRows]);
 
-  // Mutation para importar entregas
+  // Mutation para importar entregas (OTIMIZADA - batch operations)
   const importEntregasMutation = useMutation({
     mutationFn: async (grupos: ImportEntregaAgrupada[]) => {
       if (grupos.length === 0) {
         throw new Error("Nenhuma entrega válida para importar.");
       }
 
-      let entregasCriadas = 0;
-      setImportProgress({ current: 0, total: grupos.length, equipeAtual: "" });
+      setImportProgress({ current: 0, total: grupos.length, equipeAtual: "Preparando..." });
 
-      for (let i = 0; i < grupos.length; i++) {
-        const grupo = grupos[i];
-        setImportProgress({ current: i + 1, total: grupos.length, equipeAtual: grupo.equipeNome });
-        // Criar entrega
-        const { data: entrega, error: entregaError } = await supabase
-          .from("materiais_entregas")
-          .insert({
-            equipe_id: grupo.equipeId,
-            data_entrega: new Date().toISOString(),
-            status: "pendente",
-            observacao: grupo.observacao || null,
-          })
-          .select()
-          .single();
+      // 1. Coletar todos os materiais únicos para buscar estoques em batch
+      const materiaisUnicos = new Set<string>();
+      const equipesUnicas = new Set<string>();
+      grupos.forEach(g => {
+        equipesUnicas.add(g.equipeId);
+        g.itens.forEach(i => materiaisUnicos.add(i.materialId));
+      });
 
-        if (entregaError) {
-          console.error(`Erro ao criar entrega para equipe ${grupo.equipeNome}:`, entregaError);
-          continue;
-        }
+      // 2. Buscar todos os estoques centrais de uma vez
+      const { data: estoquesCentralData } = await supabase
+        .from("materiais_estoque")
+        .select("id, material_id, quantidade")
+        .eq("local_tipo", "central")
+        .in("material_id", Array.from(materiaisUnicos));
 
-        // Criar itens da entrega
-        const itensPayload = grupo.itens.map((item) => ({
-          entrega_id: entrega.id,
-          material_id: item.materialId,
-          quantidade: item.quantidade,
-          numero_serie: item.numeroSerie || null,
-        }));
+      const estoquesCentralMap = new Map<string, { id: string; quantidade: number }>();
+      (estoquesCentralData || []).forEach(e => {
+        estoquesCentralMap.set(e.material_id, { id: e.id, quantidade: e.quantidade });
+      });
 
-        const { error: itensError } = await supabase
-          .from("materiais_entregas_itens")
-          .insert(itensPayload);
+      // 3. Buscar todos os estoques de equipes de uma vez
+      const { data: estoquesEquipeData } = await supabase
+        .from("materiais_estoque")
+        .select("id, material_id, quantidade, local_id")
+        .eq("local_tipo", "equipe")
+        .in("local_id", Array.from(equipesUnicas))
+        .in("material_id", Array.from(materiaisUnicos));
 
-        if (itensError) {
-          console.error(`Erro ao criar itens da entrega:`, itensError);
-          // Reverter a entrega criada
-          await supabase.from("materiais_entregas").delete().eq("id", entrega.id);
-          continue;
-        }
+      const estoquesEquipeMap = new Map<string, { id: string; quantidade: number }>();
+      (estoquesEquipeData || []).forEach(e => {
+        estoquesEquipeMap.set(`${e.material_id}-${e.local_id}`, { id: e.id, quantidade: e.quantidade });
+      });
 
-        // Dar baixa no estoque central e entrada no estoque da equipe
-        for (const item of grupo.itens) {
-          // Baixa no estoque central
-          const { data: estoqueCentral } = await supabase
-            .from("materiais_estoque")
-            .select("id, quantidade")
-            .eq("material_id", item.materialId)
-            .eq("local_tipo", "central")
-            .maybeSingle();
+      setImportProgress({ current: 0, total: grupos.length, equipeAtual: "Criando entregas..." });
 
-          if (estoqueCentral) {
-            await supabase
-              .from("materiais_estoque")
-              .update({ quantidade: Math.max(0, estoqueCentral.quantidade - item.quantidade) })
-              .eq("id", estoqueCentral.id);
+      // 4. Criar todas as entregas em batch
+      const entregasPayload = grupos.map(g => ({
+        equipe_id: g.equipeId,
+        data_entrega: new Date().toISOString(),
+        status: "pendente",
+        observacao: g.observacao || null,
+      }));
+
+      const { data: entregasCriadas, error: entregasError } = await supabase
+        .from("materiais_entregas")
+        .insert(entregasPayload)
+        .select();
+
+      if (entregasError || !entregasCriadas) {
+        throw new Error("Erro ao criar entregas: " + (entregasError?.message || "sem dados"));
+      }
+
+      // 5. Criar todos os itens em batch
+      const itensPayload: any[] = [];
+      const movimentacoesPayload: any[] = [];
+      const atualizacoesCentral: { id: string; novaQtd: number }[] = [];
+      const atualizacoesEquipe: { id: string; novaQtd: number }[] = [];
+      const novosEstoquesEquipe: any[] = [];
+      const serializadosUpdate: { numeroSerie: string; equipeId: string }[] = [];
+
+      grupos.forEach((grupo, idx) => {
+        const entrega = entregasCriadas[idx];
+        if (!entrega) return;
+
+        grupo.itens.forEach(item => {
+          // Item da entrega
+          itensPayload.push({
+            entrega_id: entrega.id,
+            material_id: item.materialId,
+            quantidade: item.quantidade,
+            numero_serie: item.numeroSerie || null,
+          });
+
+          // Baixa estoque central
+          const estCentral = estoquesCentralMap.get(item.materialId);
+          if (estCentral) {
+            const atual = atualizacoesCentral.find(a => a.id === estCentral.id);
+            if (atual) {
+              atual.novaQtd = Math.max(0, atual.novaQtd - item.quantidade);
+            } else {
+              atualizacoesCentral.push({
+                id: estCentral.id,
+                novaQtd: Math.max(0, estCentral.quantidade - item.quantidade)
+              });
+            }
           }
 
-          // Entrada no estoque da equipe
-          const { data: estoqueEquipe } = await supabase
-            .from("materiais_estoque")
-            .select("id, quantidade")
-            .eq("material_id", item.materialId)
-            .eq("local_tipo", "equipe")
-            .eq("local_id", grupo.equipeId)
-            .maybeSingle();
-
-          if (estoqueEquipe) {
-            await supabase
-              .from("materiais_estoque")
-              .update({ quantidade: estoqueEquipe.quantidade + item.quantidade })
-              .eq("id", estoqueEquipe.id);
+          // Entrada estoque equipe
+          const chaveEquipe = `${item.materialId}-${grupo.equipeId}`;
+          const estEquipe = estoquesEquipeMap.get(chaveEquipe);
+          if (estEquipe) {
+            const atual = atualizacoesEquipe.find(a => a.id === estEquipe.id);
+            if (atual) {
+              atual.novaQtd += item.quantidade;
+            } else {
+              atualizacoesEquipe.push({
+                id: estEquipe.id,
+                novaQtd: estEquipe.quantidade + item.quantidade
+              });
+            }
           } else {
-            await supabase.from("materiais_estoque").insert({
-              material_id: item.materialId,
-              quantidade: item.quantidade,
-              local_tipo: "equipe",
-              local_id: grupo.equipeId,
-            });
+            // Verificar se já vamos criar esse estoque
+            const novoExistente = novosEstoquesEquipe.find(
+              n => n.material_id === item.materialId && n.local_id === grupo.equipeId
+            );
+            if (novoExistente) {
+              novoExistente.quantidade += item.quantidade;
+            } else {
+              novosEstoquesEquipe.push({
+                material_id: item.materialId,
+                quantidade: item.quantidade,
+                local_tipo: "equipe",
+                local_id: grupo.equipeId,
+              });
+            }
           }
 
-          // Atualizar localização dos serializados (se houver)
+          // Serializado
           if (item.numeroSerie) {
-            await supabase
-              .from("materiais_serializados")
-              .update({
-                localizacao_tipo: "equipe",
-                localizacao_id: grupo.equipeId,
-                status: "em_uso",
-              })
-              .eq("numero_serie", item.numeroSerie);
+            serializadosUpdate.push({ numeroSerie: item.numeroSerie, equipeId: grupo.equipeId });
           }
 
-          // Registrar movimentação
-          await supabase.from("materiais_movimentacoes").insert({
+          // Movimentação
+          movimentacoesPayload.push({
             material_id: item.materialId,
             tipo: "transferencia",
             quantidade: item.quantidade,
@@ -944,12 +974,75 @@ export default function EntregasEquipes() {
             local_destino_id: grupo.equipeId,
             observacao: `Importação de entrega - ${grupo.equipeNome}`,
           });
-        }
+        });
+      });
 
-        entregasCriadas++;
+      setImportProgress({ current: Math.floor(grupos.length * 0.3), total: grupos.length, equipeAtual: "Salvando itens..." });
+
+      // 6. Executar operações em paralelo
+      const operations: Promise<any>[] = [];
+
+      // Itens
+      if (itensPayload.length > 0) {
+        operations.push(supabase.from("materiais_entregas_itens").insert(itensPayload));
       }
 
-      return { entregasCriadas, totalEquipes: grupos.length };
+      // Movimentações
+      if (movimentacoesPayload.length > 0) {
+        operations.push(supabase.from("materiais_movimentacoes").insert(movimentacoesPayload));
+      }
+
+      // Novos estoques equipe
+      if (novosEstoquesEquipe.length > 0) {
+        operations.push(supabase.from("materiais_estoque").insert(novosEstoquesEquipe));
+      }
+
+      await Promise.all(operations);
+
+      setImportProgress({ current: Math.floor(grupos.length * 0.6), total: grupos.length, equipeAtual: "Atualizando estoques..." });
+
+      // 7. Atualizações de estoque (em paralelo)
+      const updateOperations: Promise<any>[] = [];
+
+      // Atualizar estoques centrais
+      for (const upd of atualizacoesCentral) {
+        updateOperations.push(
+          supabase.from("materiais_estoque").update({ quantidade: upd.novaQtd }).eq("id", upd.id)
+        );
+      }
+
+      // Atualizar estoques equipes
+      for (const upd of atualizacoesEquipe) {
+        updateOperations.push(
+          supabase.from("materiais_estoque").update({ quantidade: upd.novaQtd }).eq("id", upd.id)
+        );
+      }
+
+      // Atualizar serializados
+      for (const ser of serializadosUpdate) {
+        updateOperations.push(
+          supabase
+            .from("materiais_serializados")
+            .update({ localizacao_tipo: "equipe", localizacao_id: ser.equipeId, status: "em_uso" })
+            .eq("numero_serie", ser.numeroSerie)
+        );
+      }
+
+      // Executar todas as atualizações em paralelo (em batches de 50 para evitar sobrecarga)
+      const batchSize = 50;
+      for (let i = 0; i < updateOperations.length; i += batchSize) {
+        const batch = updateOperations.slice(i, i + batchSize);
+        await Promise.all(batch);
+        setImportProgress({ 
+          current: Math.floor(grupos.length * (0.6 + (0.4 * (i / updateOperations.length)))), 
+          total: grupos.length, 
+          equipeAtual: "Finalizando..." 
+        });
+      }
+
+      setImportProgress({ current: grupos.length, total: grupos.length, equipeAtual: "Concluído!" });
+
+      return { entregasCriadas: entregasCriadas.length, totalEquipes: grupos.length };
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["entregas-equipes"] });
@@ -2582,24 +2675,10 @@ export default function EntregasEquipes() {
                     <p className="text-xs text-muted-foreground">Arquivo: {importFile.name}</p>
                   )}
                 </div>
-                <div className="flex gap-2">
-                  <Button 
-                    variant="outline"
-                    size="sm"
-                    disabled={importEntregasMutation.isPending}
-                    onClick={() => {
-                      refetchMateriais();
-                      toast.info("Atualizando lista de materiais...");
-                    }}
-                  >
-                    <Search className="h-4 w-4 mr-1" />
-                    Atualizar Catálogo
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={handleDownloadImportTemplate}>
-                    <Download className="h-4 w-4 mr-1" />
-                    Baixar template
-                  </Button>
-                </div>
+                <Button variant="outline" size="sm" onClick={handleDownloadImportTemplate}>
+                  <Download className="h-4 w-4 mr-1" />
+                  Baixar template
+                </Button>
               </div>
 
               {importLoading && (
