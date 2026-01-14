@@ -826,6 +826,21 @@ const Roteirizacao = () => {
 
   // Carregar nomes e grupos das skills para exibição
   useEffect(() => {
+    // Função auxiliar para normalizar string (mesma lógica usada em obterGrupoServico)
+    const normalizarCodigo = (str: string): string => {
+      return str.toLowerCase()
+        .replace(/[àáâãäå]/g, 'a')
+        .replace(/[èéêë]/g, 'e')
+        .replace(/[ìíîï]/g, 'i')
+        .replace(/[òóôõö]/g, 'o')
+        .replace(/[ùúûü]/g, 'u')
+        .replace(/[ç]/g, 'c')
+        .replace(/[ñ]/g, 'n')
+        .replace(/ -$/, "")
+        .replace(/_/g, "")
+        .trim();
+    };
+
     const fetchSkillsNomes = async () => {
       try {
         const { data, error } = await (supabase as any)
@@ -839,23 +854,30 @@ const Roteirizacao = () => {
         const novoMapaNomes = new Map<string, string>();
         const novoMapaGrupos = new Map<string, string>();
         (data || []).forEach((skill: any) => {
-          // Mapear código normalizado (minúsculo, sem " -") para nome
-          const codigoNorm = skill.codigo.toLowerCase().replace(/ -$/, "").trim();
+          // Mapear código normalizado (minúsculo, sem acentos, sem " -") para nome
+          const codigoNorm = normalizarCodigo(skill.codigo);
           novoMapaNomes.set(codigoNorm, skill.nome);
           
-          // Também mapear o código exato
+          // Também mapear o código exato em lowercase
           novoMapaNomes.set(skill.codigo.toLowerCase(), skill.nome);
           
           // Mapear grupo de serviço (se existir)
           if (skill.grupo_servico) {
             novoMapaGrupos.set(codigoNorm, skill.grupo_servico);
             novoMapaGrupos.set(skill.codigo.toLowerCase(), skill.grupo_servico);
+            
+            // Também mapear o nome da skill normalizado (para casos onde o tipo vem como nome)
+            if (skill.nome) {
+              const nomeNorm = normalizarCodigo(skill.nome);
+              novoMapaGrupos.set(nomeNorm, skill.grupo_servico);
+            }
           }
         });
         
         skillsNomesMap = novoMapaNomes;
         skillsGruposMap = novoMapaGrupos;
         console.log("[Roteirização] Skills carregadas para exibição:", novoMapaNomes.size, "grupos:", novoMapaGrupos.size);
+        console.log("[Roteirização] Grupos mapeados:", Array.from(novoMapaGrupos.entries()));
       } catch (error) {
         console.error("Erro ao carregar nomes das skills:", error);
       }
@@ -1765,24 +1787,40 @@ const Roteirizacao = () => {
            matchesPrazoInicio && matchesPrazoFim && matchesGrupo && matchesTerritorio;
   };
 
+  // Função auxiliar para normalizar string removendo acentos
+  const normalizarStringParaBusca = (str: string): string => {
+    return str.toLowerCase()
+      .replace(/[àáâãäå]/g, 'a')
+      .replace(/[èéêë]/g, 'e')
+      .replace(/[ìíîï]/g, 'i')
+      .replace(/[òóôõö]/g, 'o')
+      .replace(/[ùúûü]/g, 'u')
+      .replace(/[ç]/g, 'c')
+      .replace(/[ñ]/g, 'n')
+      .replace(/ -$/, "")
+      .replace(/_/g, "")
+      .trim();
+  };
+
   // Função para obter o grupo de um tipo de serviço (usando cadastro da skill)
   const obterGrupoServico = (tipo: string): string => {
-    // Normalizar o tipo para buscar no mapa
-    const tipoNorm = tipo.toLowerCase().replace(/ -$/, "").trim();
+    // Normalizar o tipo removendo acentos e caracteres especiais
+    const tipoNorm = normalizarStringParaBusca(tipo);
     
     // Buscar no mapa de grupos (cadastrado em Tipos de Serviço)
     if (skillsGruposMap.has(tipoNorm)) {
       return skillsGruposMap.get(tipoNorm)!;
     }
     
-    // Buscar também pelo código exato
+    // Buscar também pelo código exato em lowercase
     if (skillsGruposMap.has(tipo.toLowerCase())) {
       return skillsGruposMap.get(tipo.toLowerCase())!;
     }
     
-    // Tentar variações
+    // Tentar variações - normalizar também a chave do mapa
     for (const [key, value] of skillsGruposMap.entries()) {
-      if (key.toLowerCase() === tipoNorm || key.includes(tipoNorm) || tipoNorm.includes(key)) {
+      const keyNorm = normalizarStringParaBusca(key);
+      if (keyNorm === tipoNorm || keyNorm.includes(tipoNorm) || tipoNorm.includes(keyNorm)) {
         return value;
       }
     }
