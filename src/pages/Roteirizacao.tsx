@@ -2262,7 +2262,56 @@ const Roteirizacao = () => {
         
         planejamento = planejamentoAtualizado;
         
-        // Buscar OSs que têm pendência de remoção aguardando confirmação
+        // IMPORTANTE: Criar pendências de remoção PRIMEIRO (antes de deletar ordens)
+        // Isso garante que as OSs com trabalho em andamento não sejam removidas prematuramente
+        if (osPendentesRemocaoLocal.length > 0 && isRotaDoDiaAtual()) {
+          console.log(`[PLANEJAMENTO] Criando ${osPendentesRemocaoLocal.length} pendências de remoção ANTES de deletar ordens...`);
+          
+          for (const pendencia of osPendentesRemocaoLocal) {
+            try {
+              // Buscar o ID do planejamento_ordens para esta OS
+              const { data: planejamentoOrdem } = await supabase
+                .from("planejamento_ordens")
+                .select("id")
+                .eq("planejamento_id", planejamentoEditandoId)
+                .eq("ordem_servico_id", pendencia.osId)
+                .maybeSingle();
+
+              const pendenciaData = {
+                planejamento_id: planejamentoEditandoId,
+                planejamento_ordem_id: planejamentoOrdem?.id || null,
+                ordem_servico_id: pendencia.osId,
+                equipe_id: pendencia.equipeId,
+                os_numero: pendencia.osNumero,
+                os_status_original: pendencia.osStatus,
+                status: "aguardando_sinal",
+                solicitado_por: user.id,
+              };
+
+              const { error: erroPendencia } = await supabase
+                .from("os_pendentes_remocao")
+                .insert(pendenciaData);
+
+              if (erroPendencia) {
+                console.error(`[PLANEJAMENTO] Erro ao criar pendência para OS ${pendencia.osNumero}:`, erroPendencia);
+              } else {
+                console.log(`[PLANEJAMENTO] Pendência criada para OS ${pendencia.osNumero}`);
+                // Adicionar ao set global para preservar no delete
+                osIdsComPendenciaGlobal.add(pendencia.osId);
+              }
+            } catch (erroPend: any) {
+              console.error(`[PLANEJAMENTO] Erro ao criar pendência para OS ${pendencia.osNumero}:`, erroPend);
+            }
+          }
+          
+          // Limpar estado local de pendências
+          setOsPendentesRemocaoLocal([]);
+          
+          // Recarregar lista de pendências na web
+          fetchOsPendentesRemocao();
+        }
+        
+        // Buscar OSs que têm pendência de remoção aguardando confirmação (incluindo as recém-criadas)
         // Essas OSs NÃO devem ser removidas do planejamento_ordens até que o app confirme
         const { data: osPendentesRemocao } = await supabase
           .from("os_pendentes_remocao")
@@ -2270,7 +2319,7 @@ const Roteirizacao = () => {
           .eq("planejamento_id", planejamentoEditandoId)
           .eq("status", "aguardando_sinal");
         
-        // Preencher o set global com as OSs pendentes
+        // Adicionar ao set global (caso ainda não estejam)
         (osPendentesRemocao || []).forEach(p => osIdsComPendenciaGlobal.add(p.ordem_servico_id));
         console.log("[PLANEJAMENTO] OSs com pendência de remoção (não serão removidas do planejamento_ordens):", osIdsComPendenciaGlobal.size);
         
@@ -2543,52 +2592,8 @@ const Roteirizacao = () => {
         }
       }
 
-      // Criar pendências de remoção que estavam aguardando (para rotas do dia atual)
-      if (osPendentesRemocaoLocal.length > 0 && isRotaDoDiaAtual()) {
-        console.log(`[PLANEJAMENTO] Criando ${osPendentesRemocaoLocal.length} pendências de remoção...`);
-        
-        for (const pendencia of osPendentesRemocaoLocal) {
-          try {
-            // Buscar o ID do planejamento_ordens para esta OS
-            const { data: planejamentoOrdem, error: erroBuscarPO } = await supabase
-              .from("planejamento_ordens")
-              .select("id")
-              .eq("planejamento_id", planejamento.id)
-              .eq("ordem_servico_id", pendencia.osId)
-              .single();
-
-            // Se não encontrou, a OS foi removida da rota - ainda assim criar a pendência
-            const pendenciaData = {
-              planejamento_id: planejamento.id,
-              planejamento_ordem_id: planejamentoOrdem?.id || null,
-              ordem_servico_id: pendencia.osId,
-              equipe_id: pendencia.equipeId,
-              os_numero: pendencia.osNumero,
-              os_status_original: pendencia.osStatus,
-              status: "aguardando_sinal",
-              solicitado_por: user.id,
-            };
-
-            const { error: erroPendencia } = await supabase
-              .from("os_pendentes_remocao")
-              .insert(pendenciaData);
-
-            if (erroPendencia) {
-              console.error(`[PLANEJAMENTO] Erro ao criar pendência para OS ${pendencia.osNumero}:`, erroPendencia);
-            } else {
-              console.log(`[PLANEJAMENTO] Pendência criada para OS ${pendencia.osNumero}`);
-            }
-          } catch (erroPend: any) {
-            console.error(`[PLANEJAMENTO] Erro ao criar pendência para OS ${pendencia.osNumero}:`, erroPend);
-          }
-        }
-        
-        // Limpar estado local de pendências
-        setOsPendentesRemocaoLocal([]);
-        
-        // Recarregar lista de pendências na web
-        fetchOsPendentesRemocao();
-      }
+      // NOTA: A criação de pendências foi movida para antes do delete de planejamento_ordens
+      // para garantir que OSs com trabalho em andamento não sejam removidas prematuramente
 
       console.log("[PLANEJAMENTO] Salvamento concluído com sucesso!");
       // Corrigir timezone na exibição
