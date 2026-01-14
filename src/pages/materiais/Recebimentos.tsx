@@ -153,8 +153,13 @@ type NFParseResult = {
 };
 
 function getUserDisplayName(user: any): string {
-  const metaName = user?.user_metadata?.nome_completo || user?.user_metadata?.name;
-  return (metaName || user?.email || "").toString();
+  // Tentar várias fontes para o nome do usuário
+  const metaName = user?.user_metadata?.nome_completo || user?.user_metadata?.name || user?.user_metadata?.full_name;
+  const email = user?.email;
+  
+  if (metaName) return String(metaName);
+  if (email) return String(email).split("@")[0]; // Usa parte antes do @ como fallback
+  return "Usuário";
 }
 
 function guessAnexoTipo(file: File): string {
@@ -742,6 +747,7 @@ export default function Recebimentos() {
       const headerFromFirst = json[0];
       // Sempre usar o usuário logado como padrão para "Recebido por"
       const usuarioAtual = getUserDisplayName(user);
+      console.log("[Recebimentos] Usuário atual para 'Recebido por':", usuarioAtual, "| user:", user);
       
       const header: Partial<NovoRecebimentoForm> = isFormatoCoelba 
         ? {
