@@ -648,17 +648,19 @@ export default function CatalogoMateriais() {
   // Mutation para importar materiais
   const importMutation = useMutation({
     mutationFn: async (rows: ImportMaterialRow[]) => {
-      // Filtrar apenas linhas válidas (sem erro e não existentes)
-      const novos = rows.filter((r) => !r.error && !r.existente);
-      const atualizaveis = rows.filter((r) => !r.error && r.existente);
+      // Filtrar apenas linhas válidas (sem erro)
+      const validos = rows.filter((r) => !r.error);
 
-      if (novos.length === 0 && atualizaveis.length === 0) {
-        throw new Error("Nenhum material para importar.");
+      if (validos.length === 0) {
+        throw new Error("Nenhum material válido para importar.");
       }
 
-      // Inserir novos materiais
-      if (novos.length > 0) {
-        const payload = novos.map((r) => ({
+      let criados = 0;
+      let atualizados = 0;
+
+      // Processar cada material individualmente para melhor controle
+      for (const r of validos) {
+        const payload = {
           codigo: r.codigo,
           nome: r.nome,
           categoria: r.categoria || "outros",
@@ -666,30 +668,29 @@ export default function CatalogoMateriais() {
           requer_serial: r.requer_serial,
           ativo: r.ativo,
           estoque_minimo: 0,
-        }));
+        };
 
-        const { error } = await supabase.from("materiais").insert(payload);
-        if (error) throw error;
-      }
+        // Usar upsert: inserir ou atualizar se já existe
+        const { error } = await supabase
+          .from("materiais")
+          .upsert(payload, { 
+            onConflict: "codigo",
+            ignoreDuplicates: false 
+          });
 
-      // Atualizar existentes (opcional)
-      if (atualizaveis.length > 0) {
-        for (const r of atualizaveis) {
-          const { error } = await supabase
-            .from("materiais")
-            .update({
-              nome: r.nome,
-              categoria: r.categoria || "outros",
-              unidade: r.unidade || "UN",
-              requer_serial: r.requer_serial,
-              ativo: r.ativo,
-            })
-            .eq("codigo", r.codigo);
-          if (error) console.error(`Erro ao atualizar ${r.codigo}:`, error);
+        if (error) {
+          console.error(`Erro ao importar ${r.codigo}:`, error);
+          continue;
+        }
+
+        if (r.existente) {
+          atualizados++;
+        } else {
+          criados++;
         }
       }
 
-      return { novos: novos.length, atualizados: atualizaveis.length };
+      return { novos: criados, atualizados };
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["materiais"] });
