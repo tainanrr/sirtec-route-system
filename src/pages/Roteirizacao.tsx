@@ -4485,21 +4485,23 @@ const Roteirizacao = () => {
   const handleExportarRotas = async () => {
     console.log("handleExportarRotas chamada");
     try {
-      console.log("Rotas:", rotas.length, "OSs pendentes:", osPendentes.length, "Equipes selecionadas:", equipesSelecionadas.length);
+      // V18: Usar OSs filtradas do backlog (similar ao botão Copiar)
+      const todasOSsBacklogLocal = [...filteredServicos, ...osSemCoordenadas];
+      console.log("Rotas:", rotas.length, "OSs backlog filtrado:", todasOSsBacklogLocal.length, "Equipes selecionadas:", equipesSelecionadas.length);
       
-      if (rotas.length === 0 && osPendentes.length === 0 && equipesSelecionadas.length === 0) {
+      if (rotas.length === 0 && todasOSsBacklogLocal.length === 0 && equipesSelecionadas.length === 0) {
         alert("Não há rotas ou OSs para exportar.");
         return;
       }
       
       console.log("Iniciando busca de skills...");
-
-      // V17: Buscar todas as skills de uma vez para otimizar
       const todasOSs = [
         ...rotas.flatMap(r => r.servicos.filter(s => s.ordemServico).map(s => s.ordemServico!)),
-        ...osPendentes
+        ...todasOSsBacklogLocal
       ];
       console.log("Total de OSs para processar:", todasOSs.length);
+      console.log("OSs nas rotas:", rotas.flatMap(r => r.servicos.filter(s => s.ordemServico)).length);
+      console.log("OSs no backlog filtrado:", todasOSsBacklogLocal.length);
       const codigosSkillsUnicos = [...new Set(todasOSs.map(os => tipoParaSkillCodigo(os.tipo)))];
       console.log("Códigos de skills únicos:", codigosSkillsUnicos);
       const dadosSkillsMap = await getDadosSkills(codigosSkillsUnicos);
@@ -4746,9 +4748,16 @@ const Roteirizacao = () => {
       }
     }
 
-    // Adicionar OSs não roteirizadas (backlog)
-    if (osPendentes.length > 0) {
-      for (const os of osPendentes) {
+    // Adicionar OSs não roteirizadas (backlog) - Usar OSs filtradas do backlog (filteredServicos + osSemCoordenadas)
+    // V18: Similar ao botão "Copiar", exportar TODAS as OSs filtradas no backlog
+    const todasOSsBacklog = [...filteredServicos, ...osSemCoordenadas];
+    
+    // Filtrar apenas OSs que não estão nas rotas (evitar duplicação)
+    const osIdsNasRotas = new Set(rotas.flatMap(r => r.servicos.filter(s => s.ordemServico).map(s => s.ordemServico!.id)));
+    const osBacklogParaExportar = todasOSsBacklog.filter(os => !osIdsNasRotas.has(os.id));
+    
+    if (osBacklogParaExportar.length > 0) {
+      for (const os of osBacklogParaExportar) {
         const motivo = naoAlocadas[os.id] || "Não alocada";
         
         // V16: Encontrar territórios onde a OS está
@@ -4763,6 +4772,11 @@ const Roteirizacao = () => {
         const skillData = dadosSkillsMap.get(codigoSkill);
         const reguladaVerificada = skillData?.regulada ?? os.regulada ?? false;
         
+        // Verificar se é uma OS sem coordenadas
+        const semCoordenadas = os.latitude === 0 || os.longitude === 0 || os.latitude === null || os.longitude === null;
+        const statusOS = semCoordenadas ? "Sem Coordenadas" : "Não Alocada";
+        const motivoFinal = semCoordenadas ? "Sem coordenadas válidas" : motivo;
+        
         dadosExportacao.push({
           "Equipe": "-",
           "Técnico": "-",
@@ -4770,8 +4784,8 @@ const Roteirizacao = () => {
           "Número OS": os.numero,
           "Tipo": os.tipo,
           "Endereço": os.endereco,
-          "Latitude": os.latitude,
-          "Longitude": os.longitude,
+          "Latitude": os.latitude || "-",
+          "Longitude": os.longitude || "-",
           "Origem": "-",
           "Origem Latitude": "-",
           "Origem Longitude": "-",
@@ -4787,8 +4801,8 @@ const Roteirizacao = () => {
           "Hora Fim": "-",
           "ETA": "-",
           "Fora do Prazo": "-",
-          "Status": "Não Alocada",
-          "Motivo Não Alocada": motivo,
+          "Status": statusOS,
+          "Motivo Não Alocada": motivoFinal,
           "Territórios": territoriosStr,
           "Distância Total (km)": "-",
           "Tempo Total (min)": "-",
@@ -4967,7 +4981,7 @@ const Roteirizacao = () => {
                   toast.error("Erro ao exportar. Verifique o console.");
                 });
               }}
-              disabled={rotas.length === 0 && osPendentes.length === 0}
+              disabled={rotas.length === 0 && filteredServicos.length === 0 && osSemCoordenadas.length === 0}
               variant="outline"
               className="gap-2"
             >
