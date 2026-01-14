@@ -253,6 +253,22 @@ export default function AppLayout() {
         else {
           console.log(`[AppLayout] OS ${pendencia.os_numero} pode ser removida (status: ${osAtual?.status}) - confirmando remoção`);
           
+          // IMPORTANTE: Agora que a web mantém OSs com pendência em planejamento_ordens,
+          // o app precisa fazer a limpeza final quando a remoção é confirmada
+          if (pendencia.planejamento_id) {
+            const { error: erroDeletarPO } = await supabase
+              .from("planejamento_ordens")
+              .delete()
+              .eq("planejamento_id", pendencia.planejamento_id)
+              .eq("ordem_servico_id", pendencia.ordem_servico_id);
+            
+            if (erroDeletarPO) {
+              console.error(`[AppLayout] ❌ Erro ao remover OS ${pendencia.os_numero} do planejamento_ordens:`, erroDeletarPO);
+            } else {
+              console.log(`[AppLayout] ✅ OS ${pendencia.os_numero} removida do planejamento_ordens`);
+            }
+          }
+          
           await supabase
             .from("os_pendentes_remocao")
             .update({ 

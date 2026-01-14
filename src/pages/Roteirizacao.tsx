@@ -2232,6 +2232,10 @@ const Roteirizacao = () => {
       
       let planejamento: any;
       
+      // Set para rastrear OSs com pendência de remoção aguardando confirmação
+      // Essas OSs NÃO devem ser removidas do planejamento_ordens nem ter equipe alterada
+      const osIdsComPendenciaGlobal = new Set<string>();
+      
       // Verificar se estamos editando um planejamento existente
       if (planejamentoEditandoId) {
         console.log("[PLANEJAMENTO] Modo de edição - Atualizando planejamento:", planejamentoEditandoId);
@@ -2258,16 +2262,57 @@ const Roteirizacao = () => {
         
         planejamento = planejamentoAtualizado;
         
-        // Remover ordens antigas do planejamento
-        console.log("[PLANEJAMENTO] Removendo ordens antigas...");
-        const { error: erroRemoverOrdens } = await supabase
-          .from("planejamento_ordens")
-          .delete()
-          .eq("planejamento_id", planejamentoEditandoId);
+        // Buscar OSs que têm pendência de remoção aguardando confirmação
+        // Essas OSs NÃO devem ser removidas do planejamento_ordens até que o app confirme
+        const { data: osPendentesRemocao } = await supabase
+          .from("os_pendentes_remocao")
+          .select("ordem_servico_id")
+          .eq("planejamento_id", planejamentoEditandoId)
+          .eq("status", "aguardando_sinal");
         
-        if (erroRemoverOrdens) {
-          console.error("[PLANEJAMENTO] Erro ao remover ordens antigas:", erroRemoverOrdens);
-          throw erroRemoverOrdens;
+        // Preencher o set global com as OSs pendentes
+        (osPendentesRemocao || []).forEach(p => osIdsComPendenciaGlobal.add(p.ordem_servico_id));
+        console.log("[PLANEJAMENTO] OSs com pendência de remoção (não serão removidas do planejamento_ordens):", osIdsComPendenciaGlobal.size);
+        
+        // Remover ordens antigas do planejamento, EXCETO as que têm pendência aguardando
+        console.log("[PLANEJAMENTO] Removendo ordens antigas...");
+        
+        if (osIdsComPendenciaGlobal.size > 0) {
+          // Se há pendências, precisamos remover apenas as OSs que não têm pendência
+          // Buscar todos os IDs atuais de planejamento_ordens
+          const { data: ordensAtuais } = await supabase
+            .from("planejamento_ordens")
+            .select("id, ordem_servico_id")
+            .eq("planejamento_id", planejamentoEditandoId);
+          
+          // Filtrar para remover apenas as que NÃO têm pendência
+          const idsParaRemover = (ordensAtuais || [])
+            .filter(o => !osIdsComPendenciaGlobal.has(o.ordem_servico_id))
+            .map(o => o.id);
+          
+          if (idsParaRemover.length > 0) {
+            const { error: erroRemoverOrdens } = await supabase
+              .from("planejamento_ordens")
+              .delete()
+              .in("id", idsParaRemover);
+            
+            if (erroRemoverOrdens) {
+              console.error("[PLANEJAMENTO] Erro ao remover ordens antigas:", erroRemoverOrdens);
+              throw erroRemoverOrdens;
+            }
+            console.log(`[PLANEJAMENTO] Removidas ${idsParaRemover.length} ordens antigas (preservadas ${osIdsComPendenciaGlobal.size} com pendência)`);
+          }
+        } else {
+          // Se não há pendências, podemos remover todas normalmente
+          const { error: erroRemoverOrdens } = await supabase
+            .from("planejamento_ordens")
+            .delete()
+            .eq("planejamento_id", planejamentoEditandoId);
+          
+          if (erroRemoverOrdens) {
+            console.error("[PLANEJAMENTO] Erro ao remover ordens antigas:", erroRemoverOrdens);
+            throw erroRemoverOrdens;
+          }
         }
         
         // Criar log de edição (não bloquear se falhar)
@@ -2356,6 +2401,14 @@ const Roteirizacao = () => {
               continue;
             }
             osJaAdicionadas.add(os.id);
+            
+            // CORREÇÃO: Pular OSs que têm pendência de remoção aguardando confirmação
+            // Elas já estão em planejamento_ordens e não devem ser atualizadas/movidas até o app confirmar
+            if (osIdsComPendenciaGlobal.has(os.id)) {
+              console.log(`[PLANEJAMENTO] OS ${os.numero} tem pendência de remoção aguardando - mantendo em planejamento_ordens sem alterar`);
+              ordemNaRota++; // Incrementar para manter a ordem correta
+              continue;
+            }
             
             // Preparar dados para planejamento_ordens
             planejamentoOrdens.push({
