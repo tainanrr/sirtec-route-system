@@ -58,6 +58,7 @@ interface EstoqueItem {
   id: string;
   material_id: string;
   quantidade: number;
+  origem_tipo?: string; // 'entrega' ou 'retirado_campo'
   materiais: {
     id: string;
     codigo: string;
@@ -301,6 +302,7 @@ export default function AppEstoque() {
           id,
           material_id,
           quantidade,
+          origem_tipo,
           materiais!inner (
             id,
             codigo,
@@ -313,11 +315,20 @@ export default function AppEstoque() {
         `)
         .eq("local_tipo", "equipe")
         .eq("local_id", equipeId)
-        .gt("quantidade", 0)
-        .order("materiais(codigo)");
+        .gt("quantidade", 0);
 
       if (error) throw error;
-      return data as EstoqueItem[];
+      
+      // Ordenar: materiais normais (entrega) primeiro, retirados de campo por último
+      const sorted = (data as EstoqueItem[]).sort((a, b) => {
+        const aRetirado = a.origem_tipo === 'retirado_campo' ? 1 : 0;
+        const bRetirado = b.origem_tipo === 'retirado_campo' ? 1 : 0;
+        if (aRetirado !== bRetirado) return aRetirado - bRetirado;
+        // Dentro do mesmo grupo, ordenar por código
+        return a.materiais.codigo.localeCompare(b.materiais.codigo);
+      });
+      
+      return sorted;
     },
     enabled: !!equipeId,
   });
@@ -1440,18 +1451,24 @@ export default function AppEstoque() {
                         <div className="rounded-lg border overflow-hidden bg-white">
                           {grupo.itens.map((item, idx) => {
                             const isBaixo = item.quantidade <= item.materiais.estoque_minimo;
+                            const isRetiradoCampo = item.origem_tipo === 'retirado_campo';
                             return (
                               <div key={item.id}>
-                                <div className={`p-3 ${isBaixo ? "bg-amber-50/50" : ""}`}>
+                                <div className={`p-3 ${isRetiradoCampo ? "bg-blue-50/50" : isBaixo ? "bg-amber-50/50" : ""}`}>
                                   <div className="flex items-start justify-between gap-3">
                                     <div className="min-w-0 flex-1">
-                                      <div className="flex items-center gap-2">
+                                      <div className="flex items-center gap-2 flex-wrap">
                                         <span className="font-mono text-sm font-semibold text-gray-800">
                                           {item.materiais.codigo}
                                         </span>
                                         {item.materiais.requer_serial && (
                                           <Badge variant="outline" className="text-[10px] border-violet-200 text-violet-600 bg-violet-50">
                                             SR
+                                          </Badge>
+                                        )}
+                                        {isRetiradoCampo && (
+                                          <Badge variant="outline" className="text-[10px] border-blue-300 text-blue-700 bg-blue-100">
+                                            Retirado de campo
                                           </Badge>
                                         )}
                                       </div>
@@ -1461,16 +1478,20 @@ export default function AppEstoque() {
                                     </div>
                                     <div className="text-right shrink-0">
                                       <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg ${
-                                        isBaixo ? "bg-amber-100" : "bg-gray-100"
+                                        isRetiradoCampo ? "bg-blue-100" : isBaixo ? "bg-amber-100" : "bg-gray-100"
                                       }`}>
-                                        <p className={`text-lg font-bold leading-none ${isBaixo ? "text-amber-700" : "text-gray-700"}`}>
+                                        <p className={`text-lg font-bold leading-none ${
+                                          isRetiradoCampo ? "text-blue-700" : isBaixo ? "text-amber-700" : "text-gray-700"
+                                        }`}>
                                           {item.quantidade}
                                         </p>
-                                        <p className={`text-[10px] ${isBaixo ? "text-amber-600" : "text-gray-500"}`}>
+                                        <p className={`text-[10px] ${
+                                          isRetiradoCampo ? "text-blue-600" : isBaixo ? "text-amber-600" : "text-gray-500"
+                                        }`}>
                                           {item.materiais.unidade}
                                         </p>
                                       </div>
-                                      {isBaixo && (
+                                      {isBaixo && !isRetiradoCampo && (
                                         <p className="text-[10px] text-amber-600 mt-1">
                                           mín. {item.materiais.estoque_minimo}
                                         </p>

@@ -720,6 +720,33 @@ export function useOfflineSync() {
               .update({ quantidade: Math.max(0, estoqueAtual.quantidade - insertPayload.quantidade) })
               .eq("id", estoqueAtual.id);
           }
+        } else if (insertPayload.tipo === "retirado" && insertPayload.equipe_id) {
+          // Material RETIRADO de campo - adicionar ao estoque da equipe com origem "retirado_campo"
+          const { data: estoqueRetirado } = await supabase
+            .from("materiais_estoque")
+            .select("id, quantidade")
+            .eq("material_id", insertPayload.material_id)
+            .eq("local_tipo", "equipe")
+            .eq("local_id", insertPayload.equipe_id)
+            .eq("origem_tipo", "retirado_campo")
+            .maybeSingle();
+
+          if (estoqueRetirado) {
+            // Incrementar quantidade existente
+            await supabase
+              .from("materiais_estoque")
+              .update({ quantidade: estoqueRetirado.quantidade + insertPayload.quantidade })
+              .eq("id", estoqueRetirado.id);
+          } else {
+            // Criar novo registro de estoque como "retirado_campo"
+            await supabase.from("materiais_estoque").insert({
+              material_id: insertPayload.material_id,
+              quantidade: insertPayload.quantidade,
+              local_tipo: "equipe",
+              local_id: insertPayload.equipe_id,
+              origem_tipo: "retirado_campo",
+            });
+          }
         }
 
         // Inserir registro de material aplicado/retirado

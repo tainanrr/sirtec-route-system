@@ -68,6 +68,7 @@ interface MaterialAplicado {
 interface EstoqueItem {
   material_id: string;
   quantidade: number;
+  origem_tipo?: string; // 'entrega' ou 'retirado_campo'
   materiais: {
     id: string;
     codigo: string;
@@ -278,6 +279,7 @@ export default function AppMateriaisOS() {
         .select(`
           material_id,
           quantidade,
+          origem_tipo,
           materiais!inner (
             id,
             codigo,
@@ -291,7 +293,16 @@ export default function AppMateriaisOS() {
         .gt("quantidade", 0);
 
       if (error) throw error;
-      return data as EstoqueItem[];
+      
+      // Ordenar: materiais normais primeiro, retirados de campo por último
+      const sorted = (data as EstoqueItem[]).sort((a, b) => {
+        const aRetirado = a.origem_tipo === 'retirado_campo' ? 1 : 0;
+        const bRetirado = b.origem_tipo === 'retirado_campo' ? 1 : 0;
+        if (aRetirado !== bRetirado) return aRetirado - bRetirado;
+        return a.materiais.codigo.localeCompare(b.materiais.codigo);
+      });
+      
+      return sorted;
     },
     enabled: !!equipeId,
   });
@@ -515,6 +526,34 @@ export default function AppMateriaisOS() {
             .from("materiais_estoque")
             .update({ quantidade: estoqueAtual.quantidade - data.quantidade })
             .eq("id", estoqueAtual.id);
+        }
+      } else {
+        // Material RETIRADO de campo - adicionar ao estoque da equipe com origem "retirado_campo"
+        // Primeiro verificar se já existe um registro de estoque para esse material (retirado_campo)
+        const { data: estoqueRetirado } = await supabase
+          .from("materiais_estoque")
+          .select("id, quantidade")
+          .eq("material_id", data.material_id)
+          .eq("local_tipo", "equipe")
+          .eq("local_id", equipeId)
+          .eq("origem_tipo", "retirado_campo")
+          .maybeSingle();
+
+        if (estoqueRetirado) {
+          // Incrementar quantidade existente
+          await supabase
+            .from("materiais_estoque")
+            .update({ quantidade: estoqueRetirado.quantidade + data.quantidade })
+            .eq("id", estoqueRetirado.id);
+        } else {
+          // Criar novo registro de estoque como "retirado_campo"
+          await supabase.from("materiais_estoque").insert({
+            material_id: data.material_id,
+            quantidade: data.quantidade,
+            local_tipo: "equipe",
+            local_id: equipeId,
+            origem_tipo: "retirado_campo",
+          });
         }
       }
 
@@ -1036,6 +1075,7 @@ export default function AppMateriaisOS() {
                     {estoqueFiltrado.map((item) => {
                       const requerSerial = item.materiais.requer_serial || item.materiais.unidade === "SR";
                       const rastrosDoMaterial = rastrosPorMaterial[item.material_id] || [];
+                      const isRetiradoCampo = item.origem_tipo === 'retirado_campo';
                       
                       return (
                         <button
@@ -1044,7 +1084,9 @@ export default function AppMateriaisOS() {
                           className={`w-full p-3 text-left hover:bg-muted/50 transition-all ${
                             formData.material_id === item.material_id 
                               ? "bg-violet-100 border-2 border-violet-500 rounded-lg font-semibold" 
-                              : "border border-transparent"
+                              : isRetiradoCampo 
+                                ? "border border-blue-200 bg-blue-50/30" 
+                                : "border border-transparent"
                           }`}
                           onClick={() => {
                             if (requerSerial && rastrosDoMaterial.length === 1) {
@@ -1068,9 +1110,16 @@ export default function AppMateriaisOS() {
                                 </div>
                               )}
                               <div>
-                                <p className={`text-sm ${formData.material_id === item.material_id ? "text-violet-700 font-bold" : "font-medium"}`}>
-                                  {item.materiais.codigo}
-                                </p>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <p className={`text-sm ${formData.material_id === item.material_id ? "text-violet-700 font-bold" : "font-medium"}`}>
+                                    {item.materiais.codigo}
+                                  </p>
+                                  {isRetiradoCampo && (
+                                    <Badge variant="outline" className="text-[10px] px-1 py-0 border-blue-300 text-blue-700 bg-blue-100">
+                                      Campo
+                                    </Badge>
+                                  )}
+                                </div>
                                 <p className="text-xs text-muted-foreground">
                                   {item.materiais.nome}
                                 </p>
@@ -1082,7 +1131,7 @@ export default function AppMateriaisOS() {
                                   {rastrosDoMaterial.length} rastro{rastrosDoMaterial.length !== 1 ? 's' : ''}
                                 </Badge>
                               ) : (
-                                <Badge variant="secondary">
+                                <Badge variant="secondary" className={isRetiradoCampo ? "bg-blue-100 text-blue-700" : ""}>
                                   {item.quantidade} {item.materiais.unidade}
                                 </Badge>
                               )}
