@@ -389,37 +389,48 @@ export default function TurnoTrajetoMap({
       }
 
       // 3. Buscar OSs executadas no turno (produções)
+      // Buscar produções primeiro
       const { data: producoes } = await supabase
         .from("producao_equipes")
-        .select(`
-          id,
-          created_at,
-          ordens_servico:ordem_servico_id (id, numero, tipo, latitude, longitude, endereco, status)
-        `)
+        .select("id, created_at, ordem_servico_id")
         .eq("turno_id", turnoId);
 
-      if (producoes) {
-        producoes.forEach((prod: any) => {
-          const os = prod.ordens_servico;
-          if (os && os.latitude && os.longitude && !osIdsAdicionadas.has(os.id)) {
-            pontos.push({
-              id: `os-${os.id}`,
-              tipo: os.status === "concluida" ? "os_executada" : "os_impedida",
-              latitude: os.latitude,
-              longitude: os.longitude,
-              timestamp: prod.created_at || dataInicio,
-              label: os.numero,
-              detalhes: {
-                osNumero: os.numero,
-                osTipo: os.tipo,
-                osEndereco: os.endereco,
-                osStatus: os.status,
-                sigla: obterSiglaTipo(os.tipo),
-              },
+      if (producoes && producoes.length > 0) {
+        // Buscar os dados das OSs separadamente
+        const osIds = producoes.map((p: any) => p.ordem_servico_id).filter(Boolean);
+        
+        if (osIds.length > 0) {
+          const { data: ossProducao } = await supabase
+            .from("ordens_servico")
+            .select("id, numero, tipo, latitude, longitude, endereco, status")
+            .in("id", osIds);
+
+          if (ossProducao) {
+            const osMap = new Map(ossProducao.map((os: any) => [os.id, os]));
+            
+            producoes.forEach((prod: any) => {
+              const os = osMap.get(prod.ordem_servico_id);
+              if (os && os.latitude && os.longitude && !osIdsAdicionadas.has(os.id)) {
+                pontos.push({
+                  id: `os-${os.id}`,
+                  tipo: os.status === "concluida" ? "os_executada" : "os_impedida",
+                  latitude: os.latitude,
+                  longitude: os.longitude,
+                  timestamp: prod.created_at || dataInicio,
+                  label: os.numero,
+                  detalhes: {
+                    osNumero: os.numero,
+                    osTipo: os.tipo,
+                    osEndereco: os.endereco,
+                    osStatus: os.status,
+                    sigla: obterSiglaTipo(os.tipo),
+                  },
+                });
+                osIdsAdicionadas.add(os.id);
+              }
             });
-            osIdsAdicionadas.add(os.id);
           }
-        });
+        }
       }
 
       // 4. Buscar eventos do turno (início/fim turno, serviços, etc.)
