@@ -199,11 +199,10 @@ export async function getDadosSkills(codigosSkills: string[]): Promise<Map<strin
       
       // DEBUG: Log para tipos com "MICRO"
       if (codigo.toUpperCase().includes('MICRO')) {
+        const chavesMicro = skillsCache ? Array.from(skillsCache.keys()).filter(k => k.includes('MICRO')) : [];
         console.log(`[SKILLS DEBUG] Busca cache: código="${codigo}", codigoBase="${codigoBase}", encontrou=${!!skillData}`);
-        if (skillsCache) {
-          console.log(`[SKILLS DEBUG] Chaves no cache que contêm MICRO:`, 
-            Array.from(skillsCache.keys()).filter(k => k.includes('MICRO')));
-        }
+        console.log(`[SKILLS DEBUG] Chaves MICRO no cache:`, chavesMicro);
+        console.log(`[SKILLS DEBUG] Todas as chaves no cache:`, skillsCache ? Array.from(skillsCache.keys()).slice(0, 20) : []);
       }
     }
     
