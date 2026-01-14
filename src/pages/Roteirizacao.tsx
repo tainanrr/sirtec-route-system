@@ -81,7 +81,7 @@ import { tecnicosParaEquipes } from "@/lib/equipeUtils";
 import { mapSupabaseOrdensServicoToOrdemServico } from "@/lib/ordemServicoUtils";
 import type { Tables } from "@/integrations/supabase/types";
 import MapaLeaflet from "./components/MapaLeaflet";
-import { PainelEquipesRastreamento, EquipesMapLayer } from "@/components/mapa";
+// PainelEquipesRastreamento removido - equipes filtradas pelo filtro de Equipes da tela
 import { notificarMultiplasEquipes, detectarAlteracoesRota } from "@/lib/chatNotificacaoUtils";
 import { carregarTerritorios, salvarTerritorios, salvarTerritorio, Territorio, pontoNoPoligono, atualizarTerritoriosOSs, CORES_TERRITORIOS } from "@/types/territorios";
 import { Switch } from "@/components/ui/switch";
@@ -330,8 +330,6 @@ const Roteirizacao = () => {
   const [territorios, setTerritorios] = useState<Territorio[]>([]);
   const [territoriosSelecionados, setTerritoriosSelecionados] = useState<string[]>([]);
   const [territoriosVisiveis, setTerritoriosVisiveis] = useState<string[]>([]); // Territórios visíveis no mapa (botão olho)
-  const [mostrarEquipesNoMapa, setMostrarEquipesNoMapa] = useState(true); // Mostrar equipes com turno aberto no mapa
-  const [equipeCentralizada, setEquipeCentralizada] = useState<string | null>(null); // Equipe selecionada para centralizar
   const [expectativaDialogOpen, setExpectativaDialogOpen] = useState(false);
   const [expectativas, setExpectativas] = useState<ExpectativaTerritorio[]>([]);
   const [selecaoTerritoriosDialogOpen, setSelecaoTerritoriosDialogOpen] = useState(false);
@@ -6254,6 +6252,7 @@ const Roteirizacao = () => {
                   setCriandoPoligono(false);
                   setNovoPoligono(null);
                 }}
+                equipesSelecionadasFiltro={equipesSelecionadas}
               />
 
               {/* Botão Criar Polígono no mapa */}
@@ -8782,17 +8781,6 @@ const Roteirizacao = () => {
 
       {/* Chat Torre de Controle */}
       <ChatTorreControle />
-
-      {/* Painel de Rastreamento de Equipes */}
-      <PainelEquipesRastreamento
-        mostrarEquipesNoMapa={mostrarEquipesNoMapa}
-        onToggleMostrarEquipes={setMostrarEquipesNoMapa}
-        onCentralizarEquipe={(lat, lng, equipeId) => {
-          setEquipeCentralizada(equipeId);
-          // O mapa será centralizado através do componente EquipesMapLayer
-          console.log(`[Roteirizacao] Centralizar equipe ${equipeId} em ${lat}, ${lng}`);
-        }}
-      />
     </MainLayout>
   );
 };

@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
+import TurnoTrajetoMap from "@/components/mapa/TurnoTrajetoMap";
 import { useTelaPermissao } from "@/hooks/usePermissoes";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -2024,10 +2025,14 @@ export default function ConsultaTurnos() {
 
                   {/* Tabs com detalhes */}
                   <Tabs defaultValue="os-planejadas" className="w-full">
-                    <TabsList className="grid grid-cols-3">
+                    <TabsList className="grid grid-cols-4">
                       <TabsTrigger value="os-planejadas" className="text-xs">
                         <Route className="h-4 w-4 mr-1" />
                         Planejado x Executado ({turnoDetalhes?.osPlanejadas?.length || 0})
+                      </TabsTrigger>
+                      <TabsTrigger value="trajeto" className="text-xs">
+                        <MapPin className="h-4 w-4 mr-1" />
+                        Trajeto
                       </TabsTrigger>
                       <TabsTrigger value="intervalos" className="text-xs">
                         <Coffee className="h-4 w-4 mr-1" />
@@ -2296,6 +2301,18 @@ export default function ConsultaTurnos() {
                             </TableBody>
                           </Table>
                         </Card>
+                      )}
+                    </TabsContent>
+
+                    {/* Tab Trajeto */}
+                    <TabsContent value="trajeto" className="mt-4">
+                      {selectedTurno && (
+                        <TurnoTrajetoMap
+                          turnoId={selectedTurno.id}
+                          equipeId={selectedTurno.equipe_id}
+                          dataInicio={selectedTurno.hora_inicio}
+                          dataFim={selectedTurno.hora_fim}
+                        />
                       )}
                     </TabsContent>
 

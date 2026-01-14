@@ -133,6 +133,7 @@ interface MapaLeafletProps {
   statusOSsTempoReal?: Map<string, StatusOSTempoReal>; // Status em tempo real das OSs
   // Rastreamento de Equipes em tempo real
   mostrarEquipesTempoReal?: boolean; // Se deve mostrar equipes com turno aberto
+  equipesSelecionadasFiltro?: string[]; // IDs das equipes selecionadas no filtro (só mostra essas no mapa)
   onEquipeClick?: (equipeId: string, lat: number, lng: number) => void; // Callback quando equipe é clicada
 }
 
@@ -171,7 +172,7 @@ function getLucideIconSVG(iconName: string | undefined, color: string, size: num
   `;
 }
 
-export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEquipes, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, focarOSNoMapa, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear, selecionandoCoordNoMapa, onMapClick, osCoordenadasSuspeitas = [], criandoPoligono, onPoligonoCriado, onCriacaoCancelada, statusOSsTempoReal, mostrarEquipesTempoReal = true, onEquipeClick }: MapaLeafletProps) {
+export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEquipes, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, focarOSNoMapa, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear, selecionandoCoordNoMapa, onMapClick, osCoordenadasSuspeitas = [], criandoPoligono, onPoligonoCriado, onCriacaoCancelada, statusOSsTempoReal, mostrarEquipesTempoReal = true, equipesSelecionadasFiltro, onEquipeClick }: MapaLeafletProps) {
   
   const mapRef = useRef<HTMLDivElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -258,10 +259,15 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
       equipesLayerRef.current = L.layerGroup().addTo(map);
     }
 
-    // Equipes atuais
+    // Equipes atuais - filtrar por equipesSelecionadasFiltro se definido
     const equipesIds = new Set<string>();
 
-    equipesComTurno.forEach(equipe => {
+    // Filtrar equipes com turno aberto que estão no filtro de equipes selecionadas
+    const equipesFiltradas = equipesSelecionadasFiltro && equipesSelecionadasFiltro.length > 0
+      ? equipesComTurno.filter(eq => equipesSelecionadasFiltro.includes(eq.equipe_id))
+      : equipesComTurno;
+
+    equipesFiltradas.forEach(equipe => {
       if (!equipe.ultima_latitude || !equipe.ultima_longitude) return;
       equipesIds.add(equipe.equipe_id);
 
@@ -506,7 +512,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
       }
     });
 
-  }, [equipesComTurno, mostrarEquipesTempoReal, mapaInicializado, onEquipeClick]);
+  }, [equipesComTurno, mostrarEquipesTempoReal, mapaInicializado, onEquipeClick, equipesSelecionadasFiltro]);
   
   // V19.6: Efeito para centralizar e destacar OS urgente quando selecionada
   useEffect(() => {
