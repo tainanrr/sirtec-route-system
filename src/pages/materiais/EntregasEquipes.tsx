@@ -1180,20 +1180,22 @@ export default function EntregasEquipes() {
               </p>
             </div>
           </div>
-          <Button 
-            variant="outline"
-            onClick={() => setImportDialogOpen(true)}
-          >
-            <Upload className="h-4 w-4 mr-2" />
-            Importar
-          </Button>
-          <Button onClick={() => {
-            setBuscaEquipe("");
-            setDialogOpen(true);
-          }}>
-            <Plus className="h-4 w-4 mr-2" />
-            Nova Entrega
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button 
+              variant="outline"
+              onClick={() => setImportDialogOpen(true)}
+            >
+              <Upload className="h-4 w-4 mr-2" />
+              Importar
+            </Button>
+            <Button onClick={() => {
+              setBuscaEquipe("");
+              setDialogOpen(true);
+            }}>
+              <Plus className="h-4 w-4 mr-2" />
+              Nova Entrega
+            </Button>
+          </div>
         </div>
 
         {/* Filtros */}
