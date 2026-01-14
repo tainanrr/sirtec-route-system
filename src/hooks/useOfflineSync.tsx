@@ -766,17 +766,40 @@ export function useOfflineSync() {
             observacao: `${insertPayload.tipo === "aplicado" ? "Aplicado" : "Retirado"} na OS`,
           });
 
-          // Se for item serializado, atualizar status
+          // Se for item serializado, atualizar ou criar registro
           if (insertPayload.numero_serie) {
-            await supabase
+            // Verificar se já existe registro para esse número de série
+            const { data: existente } = await supabase
               .from("materiais_serializados")
-              .update({
-                status: insertPayload.tipo === "aplicado" ? "instalado" : "retirado",
-                localizacao_tipo: insertPayload.tipo === "aplicado" ? "campo" : "equipe",
-                localizacao_id: insertPayload.tipo === "aplicado" ? insertPayload.ordem_servico_id : insertPayload.equipe_id,
-                ordem_servico_id: insertPayload.tipo === "aplicado" ? insertPayload.ordem_servico_id : null,
-              })
-              .eq("numero_serie", insertPayload.numero_serie);
+              .select("id")
+              .eq("numero_serie", insertPayload.numero_serie)
+              .maybeSingle();
+
+            if (existente) {
+              // Atualizar registro existente
+              await supabase
+                .from("materiais_serializados")
+                .update({
+                  status: insertPayload.tipo === "aplicado" ? "instalado" : "retirado",
+                  localizacao_tipo: insertPayload.tipo === "aplicado" ? "campo" : "equipe",
+                  localizacao_id: insertPayload.tipo === "aplicado" ? insertPayload.ordem_servico_id : insertPayload.equipe_id,
+                  ordem_servico_id: insertPayload.tipo === "aplicado" ? insertPayload.ordem_servico_id : null,
+                })
+                .eq("numero_serie", insertPayload.numero_serie);
+            } else if (insertPayload.tipo === "retirado") {
+              // Criar novo registro para material retirado de campo
+              await supabase
+                .from("materiais_serializados")
+                .insert({
+                  material_id: insertPayload.material_id,
+                  numero_serie: insertPayload.numero_serie,
+                  status: "retirado",
+                  localizacao_tipo: "equipe",
+                  localizacao_id: insertPayload.equipe_id,
+                  ordem_servico_id: null,
+                });
+              console.log("[OfflineSync] Criado registro de material serializado retirado de campo:", insertPayload.numero_serie);
+            }
           }
         }
       } else if (operation.action === "insert") {
