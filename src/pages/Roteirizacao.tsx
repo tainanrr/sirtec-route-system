@@ -6672,66 +6672,70 @@ const Roteirizacao = () => {
                     )}
 
                     {/* Barra de Ferramentas de Seleção em Massa */}
-                    <div className="flex items-center justify-between gap-2 py-2 px-2 bg-muted/50 rounded-lg mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground">
+                    <div className="py-2 px-2 bg-muted/50 rounded-lg mb-2 space-y-1.5">
+                      {/* Linha 1: Informações e botões básicos */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           {ossSelecionadasParaRemocao.size > 0 ? (
-                            <span className="font-semibold text-orange-600">
+                            <Badge variant="outline" className="text-[10px] bg-green-100 text-green-800 border-green-300">
                               {ossSelecionadasParaRemocao.size} selecionada(s)
-                            </span>
+                            </Badge>
                           ) : (
-                            "Marque OSs para remoção em massa"
+                            <span className="text-[10px] text-muted-foreground">Marque OSs</span>
                           )}
-                        </span>
-                        {osIdsComPendenciaAguardando.size > 0 && (
-                          <Badge variant="outline" className="text-[10px] bg-amber-100 text-amber-800 border-amber-300">
-                            {osIdsComPendenciaAguardando.size} aguardando remoção
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-6 text-[10px] px-2"
-                          onClick={() => selecionarTodasOSsDaRota(rotaEditando.equipe.id)}
-                          disabled={servicosValidos.length === 0}
-                        >
-                          Selecionar Todas
-                        </Button>
-                        {ossSelecionadasParaRemocao.size > 0 && (
-                          <>
+                          {osIdsComPendenciaAguardando.size > 0 && (
+                            <Badge variant="outline" className="text-[10px] bg-amber-100 text-amber-800 border-amber-300">
+                              {osIdsComPendenciaAguardando.size} aguardando
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-5 text-[9px] px-1.5"
+                            onClick={() => selecionarTodasOSsDaRota(rotaEditando.equipe.id)}
+                            disabled={servicosValidos.length === 0}
+                          >
+                            Sel. Todas
+                          </Button>
+                          {ossSelecionadasParaRemocao.size > 0 && (
                             <Button
                               variant="outline"
                               size="sm"
-                              className="h-6 text-[10px] px-2"
+                              className="h-5 text-[9px] px-1.5"
                               onClick={deselecionarTodasOSs}
                             >
                               Limpar
                             </Button>
-                            <Button
-                              variant="default"
-                              size="sm"
-                              className="h-6 text-[10px] px-2 bg-green-600 hover:bg-green-700 text-white"
-                              onClick={handleIncluirOSsSelecionadasNaRota}
-                              title="Incluir OSs selecionadas (do backlog) na rota"
-                            >
-                              <Plus className="h-3 w-3 mr-1" />
-                              Incluir na Rota ({ossSelecionadasParaRemocao.size})
-                            </Button>
-                            <Button
-                              variant="default"
-                              size="sm"
-                              className="h-6 text-[10px] px-2 bg-orange-500 hover:bg-orange-600 text-white"
-                              onClick={handleRemoverOSsSelecionadas}
-                              title="Remover OSs selecionadas da rota"
-                            >
-                              <Trash2 className="h-3 w-3 mr-1" />
-                              Remover ({ossSelecionadasParaRemocao.size})
-                            </Button>
-                          </>
-                        )}
+                          )}
+                        </div>
                       </div>
+                      {/* Linha 2: Botões de ação (só aparece quando há seleção) */}
+                      {ossSelecionadasParaRemocao.size > 0 && (
+                        <div className="flex items-center gap-1 justify-end">
+                          <Button
+                            variant="default"
+                            size="sm"
+                            className="h-5 text-[9px] px-1.5 bg-green-600 hover:bg-green-700 text-white"
+                            onClick={handleIncluirOSsSelecionadasNaRota}
+                            title="Incluir OSs selecionadas (do backlog) na rota"
+                          >
+                            <Plus className="h-3 w-3 mr-0.5" />
+                            Incluir ({ossSelecionadasParaRemocao.size})
+                          </Button>
+                          <Button
+                            variant="default"
+                            size="sm"
+                            className="h-5 text-[9px] px-1.5 bg-orange-500 hover:bg-orange-600 text-white"
+                            onClick={handleRemoverOSsSelecionadas}
+                            title="Remover OSs selecionadas da rota"
+                          >
+                            <Trash2 className="h-3 w-3 mr-0.5" />
+                            Remover ({ossSelecionadasParaRemocao.size})
+                          </Button>
+                        </div>
+                      )}
                     </div>
 
                     {/* Lista de OSs com Drag and Drop - Duas Colunas */}
