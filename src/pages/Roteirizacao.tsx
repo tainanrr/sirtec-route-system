@@ -395,6 +395,9 @@ const Roteirizacao = () => {
   const [pendentesDialogOpen, setPendentesDialogOpen] = useState(false);
   const [loadingPendentes, setLoadingPendentes] = useState(false);
   
+  // Estado para seleção múltipla de OSs para remoção em massa
+  const [ossSelecionadasParaRemocao, setOssSelecionadasParaRemocao] = useState<Set<string>>(new Set());
+  
   // Estado para OS que requer confirmação especial (rota do dia atual)
   const [osParaRemoverComConfirmacao, setOsParaRemoverComConfirmacao] = useState<{
     equipeId: string;
@@ -3886,16 +3889,34 @@ const Roteirizacao = () => {
           const pendenciaAtualizada = payload.new as any;
           console.log("[PENDÊNCIAS] Pendência atualizada:", pendenciaAtualizada.os_numero, "->", pendenciaAtualizada.status);
           
-          // Se a pendência foi cancelada (OS estava em andamento), restaurar na rota
-          if (pendenciaAtualizada.status === "cancelado_em_execucao" || pendenciaAtualizada.status === "cancelado_concluida") {
-            await restaurarOSNaRota(
-              pendenciaAtualizada.ordem_servico_id,
-              pendenciaAtualizada.equipe_id,
-              pendenciaAtualizada.planejamento_id
-            );
+          // Se a pendência foi CONFIRMADA (OS pode ser removida), remover da rota
+          if (pendenciaAtualizada.status === "confirmada") {
+            console.log("[PENDÊNCIAS] Remoção confirmada - removendo OS da rota local:", pendenciaAtualizada.os_numero);
+            setRotas(prevRotas => {
+              return prevRotas.map(rota => {
+                if (rota.equipe.id === pendenciaAtualizada.equipe_id) {
+                  const novosServicos = rota.servicos.filter(
+                    s => !(s.tipo === 'SERVICO' && s.ordemServico?.id === pendenciaAtualizada.ordem_servico_id)
+                  );
+                  if (novosServicos.length !== rota.servicos.length) {
+                    toast.success(`OS ${pendenciaAtualizada.os_numero} removida da rota (confirmada pelo app)`);
+                    const rotaAtualizada = { ...rota, servicos: novosServicos };
+                    return recalcularRota(rotaAtualizada).rota;
+                  }
+                }
+                return rota;
+              });
+            });
           }
           
-          // Atualizar lista de pendências
+          // Se a pendência foi CANCELADA (OS estava em andamento), manter na rota e remover badge
+          if (pendenciaAtualizada.status === "cancelado_em_execucao" || pendenciaAtualizada.status === "cancelado_concluida") {
+            console.log("[PENDÊNCIAS] Remoção cancelada - mantendo OS na rota:", pendenciaAtualizada.os_numero);
+            toast.info(`OS ${pendenciaAtualizada.os_numero} mantida na rota (em andamento/concluída)`);
+            // A OS já está na rota, só precisa atualizar o estado para remover o badge
+          }
+          
+          // Atualizar lista de pendências (isso atualiza osIdsComPendenciaAguardando automaticamente)
           fetchOsPendentesRemocao();
         }
       )
@@ -3922,6 +3943,129 @@ const Roteirizacao = () => {
       console.error("Erro ao cancelar pendência:", error);
       toast.error(`Erro ao cancelar: ${error.message}`);
     }
+  };
+
+  // Set de OSs com pendência "aguardando_sinal" - para mostrar badge visual
+  const osIdsComPendenciaAguardando = useMemo(() => {
+    const ids = new Set<string>();
+    // Pendências já salvas no banco
+    (osPendentesRemocao || []).forEach(p => {
+      if (p.status === "aguardando_sinal") {
+        ids.add(p.ordem_servico_id);
+      }
+    });
+    // Pendências locais (ainda não salvas)
+    osPendentesRemocaoLocal.forEach(p => ids.add(p.osId));
+    return ids;
+  }, [osPendentesRemocao, osPendentesRemocaoLocal]);
+
+  // Funções para seleção múltipla de OSs para remoção
+  const toggleSelecaoOS = (osId: string) => {
+    setOssSelecionadasParaRemocao(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(osId)) {
+        newSet.delete(osId);
+      } else {
+        newSet.add(osId);
+      }
+      return newSet;
+    });
+  };
+
+  const selecionarTodasOSsDaRota = (equipeId: string) => {
+    const rota = rotas.find(r => r.equipe.id === equipeId);
+    if (!rota) return;
+    
+    setOssSelecionadasParaRemocao(prev => {
+      const newSet = new Set(prev);
+      rota.servicos.forEach(s => {
+        if (s.tipo === 'SERVICO' && s.ordemServico) {
+          // Não selecionar OSs concluídas ou já com pendência
+          const statusInfo = statusOSsTempoReal?.get(s.ordemServico.id);
+          const statusAtual = statusInfo?.status || "planejada";
+          if (statusAtual !== "concluida" && !osIdsComPendenciaAguardando.has(s.ordemServico.id)) {
+            newSet.add(s.ordemServico.id);
+          }
+        }
+      });
+      return newSet;
+    });
+  };
+
+  const deselecionarTodasOSs = () => {
+    setOssSelecionadasParaRemocao(new Set());
+  };
+
+  // Marcar OSs selecionadas para remoção em massa
+  const handleRemoverOSsSelecionadas = async () => {
+    if (ossSelecionadasParaRemocao.size === 0) {
+      toast.warning("Nenhuma OS selecionada para remoção");
+      return;
+    }
+
+    if (!planejamentoEditandoId) {
+      toast.error("Nenhum planejamento em edição");
+      return;
+    }
+
+    const osIdsParaMarcar: string[] = [];
+    
+    // Verificar cada OS selecionada
+    for (const osId of ossSelecionadasParaRemocao) {
+      // Encontrar a rota e a OS
+      let osInfo: { equipeId: string; osNumero: string; osStatus: string } | null = null;
+      
+      for (const rota of rotas) {
+        const servico = rota.servicos.find(s => s.tipo === 'SERVICO' && s.ordemServico?.id === osId);
+        if (servico && servico.ordemServico) {
+          const statusInfo = statusOSsTempoReal?.get(osId);
+          const statusAtual = statusInfo?.status || servico.ordemServico.status || "planejada";
+          
+          // Não permitir marcar OSs concluídas
+          if (statusAtual === "concluida") {
+            toast.warning(`OS ${servico.ordemServico.numero} já está concluída`);
+            continue;
+          }
+          
+          // Não permitir se já tem pendência
+          if (osIdsComPendenciaAguardando.has(osId)) {
+            toast.warning(`OS ${servico.ordemServico.numero} já está aguardando remoção`);
+            continue;
+          }
+          
+          osInfo = {
+            equipeId: rota.equipe.id,
+            osNumero: servico.ordemServico.numero,
+            osStatus: statusAtual,
+          };
+          break;
+        }
+      }
+      
+      if (osInfo) {
+        // Adicionar à lista local de pendências
+        setOsPendentesRemocaoLocal(prev => {
+          if (prev.some(p => p.osId === osId)) return prev;
+          return [...prev, {
+            osId,
+            osNumero: osInfo!.osNumero,
+            osStatus: osInfo!.osStatus,
+            equipeId: osInfo!.equipeId,
+          }];
+        });
+        osIdsParaMarcar.push(osId);
+      }
+    }
+
+    if (osIdsParaMarcar.length > 0) {
+      toast.success(`${osIdsParaMarcar.length} OS(s) marcada(s) para remoção`, {
+        description: "Aguardando confirmação da equipe. Clique em 'Confirmar alterações' para salvar.",
+        duration: 5000,
+      });
+    }
+
+    // Limpar seleção
+    setOssSelecionadasParaRemocao(new Set());
   };
 
   // Verificar se é rota do dia atual
@@ -3980,17 +4124,12 @@ const Roteirizacao = () => {
     });
 
     toast.info(`OS ${osParaRemoverComConfirmacao.osNumero} marcada para remoção`, {
-      description: "A pendência será criada ao clicar em 'Confirmar alterações'.",
+      description: "Aguardando confirmação da equipe. A OS será removida após confirmação.",
       duration: 4000,
     });
 
-    // Remover localmente da rota (visualização)
-    removerOSDaRotaEfetivo(
-      osParaRemoverComConfirmacao.equipeId,
-      osParaRemoverComConfirmacao.servicos,
-      osParaRemoverComConfirmacao.indiceRemover,
-      osParaRemoverComConfirmacao.osNumero
-    );
+    // NÃO remover da rota localmente - manter com badge "Aguardando remoção"
+    // A OS será removida apenas quando a pendência for confirmada pelo app
     
     setConfirmacaoRemocaoDialogOpen(false);
     setOsParaRemoverComConfirmacao(null);
@@ -6279,6 +6418,58 @@ const Roteirizacao = () => {
                       </div>
                     )}
 
+                    {/* Barra de Ferramentas de Seleção em Massa */}
+                    <div className="flex items-center justify-between gap-2 py-2 px-2 bg-muted/50 rounded-lg mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">
+                          {ossSelecionadasParaRemocao.size > 0 ? (
+                            <span className="font-semibold text-orange-600">
+                              {ossSelecionadasParaRemocao.size} selecionada(s)
+                            </span>
+                          ) : (
+                            "Marque OSs para remoção em massa"
+                          )}
+                        </span>
+                        {osIdsComPendenciaAguardando.size > 0 && (
+                          <Badge variant="outline" className="text-[10px] bg-amber-100 text-amber-800 border-amber-300">
+                            {osIdsComPendenciaAguardando.size} aguardando remoção
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-6 text-[10px] px-2"
+                          onClick={() => selecionarTodasOSsDaRota(rotaEditando.equipe.id)}
+                          disabled={servicosValidos.length === 0}
+                        >
+                          Selecionar Todas
+                        </Button>
+                        {ossSelecionadasParaRemocao.size > 0 && (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-6 text-[10px] px-2"
+                              onClick={deselecionarTodasOSs}
+                            >
+                              Limpar
+                            </Button>
+                            <Button
+                              variant="default"
+                              size="sm"
+                              className="h-6 text-[10px] px-2 bg-orange-500 hover:bg-orange-600 text-white"
+                              onClick={handleRemoverOSsSelecionadas}
+                            >
+                              <Trash2 className="h-3 w-3 mr-1" />
+                              Marcar p/ Remoção ({ossSelecionadasParaRemocao.size})
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
                     {/* Lista de OSs com Drag and Drop - Duas Colunas */}
                     <div>
                       <div className="text-xs font-semibold text-muted-foreground mb-2">
@@ -6376,9 +6567,28 @@ const Roteirizacao = () => {
                                                 estaParcial && "opacity-60 cursor-default bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800",
                                                 foraDoPrazo && !estaConcluida && os.regulada && "border-danger/50 bg-danger/5",
                                                 osSelecionadaNoEditor === os.id && "ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-950",
-                                                estaEmExecucao && "ring-2 ring-green-500 bg-green-50 dark:bg-green-950 border-green-300 dark:border-green-700"
+                                                estaEmExecucao && "ring-2 ring-green-500 bg-green-50 dark:bg-green-950 border-green-300 dark:border-green-700",
+                                                // Selecionada para remoção em massa
+                                                ossSelecionadasParaRemocao.has(os.id) && "ring-2 ring-orange-500 bg-orange-50 dark:bg-orange-950/30",
+                                                // Aguardando confirmação de remoção
+                                                osIdsComPendenciaAguardando.has(os.id) && "opacity-70 bg-amber-100 dark:bg-amber-900/40 border-amber-400 dark:border-amber-600 border-dashed"
                                               )}
                                             >
+                                              {/* Checkbox de seleção para remoção */}
+                                              {!estaConcluida && !osIdsComPendenciaAguardando.has(os.id) && (
+                                                <input
+                                                  type="checkbox"
+                                                  checked={ossSelecionadasParaRemocao.has(os.id)}
+                                                  onChange={(e) => {
+                                                    e.stopPropagation();
+                                                    toggleSelecaoOS(os.id);
+                                                  }}
+                                                  onClick={(e) => e.stopPropagation()}
+                                                  className="h-3.5 w-3.5 rounded border-gray-300 text-orange-500 focus:ring-orange-500 flex-shrink-0 cursor-pointer"
+                                                  title="Selecionar para remoção"
+                                                />
+                                              )}
+                                              
                                               {/* Número da ordem */}
                                               {osEditandoPosicao === os.id ? (
                                                 <Input
@@ -6487,6 +6697,13 @@ const Roteirizacao = () => {
                                               {foraDoPrazo && !estaConcluida && os.regulada && (
                                                 <Badge variant="destructive" className="text-[8px] px-1 py-0 h-4">
                                                   FORA
+                                                </Badge>
+                                              )}
+                                              
+                                              {/* Badge de Aguardando Remoção */}
+                                              {osIdsComPendenciaAguardando.has(os.id) && (
+                                                <Badge className="text-[8px] px-1 py-0 h-4 font-medium bg-amber-200 text-amber-800 dark:bg-amber-800 dark:text-amber-200 animate-pulse">
+                                                  ⏳ AGUARD. REMOÇÃO
                                                 </Badge>
                                               )}
 
