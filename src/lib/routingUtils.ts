@@ -371,11 +371,22 @@ function classificarPrazo(prazo: Date | null | undefined): 'sem_prazo' | 'futuro
   return 'futuro';
 }
 
-// V17: Verifica se a OS é regulada vencendo hoje ou vencida
-function ehReguladaUrgente(os: OrdemServico): boolean {
-  const classificacao = classificarPrazo(os.prazo);
+// V17: Verifica se a OS é regulada urgente
+// Se prazoLimite for fornecido, usa ele como referência (configuração do usuário)
+// Caso contrário, usa a lógica padrão (vencendo hoje ou vencida)
+function ehReguladaUrgente(os: OrdemServico, prazoLimite?: Date): boolean {
   const regulada = ehOSRegulada(os);
-  return regulada && ['hoje', 'passado'].includes(classificacao);
+  if (!regulada) return false;
+  if (!os.prazo) return false;
+  
+  // Se prazoLimite foi configurado pelo usuário, usa ele
+  if (prazoLimite) {
+    return os.prazo <= prazoLimite;
+  }
+  
+  // Fallback: lógica padrão (vencendo hoje ou vencida)
+  const classificacao = classificarPrazo(os.prazo);
+  return ['hoje', 'passado'].includes(classificacao);
 }
 
 function calcularPrioridade(os: OrdemServico): number {
@@ -498,7 +509,8 @@ export interface ExpectativaTerritorio {
 export function calcularExpectativaEquipesPorTerritorio(
   ordensServico: OrdemServico[],
   equipes: Equipe[],
-  territorios: Territorio[]
+  territorios: Territorio[],
+  prazoLimiteUrgente?: Date // Prazo limite configurável pelo usuário para considerar OS como urgente
 ): ExpectativaTerritorio[] {
   // Filtrar apenas territórios ativos (com ou sem equipes vinculadas)
   const territoriosAtivos = territorios.filter(t => t.ativo && t.poligono.length >= 3);
@@ -522,8 +534,8 @@ export function calcularExpectativaEquipesPorTerritorio(
       pontoNoPoligono({ lat: os.latitude, lng: os.longitude }, territorio.poligono)
     );
 
-    // Filtrar apenas OSs urgentes (reguladas vencidas ou vencendo no dia)
-    const ossUrgentes = ossNoTerritorio.filter(os => ehReguladaUrgente(os));
+    // Filtrar apenas OSs urgentes (usando prazo limite configurável)
+    const ossUrgentes = ossNoTerritorio.filter(os => ehReguladaUrgente(os, prazoLimiteUrgente));
 
     // Calcular tempo total para urgentes
     const tempoTotalUrgentesMin = ossUrgentes.reduce((acc, os) => {

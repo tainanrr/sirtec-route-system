@@ -2469,7 +2469,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
 
     // Calcular expectativas de equipes para os territórios
     const territoriosAtivos = territorios.filter((t) => t.ativo && t.poligono.length >= 3);
-    const expectativas = calcularExpectativaEquipesPorTerritorio(osPendentes, equipesMock, territoriosAtivos);
+    const expectativas = calcularExpectativaEquipesPorTerritorio(osPendentes, equipesMock, territoriosAtivos, prazoLimiteUrgente);
     const expectativasMap = new Map<string, ExpectativaTerritorio>();
     expectativas.forEach(exp => expectativasMap.set(exp.territorioId, exp));
 

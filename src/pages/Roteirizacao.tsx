@@ -4366,7 +4366,8 @@ const Roteirizacao = () => {
     const expectativasCalculadas = calcularExpectativaEquipesPorTerritorio(
       osPendentes,
       equipes,
-      territoriosParaCalculo
+      territoriosParaCalculo,
+      prazoLimiteDate // Prazo limite configurável pelo usuário
     );
     setExpectativas(expectativasCalculadas);
     setExpectativaDialogOpen(true);

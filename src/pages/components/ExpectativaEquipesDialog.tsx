@@ -275,7 +275,7 @@ export default function ExpectativaEquipesDialog({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-muted-foreground">
                 <div className="flex items-center gap-2">
                   <Badge variant="regulada" className="h-4 w-4 p-0" />
-                  <span><strong>OSs Urgentes:</strong> Reguladas vencidas ou vencendo no dia</span>
+                  <span><strong>OSs Urgentes:</strong> Reguladas com prazo até o limite configurado</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge variant="destructive" className="h-4 w-4 p-0" />
