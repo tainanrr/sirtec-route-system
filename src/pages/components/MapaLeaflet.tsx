@@ -280,44 +280,94 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
         gpsIndicador = "⚫";
       }
 
-      const iniciais = equipe.equipe_codigo?.slice(0, 3).toUpperCase() || "EQ";
-      const tamanho = 42;
+      // Pegar os 3 ÚLTIMOS caracteres do código da equipe
+      const codigo = equipe.equipe_codigo || "EQP";
+      const ultimos3 = codigo.slice(-3).toUpperCase();
+      const largura = 52;
+      const altura = 30;
 
-      // Criar ícone
+      // Criar ícone no formato de CARRO/VAN
       const icon = L.divIcon({
         className: "custom-equipe-marker-map",
         html: `
           <div style="
-            width: ${tamanho}px;
-            height: ${tamanho}px;
-            background: linear-gradient(135deg, ${corFundo} 0%, ${corFundo}dd 100%);
-            border: 3px solid white;
-            border-radius: 50%;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            cursor: pointer;
             position: relative;
+            width: ${largura}px;
+            height: ${altura + 10}px;
+            cursor: pointer;
           ">
-            <span style="
-              font-weight: 700;
-              font-size: 11px;
-              color: white;
-              text-shadow: 0 1px 2px rgba(0,0,0,0.5);
-            ">${iniciais}</span>
-            <span style="
+            <!-- Corpo do carro/van -->
+            <div style="
+              width: ${largura}px;
+              height: ${altura}px;
+              background: linear-gradient(180deg, ${corFundo} 0%, ${corFundo}cc 100%);
+              border: 2px solid white;
+              border-radius: 6px 6px 4px 4px;
+              box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+              position: relative;
+              overflow: hidden;
+            ">
+              <!-- Janela do carro -->
+              <div style="
+                position: absolute;
+                top: 3px;
+                left: 4px;
+                right: 4px;
+                height: 9px;
+                background: linear-gradient(180deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0.15) 100%);
+                border-radius: 3px 3px 0 0;
+              "></div>
+              
+              <!-- Código da equipe (3 últimos caracteres) -->
+              <div style="
+                position: absolute;
+                bottom: 2px;
+                left: 0;
+                right: 0;
+                text-align: center;
+                font-weight: 800;
+                font-size: 12px;
+                color: white;
+                text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+                letter-spacing: 0.5px;
+              ">${ultimos3}</div>
+            </div>
+            
+            <!-- Rodas -->
+            <div style="
               position: absolute;
-              bottom: -3px;
-              right: -3px;
+              bottom: 0;
+              left: 7px;
+              width: 8px;
+              height: 8px;
+              background: #1f2937;
+              border-radius: 50%;
+              border: 2px solid #374151;
+            "></div>
+            <div style="
+              position: absolute;
+              bottom: 0;
+              right: 7px;
+              width: 8px;
+              height: 8px;
+              background: #1f2937;
+              border-radius: 50%;
+              border: 2px solid #374151;
+            "></div>
+            
+            <!-- Indicador de GPS -->
+            <div style="
+              position: absolute;
+              top: -5px;
+              right: -5px;
               font-size: 10px;
-            ">${gpsIndicador}</span>
+              filter: drop-shadow(0 1px 1px rgba(0,0,0,0.3));
+            ">${gpsIndicador}</div>
           </div>
         `,
-        iconSize: [tamanho, tamanho],
-        iconAnchor: [tamanho / 2, tamanho / 2],
-        popupAnchor: [0, -tamanho / 2 - 5],
+        iconSize: [largura, altura + 10],
+        iconAnchor: [largura / 2, (altura + 10) / 2],
+        popupAnchor: [0, -(altura / 2) - 8],
       });
 
       // Verificar se marker existe
