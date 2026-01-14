@@ -154,13 +154,20 @@ export async function getTemposExecucao(codigosSkills: string[]): Promise<Map<st
  * Extrai o código base de um tipo de OS (remove acentos e sufixos como " -", " C -", etc)
  */
 function extrairCodigoBase(codigo: string): string {
-  return codigo
+  const resultado = codigo
     .toUpperCase()
     .trim()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '') // Remove acentos (ã->a, é->e, ç->c, etc)
     .replace(/\s+[A-Z0-9]*\s*-\s*$/i, '') // Remove sufixos como " -", " C -", " ABC -"
     .trim();
+  
+  // DEBUG: Log para tipos com "MICRO"
+  if (codigo.toUpperCase().includes('MICRO')) {
+    console.log(`[SKILLS DEBUG] extrairCodigoBase: "${codigo}" -> "${resultado}"`);
+  }
+  
+  return resultado;
 }
 
 /**
@@ -189,6 +196,15 @@ export async function getDadosSkills(codigosSkills: string[]): Promise<Map<strin
     if (!skillData) {
       const codigoBase = extrairCodigoBase(codigo);
       skillData = skillsCache?.get(codigoBase);
+      
+      // DEBUG: Log para tipos com "MICRO"
+      if (codigo.toUpperCase().includes('MICRO')) {
+        console.log(`[SKILLS DEBUG] Busca cache: código="${codigo}", codigoBase="${codigoBase}", encontrou=${!!skillData}`);
+        if (skillsCache) {
+          console.log(`[SKILLS DEBUG] Chaves no cache que contêm MICRO:`, 
+            Array.from(skillsCache.keys()).filter(k => k.includes('MICRO')));
+        }
+      }
     }
     
     if (skillData) {
