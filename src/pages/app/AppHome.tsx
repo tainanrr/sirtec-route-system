@@ -174,18 +174,18 @@ export default function AppHome() {
     },
   });
 
-  // Buscar intervalo ativo (não finalizado)
+  // Buscar intervalo ativo (não finalizado) do turno atual
   const { data: intervaloAtivo, refetch: refetchIntervalo } = useQuery({
     queryKey: ["intervalo-ativo", equipe?.id, turno?.id],
     queryFn: async () => {
-      if (!equipe?.id) return null;
+      if (!equipe?.id || !turno?.id) return null;
       
       // Se offline, buscar do cache
       if (!isOnline) {
         const intervalosCached = await getIntervalosFromCache(equipe.id, dataHoje);
         if (intervalosCached && Array.isArray(intervalosCached)) {
-          // Buscar intervalo ativo (sem hora_fim)
-          const intervaloAtivoCache = intervalosCached.find((i: any) => !i.hora_fim);
+          // Buscar intervalo ativo (sem hora_fim) do turno atual
+          const intervaloAtivoCache = intervalosCached.find((i: any) => !i.hora_fim && i.turno_id === turno.id);
           if (intervaloAtivoCache) {
             // Adicionar dados do tipo de intervalo do cache
             const tiposIntervaloCache = await getTiposIntervaloFromCache();
@@ -199,6 +199,7 @@ export default function AppHome() {
         return null;
       }
       
+      // Buscar intervalo ativo do turno atual
       const { data, error } = await supabase
         .from("intervalos_equipe")
         .select(`
@@ -206,6 +207,7 @@ export default function AppHome() {
           tipo_intervalo:tipo_intervalo_id (*)
         `)
         .eq("equipe_id", equipe.id)
+        .eq("turno_id", turno.id)
         .is("hora_fim", null)
         .order("hora_inicio", { ascending: false })
         .limit(1)
@@ -214,7 +216,7 @@ export default function AppHome() {
       if (error && error.code !== "PGRST116") throw error;
       return data as IntervaloAtivo | null;
     },
-    enabled: !!equipe?.id,
+    enabled: !!equipe?.id && !!turno?.id,
     refetchInterval: isOnline ? 30000 : false, // Não atualizar automaticamente quando offline
   });
 

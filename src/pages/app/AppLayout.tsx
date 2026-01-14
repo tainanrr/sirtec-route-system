@@ -416,16 +416,18 @@ export default function AppLayout() {
     return format(data, "dd/MM/yyyy", { locale: ptBR });
   }, [turno?.hora_inicio]);
 
-  // Buscar intervalo ativo (não finalizado)
+  // Buscar intervalo ativo (não finalizado) do turno atual
   const { data: intervaloAtivo } = useQuery({
     queryKey: ["intervalo-ativo-layout", equipe?.id, turno?.id],
     queryFn: async () => {
-      if (!equipe?.id) return null;
+      if (!equipe?.id || !turno?.id) return null;
       
+      // Buscar intervalo ativo do turno atual
       const { data, error } = await supabase
         .from("intervalos_equipe")
         .select("id, hora_inicio")
         .eq("equipe_id", equipe.id)
+        .eq("turno_id", turno.id)
         .is("hora_fim", null)
         .order("hora_inicio", { ascending: false })
         .limit(1)
@@ -434,7 +436,7 @@ export default function AppLayout() {
       if (error && error.code !== "PGRST116") throw error;
       return data;
     },
-    enabled: !!equipe?.id,
+    enabled: !!equipe?.id && !!turno?.id,
     refetchInterval: 15000,
   });
 
