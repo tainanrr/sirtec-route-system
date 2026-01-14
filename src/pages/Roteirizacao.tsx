@@ -2262,24 +2262,40 @@ const Roteirizacao = () => {
         
         planejamento = planejamentoAtualizado;
         
-        // IMPORTANTE: Criar pendências de remoção PRIMEIRO (antes de deletar ordens)
-        // Isso garante que as OSs com trabalho em andamento não sejam removidas prematuramente
+        // ========================================================================
+        // ABORDAGEM INCREMENTAL: Só fazer as alterações REALMENTE necessárias
+        // Não deletar tudo e recriar - isso causa problemas de sincronização
+        // ========================================================================
+        
+        // 1. Buscar estado atual do planejamento_ordens no banco
+        const { data: ordensAtuaisNoBanco } = await supabase
+          .from("planejamento_ordens")
+          .select("id, ordem_servico_id, equipe_id, ordem_na_rota")
+          .eq("planejamento_id", planejamentoEditandoId);
+        
+        // Criar mapa do estado atual: ordem_servico_id -> dados
+        const estadoAtualMap = new Map<string, { id: string; equipe_id: string; ordem_na_rota: number }>();
+        (ordensAtuaisNoBanco || []).forEach(o => {
+          estadoAtualMap.set(o.ordem_servico_id, {
+            id: o.id,
+            equipe_id: o.equipe_id,
+            ordem_na_rota: o.ordem_na_rota
+          });
+        });
+        
+        console.log(`[PLANEJAMENTO] Estado atual no banco: ${estadoAtualMap.size} OSs`);
+        
+        // 2. Criar pendências para OSs sendo removidas (se dia atual)
         if (osPendentesRemocaoLocal.length > 0 && isRotaDoDiaAtual()) {
-          console.log(`[PLANEJAMENTO] Criando ${osPendentesRemocaoLocal.length} pendências de remoção ANTES de deletar ordens...`);
+          console.log(`[PLANEJAMENTO] Criando ${osPendentesRemocaoLocal.length} pendências de remoção...`);
           
           for (const pendencia of osPendentesRemocaoLocal) {
             try {
-              // Buscar o ID do planejamento_ordens para esta OS
-              const { data: planejamentoOrdem } = await supabase
-                .from("planejamento_ordens")
-                .select("id")
-                .eq("planejamento_id", planejamentoEditandoId)
-                .eq("ordem_servico_id", pendencia.osId)
-                .maybeSingle();
-
+              const estadoAtual = estadoAtualMap.get(pendencia.osId);
+              
               const pendenciaData = {
                 planejamento_id: planejamentoEditandoId,
-                planejamento_ordem_id: planejamentoOrdem?.id || null,
+                planejamento_ordem_id: estadoAtual?.id || null,
                 ordem_servico_id: pendencia.osId,
                 equipe_id: pendencia.equipeId,
                 os_numero: pendencia.osNumero,
@@ -2296,72 +2312,132 @@ const Roteirizacao = () => {
                 console.error(`[PLANEJAMENTO] Erro ao criar pendência para OS ${pendencia.osNumero}:`, erroPendencia);
               } else {
                 console.log(`[PLANEJAMENTO] Pendência criada para OS ${pendencia.osNumero}`);
-                // Adicionar ao set global para preservar no delete
                 osIdsComPendenciaGlobal.add(pendencia.osId);
               }
             } catch (erroPend: any) {
-              console.error(`[PLANEJAMENTO] Erro ao criar pendência para OS ${pendencia.osNumero}:`, erroPend);
+              console.error(`[PLANEJAMENTO] Erro ao criar pendência:`, erroPend);
             }
           }
           
-          // Limpar estado local de pendências
           setOsPendentesRemocaoLocal([]);
-          
-          // Recarregar lista de pendências na web
           fetchOsPendentesRemocao();
         }
         
-        // Buscar OSs que têm pendência de remoção aguardando confirmação (incluindo as recém-criadas)
-        // Essas OSs NÃO devem ser removidas do planejamento_ordens até que o app confirme
+        // 3. Buscar todas as pendências existentes (incluindo recém-criadas)
         const { data: osPendentesRemocao } = await supabase
           .from("os_pendentes_remocao")
           .select("ordem_servico_id")
           .eq("planejamento_id", planejamentoEditandoId)
           .eq("status", "aguardando_sinal");
         
-        // Adicionar ao set global (caso ainda não estejam)
         (osPendentesRemocao || []).forEach(p => osIdsComPendenciaGlobal.add(p.ordem_servico_id));
-        console.log("[PLANEJAMENTO] OSs com pendência de remoção (não serão removidas do planejamento_ordens):", osIdsComPendenciaGlobal.size);
+        console.log(`[PLANEJAMENTO] OSs com pendência (serão preservadas): ${osIdsComPendenciaGlobal.size}`);
         
-        // Remover ordens antigas do planejamento, EXCETO as que têm pendência aguardando
-        console.log("[PLANEJAMENTO] Removendo ordens antigas...");
+        // 4. Calcular o estado desejado a partir das rotas
+        const estadoDesejadoMap = new Map<string, { equipe_id: string; ordem_na_rota: number; dados: any }>();
         
-        if (osIdsComPendenciaGlobal.size > 0) {
-          // Se há pendências, precisamos remover apenas as OSs que não têm pendência
-          // Buscar todos os IDs atuais de planejamento_ordens
-          const { data: ordensAtuais } = await supabase
-            .from("planejamento_ordens")
-            .select("id, ordem_servico_id")
-            .eq("planejamento_id", planejamentoEditandoId);
-          
-          // Filtrar para remover apenas as que NÃO têm pendência
-          const idsParaRemover = (ordensAtuais || [])
-            .filter(o => !osIdsComPendenciaGlobal.has(o.ordem_servico_id))
-            .map(o => o.id);
-          
-          if (idsParaRemover.length > 0) {
-            const { error: erroRemoverOrdens } = await supabase
-              .from("planejamento_ordens")
-              .delete()
-              .in("id", idsParaRemover);
-            
-            if (erroRemoverOrdens) {
-              console.error("[PLANEJAMENTO] Erro ao remover ordens antigas:", erroRemoverOrdens);
-              throw erroRemoverOrdens;
+        for (const rota of rotas) {
+          let ordemNaRota = 1;
+          for (const servico of rota.servicos) {
+            if (servico.tipo === 'SERVICO' && servico.ordemServico) {
+              const os = servico.ordemServico;
+              // Pular OSs com pendência de remoção (elas não devem ser atualizadas)
+              if (!osIdsComPendenciaGlobal.has(os.id)) {
+                estadoDesejadoMap.set(os.id, {
+                  equipe_id: rota.equipe.id,
+                  ordem_na_rota: ordemNaRota,
+                  dados: {
+                    planejamento_id: planejamentoEditandoId,
+                    ordem_servico_id: os.id,
+                    equipe_id: rota.equipe.id,
+                    ordem_na_rota: ordemNaRota,
+                    distancia_km: Number((servico.distancia || 0).toFixed(2)),
+                    tempo_estimado_minutos: Math.round(servico.tempoTotal || 0),
+                    hora_inicio_estimada: validarHora(servico.horaInicio),
+                    hora_fim_estimada: validarHora(servico.horaFim),
+                  }
+                });
+              }
+              ordemNaRota++;
             }
-            console.log(`[PLANEJAMENTO] Removidas ${idsParaRemover.length} ordens antigas (preservadas ${osIdsComPendenciaGlobal.size} com pendência)`);
           }
-        } else {
-          // Se não há pendências, podemos remover todas normalmente
-          const { error: erroRemoverOrdens } = await supabase
+        }
+        
+        console.log(`[PLANEJAMENTO] Estado desejado: ${estadoDesejadoMap.size} OSs`);
+        
+        // 5. Calcular diferenças
+        const osParaInserir: any[] = [];
+        const osParaAtualizar: { id: string; dados: any }[] = [];
+        const osParaRemover: string[] = [];
+        
+        // OSs que estão no estado desejado
+        for (const [osId, desejado] of estadoDesejadoMap) {
+          const atual = estadoAtualMap.get(osId);
+          
+          if (!atual) {
+            // OS não existe no banco - INSERIR
+            osParaInserir.push(desejado.dados);
+          } else if (
+            atual.equipe_id !== desejado.equipe_id ||
+            atual.ordem_na_rota !== desejado.ordem_na_rota
+          ) {
+            // OS existe mas com dados diferentes - ATUALIZAR
+            osParaAtualizar.push({ id: atual.id, dados: desejado.dados });
+          }
+          // Se igual, não fazer nada - MANTER
+        }
+        
+        // OSs que estão no banco mas não no estado desejado - REMOVER
+        for (const [osId, atual] of estadoAtualMap) {
+          if (!estadoDesejadoMap.has(osId) && !osIdsComPendenciaGlobal.has(osId)) {
+            osParaRemover.push(atual.id);
+          }
+        }
+        
+        console.log(`[PLANEJAMENTO] Alterações: ${osParaInserir.length} inserir, ${osParaAtualizar.length} atualizar, ${osParaRemover.length} remover`);
+        
+        // 6. Executar as alterações
+        
+        // INSERIR novas OSs
+        if (osParaInserir.length > 0) {
+          const { error: erroInserir } = await supabase
+            .from("planejamento_ordens")
+            .insert(osParaInserir);
+          
+          if (erroInserir) {
+            console.error("[PLANEJAMENTO] Erro ao inserir OSs:", erroInserir);
+            throw erroInserir;
+          }
+          console.log(`[PLANEJAMENTO] Inseridas ${osParaInserir.length} OSs`);
+        }
+        
+        // ATUALIZAR OSs existentes (uma por uma para simplicidade)
+        for (const item of osParaAtualizar) {
+          const { error: erroAtualizar } = await supabase
+            .from("planejamento_ordens")
+            .update(item.dados)
+            .eq("id", item.id);
+          
+          if (erroAtualizar) {
+            console.error(`[PLANEJAMENTO] Erro ao atualizar OS:`, erroAtualizar);
+          }
+        }
+        if (osParaAtualizar.length > 0) {
+          console.log(`[PLANEJAMENTO] Atualizadas ${osParaAtualizar.length} OSs`);
+        }
+        
+        // REMOVER OSs que não estão mais na rota (e não têm pendência)
+        if (osParaRemover.length > 0) {
+          const { error: erroRemover } = await supabase
             .from("planejamento_ordens")
             .delete()
-            .eq("planejamento_id", planejamentoEditandoId);
+            .in("id", osParaRemover);
           
-          if (erroRemoverOrdens) {
-            console.error("[PLANEJAMENTO] Erro ao remover ordens antigas:", erroRemoverOrdens);
-            throw erroRemoverOrdens;
+          if (erroRemover) {
+            console.error("[PLANEJAMENTO] Erro ao remover OSs:", erroRemover);
+            throw erroRemover;
           }
+          console.log(`[PLANEJAMENTO] Removidas ${osParaRemover.length} OSs`);
         }
         
         // Criar log de edição (não bloquear se falhar)
@@ -2428,96 +2504,104 @@ const Roteirizacao = () => {
         }
       }
 
-      // Processar cada rota e preparar dados
-      console.log("[PLANEJAMENTO] Processando rotas e preparando dados...");
-      const planejamentoOrdens: any[] = [];
+      // Para NOVOS planejamentos, precisamos inserir todas as OSs
+      // Para EDIÇÃO, já fizemos a abordagem incremental acima
       const osUpdates: Map<string, { equipe_id: string; data_planejada: string }> = new Map();
       const logsParaInserir: any[] = [];
       
-      // Set para rastrear OSs já adicionadas e evitar duplicatas
-      const osJaAdicionadas = new Set<string>();
+      if (!planejamentoEditandoId) {
+        // NOVO PLANEJAMENTO: Processar cada rota e preparar dados para inserção
+        console.log("[PLANEJAMENTO] Novo planejamento - preparando dados para inserção...");
+        const planejamentoOrdens: any[] = [];
+        const osJaAdicionadas = new Set<string>();
 
-      for (const rota of rotas) {
-        let ordemNaRota = 1;
-        
-        for (const servico of rota.servicos) {
-          if (servico.tipo === 'SERVICO' && servico.ordemServico) {
-            const os = servico.ordemServico;
-            
-            // CORREÇÃO: Evitar duplicatas de OS no mesmo planejamento
-            if (osJaAdicionadas.has(os.id)) {
-              console.warn(`[PLANEJAMENTO] OS ${os.numero} já foi adicionada, ignorando duplicata`);
-              continue;
-            }
-            osJaAdicionadas.add(os.id);
-            
-            // CORREÇÃO: Pular OSs que têm pendência de remoção aguardando confirmação
-            // Elas já estão em planejamento_ordens e não devem ser atualizadas/movidas até o app confirmar
-            if (osIdsComPendenciaGlobal.has(os.id)) {
-              console.log(`[PLANEJAMENTO] OS ${os.numero} tem pendência de remoção aguardando - mantendo em planejamento_ordens sem alterar`);
-              ordemNaRota++; // Incrementar para manter a ordem correta
-              continue;
-            }
-            
-            // Preparar dados para planejamento_ordens
-            planejamentoOrdens.push({
-              planejamento_id: planejamento.id,
-              ordem_servico_id: os.id,
-              equipe_id: rota.equipe.id,
-              ordem_na_rota: ordemNaRota,
-              distancia_km: Number((servico.distancia || 0).toFixed(2)),
-              tempo_estimado_minutos: Math.round(servico.tempoTotal || 0),
-              hora_inicio_estimada: validarHora(servico.horaInicio),
-              hora_fim_estimada: validarHora(servico.horaFim),
-            });
-
-            // Preparar atualização de OS
-            osUpdates.set(os.id, {
-              equipe_id: rota.equipe.id,
-              data_planejada: dataPlanejamento,
-            });
-
-            // Preparar log
-            logsParaInserir.push({
-              planejamento_id: planejamento.id,
-              ordem_servico_id: os.id,
-              acao: "ordem_adicionada",
-              descricao: `OS ${os.numero} adicionada ao planejamento`,
-              dados_novos: {
+        for (const rota of rotas) {
+          let ordemNaRota = 1;
+          
+          for (const servico of rota.servicos) {
+            if (servico.tipo === 'SERVICO' && servico.ordemServico) {
+              const os = servico.ordemServico;
+              
+              if (osJaAdicionadas.has(os.id)) {
+                console.warn(`[PLANEJAMENTO] OS ${os.numero} já foi adicionada, ignorando duplicata`);
+                continue;
+              }
+              osJaAdicionadas.add(os.id);
+              
+              planejamentoOrdens.push({
+                planejamento_id: planejamento.id,
+                ordem_servico_id: os.id,
                 equipe_id: rota.equipe.id,
-                data_planejamento: dataPlanejamento,
-              },
-              created_by: user.id,
-            });
+                ordem_na_rota: ordemNaRota,
+                distancia_km: Number((servico.distancia || 0).toFixed(2)),
+                tempo_estimado_minutos: Math.round(servico.tempoTotal || 0),
+                hora_inicio_estimada: validarHora(servico.horaInicio),
+                hora_fim_estimada: validarHora(servico.horaFim),
+              });
 
-            ordemNaRota++;
+              osUpdates.set(os.id, {
+                equipe_id: rota.equipe.id,
+                data_planejada: dataPlanejamento,
+              });
+
+              logsParaInserir.push({
+                planejamento_id: planejamento.id,
+                ordem_servico_id: os.id,
+                acao: "ordem_adicionada",
+                descricao: `OS ${os.numero} adicionada ao planejamento`,
+                dados_novos: {
+                  equipe_id: rota.equipe.id,
+                  data_planejamento: dataPlanejamento,
+                },
+                created_by: user.id,
+              });
+
+              ordemNaRota++;
+            }
           }
         }
-      }
 
-      console.log("[PLANEJAMENTO] Dados preparados:", {
-        planejamentoOrdens: planejamentoOrdens.length,
-        osUpdates: osUpdates.size,
-        logs: logsParaInserir.length,
-      });
+        console.log("[PLANEJAMENTO] Dados preparados:", {
+          planejamentoOrdens: planejamentoOrdens.length,
+          osUpdates: osUpdates.size,
+          logs: logsParaInserir.length,
+        });
 
-      // Inserir relacionamentos planejamento_ordens em batch (usando upsert para evitar duplicatas)
-      if (planejamentoOrdens.length > 0) {
-        console.log("[PLANEJAMENTO] Inserindo relacionamentos planejamento_ordens...", planejamentoOrdens.length);
-        
-        // Usar upsert com onConflict para evitar erro de duplicata
-        const { error: erroRelacionamentos } = await supabase
-          .from("planejamento_ordens")
-          .upsert(planejamentoOrdens, {
-            onConflict: "planejamento_id,ordem_servico_id",
-            ignoreDuplicates: false // Atualiza se já existir
-          });
+        // Inserir relacionamentos planejamento_ordens em batch
+        if (planejamentoOrdens.length > 0) {
+          console.log("[PLANEJAMENTO] Inserindo relacionamentos planejamento_ordens...", planejamentoOrdens.length);
+          
+          const { error: erroRelacionamentos } = await supabase
+            .from("planejamento_ordens")
+            .insert(planejamentoOrdens);
 
-        if (erroRelacionamentos) {
-          console.error("[PLANEJAMENTO] Erro ao inserir relacionamentos:", erroRelacionamentos);
-          throw erroRelacionamentos;
+          if (erroRelacionamentos) {
+            console.error("[PLANEJAMENTO] Erro ao inserir relacionamentos:", erroRelacionamentos);
+            throw erroRelacionamentos;
+          }
+          console.log("[PLANEJAMENTO] Relacionamentos inseridos com sucesso");
         }
-        console.log("[PLANEJAMENTO] Relacionamentos inseridos/atualizados com sucesso");
+      } else {
+        // EDIÇÃO: Já processamos incrementalmente acima, só preparar osUpdates e logs
+        console.log("[PLANEJAMENTO] Edição - preparando atualizações de ordens_servico...");
+        
+        for (const rota of rotas) {
+          for (const servico of rota.servicos) {
+            if (servico.tipo === 'SERVICO' && servico.ordemServico) {
+              const os = servico.ordemServico;
+              
+              // Pular OSs com pendência - não devem ter equipe alterada
+              if (osIdsComPendenciaGlobal.has(os.id)) {
+                continue;
+              }
+              
+              osUpdates.set(os.id, {
+                equipe_id: rota.equipe.id,
+                data_planejada: dataPlanejamento,
+              });
+            }
+          }
+        }
       }
 
       // Atualizar OSs em batch
