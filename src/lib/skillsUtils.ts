@@ -99,6 +99,16 @@ export async function getDadosSkill(codigoSkill: string): Promise<SkillCacheData
 }
 
 /**
+ * Normaliza um código removendo acentos
+ */
+function normalizarCodigo(codigo: string): string {
+  return codigo
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, ''); // Remove acentos
+}
+
+/**
  * Busca todos os dados das skills e armazena em cache
  */
 export async function refreshSkillsCache(): Promise<void> {
@@ -118,19 +128,34 @@ export async function refreshSkillsCache(): Promise<void> {
         nome: skill.nome || undefined,
       };
       
-      const codigoBase = skill.codigo.toUpperCase();
+      // Código original (com acento se tiver)
+      const codigoOriginal = skill.codigo.toUpperCase();
+      // Código normalizado (sem acento)
+      const codigoNormalizado = normalizarCodigo(skill.codigo);
       
-      // Adicionar código base
-      skillsCache!.set(codigoBase, skillData);
+      // Adicionar código original
+      skillsCache!.set(codigoOriginal, skillData);
       
-      // Também adicionar variações comuns com sufixos (para OSs que vêm com " -", " C -", etc)
-      skillsCache!.set(`${codigoBase} -`, skillData);
-      skillsCache!.set(`${codigoBase} C -`, skillData);
-      skillsCache!.set(`${codigoBase} A -`, skillData);
-      skillsCache!.set(`${codigoBase} B -`, skillData);
+      // Adicionar código normalizado (sem acentos) se for diferente
+      if (codigoNormalizado !== codigoOriginal) {
+        skillsCache!.set(codigoNormalizado, skillData);
+      }
+      
+      // Extrair código base (sem sufixo " -" e variações)
+      const codigoBase = extrairCodigoBase(codigoOriginal);
+      const codigoBaseNorm = extrairCodigoBase(codigoNormalizado);
+      
+      // Adicionar código base se for diferente
+      if (codigoBase !== codigoOriginal) {
+        skillsCache!.set(codigoBase, skillData);
+      }
+      if (codigoBaseNorm !== codigoNormalizado && codigoBaseNorm !== codigoBase) {
+        skillsCache!.set(codigoBaseNorm, skillData);
+      }
     });
 
     lastCacheUpdate = Date.now();
+    console.log("[SKILLS] Cache atualizado com", skillsCache.size, "entradas");
   } catch (error) {
     console.error("[SKILLS] Erro ao atualizar cache:", error);
     // Manter cache anterior se houver erro
