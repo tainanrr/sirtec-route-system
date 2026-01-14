@@ -41,6 +41,7 @@ import {
   Hash,
   FileDown,
   Loader2,
+  Download,
 } from "lucide-react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
@@ -783,6 +784,7 @@ export default function ConsultaChecklists() {
   const [generatingPdfId, setGeneratingPdfId] = useState<string | null>(null);
   const [viewDevOpen, setViewDevOpen] = useState(false);
   const [selectedDev, setSelectedDev] = useState<DevolucaoConsulta | null>(null);
+  const [exportandoCsv, setExportandoCsv] = useState(false);
 
   // Buscar contagem total de registros
   const { data: totalCount } = useQuery({
@@ -1084,6 +1086,186 @@ export default function ConsultaChecklists() {
     setDownloadingPdf(false);
   };
 
+  // Função para escapar campos CSV
+  const escapeCsv = (val: any) => {
+    if (val === null || val === undefined) return "";
+    const str = String(val);
+    if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes(";")) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  };
+
+  // Exportar checklists para CSV (detalhado com perguntas e respostas)
+  const handleExportarCsv = async () => {
+    try {
+      setExportandoCsv(true);
+      toast.loading("Buscando dados dos checklists...", { id: "export-csv" });
+      
+      // Pegar os IDs selecionados ou todos os checklists filtrados
+      const idsParaExportar = selectedIds.size > 0 
+        ? Array.from(selectedIds)
+        : (respostasFiltradas || []).map((r: ChecklistRespostaSimples) => r.id);
+      
+      if (idsParaExportar.length === 0) {
+        toast.error("Nenhum checklist para exportar", { id: "export-csv" });
+        setExportandoCsv(false);
+        return;
+      }
+      
+      // Buscar dados completos dos checklists em lotes
+      const BATCH_SIZE = 20;
+      const allChecklists: any[] = [];
+      
+      for (let i = 0; i < idsParaExportar.length; i += BATCH_SIZE) {
+        const batchIds = idsParaExportar.slice(i, i + BATCH_SIZE);
+        
+        const { data: checklistsData, error } = await supabase
+          .from("checklist_respostas")
+          .select(`
+            id,
+            checklist_id,
+            equipe_id,
+            ordem_servico_id,
+            status,
+            respostas,
+            created_at,
+            codigo_unico,
+            checklists:checklist_id (id, nome, tipo, grupos, perguntas),
+            ordens_servico:ordem_servico_id (numero, tipo),
+            tecnicos:equipe_id (codigo, nome)
+          `)
+          .in("id", batchIds);
+        
+        if (error) {
+          console.error("Erro ao buscar checklists:", error);
+        }
+        
+        if (checklistsData) {
+          allChecklists.push(...checklistsData);
+        }
+        
+        toast.loading(`Buscando checklists (${Math.min(i + BATCH_SIZE, idsParaExportar.length)}/${idsParaExportar.length})...`, { id: "export-csv" });
+      }
+      
+      if (allChecklists.length === 0) {
+        toast.error("Nenhum dado encontrado", { id: "export-csv" });
+        setExportandoCsv(false);
+        return;
+      }
+      
+      toast.loading("Processando respostas...", { id: "export-csv" });
+      
+      // Headers
+      const headers = [
+        "Data_Hora", "Codigo_Unico", "Equipe_Codigo", "Equipe_Nome",
+        "Checklist_Nome", "Checklist_Tipo", "Status",
+        "OS_Numero", "OS_Tipo",
+        "Grupo", "Pergunta", "Resposta", "Observacao"
+      ];
+      
+      // Montar linhas (uma linha por pergunta/resposta)
+      const linhas: string[] = [headers.join(";")];
+      
+      allChecklists.forEach((checklist: any) => {
+        const checklistDef = checklist.checklists as any;
+        const respostasMap = checklist.respostas 
+          ? (Array.isArray(checklist.respostas) 
+              ? checklist.respostas.reduce((acc: any, r: any) => ({ ...acc, [r.pergunta_id]: r }), {})
+              : checklist.respostas)
+          : {};
+        
+        // Obter grupos e perguntas
+        const grupos = checklistDef?.grupos as any[] || [];
+        const perguntasAvulsas = checklistDef?.perguntas as any[] || [];
+        
+        // Se não tem grupos, criar um grupo fictício com as perguntas
+        const gruposProcessar = grupos.length > 0 
+          ? grupos 
+          : [{ id: "geral", nome: "Geral", perguntas: perguntasAvulsas }];
+        
+        gruposProcessar.forEach((grupo: any) => {
+          const perguntas = grupo.perguntas || [];
+          
+          perguntas.forEach((pergunta: any) => {
+            const resposta = respostasMap[pergunta.id] || {};
+            
+            // Formatar resposta baseado no tipo
+            let respostaTexto = "";
+            let observacao = "";
+            
+            if (resposta.valor !== undefined) {
+              if (typeof resposta.valor === "boolean") {
+                respostaTexto = resposta.valor ? "Sim" : "Não";
+              } else if (Array.isArray(resposta.valor)) {
+                respostaTexto = resposta.valor.join(", ");
+              } else {
+                respostaTexto = String(resposta.valor);
+              }
+            } else if (resposta.resposta !== undefined) {
+              respostaTexto = String(resposta.resposta);
+            }
+            
+            if (resposta.observacao) {
+              observacao = resposta.observacao;
+            }
+            
+            // Se é foto ou assinatura, indicar que existe
+            if (pergunta.tipo === "foto") {
+              const fotos = resposta.fotos || [];
+              if (fotos.length > 0) {
+                respostaTexto = `${fotos.length} foto(s)`;
+              } else if (resposta.foto_url) {
+                respostaTexto = "1 foto";
+              }
+            } else if (pergunta.tipo === "assinatura") {
+              if (resposta.assinatura_url) {
+                respostaTexto = "Assinatura registrada";
+              }
+            }
+            
+            const linha = [
+              checklist.created_at ? format(new Date(checklist.created_at), "dd/MM/yyyy HH:mm") : "",
+              checklist.codigo_unico || "",
+              (checklist.tecnicos as any)?.codigo || "",
+              (checklist.tecnicos as any)?.nome || "",
+              checklistDef?.nome || "",
+              checklistDef?.tipo || "",
+              checklist.status || "",
+              (checklist.ordens_servico as any)?.numero || "",
+              (checklist.ordens_servico as any)?.tipo || "",
+              grupo.nome || "",
+              pergunta.texto || "",
+              respostaTexto,
+              observacao,
+            ].map(escapeCsv);
+            
+            linhas.push(linha.join(";"));
+          });
+        });
+      });
+      
+      // Criar e baixar CSV
+      const csvContent = "\uFEFF" + linhas.join("\n");
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `checklists_detalhado_${format(new Date(), "yyyy-MM-dd_HH-mm")}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      toast.success(`${allChecklists.length} checklists exportados com ${linhas.length - 1} linhas!`, { id: "export-csv" });
+    } catch (error: any) {
+      console.error("Erro ao exportar:", error);
+      toast.error("Erro ao exportar: " + error.message, { id: "export-csv" });
+    } finally {
+      setExportandoCsv(false);
+    }
+  };
+
   const { data: devItens, isLoading: loadingDevItens } = useQuery({
     queryKey: ["consulta-devolucao-itens", selectedDev?.id],
     enabled: !!selectedDev?.id && viewDevOpen,
@@ -1176,6 +1358,18 @@ export default function ConsultaChecklists() {
         </div>
         {!isDevolucoes && (
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={handleExportarCsv}
+              disabled={exportandoCsv || (respostasFiltradas || []).length === 0}
+            >
+              {exportandoCsv ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4 mr-2" />
+              )}
+              Exportar CSV {selectedIds.size > 0 ? `(${selectedIds.size})` : ''}
+            </Button>
             <Button
               variant="outline"
               onClick={handleAbrirMassa}
