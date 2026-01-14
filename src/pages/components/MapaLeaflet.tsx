@@ -1451,19 +1451,14 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
       'manutencao': 'MANUTENCAO',
       'manutenção': 'MANUTENCAO',
       'troca_medidor': 'TROCA_MEDIDOR',
-      // Tipos que vêm com sufixo " -" das OSs
-      'microgeracao -': 'MICROGERACAO',
-      'microgeração -': 'MICROGERACAO',
-      'enlace -': 'ENLACE',
     };
     
     if (mapeamento[tipoLower]) {
       return mapeamento[tipoLower];
     }
     
-    // Se não encontrou no mapeamento, normalizar para uppercase, remover acentos e o sufixo " -"
+    // Se não encontrou no mapeamento, normalizar para uppercase e remover acentos
     return tipo.toUpperCase()
-      .replace(/ -$/, '') // Remover sufixo " -" se existir
       .replace(/[ÀÁÂÃÄÅ]/g, 'A')
       .replace(/[ÈÉÊË]/g, 'E')
       .replace(/[ÌÍÎÏ]/g, 'I')
