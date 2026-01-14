@@ -168,7 +168,14 @@ export default function AcompanhamentoTempoReal() {
   const { podeEditar } = useTelaPermissao("acompanhamento_tempo_real");
   
   // Configuração de prazo para OSs urgentes (versao força re-render quando prazo muda)
-  const { prazoLimiteDate, versao: versaoPrazoUrgente } = useConfigUrgencia();
+  const { prazoLimiteDate, versao: versaoPrazoUrgente, recarregar: recarregarConfig, invalidarQueries } = useConfigUrgencia();
+  
+  // Callback quando o prazo limite muda (forçar atualização de todas as views)
+  const handlePrazoChange = useCallback(async () => {
+    console.log("[AcompanhamentoTempoReal] Prazo limite alterado, recarregando configuração...");
+    await recarregarConfig();
+    invalidarQueries();
+  }, [recarregarConfig, invalidarQueries]);
   
   // Data atual (sempre hoje)
   const hoje = format(new Date(), "yyyy-MM-dd");
@@ -1026,7 +1033,7 @@ export default function AcompanhamentoTempoReal() {
             <Separator orientation="vertical" className="h-6 hidden lg:block" />
 
             {/* Configuração de prazo para OSs urgentes */}
-            <ConfigPrazoUrgente />
+            <ConfigPrazoUrgente onPrazoChange={handlePrazoChange} />
           </div>
 
           {/* Controles */}

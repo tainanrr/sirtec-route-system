@@ -263,7 +263,14 @@ const Roteirizacao = () => {
   const { podeEditar } = useTelaPermissao("roteirizacao");
   
   // Configuração de prazo para OSs urgentes (versao força re-render quando prazo muda)
-  const { prazoLimiteDate, isOSUrgente: verificarOSUrgente, versao: versaoPrazoUrgente } = useConfigUrgencia();
+  const { prazoLimiteDate, isOSUrgente: verificarOSUrgente, versao: versaoPrazoUrgente, recarregar: recarregarConfig, invalidarQueries } = useConfigUrgencia();
+  
+  // Callback quando o prazo limite muda (forçar atualização de todas as views)
+  const handlePrazoChange = useCallback(async () => {
+    console.log("[Roteirização] Prazo limite alterado, recarregando configuração...");
+    await recarregarConfig();
+    invalidarQueries();
+  }, [recarregarConfig, invalidarQueries]);
 
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -4805,7 +4812,7 @@ const Roteirizacao = () => {
               <p className="text-sm text-muted-foreground">{formatarData()}</p>
             </div>
             {/* Configuração do prazo limite para OSs urgentes */}
-            <ConfigPrazoUrgente />
+            <ConfigPrazoUrgente onPrazoChange={handlePrazoChange} />
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button
