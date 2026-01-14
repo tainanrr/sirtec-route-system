@@ -894,6 +894,8 @@ const Roteirizacao = () => {
         // Passo 1: Obter contagem total e pre-carregar skills
         // Incluir OSs pendentes, atrasadas E OSs avulsas concluídas (para visualização na Rota)
         // Fazer duas queries separadas e somar os resultados
+        console.log(`[Roteirização] Iniciando queries de contagem...`);
+        
         const [countPendentes, countAvulsasConcluidas] = await Promise.all([
           supabase
             .from("ordens_servico")
@@ -906,6 +908,13 @@ const Roteirizacao = () => {
             .eq("status", "concluida"),
           getDadosSkills([]) // Pre-carregar dados de skills
         ]);
+        
+        console.log(`[Roteirização] Queries de contagem finalizadas:`, { 
+          pendentes: countPendentes.count, 
+          avulsas: countAvulsasConcluidas.count,
+          erroPendentes: countPendentes.error?.message,
+          erroAvulsas: countAvulsasConcluidas.error?.message
+        });
         
         const countResult = {
           count: (countPendentes.count || 0) + (countAvulsasConcluidas.count || 0),
