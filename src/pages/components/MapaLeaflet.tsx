@@ -135,6 +135,8 @@ interface MapaLeafletProps {
   mostrarEquipesTempoReal?: boolean; // Se deve mostrar equipes com turno aberto
   equipesSelecionadasFiltro?: string[]; // IDs das equipes selecionadas no filtro (só mostra essas no mapa)
   onEquipeClick?: (equipeId: string, lat: number, lng: number) => void; // Callback quando equipe é clicada
+  // Prazo limite para considerar OS como urgente (configurável pelo usuário)
+  prazoLimiteUrgente?: Date; // Se não fornecido, usa o padrão (fim do dia atual)
 }
 
 interface RouteGeometryData {
@@ -172,7 +174,7 @@ function getLucideIconSVG(iconName: string | undefined, color: string, size: num
   `;
 }
 
-export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEquipes, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, focarOSNoMapa, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear, selecionandoCoordNoMapa, onMapClick, osCoordenadasSuspeitas = [], criandoPoligono, onPoligonoCriado, onCriacaoCancelada, statusOSsTempoReal, mostrarEquipesTempoReal = true, equipesSelecionadasFiltro, onEquipeClick }: MapaLeafletProps) {
+export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEquipes, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, focarOSNoMapa, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear, selecionandoCoordNoMapa, onMapClick, osCoordenadasSuspeitas = [], criandoPoligono, onPoligonoCriado, onCriacaoCancelada, statusOSsTempoReal, mostrarEquipesTempoReal = true, equipesSelecionadasFiltro, onEquipeClick, prazoLimiteUrgente }: MapaLeafletProps) {
   
   const mapRef = useRef<HTMLDivElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -1156,6 +1158,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
   }, [selecionandoCoordNoMapa, onMapClick]);
 
   // Função auxiliar para classificar prazo
+  // Se prazoLimiteUrgente for fornecido, uma OS é considerada urgente se prazo <= prazoLimiteUrgente
   const classificarPrazo = (prazo: Date | null | undefined): 'sem_prazo' | 'futuro' | 'amanha' | 'hoje' | 'passado' => {
     if (!prazo) return 'sem_prazo';
     
@@ -1171,23 +1174,42 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
     return 'futuro';
   };
 
+  // Função para verificar se OS é urgente considerando o prazo limite configurável
+  // Retorna true se a OS deve ser tratada como urgente (para coloração vermelha, etc.)
+  const isOSUrgente = (os: OrdemServico): boolean => {
+    if (!os.regulada) return false;
+    if (!os.prazo) return false;
+    
+    const prazoDate = new Date(os.prazo);
+    
+    // Se prazoLimiteUrgente foi configurado, usa ele
+    if (prazoLimiteUrgente) {
+      return prazoDate <= prazoLimiteUrgente;
+    }
+    
+    // Fallback: usa o fim do dia atual
+    const fimDoDia = new Date();
+    fimDoDia.setHours(23, 59, 59, 999);
+    return prazoDate <= fimDoDia;
+  };
+
   // Função auxiliar para verificar se é regulada (usa apenas o campo regulada da OS)
   const ehOSRegulada = (os: OrdemServico): boolean => {
     return os.regulada === true;
   };
 
   // Função auxiliar para determinar a cor da borda baseada na prioridade
-  // REGRA: Borda vermelha APENAS para OSs com campo regulada=true E vencidas/vencendo hoje
+  // REGRA: Borda vermelha APENAS para OSs reguladas urgentes (baseado no prazo limite configurado)
   const obterCorBordaPrioridade = (os: OrdemServico): string => {
     const classificacao = classificarPrazo(os.prazo);
-    const regulada = ehOSRegulada(os); // Usa apenas os.regulada === true
+    const regulada = ehOSRegulada(os);
     
-    // Vermelho: APENAS reguladas (campo regulada=true) vencidas ou vencendo hoje
-    if (regulada && ['hoje', 'passado'].includes(classificacao)) {
+    // Vermelho: Reguladas urgentes (prazo <= prazoLimiteUrgente configurado)
+    if (regulada && isOSUrgente(os)) {
       return '#dc2626'; // Vermelho
     }
     
-    // Preto: OSs vencidas ou vencendo hoje (não reguladas) ou com prazo futuro
+    // Preto: OSs vencidas ou vencendo hoje (não reguladas) ou reguladas não urgentes
     if (['hoje', 'passado'].includes(classificacao)) {
       return '#000000'; // Preto para vencidas/vencendo hoje
     }

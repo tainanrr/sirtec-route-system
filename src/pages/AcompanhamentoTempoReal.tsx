@@ -70,6 +70,8 @@ import { OrdemServicoDetalhesDialog } from "@/components/ordens/OrdemServicoDeta
 import { ChatTorreControle } from "@/components/chat/ChatTorreControle";
 import MapaLeaflet from "@/pages/components/MapaLeaflet";
 import { Territorio } from "@/types/territorios";
+import { ConfigPrazoUrgente } from "@/components/roteirizacao/ConfigPrazoUrgente";
+import { useConfigUrgencia, verificarUrgenciaOS } from "@/hooks/useConfigUrgencia";
 
 // Tipos
 interface EquipeRota {
@@ -164,6 +166,9 @@ const STATUS_EQUIPE_CONFIG = {
 export default function AcompanhamentoTempoReal() {
   const queryClient = useQueryClient();
   const { podeEditar } = useTelaPermissao("acompanhamento_tempo_real");
+  
+  // Configuração de prazo para OSs urgentes
+  const { prazoLimiteDate } = useConfigUrgencia();
   
   // Data atual (sempre hoje)
   const hoje = format(new Date(), "yyyy-MM-dd");
@@ -1017,6 +1022,11 @@ export default function AcompanhamentoTempoReal() {
             <span className="text-sm text-muted-foreground">
               {format(new Date(), "dd/MM/yyyy HH:mm:ss", { locale: ptBR })}
             </span>
+
+            <Separator orientation="vertical" className="h-6 hidden lg:block" />
+
+            {/* Configuração de prazo para OSs urgentes */}
+            <ConfigPrazoUrgente />
           </div>
 
           {/* Controles */}
@@ -1450,7 +1460,7 @@ export default function AcompanhamentoTempoReal() {
                             <div className="space-y-1">
                               {ordensParaExibir.map((os, idx) => {
                                 const isSelected = selectedOSId === os.id || osSelecionadaNoEditor === os.id;
-                                const isUrgente = os.regulada && os.prazo && new Date(os.prazo) <= new Date();
+                                const isUrgente = verificarUrgenciaOS(os.prazo, os.regulada, prazoLimiteDate);
                                 const isConcluida = os.status === "concluida";
                                 const isEmAndamento = ["em_deslocamento", "no_local", "em_execucao", "em_andamento", "pausada"].includes(os.status);
                                 const podeMover = os.status === "planejada"; // Só pode mover OS que ainda não foi iniciada
@@ -1642,6 +1652,7 @@ export default function AcompanhamentoTempoReal() {
                     equipeEditando={selectedEquipeId}
                     osSelecionada={selectedOSId}
                     territorios={territorios || []}
+                    prazoLimiteUrgente={prazoLimiteDate}
                     onOSSelecionada={(osId) => {
                       setSelectedOSId(osId);
                       if (osId) {

@@ -1,0 +1,232 @@
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useWebAuth } from "@/contexts/WebAuthContext";
+import { toast } from "sonner";
+
+interface ConfigUrgencia {
+  id: string;
+  usuario_id: string;
+  prazo_limite_urgente: string; // ISO timestamp
+  atualizado_em: string;
+  atualizado_automaticamente: boolean;
+}
+
+/**
+ * Hook para gerenciar a configuração de prazo limite para OSs urgentes.
+ * 
+ * O prazo limite define até qual data/hora as OSs reguladas são consideradas urgentes.
+ * Por padrão, às 00:01 de cada dia, o sistema reseta para o próximo dia às 10h.
+ * Quando o usuário altera manualmente, o valor persiste até o próximo reset automático.
+ */
+export function useConfigUrgencia() {
+  const { usuarioWeb } = useWebAuth();
+  const [config, setConfig] = useState<ConfigUrgencia | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Calcular prazo padrão (próximo dia às 10h no horário de Brasília)
+  const calcularPrazoPadrao = useCallback((): Date => {
+    const agora = new Date();
+    const amanha = new Date(agora);
+    amanha.setDate(amanha.getDate() + 1);
+    amanha.setHours(10, 0, 0, 0);
+    return amanha;
+  }, []);
+
+  // Carregar configuração do usuário
+  const loadConfig = useCallback(async () => {
+    if (!usuarioWeb?.id) {
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      
+      const { data, error } = await supabase
+        .from("config_prazo_urgente")
+        .select("*")
+        .eq("usuario_id", usuarioWeb.id)
+        .maybeSingle();
+
+      if (error) {
+        console.error("[useConfigUrgencia] Erro ao carregar config:", error);
+        return;
+      }
+
+      if (data) {
+        setConfig(data);
+      } else {
+        // Se não existe, criar com o padrão
+        const prazoPadrao = calcularPrazoPadrao();
+        const novaConfig = {
+          usuario_id: usuarioWeb.id,
+          prazo_limite_urgente: prazoPadrao.toISOString(),
+          atualizado_automaticamente: true,
+        };
+
+        const { data: insertedData, error: insertError } = await supabase
+          .from("config_prazo_urgente")
+          .insert(novaConfig)
+          .select()
+          .single();
+
+        if (insertError) {
+          console.error("[useConfigUrgencia] Erro ao criar config:", insertError);
+        } else if (insertedData) {
+          setConfig(insertedData);
+        }
+      }
+    } catch (err) {
+      console.error("[useConfigUrgencia] Erro:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [usuarioWeb?.id, calcularPrazoPadrao]);
+
+  // Salvar nova configuração
+  const salvarPrazoLimite = useCallback(async (novoPrazo: Date): Promise<boolean> => {
+    if (!usuarioWeb?.id) {
+      toast.error("Usuário não autenticado");
+      return false;
+    }
+
+    try {
+      setIsSaving(true);
+
+      const { data, error } = await supabase
+        .from("config_prazo_urgente")
+        .upsert({
+          usuario_id: usuarioWeb.id,
+          prazo_limite_urgente: novoPrazo.toISOString(),
+          atualizado_em: new Date().toISOString(),
+          atualizado_automaticamente: false, // Atualização manual
+        }, {
+          onConflict: "usuario_id",
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error("[useConfigUrgencia] Erro ao salvar:", error);
+        toast.error("Erro ao salvar configuração");
+        return false;
+      }
+
+      setConfig(data);
+      toast.success("Prazo limite atualizado!");
+      return true;
+    } catch (err) {
+      console.error("[useConfigUrgencia] Erro:", err);
+      toast.error("Erro ao salvar configuração");
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  }, [usuarioWeb?.id]);
+
+  // Resetar para o padrão
+  const resetarParaPadrao = useCallback(async (): Promise<boolean> => {
+    const prazoPadrao = calcularPrazoPadrao();
+    return salvarPrazoLimite(prazoPadrao);
+  }, [calcularPrazoPadrao, salvarPrazoLimite]);
+
+  // Prazo limite como Date
+  const prazoLimiteDate = useMemo((): Date => {
+    if (config?.prazo_limite_urgente) {
+      return new Date(config.prazo_limite_urgente);
+    }
+    return calcularPrazoPadrao();
+  }, [config?.prazo_limite_urgente, calcularPrazoPadrao]);
+
+  // Verificar se uma OS é urgente baseado no prazo limite configurado
+  const isOSUrgente = useCallback((prazo: string | null | undefined, regulada: boolean | null | undefined): boolean => {
+    // Não regulada = não urgente (por prazo)
+    if (!regulada) return false;
+    // Sem prazo = não dá para determinar urgência
+    if (!prazo) return false;
+
+    const prazoDate = new Date(prazo);
+    // Urgente se o prazo da OS é menor ou igual ao prazo limite configurado
+    return prazoDate <= prazoLimiteDate;
+  }, [prazoLimiteDate]);
+
+  // Carregar ao montar ou quando usuário mudar
+  useEffect(() => {
+    loadConfig();
+  }, [loadConfig]);
+
+  // Verificar se precisa resetar (às 00:01 de cada dia)
+  useEffect(() => {
+    if (!config) return;
+
+    const verificarReset = () => {
+      const agora = new Date();
+      const ultimaAtualizacao = new Date(config.atualizado_em);
+      
+      // Se foi atualizado manualmente hoje, não resetar
+      if (!config.atualizado_automaticamente) {
+        const hoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
+        const diaAtualizacao = new Date(ultimaAtualizacao.getFullYear(), ultimaAtualizacao.getMonth(), ultimaAtualizacao.getDate());
+        
+        if (hoje.getTime() === diaAtualizacao.getTime()) {
+          return; // Atualização manual de hoje, não resetar
+        }
+      }
+
+      // Verificar se é um novo dia (precisa resetar)
+      const diaConfig = new Date(ultimaAtualizacao.getFullYear(), ultimaAtualizacao.getMonth(), ultimaAtualizacao.getDate());
+      const diaAtual = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
+
+      if (diaAtual > diaConfig) {
+        console.log("[useConfigUrgencia] Novo dia detectado, resetando para padrão...");
+        resetarParaPadrao();
+      }
+    };
+
+    // Verificar ao carregar
+    verificarReset();
+
+    // Verificar a cada minuto
+    const interval = setInterval(verificarReset, 60000);
+
+    return () => clearInterval(interval);
+  }, [config, resetarParaPadrao]);
+
+  return {
+    /** Configuração atual salva no banco */
+    config,
+    /** Data/hora limite para considerar OS como urgente */
+    prazoLimiteDate,
+    /** Se está carregando a configuração */
+    isLoading,
+    /** Se está salvando a configuração */
+    isSaving,
+    /** Salvar novo prazo limite */
+    salvarPrazoLimite,
+    /** Resetar para o padrão (próximo dia às 10h) */
+    resetarParaPadrao,
+    /** Verificar se uma OS é urgente baseado no prazo limite */
+    isOSUrgente,
+    /** Recarregar configuração do banco */
+    recarregar: loadConfig,
+  };
+}
+
+/**
+ * Função helper para verificar urgência fora do React (uso em funções puras)
+ * @param prazo - Prazo da OS
+ * @param regulada - Se a OS é regulada
+ * @param prazoLimite - Data limite configurada para urgência
+ */
+export function verificarUrgenciaOS(
+  prazo: string | null | undefined,
+  regulada: boolean | null | undefined,
+  prazoLimite: Date
+): boolean {
+  if (!regulada) return false;
+  if (!prazo) return false;
+  
+  const prazoDate = new Date(prazo);
+  return prazoDate <= prazoLimite;
+}

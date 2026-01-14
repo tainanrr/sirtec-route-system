@@ -136,6 +136,8 @@ import ExpectativaEquipesDialog from "./components/ExpectativaEquipesDialog";
 import SelecaoTerritoriosDialog from "./components/SelecaoTerritoriosDialog";
 import SelecaoOpcoesRoteiroDialog from "./components/SelecaoOpcoesRoteiroDialog";
 import { OrdemServicoDetalhesDialog } from "@/components/ordens/OrdemServicoDetalhesDialog";
+import { ConfigPrazoUrgente } from "@/components/roteirizacao/ConfigPrazoUrgente";
+import { useConfigUrgencia } from "@/hooks/useConfigUrgencia";
 
 // Mapa dinâmico de tipo -> nome (preenchido com dados do banco)
 let skillsNomesMap: Map<string, string> = new Map();
@@ -259,6 +261,9 @@ interface OsPendenteRemocao {
 const Roteirizacao = () => {
   // Permissões da tela
   const { podeEditar } = useTelaPermissao("roteirizacao");
+  
+  // Configuração de prazo para OSs urgentes
+  const { prazoLimiteDate, isOSUrgente: verificarOSUrgente } = useConfigUrgencia();
 
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -1616,15 +1621,11 @@ const Roteirizacao = () => {
   }, [tiposServicosCadastrados, ordensServico]);
 
   // V19.6/V19.7: Calcular OSs URGENTES que NÃO estão em nenhum território selecionado
-  // Urgente = RELIGA OU (Regulada com prazo vencido ou vencendo hoje)
+  // Urgente = RELIGA OU (Regulada com prazo até o limite configurado pelo usuário)
   const osUrgentesForaTerritorios = useMemo(() => {
     if (!usarTerritorios || territoriosSelecionados.length === 0) {
       return [];
     }
-
-    const agora = new Date();
-    const fimDoDia = new Date();
-    fimDoDia.setHours(23, 59, 59, 999);
 
     const territoriosSelecionadosObjs = territorios.filter(t => territoriosSelecionados.includes(t.id));
 
@@ -1639,14 +1640,14 @@ const Roteirizacao = () => {
         return !estaEmAlgumTerritorio;
       }
 
-      // Para reguladas: só é urgente se o prazo está vencido ou vence hoje
+      // Para reguladas: usar verificação baseada no prazo limite configurado pelo usuário
       const ehRegulada = os.regulada === true;
       if (ehRegulada && os.prazo) {
         const prazoDate = new Date(os.prazo);
-        // Prazo vencido (passou) ou vence até o fim de hoje
-        const prazoVencidoOuHoje = prazoDate <= fimDoDia;
+        // Prazo vencido ou vence até o limite configurado pelo usuário
+        const prazoUrgente = prazoDate <= prazoLimiteDate;
         
-        if (prazoVencidoOuHoje) {
+        if (prazoUrgente) {
           const estaEmAlgumTerritorio = territoriosSelecionadosObjs.some(t =>
             t.ativo && t.poligono.length >= 3 && pontoNoPoligono({ lat: os.latitude, lng: os.longitude }, t.poligono)
           );
@@ -1657,7 +1658,7 @@ const Roteirizacao = () => {
       // Não é urgente
       return false;
     });
-  }, [osPendentesTodas, usarTerritorios, territoriosSelecionados, territorios]);
+  }, [osPendentesTodas, usarTerritorios, territoriosSelecionados, territorios, prazoLimiteDate]);
   
   // Estado para controlar exibição do dialog de OSs urgentes fora de territórios
   const [mostrarOsUrgentesForaDialog, setMostrarOsUrgentesForaDialog] = useState(false);
@@ -4787,11 +4788,15 @@ const Roteirizacao = () => {
           : "border-border bg-card"
       )}>
         <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">
-              {modoAcaoAtivo ? "Controle de Rotas em Execução" : "Roteirização do Dia"}
-            </h2>
-            <p className="text-sm text-muted-foreground">{formatarData()}</p>
+          <div className="flex items-center gap-4">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">
+                {modoAcaoAtivo ? "Controle de Rotas em Execução" : "Roteirização do Dia"}
+              </h2>
+              <p className="text-sm text-muted-foreground">{formatarData()}</p>
+            </div>
+            {/* Configuração do prazo limite para OSs urgentes */}
+            <ConfigPrazoUrgente />
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button
@@ -5609,7 +5614,7 @@ const Roteirizacao = () => {
                   ⚠️ {osUrgentesForaTerritorios.length} OS(s) Urgente(s) Fora dos Territórios Selecionados
                 </h3>
                 <p className="text-sm text-red-800 dark:text-red-200 mt-1">
-                  Existem ordens de serviço com prazo urgente (RELIGA, Reguladas, ou prazo para hoje) que estão localizadas 
+                  Existem ordens de serviço com prazo urgente (RELIGA ou Reguladas até o prazo limite configurado) que estão localizadas 
                   <strong> fora </strong> dos territórios selecionados e <strong>não serão roteirizadas</strong>.
                 </p>
                 <div className="flex flex-wrap gap-2 mt-3">
@@ -5664,7 +5669,7 @@ const Roteirizacao = () => {
               OSs Urgentes Fora dos Territórios ({osUrgentesForaTerritorios.length})
             </DialogTitle>
             <DialogDescription>
-              Estas ordens de serviço são urgentes (<strong>RELIGA</strong> ou <strong>Reguladas vencidas/vencendo hoje</strong>) mas estão localizadas
+              Estas ordens de serviço são urgentes (<strong>RELIGA</strong> ou <strong>Reguladas com prazo até o limite configurado</strong>) mas estão localizadas
               fora dos territórios selecionados para roteirização. Considere adicionar novos territórios ou expandir os existentes.
             </DialogDescription>
           </DialogHeader>
@@ -6186,6 +6191,7 @@ const Roteirizacao = () => {
                 osSelecionadaNoEditor={osSelecionadaNoEditor}
                 focarOSNoMapa={focarOSNoMapa}
                 statusOSsTempoReal={statusOSsTempoReal}
+                prazoLimiteUrgente={prazoLimiteDate}
                 onOSSelecionada={(osId) => {
                   setOsSelecionadaNoMapa(osId);
                   // Também destacar no Editor de Rotas (sem focar no mapa)
