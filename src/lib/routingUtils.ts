@@ -438,7 +438,8 @@ function extrairBairro(endereco: string): string {
 // ============================================================================
 export function calcularSugestaoEquipes(
   ordensServico: OrdemServico[],
-  equipes: Equipe[]
+  equipes: Equipe[],
+  prazoLimiteUrgente?: Date // Prazo limite configurável pelo usuário para considerar OS como urgente
 ): SugestaoEquipes {
   // Calcular jornada média em minutos
   const jornadasMin = equipes.map(e => (e.maxHorasTrabalho || e.jornadaHoras || 8) * 60);
@@ -447,12 +448,12 @@ export function calcularSugestaoEquipes(
   // Descontar almoço (média de 60 min)
   const tempoUtilPorEquipeMin = jornadaMediaMin - 60;
   
-  // Separar reguladas urgentes (hoje/vencidas)
-  const reguladasHoje = ordensServico.filter(os => ehReguladaUrgente(os));
+  // Separar reguladas urgentes (vencidas ou vencendo até o prazo limite configurado)
+  const reguladasUrgentes = ordensServico.filter(os => ehReguladaUrgente(os, prazoLimiteUrgente));
   const todasOSs = ordensServico;
   
-  // Calcular tempo total para reguladas
-  const tempoTotalReguladasMin = reguladasHoje.reduce((acc, os) => {
+  // Calcular tempo total para reguladas urgentes
+  const tempoTotalReguladasMin = reguladasUrgentes.reduce((acc, os) => {
     return acc + os.tempoExecucao + getTempoMedioDeslocamento();
   }, 0);
   
@@ -462,8 +463,8 @@ export function calcularSugestaoEquipes(
   }, 0);
   
   // Calcular tempo médio
-  const tempoMedioRegulada = reguladasHoje.length > 0 
-    ? tempoTotalReguladasMin / reguladasHoje.length 
+  const tempoMedioRegulada = reguladasUrgentes.length > 0 
+    ? tempoTotalReguladasMin / reguladasUrgentes.length 
     : 0;
   const tempoMedioOS = todasOSs.length > 0 
     ? tempoTotalOSsMin / todasOSs.length 
@@ -476,7 +477,7 @@ export function calcularSugestaoEquipes(
   return {
     equipesParaReguladas: Math.max(1, equipesParaReguladas),
     equipesParaTodasOSs: Math.max(1, equipesParaTodasOSs),
-    totalReguladasHoje: reguladasHoje.length,
+    totalReguladasHoje: reguladasUrgentes.length, // Renomeado internamente mas mantém a interface externa
     totalOSs: todasOSs.length,
     tempoMedioRegulada,
     tempoMedioOS,
@@ -1005,7 +1006,8 @@ export async function otimizarRotas(
   usarTerritorios: boolean = false,
   territoriosSelecionadosIds?: string[],
   estrategia?: 'financeiro' | 'quantidade' | 'distancia',
-  parametrosCustomizados?: Partial<ParametrosRoteirizacao>
+  parametrosCustomizados?: Partial<ParametrosRoteirizacao>,
+  prazoLimiteUrgente?: Date // Prazo limite configurável pelo usuário para considerar OS como urgente
 ): Promise<ResultadoOtimizacao> {
   // Aplicar parâmetros customizados (se fornecidos) sobre os padrões
   PARAMS = { ...PARAMETROS_PADRAO, ...parametrosCustomizados };
@@ -1042,11 +1044,11 @@ export async function otimizarRotas(
   const naoAlocadas: NaoAlocada[] = [];
   const osAlocadas = new Set<string>();
 
-  // V17: Calcular sugestão de equipes
-  const sugestaoEquipes = calcularSugestaoEquipes(oss, equipes);
+  // V17: Calcular sugestão de equipes (considerando prazo limite configurável)
+  const sugestaoEquipes = calcularSugestaoEquipes(oss, equipes, prazoLimiteUrgente);
   console.log(`[ROUTING]`);
   console.log(`[ROUTING] 📊 SUGESTÃO DE EQUIPES:`);
-  console.log(`[ROUTING]   Para reguladas vencendo hoje (${sugestaoEquipes.totalReguladasHoje}): ${sugestaoEquipes.equipesParaReguladas} equipes`);
+  console.log(`[ROUTING]   Para reguladas urgentes (${sugestaoEquipes.totalReguladasHoje}): ${sugestaoEquipes.equipesParaReguladas} equipes`);
   console.log(`[ROUTING]   Para todas as OSs (${sugestaoEquipes.totalOSs}): ${sugestaoEquipes.equipesParaTodasOSs} equipes`);
 
   // ============================================================================
@@ -1282,7 +1284,8 @@ export async function otimizarRotas(
     const emergencia = ehEmergencia(os);
     const regulada = ehOSRegulada(os);
     
-    const ehReguladaUrgenteOS = regulada && ['hoje', 'passado'].includes(classificacao);
+    // Usar prazoLimiteUrgente configurável para determinar se é urgente
+    const ehReguladaUrgenteOS = ehReguladaUrgente(os, prazoLimiteUrgente);
     const limiteRural = ehReguladaUrgenteOS ? getRaioRuralRegulada() : getRaioRural();
     
     // V17: Não aplicar filtro rural quando usando territórios
@@ -1291,14 +1294,16 @@ export async function otimizarRotas(
       continue;
     }
     
-    if (['hoje', 'passado'].includes(classificacao)) {
-      if (emergencia) {
-        osEmergencias.push(os);
-      } else if (regulada) {
-        osReguladasHoje.push(os);
-      } else {
-        osUrgentes.push(os);
-      }
+    // Usar função ehReguladaUrgente com prazo limite configurável
+    if (emergencia && ['hoje', 'passado'].includes(classificacao)) {
+      // Emergências sempre têm máxima prioridade se vencendo/vencidas
+      osEmergencias.push(os);
+    } else if (ehReguladaUrgenteOS) {
+      // Reguladas urgentes (até o prazo limite configurado pelo usuário)
+      osReguladasHoje.push(os);
+    } else if (['hoje', 'passado'].includes(classificacao)) {
+      // Outras OSs vencendo hoje/vencidas mas não reguladas
+      osUrgentes.push(os);
     } else if (classificacao === 'amanha') {
       osProximoDia.push(os);
     } else {
@@ -1376,7 +1381,7 @@ export async function otimizarRotas(
   }
   
   console.log(`[ROUTING] EMERGÊNCIAS (RELIGA): ${osEmergencias.length}`);
-  console.log(`[ROUTING] ⚡ REGULADAS HOJE (PRIORIDADE ABSOLUTA): ${osReguladasHoje.length}`);
+  console.log(`[ROUTING] ⚡ REGULADAS URGENTES (PRIORIDADE ABSOLUTA): ${osReguladasHoje.length}`);
   console.log(`[ROUTING] Urgentes: ${osUrgentes.length}`);
   console.log(`[ROUTING] Próximo dia: ${osProximoDia.length}`);
   console.log(`[ROUTING] Normais: ${osNormais.length}`);
@@ -1440,8 +1445,8 @@ export async function otimizarRotas(
     console.log(`[ROUTING] ═ Resumo das Zonas ═`);
     for (const zona of zonas) {
       const equipeAtribuida = rotas.find(r => r.zonaId === zona.id)?.equipe.codigo || 'NENHUMA';
-      const reguladasNaZona = zona.oss.filter(os => ehReguladaUrgente(os)).length;
-      console.log(`[ROUTING] Zona ${zona.id}: ${zona.oss.length} OSs (${reguladasNaZona} reguladas hoje) → ${equipeAtribuida}`);
+      const reguladasNaZona = zona.oss.filter(os => ehReguladaUrgente(os, prazoLimiteUrgente)).length;
+      console.log(`[ROUTING] Zona ${zona.id}: ${zona.oss.length} OSs (${reguladasNaZona} reguladas urgentes) → ${equipeAtribuida}`);
     }
   } else {
     console.log(`[ROUTING]`);
@@ -2901,9 +2906,9 @@ export async function otimizarRotas(
   const reguladasAlocadas = osReguladasHoje.filter(os => 
     rotas.some(r => r.servicos.some(s => s.ordemServico?.id === os.id))
   ).length;
-  console.log(`[ROUTING] ⚡ REGULADAS HOJE: ${reguladasAlocadas}/${osReguladasHoje.length} alocadas`);
+  console.log(`[ROUTING] ⚡ REGULADAS URGENTES: ${reguladasAlocadas}/${osReguladasHoje.length} alocadas`);
   if (reguladasAlocadas < osReguladasHoje.length) {
-    console.log(`[ROUTING] ⚠️ ATENÇÃO: ${osReguladasHoje.length - reguladasAlocadas} reguladas críticas NÃO foram alocadas!`);
+    console.log(`[ROUTING] ⚠️ ATENÇÃO: ${osReguladasHoje.length - reguladasAlocadas} reguladas urgentes NÃO foram alocadas!`);
   }
   
   // Log das OSs normais removidas
@@ -3482,7 +3487,7 @@ export async function otimizarRotas(
               todasValidas = false;
             }
             // Reguladas urgentes podem atrasar até 120min
-            else if (ehReguladaUrgente(os)) {
+            else if (ehReguladaUrgente(os, prazoLimiteUrgente)) {
               const atraso = tempoAtual - prazoMin;
               if (atraso > 120) {
                 todasValidas = false;
@@ -4980,17 +4985,17 @@ export async function otimizarRotas(
     console.log(`[ROUTING]   Bairros: ${[...bairrosAtendidos].slice(0, 5).join(', ')}`);
   }
   
-  const reguladasNaoAlocadas = naoAlocadas.filter(na => ehReguladaUrgente(na.os));
+  const reguladasNaoAlocadas = naoAlocadas.filter(na => ehReguladaUrgente(na.os, prazoLimiteUrgente));
   
   console.log(`[ROUTING]`);
   console.log(`[ROUTING] Não alocadas: ${naoAlocadas.length}`);
   if (reguladasNaoAlocadas.length > 0) {
-    console.log(`[ROUTING] ⚠️ REGULADAS HOJE NÃO ALOCADAS: ${reguladasNaoAlocadas.length}`);
+    console.log(`[ROUTING] ⚠️ REGULADAS URGENTES NÃO ALOCADAS: ${reguladasNaoAlocadas.length}`);
     for (const na of reguladasNaoAlocadas) {
       console.log(`[ROUTING]   - ${na.os.numero}: ${na.motivo}`);
     }
   } else if (osReguladasHoje.length > 0) {
-    console.log(`[ROUTING] ✅ TODAS AS REGULADAS HOJE FORAM ALOCADAS!`);
+    console.log(`[ROUTING] ✅ TODAS AS REGULADAS URGENTES FORAM ALOCADAS!`);
   }
   
   console.log(`[ROUTING]`);
@@ -5042,7 +5047,8 @@ export async function otimizarRotas(
       osParaTerritorio,
       equipesPorTerritorio,
       equipeEstaNoTerritorioDaOS,
-      sugestaoEquipes
+      sugestaoEquipes,
+      prazoLimiteUrgente
     );
   }
 
@@ -5064,7 +5070,8 @@ export async function otimizarRotas(
 function calcularMetricasRoteiro(
   rotas: RotaEquipe[],
   naoAlocadas: NaoAlocada[],
-  osUrgentesTotal: number
+  osUrgentesTotal: number,
+  prazoLimiteUrgente?: Date
 ): OpcaoRoteiro['metricas'] {
   const totalOSs = rotas.reduce((sum, r) => 
     sum + r.servicos.filter(s => s.tipo === 'SERVICO').length, 0
@@ -5084,7 +5091,7 @@ function calcularMetricasRoteiro(
   const osUrgentesAlocadas = rotas.reduce((sum, r) => {
     return sum + r.servicos.filter(s => {
       if (s.tipo !== 'SERVICO' || !s.ordemServico) return false;
-      return ehReguladaUrgente(s.ordemServico) || 
+      return ehReguladaUrgente(s.ordemServico, prazoLimiteUrgente) || 
              (ehEmergencia(s.ordemServico) && ['hoje', 'passado'].includes(classificarPrazo(s.ordemServico.prazo)));
     }).length;
   }, 0);
@@ -5120,13 +5127,14 @@ async function gerarOpcoesRoteiros(
   osParaTerritorio: Map<string, string>,
   equipesPorTerritorio: Map<string, string[]>,
   equipeEstaNoTerritorioDaOS: (osId: string, equipeId: string) => boolean,
-  sugestaoEquipes: SugestaoEquipes
+  sugestaoEquipes: SugestaoEquipes,
+  prazoLimiteUrgente?: Date
 ): Promise<OpcaoRoteiro[]> {
   console.log(`[ROUTING]`);
   console.log(`[ROUTING] ══ V20: Gerando Múltiplas Opções de Roteiros ══`);
   
   const osUrgentesTotal = oss.filter(os => 
-    ehReguladaUrgente(os) || 
+    ehReguladaUrgente(os, prazoLimiteUrgente) || 
     (ehEmergencia(os) && ['hoje', 'passado'].includes(classificarPrazo(os.prazo)))
   ).length;
   
@@ -5142,12 +5150,14 @@ async function gerarOpcoesRoteiros(
     osParaTerritorio,
     equipesPorTerritorio,
     equipeEstaNoTerritorioDaOS,
-    'financeiro'
+    'financeiro',
+    prazoLimiteUrgente
   );
   const metricasFinanceiro = calcularMetricasRoteiro(
     resultadoFinanceiro.rotas,
     resultadoFinanceiro.naoAlocadas,
-    osUrgentesTotal
+    osUrgentesTotal,
+    prazoLimiteUrgente
   );
   opcoes.push({
     id: 'financeiro',
@@ -5170,12 +5180,14 @@ async function gerarOpcoesRoteiros(
     osParaTerritorio,
     equipesPorTerritorio,
     equipeEstaNoTerritorioDaOS,
-    'quantidade'
+    'quantidade',
+    prazoLimiteUrgente
   );
   const metricasQuantidade = calcularMetricasRoteiro(
     resultadoQuantidade.rotas,
     resultadoQuantidade.naoAlocadas,
-    osUrgentesTotal
+    osUrgentesTotal,
+    prazoLimiteUrgente
   );
   opcoes.push({
     id: 'quantidade',
@@ -5198,12 +5210,14 @@ async function gerarOpcoesRoteiros(
     osParaTerritorio,
     equipesPorTerritorio,
     equipeEstaNoTerritorioDaOS,
-    'distancia'
+    'distancia',
+    prazoLimiteUrgente
   );
   const metricasDistancia = calcularMetricasRoteiro(
     resultadoDistancia.rotas,
     resultadoDistancia.naoAlocadas,
-    osUrgentesTotal
+    osUrgentesTotal,
+    prazoLimiteUrgente
   );
   opcoes.push({
     id: 'distancia',
@@ -5291,7 +5305,8 @@ async function otimizarRotasInterno(
   osParaTerritorio: Map<string, string>,
   equipesPorTerritorio: Map<string, string[]>,
   equipeEstaNoTerritorioDaOS: (osId: string, equipeId: string) => boolean,
-  estrategia: 'financeiro' | 'quantidade' | 'distancia'
+  estrategia: 'financeiro' | 'quantidade' | 'distancia',
+  prazoLimiteUrgente?: Date
 ): Promise<{ rotas: RotaEquipe[]; naoAlocadas: NaoAlocada[] }> {
   console.log(`[ROUTING]   Estratégia: ${estrategia}`);
   
@@ -5304,7 +5319,7 @@ async function otimizarRotasInterno(
     const naoUrgentes: OrdemServico[] = [];
     
     for (const os of oss) {
-      const urgente = ehReguladaUrgente(os) || 
+      const urgente = ehReguladaUrgente(os, prazoLimiteUrgente) || 
         (ehEmergencia(os) && ['hoje', 'passado'].includes(classificarPrazo(os.prazo)));
       if (urgente) {
         urgentes.push(os);
@@ -5359,7 +5374,9 @@ async function otimizarRotasInterno(
     equipes,
     usarTerritorios,
     territoriosSelecionadosIds.length > 0 ? territoriosSelecionadosIds : undefined,
-    estrategia // Passar estratégia para aplicar ordenação adicional internamente
+    estrategia, // Passar estratégia para aplicar ordenação adicional internamente
+    undefined, // parametrosCustomizados
+    prazoLimiteUrgente // prazoLimiteUrgente
   );
   
   console.log(`[ROUTING]   Resultado ${estrategia}: ${resultado.rotas.reduce((sum, r) => sum + r.servicos.filter(s => s.tipo === 'SERVICO').length, 0)} OSs, R$ ${resultado.rotas.reduce((sum, r) => sum + r.faturamentoTotal, 0).toFixed(2)}, ${resultado.rotas.reduce((sum, r) => sum + r.distanciaTotal, 0).toFixed(1)}km`);

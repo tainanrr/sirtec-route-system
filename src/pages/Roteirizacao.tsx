@@ -3115,7 +3115,8 @@ const Roteirizacao = () => {
         usarTerritorios,
         usarTerritorios ? territoriosSelecionados : undefined,
         undefined, // estrategia
-        Object.keys(parametrosCustomizados).length > 0 ? parametrosCustomizados : undefined
+        Object.keys(parametrosCustomizados).length > 0 ? parametrosCustomizados : undefined,
+        prazoLimiteDate // prazoLimiteUrgente - prazo limite configurável pelo usuário
       );
 
       // V20: Se há múltiplas opções de roteiros, mostrar dialog de seleção
@@ -3194,7 +3195,15 @@ const Roteirizacao = () => {
       // Mas vamos tentar novamente para garantir
       try {
         const osParaFallback = hasAnyFilter ? filteredServicos : osPendentes;
-        const resultadoFallback = await otimizarRotas(osParaFallback, equipesAtivas, usarTerritorios);
+        const resultadoFallback = await otimizarRotas(
+          osParaFallback, 
+          equipesAtivas, 
+          usarTerritorios,
+          undefined, // territoriosSelecionadosIds
+          undefined, // estrategia
+          undefined, // parametrosCustomizados
+          prazoLimiteDate // prazoLimiteUrgente
+        );
         setRotas(resultadoFallback.rotas);
         const mapaNaoAlocadas = resultadoFallback.naoAlocadas.reduce((acc, item) => {
           acc[item.os.id] = item.motivo;
