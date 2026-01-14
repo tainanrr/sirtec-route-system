@@ -4060,14 +4060,15 @@ const Roteirizacao = () => {
     }
 
     const osIdsParaMarcar: string[] = [];
+    const osIdsParaRemoverDireto: { equipeId: string; osId: string; osNumero: string; indice: number }[] = [];
     
     // Verificar cada OS selecionada
     for (const osId of ossSelecionadasParaRemocao) {
       // Encontrar a rota e a OS
-      let osInfo: { equipeId: string; osNumero: string; osStatus: string } | null = null;
-      
       for (const rota of rotas) {
-        const servico = rota.servicos.find(s => s.tipo === 'SERVICO' && s.ordemServico?.id === osId);
+        const indice = rota.servicos.findIndex(s => s.tipo === 'SERVICO' && s.ordemServico?.id === osId);
+        const servico = indice >= 0 ? rota.servicos[indice] : null;
+        
         if (servico && servico.ordemServico) {
           const statusInfo = statusOSsTempoReal?.get(osId);
           const statusAtual = statusInfo?.status || servico.ordemServico.status || "planejada";
@@ -4084,28 +4085,65 @@ const Roteirizacao = () => {
             continue;
           }
           
-          osInfo = {
-            equipeId: rota.equipe.id,
-            osNumero: servico.ordemServico.numero,
-            osStatus: statusAtual,
-          };
+          // Verificar se o turno da equipe está aberto
+          const turnoAberto = equipesOfflineInfo.has(rota.equipe.id);
+          
+          if (isRotaDoDiaAtual() && turnoAberto) {
+            // Turno aberto e rota do dia atual - criar pendência
+            setOsPendentesRemocaoLocal(prev => {
+              if (prev.some(p => p.osId === osId)) return prev;
+              return [...prev, {
+                osId,
+                osNumero: servico.ordemServico!.numero,
+                osStatus: statusAtual,
+                equipeId: rota.equipe.id,
+              }];
+            });
+            osIdsParaMarcar.push(osId);
+          } else {
+            // Turno fechado ou data futura - remover diretamente
+            osIdsParaRemoverDireto.push({
+              equipeId: rota.equipe.id,
+              osId,
+              osNumero: servico.ordemServico.numero,
+              indice
+            });
+          }
           break;
         }
       }
-      
-      if (osInfo) {
-        // Adicionar à lista local de pendências
-        setOsPendentesRemocaoLocal(prev => {
-          if (prev.some(p => p.osId === osId)) return prev;
-          return [...prev, {
-            osId,
-            osNumero: osInfo!.osNumero,
-            osStatus: osInfo!.osStatus,
-            equipeId: osInfo!.equipeId,
-          }];
-        });
-        osIdsParaMarcar.push(osId);
+    }
+
+    // Remover OSs diretamente (turno fechado ou data futura)
+    if (osIdsParaRemoverDireto.length > 0) {
+      // Agrupar por equipe para remover de uma vez
+      const remocoesPorEquipe = new Map<string, number[]>();
+      for (const item of osIdsParaRemoverDireto) {
+        if (!remocoesPorEquipe.has(item.equipeId)) {
+          remocoesPorEquipe.set(item.equipeId, []);
+        }
+        remocoesPorEquipe.get(item.equipeId)!.push(item.indice);
       }
+      
+      setRotas(prevRotas => {
+        return prevRotas.map(rota => {
+          const indices = remocoesPorEquipe.get(rota.equipe.id);
+          if (indices && indices.length > 0) {
+            // Ordenar índices de forma decrescente para remover sem afetar os outros
+            const indicesOrdenados = [...indices].sort((a, b) => b - a);
+            const novosServicos = [...rota.servicos];
+            for (const idx of indicesOrdenados) {
+              novosServicos.splice(idx, 1);
+            }
+            const rotaAtualizada = { ...rota, servicos: novosServicos };
+            return recalcularRota(rotaAtualizada).rota;
+          }
+          return rota;
+        });
+      });
+      
+      const turnoInfo = osIdsParaRemoverDireto.length === 1 ? "(turno fechado)" : "(turnos fechados)";
+      toast.success(`${osIdsParaRemoverDireto.length} OS(s) removida(s) diretamente ${turnoInfo}`);
     }
 
     if (osIdsParaMarcar.length > 0) {
@@ -4226,10 +4264,13 @@ const Roteirizacao = () => {
     }
 
     // Regra 3: Se estamos editando um planejamento existente do dia atual
-    // e a OS já foi sincronizada, criar pendência
-    console.log(`[REMOVER OS] Verificando se deve criar pendência - planejamentoEditandoId: ${planejamentoEditandoId}, isRotaDoDiaAtual(): ${isRotaDoDiaAtual()}`);
-    if (planejamentoEditandoId && isRotaDoDiaAtual()) {
-      console.log(`[REMOVER OS] É planejamento existente do dia atual - verificando status atual no banco`);
+    // e a OS já foi sincronizada E o turno está aberto, criar pendência
+    // Se o turno está fechado, não precisa de confirmação - remover diretamente
+    const turnoAberto = equipesOfflineInfo.has(equipeId);
+    console.log(`[REMOVER OS] Verificando se deve criar pendência - planejamentoEditandoId: ${planejamentoEditandoId}, isRotaDoDiaAtual(): ${isRotaDoDiaAtual()}, turnoAberto: ${turnoAberto}`);
+    
+    if (planejamentoEditandoId && isRotaDoDiaAtual() && turnoAberto) {
+      console.log(`[REMOVER OS] É planejamento existente do dia atual COM TURNO ABERTO - verificando status atual no banco`);
       // Buscar status atual da OS no banco (pode ter mudado)
       const { data: osAtual, error } = await supabase
         .from("ordens_servico")
@@ -4271,8 +4312,12 @@ const Roteirizacao = () => {
       }
     }
 
-    // Para planejamentos novos ou futuros, remover diretamente
-    console.log(`[REMOVER OS] Removendo diretamente (planejamento novo ou futuro)`);
+    // Para planejamentos novos, futuros ou com turno fechado, remover diretamente
+    const turnoFechado = !equipesOfflineInfo.has(equipeId);
+    const motivo = !planejamentoEditandoId ? "planejamento novo" : 
+                   !isRotaDoDiaAtual() ? "data futura" : 
+                   turnoFechado ? "TURNO FECHADO" : "outro";
+    console.log(`[REMOVER OS] Removendo diretamente (${motivo})`);
     removerOSDaRotaEfetivo(equipeId, servicos, indiceRemover, osNumero);
   };
 
