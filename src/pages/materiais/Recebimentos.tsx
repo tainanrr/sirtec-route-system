@@ -2758,7 +2758,7 @@ Regras:
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead>Linha</TableHead>
+                            <TableHead className="w-20">Linhas</TableHead>
                             <TableHead>Código</TableHead>
                             <TableHead className="text-center">Qtd</TableHead>
                             <TableHead className="text-right">Valor Unit.</TableHead>
@@ -2771,7 +2771,28 @@ Regras:
                           {importRows.map((r) => (
                             <TableRow key={`${r.rowIndex}-${r.codigo}`}>
                               <TableCell className="text-muted-foreground">
-                                {r.origens && r.origens.length > 1 ? r.origens.join(",") : r.rowIndex}
+                                {(() => {
+                                  const linhas = r.origens && r.origens.length > 1 ? r.origens : [r.rowIndex];
+                                  if (linhas.length <= 3) {
+                                    return <span className="text-xs">{linhas.join(", ")}</span>;
+                                  }
+                                  // Mostrar de forma compacta com tooltip
+                                  const primeiro = linhas[0];
+                                  const ultimo = linhas[linhas.length - 1];
+                                  return (
+                                    <span 
+                                      className="text-xs cursor-help" 
+                                      title={`Linhas: ${linhas.join(", ")}`}
+                                    >
+                                      <Badge variant="secondary" className="text-xs px-1.5 py-0">
+                                        {linhas.length} linhas
+                                      </Badge>
+                                      <span className="text-[10px] text-muted-foreground block mt-0.5">
+                                        ({primeiro}...{ultimo})
+                                      </span>
+                                    </span>
+                                  );
+                                })()}
                               </TableCell>
                               <TableCell className="font-medium">{r.codigo || "-"}</TableCell>
                               <TableCell className="text-center">{r.quantidade}</TableCell>
