@@ -88,6 +88,9 @@ const CHUNK_SIZE = 500; // Marcadores por chunk
 const CHUNK_DELAY = 10; // ms entre chunks
 
 import { Territorio } from "@/types/territorios";
+import { useEquipesRastreamento, EVENTO_CONFIG, EquipeTurnoAberto } from "@/hooks/useEquipesRastreamento";
+import { format, formatDistanceToNow } from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 interface OSSuspeita extends OrdemServico {
   territorioEsperado: string;
@@ -128,6 +131,9 @@ interface MapaLeafletProps {
   onPoligonoCriado?: (poligono: { lat: number; lng: number }[]) => void; // Callback quando polígono é criado
   onCriacaoCancelada?: () => void; // Callback quando criação é cancelada
   statusOSsTempoReal?: Map<string, StatusOSTempoReal>; // Status em tempo real das OSs
+  // Rastreamento de Equipes em tempo real
+  mostrarEquipesTempoReal?: boolean; // Se deve mostrar equipes com turno aberto
+  onEquipeClick?: (equipeId: string, lat: number, lng: number) => void; // Callback quando equipe é clicada
 }
 
 interface RouteGeometryData {
@@ -165,7 +171,7 @@ function getLucideIconSVG(iconName: string | undefined, color: string, size: num
   `;
 }
 
-export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEquipes, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, focarOSNoMapa, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear, selecionandoCoordNoMapa, onMapClick, osCoordenadasSuspeitas = [], criandoPoligono, onPoligonoCriado, onCriacaoCancelada, statusOSsTempoReal }: MapaLeafletProps) {
+export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEquipes, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, focarOSNoMapa, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear, selecionandoCoordNoMapa, onMapClick, osCoordenadasSuspeitas = [], criandoPoligono, onPoligonoCriado, onCriacaoCancelada, statusOSsTempoReal, mostrarEquipesTempoReal = true, onEquipeClick }: MapaLeafletProps) {
   
   const mapRef = useRef<HTMLDivElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -224,6 +230,186 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
   // V19.7: Refs para múltiplas OSs urgentes destacadas
   const osUrgentesMarkersRef = useRef<L.Marker[]>([]);
   const osUrgentesCirclesRef = useRef<L.Circle[]>([]);
+  
+  // Refs para marcadores de equipes em tempo real
+  const equipesMarkersRef = useRef<Map<string, L.Marker>>(new Map());
+  const equipesLayerRef = useRef<L.LayerGroup | null>(null);
+
+  // Hook para buscar equipes com turno aberto
+  const { equipesComTurno } = useEquipesRastreamento({
+    autoRefresh: mostrarEquipesTempoReal,
+    refreshInterval: 15000,
+    enableRealtime: mostrarEquipesTempoReal,
+  });
+
+  // Efeito para renderizar marcadores de equipes em tempo real
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapaInicializado || !mostrarEquipesTempoReal) {
+      // Limpar layer se não deve mostrar
+      if (equipesLayerRef.current) {
+        equipesLayerRef.current.clearLayers();
+      }
+      return;
+    }
+
+    // Criar layer group se não existe
+    if (!equipesLayerRef.current) {
+      equipesLayerRef.current = L.layerGroup().addTo(map);
+    }
+
+    // Equipes atuais
+    const equipesIds = new Set<string>();
+
+    equipesComTurno.forEach(equipe => {
+      if (!equipe.ultima_latitude || !equipe.ultima_longitude) return;
+      equipesIds.add(equipe.equipe_id);
+
+      // Configuração de cor/status
+      const ultimoEvento = equipe.ultimo_evento_tipo || "inicio_turno";
+      const config = EVENTO_CONFIG[ultimoEvento] || EVENTO_CONFIG.inicio_turno;
+      const corFundo = config.cor;
+
+      // Calcular tempo desde última posição
+      let gpsIndicador = "🟢";
+      if (equipe.ultima_posicao_at) {
+        const diffMinutos = (Date.now() - new Date(equipe.ultima_posicao_at).getTime()) / 60000;
+        if (diffMinutos > 30) gpsIndicador = "🔴";
+        else if (diffMinutos > 10) gpsIndicador = "🟡";
+      } else {
+        gpsIndicador = "⚫";
+      }
+
+      const iniciais = equipe.equipe_codigo?.slice(0, 3).toUpperCase() || "EQ";
+      const tamanho = 42;
+
+      // Criar ícone
+      const icon = L.divIcon({
+        className: "custom-equipe-marker-map",
+        html: `
+          <div style="
+            width: ${tamanho}px;
+            height: ${tamanho}px;
+            background: linear-gradient(135deg, ${corFundo} 0%, ${corFundo}dd 100%);
+            border: 3px solid white;
+            border-radius: 50%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            cursor: pointer;
+            position: relative;
+          ">
+            <span style="
+              font-weight: 700;
+              font-size: 11px;
+              color: white;
+              text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+            ">${iniciais}</span>
+            <span style="
+              position: absolute;
+              bottom: -3px;
+              right: -3px;
+              font-size: 10px;
+            ">${gpsIndicador}</span>
+          </div>
+        `,
+        iconSize: [tamanho, tamanho],
+        iconAnchor: [tamanho / 2, tamanho / 2],
+        popupAnchor: [0, -tamanho / 2 - 5],
+      });
+
+      // Verificar se marker existe
+      const existingMarker = equipesMarkersRef.current.get(equipe.equipe_id);
+      if (existingMarker) {
+        existingMarker.setLatLng([equipe.ultima_latitude, equipe.ultima_longitude]);
+        existingMarker.setIcon(icon);
+      } else {
+        // Criar novo marker
+        const marker = L.marker([equipe.ultima_latitude, equipe.ultima_longitude], {
+          icon,
+          zIndexOffset: 600,
+        });
+
+        // Popup com informações
+        const ultimaPosFormatada = equipe.ultima_posicao_at
+          ? formatDistanceToNow(new Date(equipe.ultima_posicao_at), { addSuffix: true, locale: ptBR })
+          : "Sem posição";
+        const horaInicio = equipe.hora_inicio
+          ? format(new Date(equipe.hora_inicio), "HH:mm", { locale: ptBR })
+          : "N/A";
+
+        const popupHtml = `
+          <div style="min-width: 220px; font-family: system-ui;">
+            <div style="
+              background: ${corFundo};
+              color: white;
+              padding: 10px;
+              margin: -10px -10px 10px -10px;
+              border-radius: 4px 4px 0 0;
+            ">
+              <div style="font-weight: 700; font-size: 15px;">${equipe.equipe_codigo}</div>
+              <div style="font-size: 11px; opacity: 0.9;">${equipe.equipe_nome}</div>
+            </div>
+            <div style="padding: 0 4px;">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 12px;">
+                <span style="color: #6b7280;">Status:</span>
+                <span style="font-weight: 600; color: ${corFundo};">${config.label}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 12px;">
+                <span style="color: #6b7280;">Início:</span>
+                <span style="font-weight: 500;">${horaInicio}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 12px;">
+                <span style="color: #6b7280;">Última posição:</span>
+                <span style="font-weight: 500;">${ultimaPosFormatada}</span>
+              </div>
+              ${equipe.battery_pct !== null ? `
+                <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 12px;">
+                  <span style="color: #6b7280;">Bateria:</span>
+                  <span style="font-weight: 500; color: ${equipe.battery_pct < 20 ? '#ef4444' : '#22c55e'};">
+                    ${equipe.battery_pct}%
+                  </span>
+                </div>
+              ` : ''}
+              ${equipe.os_atual ? `
+                <div style="
+                  background: #f0f9ff;
+                  border: 1px solid #bae6fd;
+                  padding: 8px;
+                  border-radius: 6px;
+                  margin-top: 8px;
+                ">
+                  <div style="font-size: 10px; color: #0369a1; font-weight: 600;">OS EM ATENDIMENTO</div>
+                  <div style="font-weight: 700; color: #0c4a6e; font-size: 12px;">${equipe.os_atual.numero}</div>
+                  <div style="font-size: 11px; color: #075985;">${equipe.os_atual.tipo}</div>
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        `;
+
+        marker.bindPopup(popupHtml, { maxWidth: 300 });
+
+        marker.on("click", () => {
+          onEquipeClick?.(equipe.equipe_id, equipe.ultima_latitude!, equipe.ultima_longitude!);
+        });
+
+        marker.addTo(equipesLayerRef.current!);
+        equipesMarkersRef.current.set(equipe.equipe_id, marker);
+      }
+    });
+
+    // Remover markers de equipes que não estão mais na lista
+    equipesMarkersRef.current.forEach((marker, equipeId) => {
+      if (!equipesIds.has(equipeId)) {
+        equipesLayerRef.current?.removeLayer(marker);
+        equipesMarkersRef.current.delete(equipeId);
+      }
+    });
+
+  }, [equipesComTurno, mostrarEquipesTempoReal, mapaInicializado, onEquipeClick]);
   
   // V19.6: Efeito para centralizar e destacar OS urgente quando selecionada
   useEffect(() => {

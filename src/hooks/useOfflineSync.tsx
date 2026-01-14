@@ -29,7 +29,8 @@ export type OperationType =
   | "remover_material_os"
   | "confirmar_recebimento"
   | "criar_devolucao"
-  | "create_os_avulsa";
+  | "create_os_avulsa"
+  | "create_evento_turno";
 
 export interface SyncOperation {
   id: string;

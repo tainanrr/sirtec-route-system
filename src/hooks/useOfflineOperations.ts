@@ -883,6 +883,88 @@ export function useOfflineOperations() {
     }
   }, [isOnline, queueOperation, getFromCache, saveToCache]);
 
+  // ============ OPERAÇÕES DE EVENTOS DO TURNO ============
+
+  // Registrar evento do turno manualmente
+  const registrarEventoTurno = useCallback(async (
+    turnoId: string,
+    equipeId: string,
+    tipoEvento: string,
+    ordemServicoId?: string,
+    descricao?: string,
+    metadata?: Record<string, any>,
+    latitude?: number,
+    longitude?: number
+  ): Promise<{ success: boolean; id?: string; offline?: boolean }> => {
+    const agora = new Date().toISOString();
+    const eventoId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    const evento = {
+      id: eventoId,
+      turno_id: turnoId,
+      equipe_id: equipeId,
+      tipo_evento: tipoEvento,
+      ordem_servico_id: ordemServicoId || null,
+      descricao: descricao || null,
+      metadata: metadata || {},
+      latitude: latitude || null,
+      longitude: longitude || null,
+      data_hora: agora,
+    };
+
+    // Se offline, salvar na fila
+    if (!isOnline) {
+      console.log("[OfflineOps] Registrando evento offline:", tipoEvento);
+      
+      try {
+        await queueOperation(
+          "create_evento_turno" as OperationType,
+          "turno_eventos",
+          "insert",
+          evento,
+          2 // Prioridade média
+        );
+
+        return { success: true, id: eventoId, offline: true };
+      } catch (error) {
+        console.error("[OfflineOps] Erro ao registrar evento offline:", error);
+        return { success: false, offline: true };
+      }
+    }
+
+    // Se online, inserir direto
+    try {
+      const { data, error } = await supabase
+        .from("turno_eventos")
+        .insert({
+          turno_id: turnoId,
+          equipe_id: equipeId,
+          tipo_evento: tipoEvento,
+          ordem_servico_id: ordemServicoId || null,
+          descricao: descricao || null,
+          metadata: metadata || {},
+          latitude: latitude || null,
+          longitude: longitude || null,
+          data_hora: agora,
+        })
+        .select("id")
+        .single();
+
+      if (error) throw error;
+
+      return { success: true, id: data.id, offline: false };
+    } catch (error) {
+      console.error("[OfflineOps] Erro ao registrar evento:", error);
+      
+      // Se falhou por rede, tentar offline
+      if (!navigator.onLine) {
+        return registrarEventoTurno(turnoId, equipeId, tipoEvento, ordemServicoId, descricao, metadata, latitude, longitude);
+      }
+      
+      return { success: false, offline: false };
+    }
+  }, [isOnline, queueOperation]);
+
   return {
     // Verificação de status
     isOnline,
@@ -913,6 +995,9 @@ export function useOfflineOperations() {
     // Operações de devolução
     criarDevolucao,
     confirmarRecebimento,
+    
+    // Operações de eventos do turno
+    registrarEventoTurno,
   };
 }
 
