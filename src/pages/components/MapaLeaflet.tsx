@@ -1438,7 +1438,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
   // Função auxiliar para converter tipo de OS para código de skill
   const tipoParaSkillCodigo = (tipo: string): string => {
     // Normalizar tipo para lowercase primeiro
-    const tipoLower = tipo.toLowerCase();
+    const tipoLower = tipo.toLowerCase().trim();
     
     // Mapeamento direto de tipos comuns (usando códigos do banco sem acentos)
     const mapeamento: Record<string, string> = {
@@ -1451,6 +1451,13 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
       'manutencao': 'MANUTENCAO',
       'manutenção': 'MANUTENCAO',
       'troca_medidor': 'TROCA_MEDIDOR',
+      'microgeracao': 'MICROGERACAO',
+      'microgeração': 'MICROGERACAO',
+      'religacao': 'RELIGACAO',
+      'religação': 'RELIGACAO',
+      'vistoria': 'VISTORIA',
+      'verificacao': 'VERIFICACAO',
+      'verificação': 'VERIFICACAO',
     };
     
     if (mapeamento[tipoLower]) {
@@ -1459,13 +1466,11 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
     
     // Se não encontrou no mapeamento, normalizar para uppercase e remover acentos
     return tipo.toUpperCase()
-      .replace(/[ÀÁÂÃÄÅ]/g, 'A')
-      .replace(/[ÈÉÊË]/g, 'E')
-      .replace(/[ÌÍÎÏ]/g, 'I')
-      .replace(/[ÒÓÔÕÖ]/g, 'O')
-      .replace(/[ÙÚÛÜ]/g, 'U')
-      .replace(/[Ç]/g, 'C')
-      .replace(/[Ñ]/g, 'N');
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // Remove acentos usando NFD normalization
+      .replace(/[^A-Z0-9_]/g, '_') // Caracteres especiais viram underscore
+      .replace(/_+/g, '_') // Remove underscores duplicados
+      .replace(/^_|_$/g, ''); // Remove underscore no início e fim
   };
 
   // Buscar ícones das Skills quando o componente montar

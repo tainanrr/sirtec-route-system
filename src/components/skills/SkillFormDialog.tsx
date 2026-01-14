@@ -35,8 +35,25 @@ import * as LucideIcons from "lucide-react";
 import { clearSkillsCache } from "@/lib/skillsUtils";
 import { Upload, X, ImageIcon, Loader2 } from "lucide-react";
 
+// Função para normalizar código (remover acentos, uppercase, sem espaços)
+const normalizarCodigo = (codigo: string): string => {
+  return codigo
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // Remove acentos
+    .replace(/[^A-Z0-9_]/g, '_') // Substitui caracteres especiais por underscore
+    .replace(/_+/g, '_') // Remove underscores duplicados
+    .replace(/^_|_$/g, ''); // Remove underscores no início e fim
+};
+
 const skillSchema = z.object({
-  codigo: z.string().min(1, "Código é obrigatório").max(50),
+  codigo: z.string()
+    .min(1, "Código é obrigatório")
+    .max(50)
+    .refine(
+      (val) => /^[A-Z0-9_]+$/.test(val),
+      "Código deve conter apenas letras maiúsculas, números e underscore (sem acentos ou espaços)"
+    ),
   nome: z.string().min(2, "Nome deve ter pelo menos 2 caracteres").max(100),
   descricao: z.string().max(500).optional(),
   tempo_execucao_minutos: z.number().min(1, "Tempo mínimo é 1 minuto").max(1440, "Tempo máximo é 1440 minutos (24h)"),
@@ -269,11 +286,22 @@ export function SkillFormDialog({
                         placeholder="Ex: CORTE, RELIGA"
                         {...field}
                         disabled={isEditing}
-                        className="font-mono"
+                        className="font-mono uppercase"
+                        onChange={(e) => {
+                          // Normalizar em tempo real: uppercase, sem acentos, sem espaços
+                          const valor = e.target.value
+                            .toUpperCase()
+                            .normalize('NFD')
+                            .replace(/[\u0300-\u036f]/g, '') // Remove acentos
+                            .replace(/[^A-Z0-9_]/g, '_') // Caracteres especiais viram underscore
+                            .replace(/_+/g, '_') // Remove underscores duplicados
+                            .replace(/^_/, ''); // Remove underscore no início
+                          field.onChange(valor);
+                        }}
                       />
                     </FormControl>
                     <FormDescription>
-                      Código único da skill (não pode ser alterado após criação)
+                      Código único da skill. Apenas letras maiúsculas, números e underscore. Não pode ser alterado após criação.
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
