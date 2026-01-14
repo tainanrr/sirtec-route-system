@@ -204,17 +204,12 @@ export default function TurnoTrajetoMap({
         });
       }
 
-      // 3. Buscar OSs avulsas executadas no turno
+      // 3. Buscar OSs executadas no turno (produções)
       const { data: producoes } = await supabase
         .from("producao_equipes")
         .select(`
           id,
-          latitude_inicio,
-          longitude_inicio,
-          latitude_fim,
-          longitude_fim,
-          iniciado_at,
-          concluido_at,
+          created_at,
           ordens_servico:ordem_servico_id (id, numero, tipo, latitude, longitude, endereco, status)
         `)
         .eq("turno_id", turnoId);
@@ -222,7 +217,7 @@ export default function TurnoTrajetoMap({
       if (producoes) {
         producoes.forEach((prod: any) => {
           const os = prod.ordens_servico;
-          // Adicionar ponto da OS se ainda não existir
+          // Adicionar ponto da OS se ainda não existir (usa coordenadas da OS)
           if (os && os.latitude && os.longitude) {
             const osJaExiste = pontos.some(p => p.id === `os-${os.id}`);
             if (!osJaExiste) {
@@ -231,7 +226,7 @@ export default function TurnoTrajetoMap({
                 tipo: os.status === "concluida" ? "os_executada" : "os_impedida",
                 latitude: os.latitude,
                 longitude: os.longitude,
-                timestamp: prod.iniciado_at || dataInicio,
+                timestamp: prod.created_at || dataInicio,
                 label: os.numero,
                 detalhes: {
                   osNumero: os.numero,
