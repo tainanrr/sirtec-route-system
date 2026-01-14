@@ -507,7 +507,7 @@ export default function ConsultaTurnos() {
   }, [turnosData?.turnos]);
   
   // Filtrar e ordenar turnos localmente
-  const turnosFiltradosOrdenadosOrdenados = useMemo(() => {
+  const turnosFiltradosOrdenados = useMemo(() => {
     let filtered = turnosData?.turnos || [];
     
     // Filtro por status (multi-select)
@@ -1979,7 +1979,7 @@ export default function ConsultaTurnos() {
                   <Skeleton key={i} className="h-16 w-full" />
                 ))}
               </div>
-            ) : turnosFiltradosOrdenadosOrdenados.length === 0 ? (
+            ) : turnosFiltradosOrdenados.length === 0 ? (
               <div className="p-12 text-center">
                 <Clock className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                 <p className="text-lg font-medium">Nenhum turno encontrado</p>
@@ -2056,7 +2056,7 @@ export default function ConsultaTurnos() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {turnosFiltradosOrdenadosOrdenados.map((turno) => {
+                  {turnosFiltradosOrdenados.map((turno) => {
                     const duracao = turno.hora_fim 
                       ? differenceInMinutes(parseISO(turno.hora_fim), parseISO(turno.hora_inicio))
                       : differenceInMinutes(new Date(), parseISO(turno.hora_inicio));
@@ -2130,8 +2130,8 @@ export default function ConsultaTurnos() {
           {/* Rodapé com contagem e paginação */}
           <div className="border-t p-4 flex items-center justify-between">
             <p className="text-sm text-muted-foreground">
-              Mostrando {turnosFiltradosOrdenadosOrdenados.length} turno{turnosFiltradosOrdenadosOrdenados.length !== 1 ? "s" : ""}
-              {turnosData && turnosFiltradosOrdenadosOrdenados.length !== turnosData.turnos.length && (
+              Mostrando {turnosFiltradosOrdenados.length} turno{turnosFiltradosOrdenados.length !== 1 ? "s" : ""}
+              {turnosData && turnosFiltradosOrdenados.length !== turnosData.turnos.length && (
                 <span> (filtrados de {turnosData.turnos.length})</span>
               )}
             </p>
