@@ -5133,10 +5133,18 @@ async function gerarOpcoesRoteiros(
   console.log(`[ROUTING]`);
   console.log(`[ROUTING] ══ V20: Gerando Múltiplas Opções de Roteiros ══`);
   
-  const osUrgentesTotal = oss.filter(os => 
+  // V22: Calcular urgentes apenas das OSs que estão nos territórios selecionados
+  // Isso permite ao usuário ver se alguma OS urgente dos territórios em questão ficou de fora
+  const ossNosTerritórios = usarTerritorios && territoriosAtivos.length > 0
+    ? oss.filter(os => osParaTerritorio.has(os.id))
+    : oss;
+  
+  const osUrgentesTotal = ossNosTerritórios.filter(os => 
     ehReguladaUrgente(os, prazoLimiteUrgente) || 
     (ehEmergencia(os) && ['hoje', 'passado'].includes(classificarPrazo(os.prazo)))
   ).length;
+  
+  console.log(`[ROUTING]   Total de OSs urgentes nos territórios: ${osUrgentesTotal}`);
   
   const opcoes: OpcaoRoteiro[] = [];
   
