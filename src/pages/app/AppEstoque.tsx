@@ -181,6 +181,8 @@ export default function AppEstoque() {
     initialState?.activeTab || "estoque"
   );
   const [searchTerm, setSearchTerm] = useState(initialState?.searchTerm || "");
+  const [searchRastros, setSearchRastros] = useState("");
+  const [searchHistorico, setSearchHistorico] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [showOnlyLowStock, setShowOnlyLowStock] = useState(false);
   const [pendentesOpen, setPendentesOpen] = useState(false);
@@ -521,7 +523,7 @@ export default function AppEstoque() {
         entregas.map((e: any) => [e.id, e])
       );
 
-      return itensEntrega
+      const itensDeEntregas = itensEntrega
         .filter((item: any) => {
           const status = serializadosMap.get(item.numero_serie);
           // Manter se status é em_estoque (ainda não aplicado) ou não existe registro
@@ -536,8 +538,41 @@ export default function AppEstoque() {
             created_at: entrega?.data_entrega,
             updated_at: entrega?.data_confirmacao,
             materiais: item.materiais,
+            retirado_campo: false, // Veio de entrega normal
           };
         });
+
+      // Também buscar materiais serializados retirados de campo que estão com a equipe
+      const { data: retiradosCampo } = await supabase
+        .from("materiais_serializados")
+        .select(`
+          id,
+          numero_serie,
+          status,
+          updated_at,
+          created_at,
+          materiais:material_id (
+            codigo,
+            nome,
+            dias_alerta_retencao
+          )
+        `)
+        .eq("localizacao_tipo", "equipe")
+        .eq("localizacao_id", equipeId)
+        .eq("status", "retirado");
+
+      const itensRetiradosCampo = (retiradosCampo || []).map((item: any) => ({
+        id: item.id,
+        numero_serie: item.numero_serie,
+        data_entrega_equipe: item.updated_at || item.created_at,
+        created_at: item.created_at,
+        updated_at: item.updated_at,
+        materiais: item.materiais,
+        retirado_campo: true, // Veio de retirada de campo
+      }));
+
+      // Combinar e ordenar: primeiro os de entrega, depois os retirados de campo
+      return [...itensDeEntregas, ...itensRetiradosCampo];
     },
     enabled: !!equipeId,
   });
@@ -1535,126 +1570,236 @@ export default function AppEstoque() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="serializados" className="mt-4">
-            {materiaisSerializados && materiaisSerializados.length > 0 ? (
-              <div className="space-y-2">
-                {materiaisSerializados.map((item: any) => {
-                  const dataEntrega = getDataEntrega(item);
-                  const dias = calcularDiasDesde(dataEntrega);
-                  const diasAlerta = item.materiais?.dias_alerta_retencao || 7;
-                  const nivel = getNivelAlerta(dias, diasAlerta);
-                  const isAlerta = nivel === "alerta" || nivel === "critico";
+          <TabsContent value="serializados" className="mt-4 space-y-3">
+            {/* Campo de busca de rastros */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar rastro (número de série, código, nome)..."
+                value={searchRastros}
+                onChange={(e) => setSearchRastros(e.target.value)}
+                className="pl-10 bg-gray-50/50 border-gray-200 focus:bg-white"
+              />
+            </div>
 
-                  return (
-                    <Card
-                      key={item.id}
-                      className={isAlerta ? (nivel === "critico" ? "border-red-300 bg-red-50/50" : "border-orange-300 bg-orange-50/50") : ""}
-                    >
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className={`p-2 rounded-lg ${
-                              nivel === "critico" ? "bg-red-100" : 
-                              nivel === "alerta" ? "bg-orange-100" : 
-                              nivel === "atencao" ? "bg-amber-100" : "bg-violet-100"
-                            }`}>
-                              <Zap className={`h-5 w-5 ${
-                                nivel === "critico" ? "text-red-600" : 
-                                nivel === "alerta" ? "text-orange-600" : 
-                                nivel === "atencao" ? "text-amber-600" : "text-violet-600"
-                              }`} />
+            {(() => {
+              // Filtrar rastros pela busca
+              const rastrosFiltrados = materiaisSerializados?.filter((item: any) => {
+                if (!searchRastros) return true;
+                const term = searchRastros.toLowerCase();
+                return (
+                  item.numero_serie?.toLowerCase().includes(term) ||
+                  item.materiais?.codigo?.toLowerCase().includes(term) ||
+                  item.materiais?.nome?.toLowerCase().includes(term)
+                );
+              }) || [];
+
+              if (rastrosFiltrados.length > 0) {
+                return (
+                  <div className="space-y-2">
+                    {rastrosFiltrados.map((item: any) => {
+                      const dataEntrega = getDataEntrega(item);
+                      const dias = calcularDiasDesde(dataEntrega);
+                      const diasAlerta = item.materiais?.dias_alerta_retencao || 7;
+                      const nivel = getNivelAlerta(dias, diasAlerta);
+                      const isAlerta = nivel === "alerta" || nivel === "critico";
+                      const isRetiradoCampo = item.retirado_campo === true;
+
+                      return (
+                        <Card
+                          key={item.id}
+                          className={
+                            isRetiradoCampo 
+                              ? "border-blue-300 bg-blue-50/50" 
+                              : isAlerta 
+                                ? (nivel === "critico" ? "border-red-300 bg-red-50/50" : "border-orange-300 bg-orange-50/50") 
+                                : ""
+                          }
+                        >
+                          <CardContent className="p-4">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className={`p-2 rounded-lg ${
+                                  isRetiradoCampo ? "bg-blue-100" :
+                                  nivel === "critico" ? "bg-red-100" : 
+                                  nivel === "alerta" ? "bg-orange-100" : 
+                                  nivel === "atencao" ? "bg-amber-100" : "bg-violet-100"
+                                }`}>
+                                  <Zap className={`h-5 w-5 ${
+                                    isRetiradoCampo ? "text-blue-600" :
+                                    nivel === "critico" ? "text-red-600" : 
+                                    nivel === "alerta" ? "text-orange-600" : 
+                                    nivel === "atencao" ? "text-amber-600" : "text-violet-600"
+                                  }`} />
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <p className="font-mono font-medium text-sm">{item.numero_serie}</p>
+                                    {isRetiradoCampo && (
+                                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-blue-300 text-blue-700 bg-blue-100">
+                                        Retirado de campo
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <p className="text-xs text-muted-foreground">
+                                    {item.materiais?.codigo} - {item.materiais?.nome}
+                                  </p>
+                                </div>
+                              </div>
+                              {!isRetiradoCampo && (
+                                <DiasRetencaoBadge
+                                  dataEntregaEquipe={dataEntrega}
+                                  diasAlertaRetencao={diasAlerta}
+                                  size="sm"
+                                  showTooltip={false}
+                                />
+                              )}
+                              {isRetiradoCampo && (
+                                <Badge variant="secondary" className="bg-blue-100 text-blue-700">
+                                  Campo
+                                </Badge>
+                              )}
                             </div>
-                            <div>
-                              <p className="font-mono font-medium text-sm">{item.numero_serie}</p>
+                            {isAlerta && !isRetiradoCampo && (
+                              <div className={`mt-2 flex items-center gap-1 ${nivel === "critico" ? "text-red-600" : "text-orange-600"}`}>
+                                <AlertTriangle className="h-3 w-3" />
+                                <span className="text-xs">
+                                  {nivel === "critico" ? "Situação crítica!" : "Ultrapassou prazo de alerta"}
+                                  {" - "}Aplique em uma OS ou devolva ao estoque
+                                </span>
+                              </div>
+                            )}
+                            {isRetiradoCampo && (
+                              <div className="mt-2 flex items-center gap-1 text-blue-600">
+                                <AlertCircle className="h-3 w-3" />
+                                <span className="text-xs">
+                                  Material retirado de uma OS - disponível para reaplicação
+                                </span>
+                              </div>
+                            )}
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                );
+              } else {
+                return (
+                  <Card>
+                    <CardContent className="p-8 text-center">
+                      <Zap className="h-12 w-12 mx-auto text-muted-foreground/30 mb-3" />
+                      <p className="text-muted-foreground">
+                        {searchRastros ? "Nenhum rastro encontrado" : "Nenhum material com rastro em seu estoque"}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {searchRastros ? "Tente outro termo de busca" : "Medidores e equipamentos serializados aparecerão aqui"}
+                      </p>
+                      {searchRastros && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-3"
+                          onClick={() => setSearchRastros("")}
+                        >
+                          Limpar busca
+                        </Button>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              }
+            })()}
+          </TabsContent>
+
+          <TabsContent value="historico" className="mt-4 space-y-3">
+            {/* Campo de busca de histórico */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar movimentação (código, nome, observação)..."
+                value={searchHistorico}
+                onChange={(e) => setSearchHistorico(e.target.value)}
+                className="pl-10 bg-gray-50/50 border-gray-200 focus:bg-white"
+              />
+            </div>
+
+            {(() => {
+              // Filtrar movimentações pela busca
+              const movimentacoesFiltradas = movimentacoesRecentes?.filter((mov) => {
+                if (!searchHistorico) return true;
+                const term = searchHistorico.toLowerCase();
+                return (
+                  mov.materiais?.codigo?.toLowerCase().includes(term) ||
+                  mov.materiais?.nome?.toLowerCase().includes(term) ||
+                  mov.observacao?.toLowerCase().includes(term) ||
+                  mov.tipo?.toLowerCase().includes(term)
+                );
+              }) || [];
+
+              if (movimentacoesFiltradas.length > 0) {
+                return (
+                  <div className="space-y-2">
+                    {movimentacoesFiltradas.map((mov) => (
+                      <Card key={mov.id}>
+                        <CardContent className="p-4">
+                          <div className="flex items-center gap-3">
+                            <div className={`p-2 rounded-full ${
+                              mov.tipo === "entrada" || mov.tipo === "transferencia"
+                                ? "bg-green-100"
+                                : "bg-red-100"
+                            }`}>
+                              {mov.tipo === "entrada" || mov.tipo === "transferencia" ? (
+                                <CheckCircle className="h-4 w-4 text-green-600" />
+                              ) : (
+                                <Package className="h-4 w-4 text-red-600" />
+                              )}
+                            </div>
+                            <div className="flex-1">
+                              <p className="font-medium text-sm">
+                                {mov.materiais?.codigo} - {mov.materiais?.nome}
+                              </p>
                               <p className="text-xs text-muted-foreground">
-                                {item.materiais?.codigo} - {item.materiais?.nome}
+                                {mov.observacao || (mov.tipo === "entrada" ? "Recebimento" : "Aplicação/Saída")}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <Badge variant={mov.tipo === "entrada" || mov.tipo === "transferencia" ? "default" : "destructive"}>
+                                {mov.tipo === "entrada" || mov.tipo === "transferencia" ? "+" : "-"}
+                                {mov.quantidade}
+                              </Badge>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {format(new Date(mov.created_at), "dd/MM HH:mm")}
                               </p>
                             </div>
                           </div>
-                          <DiasRetencaoBadge
-                            dataEntregaEquipe={dataEntrega}
-                            diasAlertaRetencao={diasAlerta}
-                            size="sm"
-                            showTooltip={false}
-                          />
-                        </div>
-                        {isAlerta && (
-                          <div className={`mt-2 flex items-center gap-1 ${nivel === "critico" ? "text-red-600" : "text-orange-600"}`}>
-                            <AlertTriangle className="h-3 w-3" />
-                            <span className="text-xs">
-                              {nivel === "critico" ? "Situação crítica!" : "Ultrapassou prazo de alerta"}
-                              {" - "}Aplique em uma OS ou devolva ao estoque
-                            </span>
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            ) : (
-              <Card>
-                <CardContent className="p-8 text-center">
-                  <Zap className="h-12 w-12 mx-auto text-muted-foreground/30 mb-3" />
-                  <p className="text-muted-foreground">
-                    Nenhum material com rastro em seu estoque
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Medidores e equipamentos serializados aparecerão aqui
-                  </p>
-                </CardContent>
-              </Card>
-            )}
-          </TabsContent>
-
-          <TabsContent value="historico" className="mt-4">
-            {movimentacoesRecentes && movimentacoesRecentes.length > 0 ? (
-              <div className="space-y-2">
-                {movimentacoesRecentes.map((mov) => (
-                  <Card key={mov.id}>
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-full ${
-                          mov.tipo === "entrada" || mov.tipo === "transferencia"
-                            ? "bg-green-100"
-                            : "bg-red-100"
-                        }`}>
-                          {mov.tipo === "entrada" || mov.tipo === "transferencia" ? (
-                            <CheckCircle className="h-4 w-4 text-green-600" />
-                          ) : (
-                            <Package className="h-4 w-4 text-red-600" />
-                          )}
-                        </div>
-                        <div className="flex-1">
-                          <p className="font-medium text-sm">
-                            {mov.materiais?.codigo} - {mov.materiais?.nome}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {mov.observacao || (mov.tipo === "entrada" ? "Recebimento" : "Aplicação/Saída")}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <Badge variant={mov.tipo === "entrada" || mov.tipo === "transferencia" ? "default" : "destructive"}>
-                            {mov.tipo === "entrada" || mov.tipo === "transferencia" ? "+" : "-"}
-                            {mov.quantidade}
-                          </Badge>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {format(new Date(mov.created_at), "dd/MM HH:mm")}
-                          </p>
-                        </div>
-                      </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                );
+              } else {
+                return (
+                  <Card>
+                    <CardContent className="p-8 text-center">
+                      <History className="h-12 w-12 mx-auto text-muted-foreground/30 mb-3" />
+                      <p className="text-muted-foreground">
+                        {searchHistorico ? "Nenhuma movimentação encontrada" : "Nenhuma movimentação recente"}
+                      </p>
+                      {searchHistorico && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-3"
+                          onClick={() => setSearchHistorico("")}
+                        >
+                          Limpar busca
+                        </Button>
+                      )}
                     </CardContent>
                   </Card>
-                ))}
-              </div>
-            ) : (
-              <Card>
-                <CardContent className="p-8 text-center">
-                  <History className="h-12 w-12 mx-auto text-muted-foreground/30 mb-3" />
-                  <p className="text-muted-foreground">Nenhuma movimentação recente</p>
-                </CardContent>
-              </Card>
-            )}
+                );
+              }
+            })()}
           </TabsContent>
         </Tabs>
       </div>
