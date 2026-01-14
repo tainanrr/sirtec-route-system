@@ -77,7 +77,9 @@ import {
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import * as XLSX from "xlsx";
 import { ExportButton } from "@/components/ui/export-button";
+import { DialogDescription } from "@/components/ui/dialog";
 
 function formatCurrencyBRL(value: number | null | undefined) {
   if (value == null || Number.isNaN(Number(value))) return "-";
@@ -185,6 +187,27 @@ const initialFormData: FormData = {
   ativo: true,
 };
 
+// Tipo para importação de materiais
+interface ImportMaterialRow {
+  rowIndex: number;
+  codigo: string;
+  nome: string;
+  categoria: string;
+  unidade: string;
+  requer_serial: boolean;
+  ativo: boolean;
+  error?: string;
+  existente?: boolean; // se já existe no catálogo
+}
+
+function normalizeHeader(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
 export default function CatalogoMateriais() {
   // Permissões da tela
   const { podeEditar } = useTelaPermissao("materiais");
@@ -204,6 +227,12 @@ export default function CatalogoMateriais() {
     open: boolean;
     preco: MaterialPrecoHistorico | null;
   }>({ open: false, preco: null });
+
+  // Estados para importação
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importRows, setImportRows] = useState<ImportMaterialRow[]>([]);
+  const [importLoading, setImportLoading] = useState(false);
 
   // Query para buscar materiais
   const { data: materiais, isLoading } = useQuery({
@@ -518,6 +547,177 @@ export default function CatalogoMateriais() {
     },
   });
 
+  // ====== IMPORTAÇÃO DE MATERIAIS ======
+
+  // Mapa de códigos existentes para validação
+  const codigosExistentes = useMemo(() => {
+    const map = new Set<string>();
+    (materiais || []).forEach((m) => {
+      map.add(String(m.codigo).trim().toUpperCase());
+    });
+    return map;
+  }, [materiais]);
+
+  // Função para processar arquivo de importação
+  const handleImportFile = async (file: File) => {
+    setImportFile(file);
+    setImportLoading(true);
+    try {
+      const buffer = await file.arrayBuffer();
+      const wb = XLSX.read(buffer, { type: "array" });
+      const sheetName = wb.SheetNames[0];
+      const ws = wb.Sheets[sheetName];
+
+      const json = XLSX.utils.sheet_to_json<Record<string, any>>(ws, { defval: "" });
+      if (!json.length) {
+        toast.error("Planilha vazia");
+        setImportLoading(false);
+        return;
+      }
+
+      const keys = Object.keys(json[0] || {});
+      const keyMap = new Map<string, string>();
+      keys.forEach((k) => keyMap.set(normalizeHeader(k), k));
+
+      // Mapear colunas - formato padrão do usuário
+      const colGrupo = keyMap.get("grupo") || keyMap.get("categoria");
+      const colCodigo = keyMap.get("codmaterial") || keyMap.get("codigo") || keyMap.get("codigomaterial");
+      const colNome = keyMap.get("material") || keyMap.get("nome") || keyMap.get("descricao");
+      const colUnidade = keyMap.get("unidademedida") || keyMap.get("unidade") || keyMap.get("un");
+      const colRastreavel = keyMap.get("rastreavel") || keyMap.get("serial") || keyMap.get("requerserial");
+      const colAtivo = keyMap.get("ativo") || keyMap.get("status");
+
+      if (!colCodigo || !colNome) {
+        toast.error('Template inválido: colunas "Cod. Material" e "Material" são obrigatórias.');
+        setImportLoading(false);
+        return;
+      }
+
+      const rows: ImportMaterialRow[] = json.map((row, idx) => {
+        const codigo = String(row[colCodigo] || "").trim().toUpperCase();
+        const nome = String(row[colNome] || "").trim();
+        const categoria = colGrupo ? String(row[colGrupo] || "").trim().toLowerCase().replace(/\s+/g, "_") : "outros";
+        const unidade = colUnidade ? String(row[colUnidade] || "UN").trim().toUpperCase() : "UN";
+        
+        // Rastreável: SIM/NÃO, S/N, true/false, 1/0
+        const rastreavelRaw = colRastreavel ? String(row[colRastreavel] || "").trim().toUpperCase() : "";
+        const requer_serial = rastreavelRaw === "SIM" || rastreavelRaw === "S" || rastreavelRaw === "TRUE" || rastreavelRaw === "1" || rastreavelRaw === "SR";
+        
+        // Ativo: SIM/NÃO, S/N, true/false, 1/0
+        const ativoRaw = colAtivo ? String(row[colAtivo] || "SIM").trim().toUpperCase() : "SIM";
+        const ativo = ativoRaw !== "NÃO" && ativoRaw !== "NAO" && ativoRaw !== "N" && ativoRaw !== "FALSE" && ativoRaw !== "0";
+
+        if (!codigo) {
+          return { rowIndex: idx + 2, codigo: "", nome, categoria, unidade, requer_serial, ativo, error: "Código vazio" };
+        }
+
+        if (!nome) {
+          return { rowIndex: idx + 2, codigo, nome: "", categoria, unidade, requer_serial, ativo, error: "Nome vazio" };
+        }
+
+        const existente = codigosExistentes.has(codigo);
+
+        return {
+          rowIndex: idx + 2,
+          codigo,
+          nome,
+          categoria,
+          unidade,
+          requer_serial,
+          ativo,
+          existente,
+        };
+      });
+
+      setImportRows(rows);
+      toast.success(`Planilha carregada: ${rows.length} material(is)`);
+    } catch (err: any) {
+      console.error(err);
+      toast.error("Erro ao ler planilha");
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
+  // Reset importação
+  const resetImportState = () => {
+    setImportFile(null);
+    setImportRows([]);
+  };
+
+  // Mutation para importar materiais
+  const importMutation = useMutation({
+    mutationFn: async (rows: ImportMaterialRow[]) => {
+      // Filtrar apenas linhas válidas (sem erro e não existentes)
+      const novos = rows.filter((r) => !r.error && !r.existente);
+      const atualizaveis = rows.filter((r) => !r.error && r.existente);
+
+      if (novos.length === 0 && atualizaveis.length === 0) {
+        throw new Error("Nenhum material para importar.");
+      }
+
+      // Inserir novos materiais
+      if (novos.length > 0) {
+        const payload = novos.map((r) => ({
+          codigo: r.codigo,
+          nome: r.nome,
+          categoria: r.categoria || "outros",
+          unidade: r.unidade || "UN",
+          requer_serial: r.requer_serial,
+          ativo: r.ativo,
+          estoque_minimo: 0,
+        }));
+
+        const { error } = await supabase.from("materiais").insert(payload);
+        if (error) throw error;
+      }
+
+      // Atualizar existentes (opcional)
+      if (atualizaveis.length > 0) {
+        for (const r of atualizaveis) {
+          const { error } = await supabase
+            .from("materiais")
+            .update({
+              nome: r.nome,
+              categoria: r.categoria || "outros",
+              unidade: r.unidade || "UN",
+              requer_serial: r.requer_serial,
+              ativo: r.ativo,
+            })
+            .eq("codigo", r.codigo);
+          if (error) console.error(`Erro ao atualizar ${r.codigo}:`, error);
+        }
+      }
+
+      return { novos: novos.length, atualizados: atualizaveis.length };
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["materiais"] });
+      toast.success(`Importação concluída! ${result.novos} criado(s), ${result.atualizados} atualizado(s).`);
+      setImportDialogOpen(false);
+      resetImportState();
+    },
+    onError: (error: any) => {
+      console.error("Erro na importação:", error);
+      toast.error(error.message || "Erro ao importar materiais");
+    },
+  });
+
+  // Download template de importação
+  const handleDownloadImportTemplate = () => {
+    const rows = [
+      ["Grupo", "Cod. Material", "Material", "Unidade Medida", "Rastreável", "Nº Casas Decimais", "Ativo"],
+      ["Medidores", "MED001", "MEDIDOR MONOFÁSICO 220V", "UN", "SIM", "0", "SIM"],
+      ["Cabos e Condutores", "CAB001", "CABO FLEX 10MM", "M", "NÃO", "2", "SIM"],
+      ["Ferramentas", "FER001", "ALICATE UNIVERSAL", "UN", "NÃO", "0", "SIM"],
+    ];
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    XLSX.utils.book_append_sheet(wb, ws, "Materiais");
+    XLSX.writeFile(wb, `template-importacao-materiais-${format(new Date(), "yyyyMMdd")}.xlsx`);
+  };
+
   const handleOpenDialog = (material?: Material) => {
     if (material) {
       setSelectedMaterial(material);
@@ -684,6 +884,15 @@ export default function CatalogoMateriais() {
               ]}
               disabled={isLoading}
             />
+            <Button 
+              variant="outline"
+              onClick={() => setImportDialogOpen(true)}
+              disabled={!podeEditar}
+              title={!podeEditar ? "Você não tem permissão para importar" : undefined}
+            >
+              <Upload className="h-4 w-4 mr-2" />
+              Importar
+            </Button>
             <Button 
               onClick={() => handleOpenDialog()}
               disabled={!podeEditar}
@@ -1371,6 +1580,146 @@ export default function CatalogoMateriais() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Dialog de Importação de Materiais */}
+        <Dialog
+          open={importDialogOpen}
+          onOpenChange={(open) => {
+            setImportDialogOpen(open);
+            if (!open) resetImportState();
+          }}
+        >
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Importar Materiais (Excel)</DialogTitle>
+              <DialogDescription>
+                Envie uma planilha com os materiais para importar. Materiais existentes serão atualizados.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-6">
+              <div className="flex flex-col md:flex-row gap-3 md:items-end md:justify-between">
+                <div className="space-y-2 flex-1">
+                  <Label>Planilha (.xlsx)</Label>
+                  <Input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] || null;
+                      if (file) void handleImportFile(file);
+                      e.currentTarget.value = "";
+                    }}
+                  />
+                  {importFile && (
+                    <p className="text-xs text-muted-foreground">Arquivo: {importFile.name}</p>
+                  )}
+                </div>
+                <Button variant="outline" onClick={handleDownloadImportTemplate}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Baixar template
+                </Button>
+              </div>
+
+              {importLoading && (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                </div>
+              )}
+
+              {importRows.length > 0 && !importLoading && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Pré-visualização</CardTitle>
+                    <div className="flex flex-wrap gap-2 text-sm">
+                      <Badge variant="default">
+                        {importRows.filter((r) => !r.error && !r.existente).length} novos
+                      </Badge>
+                      <Badge variant="secondary">
+                        {importRows.filter((r) => !r.error && r.existente).length} existentes (atualizar)
+                      </Badge>
+                      <Badge variant="destructive">
+                        {importRows.filter((r) => r.error).length} com erro
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="border rounded-lg overflow-hidden max-h-[400px] overflow-y-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-16">Linha</TableHead>
+                            <TableHead>Código</TableHead>
+                            <TableHead>Nome</TableHead>
+                            <TableHead>Categoria</TableHead>
+                            <TableHead className="text-center">Unid.</TableHead>
+                            <TableHead className="text-center">Rastreável</TableHead>
+                            <TableHead className="text-center">Status</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {importRows.map((r) => (
+                            <TableRow 
+                              key={`${r.rowIndex}-${r.codigo}`}
+                              className={r.error ? "bg-destructive/10" : r.existente ? "bg-amber-50" : ""}
+                            >
+                              <TableCell className="text-muted-foreground">{r.rowIndex}</TableCell>
+                              <TableCell className="font-mono font-medium">{r.codigo || "-"}</TableCell>
+                              <TableCell className="max-w-[200px] truncate">{r.nome || "-"}</TableCell>
+                              <TableCell>{r.categoria || "-"}</TableCell>
+                              <TableCell className="text-center">{r.unidade}</TableCell>
+                              <TableCell className="text-center">
+                                {r.requer_serial ? (
+                                  <Badge variant="default" className="text-xs">SR</Badge>
+                                ) : (
+                                  <span className="text-muted-foreground">-</span>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-center">
+                                {r.error ? (
+                                  <Badge variant="destructive" className="text-xs">{r.error}</Badge>
+                                ) : r.existente ? (
+                                  <Badge variant="outline" className="text-xs text-amber-600 border-amber-600">
+                                    Atualizar
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="text-xs text-green-600 border-green-600">
+                                    Novo
+                                  </Badge>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setImportDialogOpen(false);
+                    resetImportState();
+                  }}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={() => importMutation.mutate(importRows)}
+                  disabled={
+                    importMutation.isPending ||
+                    importRows.length === 0 ||
+                    importRows.every((r) => r.error)
+                  }
+                >
+                  {importMutation.isPending ? "Importando..." : "Importar Materiais"}
+                </Button>
+              </DialogFooter>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </MainLayout>
   );
