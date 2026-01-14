@@ -2427,7 +2427,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
         }, 100);
       }
     }
-  }, [dadosFiltrados, equipesMock, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, routesGeometry, skillsIcons, filtroEquipe, criarSequenciaOS, osPendentesDebounced]);
+  }, [dadosFiltrados, equipesMock, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, routesGeometry, skillsIcons, filtroEquipe, criarSequenciaOS, osPendentesDebounced, prazoLimiteUrgente, versaoPrazoUrgente]);
 
   // Função auxiliar para calcular centroide
   const calcularCentroide = (poligono: { lat: number; lng: number }[]): { lat: number; lng: number } => {
