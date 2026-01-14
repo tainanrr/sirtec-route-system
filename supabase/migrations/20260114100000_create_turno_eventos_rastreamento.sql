@@ -382,10 +382,31 @@ $$ LANGUAGE plpgsql;
 COMMENT ON FUNCTION public.detectar_parada_prolongada IS 'Detecta e registra paradas prolongadas da equipe';
 
 -- =====================================================
--- 8. HABILITAR REALTIME
+-- 8. HABILITAR REALTIME (idempotente)
 -- =====================================================
-ALTER PUBLICATION supabase_realtime ADD TABLE public.turno_eventos;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.turno_paradas;
+DO $$
+BEGIN
+  -- Adicionar turno_eventos ao realtime se ainda não estiver
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' 
+    AND schemaname = 'public' 
+    AND tablename = 'turno_eventos'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.turno_eventos;
+  END IF;
+  
+  -- Adicionar turno_paradas ao realtime se ainda não estiver
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' 
+    AND schemaname = 'public' 
+    AND tablename = 'turno_paradas'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.turno_paradas;
+  END IF;
+END
+$$;
 
 -- =====================================================
 -- 9. TRIGGER PARA REGISTRAR EVENTOS AUTOMATICAMENTE
