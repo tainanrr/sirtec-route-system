@@ -1452,18 +1452,35 @@ const Roteirizacao = () => {
         equipeCodigo: string;
         osIncluidas: { numero: string; tipo: string }[];
         osRemovidas: { numero: string; tipo: string }[];
+        osAguardandoRemocao: { numero: string; tipo: string }[];
       }[];
       totalOsIncluidas: number;
       totalOsRemovidas: number;
+      totalOsAguardandoRemocao: number;
       kmAlterado: number;
       faturamentoAlterado: number;
     } = {
       equipesAlteradas: [],
       totalOsIncluidas: 0,
       totalOsRemovidas: 0,
+      totalOsAguardandoRemocao: 0,
       kmAlterado: 0,
       faturamentoAlterado: 0
     };
+    
+    // Agrupar pendências de remoção locais por equipe
+    const pendenciasRemocaoPorEquipe = new Map<string, { numero: string; tipo: string }[]>();
+    for (const pendencia of osPendentesRemocaoLocal) {
+      const equipeId = pendencia.equipeId;
+      if (!pendenciasRemocaoPorEquipe.has(equipeId)) {
+        pendenciasRemocaoPorEquipe.set(equipeId, []);
+      }
+      // Buscar o tipo da OS na rota
+      const rota = rotas.find(r => r.equipe.id === equipeId);
+      const servico = rota?.servicos.find(s => s.tipo === 'SERVICO' && s.ordemServico?.id === pendencia.osId);
+      const tipo = servico?.ordemServico?.tipo || "N/A";
+      pendenciasRemocaoPorEquipe.get(equipeId)!.push({ numero: pendencia.osNumero, tipo });
+    }
     
     for (const rota of rotas) {
       const rotaOriginal = rotasOriginais.get(rota.equipe.id) || [];
@@ -1477,21 +1494,26 @@ const Roteirizacao = () => {
       // Detectar alterações
       const alteracoes = detectarAlteracoesRota(rotaOriginal, rotaAtual);
       
-      // Se houver alterações, adicionar à lista
-      if (alteracoes.osIncluidas.length > 0 || alteracoes.osRemovidas.length > 0) {
+      // Pegar pendências de remoção desta equipe
+      const osAguardandoRemocao = pendenciasRemocaoPorEquipe.get(rota.equipe.id) || [];
+      
+      // Se houver alterações ou pendências de remoção, adicionar à lista
+      if (alteracoes.osIncluidas.length > 0 || alteracoes.osRemovidas.length > 0 || osAguardandoRemocao.length > 0) {
         resultado.equipesAlteradas.push({
           equipeId: rota.equipe.id,
           equipeCodigo: rota.equipe.codigo,
           osIncluidas: alteracoes.osIncluidas,
-          osRemovidas: alteracoes.osRemovidas
+          osRemovidas: alteracoes.osRemovidas,
+          osAguardandoRemocao: osAguardandoRemocao
         });
         resultado.totalOsIncluidas += alteracoes.osIncluidas.length;
         resultado.totalOsRemovidas += alteracoes.osRemovidas.length;
+        resultado.totalOsAguardandoRemocao += osAguardandoRemocao.length;
       }
     }
     
     return resultado;
-  }, [planejamentoEditandoId, rotas, rotasOriginais]);
+  }, [planejamentoEditandoId, rotas, rotasOriginais, osPendentesRemocaoLocal]);
 
   const equipesAtivas = useMemo(
     () => equipes.filter((e) => equipesSelecionadas.includes(e.id)),
@@ -3875,54 +3897,83 @@ const Roteirizacao = () => {
   useEffect(() => {
     if (!planejamentoEditandoId) return;
     
+    console.log("[PENDÊNCIAS] Iniciando subscription Realtime para planejamento:", planejamentoEditandoId);
+    
     const channel = supabase
       .channel(`pendencias-remocao-${planejamentoEditandoId}`)
       .on(
         'postgres_changes',
         {
-          event: 'UPDATE',
+          event: '*', // Escutar INSERT, UPDATE e DELETE
           schema: 'public',
           table: 'os_pendentes_remocao',
           filter: `planejamento_id=eq.${planejamentoEditandoId}`
         },
         async (payload) => {
-          const pendenciaAtualizada = payload.new as any;
-          console.log("[PENDÊNCIAS] Pendência atualizada:", pendenciaAtualizada.os_numero, "->", pendenciaAtualizada.status);
+          console.log("[PENDÊNCIAS] Evento Realtime recebido:", payload.eventType, payload);
           
-          // Se a pendência foi CONFIRMADA (OS pode ser removida), remover da rota
-          if (pendenciaAtualizada.status === "confirmada") {
-            console.log("[PENDÊNCIAS] Remoção confirmada - removendo OS da rota local:", pendenciaAtualizada.os_numero);
-            setRotas(prevRotas => {
-              return prevRotas.map(rota => {
-                if (rota.equipe.id === pendenciaAtualizada.equipe_id) {
-                  const novosServicos = rota.servicos.filter(
-                    s => !(s.tipo === 'SERVICO' && s.ordemServico?.id === pendenciaAtualizada.ordem_servico_id)
-                  );
-                  if (novosServicos.length !== rota.servicos.length) {
-                    toast.success(`OS ${pendenciaAtualizada.os_numero} removida da rota (confirmada pelo app)`);
-                    const rotaAtualizada = { ...rota, servicos: novosServicos };
-                    return recalcularRota(rotaAtualizada).rota;
+          if (payload.eventType === 'INSERT') {
+            console.log("[PENDÊNCIAS] Nova pendência criada:", (payload.new as any).os_numero);
+            // Atualizar lista de pendências
+            fetchOsPendentesRemocao();
+          }
+          
+          if (payload.eventType === 'UPDATE') {
+            const pendenciaAtualizada = payload.new as any;
+            console.log("[PENDÊNCIAS] Pendência atualizada:", pendenciaAtualizada.os_numero, "->", pendenciaAtualizada.status);
+            
+            // Se a pendência foi CONFIRMADA (OS pode ser removida), remover da rota
+            if (pendenciaAtualizada.status === "confirmada") {
+              console.log("[PENDÊNCIAS] Remoção confirmada - removendo OS da rota local:", pendenciaAtualizada.os_numero);
+              setRotas(prevRotas => {
+                return prevRotas.map(rota => {
+                  if (rota.equipe.id === pendenciaAtualizada.equipe_id) {
+                    const novosServicos = rota.servicos.filter(
+                      s => !(s.tipo === 'SERVICO' && s.ordemServico?.id === pendenciaAtualizada.ordem_servico_id)
+                    );
+                    if (novosServicos.length !== rota.servicos.length) {
+                      toast.success(`OS ${pendenciaAtualizada.os_numero} removida da rota (confirmada pelo app)`);
+                      const rotaAtualizada = { ...rota, servicos: novosServicos };
+                      return recalcularRota(rotaAtualizada).rota;
+                    }
                   }
-                }
-                return rota;
+                  return rota;
+                });
               });
-            });
+              
+              // Também remover da lista local de pendências
+              setOsPendentesRemocaoLocal(prev => 
+                prev.filter(p => p.osId !== pendenciaAtualizada.ordem_servico_id)
+              );
+            }
+            
+            // Se a pendência foi CANCELADA (OS estava em andamento), manter na rota e remover badge
+            if (pendenciaAtualizada.status === "cancelado_em_execucao" || pendenciaAtualizada.status === "cancelado_concluida") {
+              console.log("[PENDÊNCIAS] Remoção cancelada - mantendo OS na rota:", pendenciaAtualizada.os_numero);
+              toast.info(`OS ${pendenciaAtualizada.os_numero} mantida na rota (em andamento/concluída)`);
+              
+              // Remover da lista local de pendências
+              setOsPendentesRemocaoLocal(prev => 
+                prev.filter(p => p.osId !== pendenciaAtualizada.ordem_servico_id)
+              );
+            }
+            
+            // Atualizar lista de pendências do banco (isso atualiza osIdsComPendenciaAguardando automaticamente)
+            fetchOsPendentesRemocao();
           }
           
-          // Se a pendência foi CANCELADA (OS estava em andamento), manter na rota e remover badge
-          if (pendenciaAtualizada.status === "cancelado_em_execucao" || pendenciaAtualizada.status === "cancelado_concluida") {
-            console.log("[PENDÊNCIAS] Remoção cancelada - mantendo OS na rota:", pendenciaAtualizada.os_numero);
-            toast.info(`OS ${pendenciaAtualizada.os_numero} mantida na rota (em andamento/concluída)`);
-            // A OS já está na rota, só precisa atualizar o estado para remover o badge
+          if (payload.eventType === 'DELETE') {
+            console.log("[PENDÊNCIAS] Pendência excluída:", (payload.old as any).os_numero);
+            fetchOsPendentesRemocao();
           }
-          
-          // Atualizar lista de pendências (isso atualiza osIdsComPendenciaAguardando automaticamente)
-          fetchOsPendentesRemocao();
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log("[PENDÊNCIAS] Status da subscription:", status);
+      });
     
     return () => {
+      console.log("[PENDÊNCIAS] Removendo subscription Realtime");
       supabase.removeChannel(channel);
     };
   }, [planejamentoEditandoId]);
@@ -7577,6 +7628,11 @@ const Roteirizacao = () => {
                           • <span className="font-medium">-{alteracoesParaConfirmacao.totalOsRemovidas}</span> OS(s) removida(s)
                         </div>
                       )}
+                      {alteracoesParaConfirmacao.totalOsAguardandoRemocao > 0 && (
+                        <div className="text-amber-600">
+                          • <span className="font-medium">⏳ {alteracoesParaConfirmacao.totalOsAguardandoRemocao}</span> OS(s) aguardando confirmação de remoção
+                        </div>
+                      )}
                       
                       <div className="mt-3 pt-3 border-t border-border space-y-2">
                         <div className="text-xs font-medium text-muted-foreground mb-1">Detalhes por equipe:</div>
@@ -7595,6 +7651,13 @@ const Roteirizacao = () => {
                                 <div className="text-red-600 ml-2">
                                   {equipe.osRemovidas.map(os => (
                                     <div key={os.numero}>- {os.numero} ({os.tipo})</div>
+                                  ))}
+                                </div>
+                              )}
+                              {equipe.osAguardandoRemocao.length > 0 && (
+                                <div className="text-amber-600 ml-2">
+                                  {equipe.osAguardandoRemocao.map(os => (
+                                    <div key={os.numero}>⏳ {os.numero} ({os.tipo}) - aguardando</div>
                                   ))}
                                 </div>
                               )}
