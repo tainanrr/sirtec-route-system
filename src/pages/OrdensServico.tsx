@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { useTelaPermissao } from "@/hooks/usePermissoes";
 import { useLogSistema } from "@/hooks/useLogSistema";
@@ -112,6 +113,9 @@ type OrdemWithTecnico = Tables<"ordens_servico"> & {
 const PAGE_SIZE = 100;
 
 const OrdensServico = () => {
+  // Query parameters para abrir OS específica
+  const [searchParams, setSearchParams] = useSearchParams();
+  
   // Permissões da tela
   const { podeEditar } = useTelaPermissao("ordens_servico");
   const { logCriar, logEditar, logExcluir } = useLogSistema();
@@ -233,6 +237,18 @@ const OrdensServico = () => {
   const [geocodingProgress, setGeocodingProgress] = useState({ current: 0, total: 0, endereco: "" });
   const [detalhesOpen, setDetalhesOpen] = useState(false);
   const [ordemDetalhesId, setOrdemDetalhesId] = useState<string | null>(null);
+  
+  // Efeito para abrir detalhes da OS via query parameter
+  useEffect(() => {
+    const osId = searchParams.get('os');
+    if (osId) {
+      setOrdemDetalhesId(osId);
+      setDetalhesOpen(true);
+      // Limpar o parâmetro da URL para não reabrir ao navegar
+      searchParams.delete('os');
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
   
   // Estados para exportação
   const [exportando, setExportando] = useState(false);

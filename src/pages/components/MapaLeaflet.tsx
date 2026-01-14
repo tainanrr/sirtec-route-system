@@ -607,7 +607,14 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
           </div>
           <div style="padding: 0 4px;">
             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-              <span style="font-weight: 700; font-size: 16px;">${osUrgenteDestaque.numero}</span>
+              <span 
+                onclick="window.dispatchEvent(new CustomEvent('abrirDetalhesOS', { detail: { osId: '${osUrgenteDestaque.id}', osNumero: '${osUrgenteDestaque.numero}' } }))"
+                style="font-weight: 700; font-size: 16px; color: #3b82f6; cursor: pointer; text-decoration: underline; display: inline-flex; align-items: center; gap: 4px;"
+                title="Clique para ver detalhes da OS"
+              >
+                ${osUrgenteDestaque.numero}
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              </span>
               <span style="background: ${ehReliga ? '#9333ea' : ehRegulada ? '#f97316' : '#ef4444'}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">
                 ${ehReliga ? 'RELIGA' : ehRegulada ? 'REGULADA' : osUrgenteDestaque.tipo}
               </span>
@@ -735,7 +742,14 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
             <div style="background: ${cor}; color: white; padding: 8px; margin: -10px -10px 8px; border-radius: 4px 4px 0 0; font-weight: 600;">
               ⚠️ OS #${index + 1} - FORA DO TERRITÓRIO
             </div>
-            <div style="font-weight: 700;">${os.numero}</div>
+            <span 
+              onclick="window.dispatchEvent(new CustomEvent('abrirDetalhesOS', { detail: { osId: '${os.id}', osNumero: '${os.numero}' } }))"
+              style="font-weight: 700; color: #3b82f6; cursor: pointer; text-decoration: underline; display: inline-flex; align-items: center; gap: 4px;"
+              title="Clique para ver detalhes da OS"
+            >
+              ${os.numero}
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            </span>
             <div style="font-size: 12px; color: #666; margin-top: 4px;">📍 ${os.endereco}</div>
             <div style="font-size: 12px; color: ${cor}; font-weight: 600; margin-top: 4px;">⏰ Prazo: ${prazoStr}</div>
           </div>
@@ -1803,7 +1817,14 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
           <div style="min-width: 260px; font-family: system-ui, -apple-system, sans-serif;">
             <div style="margin-bottom: 8px;">
               <strong style="font-size: 14px; color: #1f2937;">Número:</strong>
-              <span style="margin-left: 8px; font-weight: 600;">${os.numero}</span>
+              <span 
+                onclick="window.dispatchEvent(new CustomEvent('abrirDetalhesOS', { detail: { osId: '${os.id}', osNumero: '${os.numero}' } }))"
+                style="margin-left: 8px; font-weight: 600; color: #3b82f6; cursor: pointer; text-decoration: underline; display: inline-flex; align-items: center; gap: 4px;"
+                title="Clique para ver detalhes da OS"
+              >
+                ${os.numero}
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              </span>
             </div>
             <div style="margin-bottom: 8px;">
               <strong style="font-size: 14px; color: #1f2937;">Tipo:</strong>
@@ -2284,7 +2305,14 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
             <div style="min-width: 200px; font-family: system-ui, -apple-system, sans-serif;">
               <div style="margin-bottom: 8px;">
                 <strong style="font-size: 14px; color: #1f2937;">Número:</strong>
-                <span style="margin-left: 8px; font-weight: 600;">${servico.ordemServico.numero}</span>
+                <span 
+                  onclick="window.dispatchEvent(new CustomEvent('abrirDetalhesOS', { detail: { osId: '${servico.ordemServico.id}', osNumero: '${servico.ordemServico.numero}' } }))"
+                  style="margin-left: 8px; font-weight: 600; color: #3b82f6; cursor: pointer; text-decoration: underline; display: inline-flex; align-items: center; gap: 4px;"
+                  title="Clique para ver detalhes da OS"
+                >
+                  ${servico.ordemServico.numero}
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                </span>
               </div>
               <div style="margin-bottom: 8px;">
                 <strong style="font-size: 14px; color: #1f2937;">Tipo:</strong>

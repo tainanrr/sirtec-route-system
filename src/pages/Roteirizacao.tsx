@@ -427,6 +427,23 @@ const Roteirizacao = () => {
       window.removeEventListener('abrirDetalhesTurno', handleAbrirDetalhesTurno as EventListener);
     };
   }, []);
+
+  // Listener para abrir detalhes da OS quando clicado no popup do mapa
+  useEffect(() => {
+    const handleAbrirDetalhesOS = (event: CustomEvent<{ osId: string; osNumero: string }>) => {
+      const { osId } = event.detail;
+      if (osId) {
+        // Abrir a página de ordens de serviço em nova aba com a OS específica
+        const url = `/ordens-servico?os=${osId}`;
+        window.open(url, '_blank');
+      }
+    };
+
+    window.addEventListener('abrirDetalhesOS', handleAbrirDetalhesOS as EventListener);
+    return () => {
+      window.removeEventListener('abrirDetalhesOS', handleAbrirDetalhesOS as EventListener);
+    };
+  }, []);
   
   // Estado para OS que requer confirmação especial (rota do dia atual)
   const [osParaRemoverComConfirmacao, setOsParaRemoverComConfirmacao] = useState<{

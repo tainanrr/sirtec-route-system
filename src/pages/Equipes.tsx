@@ -41,6 +41,11 @@ import {
   CheckSquare,
   Square,
   Settings2,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Filter,
+  FilterX,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
