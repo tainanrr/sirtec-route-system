@@ -382,16 +382,22 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
           zIndexOffset: 600,
         });
 
-        // Popup com informações
-        const ultimaPosFormatada = equipe.ultima_posicao_at
+        // Popup com informações - incluindo data/hora completa
+        const ultimaPosRelativa = equipe.ultima_posicao_at
           ? formatDistanceToNow(new Date(equipe.ultima_posicao_at), { addSuffix: true, locale: ptBR })
           : "Sem posição";
-        const horaInicio = equipe.hora_inicio
+        const ultimaPosCompleta = equipe.ultima_posicao_at
+          ? format(new Date(equipe.ultima_posicao_at), "dd/MM/yyyy 'às' HH:mm:ss", { locale: ptBR })
+          : "";
+        const inicioTurnoData = equipe.hora_inicio
+          ? format(new Date(equipe.hora_inicio), "dd/MM/yyyy", { locale: ptBR })
+          : "";
+        const inicioTurnoHora = equipe.hora_inicio
           ? format(new Date(equipe.hora_inicio), "HH:mm", { locale: ptBR })
           : "N/A";
 
         const popupHtml = `
-          <div style="min-width: 220px; font-family: system-ui;">
+          <div style="min-width: 260px; font-family: system-ui;">
             <div style="
               background: ${corFundo};
               color: white;
@@ -399,7 +405,14 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
               margin: -10px -10px 10px -10px;
               border-radius: 4px 4px 0 0;
             ">
-              <div style="font-weight: 700; font-size: 15px;">${equipe.equipe_codigo}</div>
+              <div 
+                onclick="window.dispatchEvent(new CustomEvent('abrirDetalhesTurno', { detail: { turnoId: '${equipe.turno_id}', equipeId: '${equipe.equipe_id}' } }))"
+                style="font-weight: 700; font-size: 15px; cursor: pointer; text-decoration: underline; display: inline-flex; align-items: center; gap: 4px;"
+                title="Clique para ver detalhes do turno"
+              >
+                ${equipe.equipe_codigo}
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              </div>
               <div style="font-size: 11px; opacity: 0.9;">${equipe.equipe_nome}</div>
             </div>
             <div style="padding: 0 4px;">
@@ -407,17 +420,27 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
                 <span style="color: #6b7280;">Status:</span>
                 <span style="font-weight: 600; color: ${corFundo};">${config.label}</span>
               </div>
-              <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 12px;">
-                <span style="color: #6b7280;">Início:</span>
-                <span style="font-weight: 500;">${horaInicio}</span>
+              
+              <!-- Início do Turno com data/hora -->
+              <div style="margin-bottom: 8px; padding: 6px; background: #f8fafc; border-radius: 4px;">
+                <div style="font-size: 10px; color: #64748b; font-weight: 500; margin-bottom: 2px;">📅 INÍCIO DO TURNO</div>
+                <div style="font-size: 13px; font-weight: 600; color: #1e293b;">${inicioTurnoData} às ${inicioTurnoHora}</div>
               </div>
-              <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 12px;">
-                <span style="color: #6b7280;">Última posição:</span>
-                <span style="font-weight: 500;">${ultimaPosFormatada}</span>
+              
+              <!-- Última Posição com data/hora -->
+              <div style="margin-bottom: 8px; padding: 6px; background: #f8fafc; border-radius: 4px;">
+                <div style="font-size: 10px; color: #64748b; font-weight: 500; margin-bottom: 2px;">📍 ÚLTIMA POSIÇÃO</div>
+                ${equipe.ultima_posicao_at ? `
+                  <div style="font-size: 13px; font-weight: 600; color: #1e293b;">${ultimaPosCompleta}</div>
+                  <div style="font-size: 11px; color: #64748b;">(${ultimaPosRelativa})</div>
+                ` : `
+                  <div style="font-size: 12px; color: #94a3b8;">Sem posição registrada</div>
+                `}
               </div>
+              
               ${equipe.battery_pct !== null ? `
                 <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 12px;">
-                  <span style="color: #6b7280;">Bateria:</span>
+                  <span style="color: #6b7280;">🔋 Bateria:</span>
                   <span style="font-weight: 500; color: ${equipe.battery_pct < 20 ? '#ef4444' : '#22c55e'};">
                     ${equipe.battery_pct}%
                   </span>
@@ -431,11 +454,35 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
                   border-radius: 6px;
                   margin-top: 8px;
                 ">
-                  <div style="font-size: 10px; color: #0369a1; font-weight: 600;">OS EM ATENDIMENTO</div>
+                  <div style="font-size: 10px; color: #0369a1; font-weight: 600;">📋 OS EM ATENDIMENTO</div>
                   <div style="font-weight: 700; color: #0c4a6e; font-size: 12px;">${equipe.os_atual.numero}</div>
                   <div style="font-size: 11px; color: #075985;">${equipe.os_atual.tipo}</div>
                 </div>
               ` : ''}
+              
+              <!-- Botão Ver Turno Completo -->
+              <button 
+                onclick="window.dispatchEvent(new CustomEvent('abrirDetalhesTurno', { detail: { turnoId: '${equipe.turno_id}', equipeId: '${equipe.equipe_id}' } }))"
+                style="
+                  width: 100%;
+                  margin-top: 10px;
+                  padding: 8px;
+                  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+                  color: white;
+                  border: none;
+                  border-radius: 6px;
+                  font-weight: 600;
+                  font-size: 12px;
+                  cursor: pointer;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  gap: 6px;
+                "
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                Ver Detalhes do Turno
+              </button>
             </div>
           </div>
         `;

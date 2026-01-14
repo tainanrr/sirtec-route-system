@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { useTelaPermissao } from "@/hooks/usePermissoes";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -286,6 +287,10 @@ export default function ConsultaTurnos() {
   const [cancelarDialogOpen, setCancelarDialogOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [actionSuccess, setActionSuccess] = useState(false);
+  
+  // Parâmetros de URL para abrir turno específico
+  const [searchParams, setSearchParams] = useSearchParams();
+  const turnoIdFromUrl = searchParams.get("turno");
   
   // Estados para visualizar OS e Checklist
   const [osDialogOpen, setOsDialogOpen] = useState(false);
@@ -619,6 +624,19 @@ export default function ConsultaTurnos() {
     
     return filtered;
   }, [turnosData?.turnos, statusFilter, equipeFilter, veiculoFilter, coordenadorFilter, supervisorFilter, searchTerm, sortConfig, supervisores, coordenadores]);
+  
+  // Efeito para abrir automaticamente o turno quando vem da URL
+  useEffect(() => {
+    if (turnoIdFromUrl && turnosData?.turnos && !selectedTurno) {
+      const turnoFromUrl = turnosData.turnos.find(t => t.id === turnoIdFromUrl);
+      if (turnoFromUrl) {
+        setSelectedTurno(turnoFromUrl);
+        setDetalhesOpen(true);
+        // Limpar o parâmetro da URL após selecionar
+        setSearchParams({});
+      }
+    }
+  }, [turnoIdFromUrl, turnosData?.turnos, selectedTurno, setSearchParams]);
   
   // Função para alternar ordenação de coluna
   const handleSort = (column: SortColumn) => {

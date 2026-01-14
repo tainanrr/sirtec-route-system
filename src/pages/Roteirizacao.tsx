@@ -401,6 +401,23 @@ const Roteirizacao = () => {
   // Estado para seleção múltipla de OSs para remoção em massa
   const [ossSelecionadasParaRemocao, setOssSelecionadasParaRemocao] = useState<Set<string>>(new Set());
   
+  // Listener para abrir detalhes do turno quando clicado no popup do mapa
+  useEffect(() => {
+    const handleAbrirDetalhesTurno = (event: CustomEvent<{ turnoId: string; equipeId: string }>) => {
+      const { turnoId } = event.detail;
+      if (turnoId) {
+        // Abrir a página de consulta de turnos em nova aba com o turno específico
+        const url = `/consulta-turnos?turno=${turnoId}`;
+        window.open(url, '_blank');
+      }
+    };
+
+    window.addEventListener('abrirDetalhesTurno', handleAbrirDetalhesTurno as EventListener);
+    return () => {
+      window.removeEventListener('abrirDetalhesTurno', handleAbrirDetalhesTurno as EventListener);
+    };
+  }, []);
+  
   // Estado para OS que requer confirmação especial (rota do dia atual)
   const [osParaRemoverComConfirmacao, setOsParaRemoverComConfirmacao] = useState<{
     equipeId: string;
