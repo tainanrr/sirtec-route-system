@@ -952,44 +952,33 @@ const OrdensServico = () => {
     setClearAllDialogOpen(false);
   };
 
-  // Função para exportar TODAS as OSs filtradas - OTIMIZADA
+  // Função para exportar TODAS as OSs filtradas em CSV (mais rápido e menor)
   const handleExportar = async () => {
     try {
       setExportando(true);
       setExportProgress({ current: 0, total: totalCount, fase: "Preparando exportação..." });
       
-      // Buscar OSs em lotes (Supabase tem limite de 1000 por padrão)
-      const PAGE_SIZE_EXPORT = 1000; // Limite do Supabase
+      const PAGE_SIZE_EXPORT = 1000;
       let allOrdens: any[] = [];
       let page = 0;
-      
-      // Campos selecionados (sem campos desnecessários para reduzir tamanho)
-      const camposOS = `
-        codigo,numero,tipo,status,prioridade,
-        cliente_nome,cliente_cpf,instalacao,medidor,
-        endereco,bairro,municipio,
-        latitude,longitude,
-        prazo,concluido_at,
-        valor,regulada,
-        tecnicos:tecnico_id(codigo),
-        retornos_campo:retorno_campo_id(codigo,tipo),
-        centros_custo:centro_custo_id(codigo),
-        contratos:contrato_id(codigo),
-        territorios,observacoes
-      `.replace(/\s+/g, '');
+      const totalPages = Math.ceil(totalCount / PAGE_SIZE_EXPORT);
       
       setExportProgress({ current: 0, total: totalCount, fase: "Buscando ordens de serviço..." });
       
-      // Calcular número total de páginas
-      const totalPages = Math.ceil(totalCount / PAGE_SIZE_EXPORT);
-      
+      // Buscar TODOS os campos
       while (page < totalPages) {
         const from = page * PAGE_SIZE_EXPORT;
         const to = from + PAGE_SIZE_EXPORT - 1;
         
         let query = supabase
           .from("ordens_servico")
-          .select(camposOS);
+          .select(`
+            *,
+            tecnicos:tecnico_id(codigo,nome),
+            retornos_campo:retorno_campo_id(codigo,descricao,tipo),
+            centros_custo:centro_custo_id(codigo,nome),
+            contratos:contrato_id(codigo,nome)
+          `);
         
         query = applyFiltersToQuery(query);
         query = query.order("created_at", { ascending: false }).range(from, to);
@@ -997,8 +986,8 @@ const OrdensServico = () => {
         const { data, error } = await query;
         
         if (error) {
-          console.error("Erro ao buscar OSs para exportação:", error);
-          toast.error("Erro ao exportar ordens de serviço");
+          console.error("Erro ao buscar OSs:", error);
+          toast.error("Erro ao exportar");
           setExportando(false);
           return;
         }
@@ -1013,43 +1002,92 @@ const OrdensServico = () => {
         }
         
         page++;
-        
-        // Se não veio dados, parar
         if (!data || data.length === 0) break;
       }
       
       if (allOrdens.length === 0) {
-        toast.warning("Nenhuma ordem de serviço encontrada para exportar");
+        toast.warning("Nenhuma OS encontrada");
         setExportando(false);
         return;
       }
       
-      // Montar dados para exportação - formato compacto
-      setExportProgress({ current: 0, total: allOrdens.length, fase: "Gerando Excel..." });
+      // Buscar produção em lotes
+      setExportProgress({ current: 0, total: allOrdens.length, fase: "Buscando produção..." });
+      const ordensIds = allOrdens.map(o => o.id);
+      const producaoMap = new Map<string, any>();
       
-      // Função para formatar data de forma compacta (dd/mm/yy)
+      for (let i = 0; i < ordensIds.length; i += 1000) {
+        const batchIds = ordensIds.slice(i, i + 1000);
+        const { data: producaoData } = await supabase
+          .from("producao_equipes")
+          .select(`ordem_servico_id,valor_total,data_execucao,equipes:equipe_id(codigo,nome)`)
+          .in("ordem_servico_id", batchIds);
+        
+        if (producaoData) {
+          producaoData.forEach(p => producaoMap.set(p.ordem_servico_id, p));
+        }
+        setExportProgress({ 
+          current: Math.min(i + 1000, ordensIds.length), 
+          total: ordensIds.length, 
+          fase: `Produção (${Math.min(i + 1000, ordensIds.length).toLocaleString()}/${ordensIds.length.toLocaleString()})...` 
+        });
+      }
+      
+      // Buscar planejamentos em lotes
+      setExportProgress({ current: 0, total: allOrdens.length, fase: "Buscando planejamentos..." });
+      const planejamentoMap = new Map<string, any>();
+      
+      for (let i = 0; i < ordensIds.length; i += 1000) {
+        const batchIds = ordensIds.slice(i, i + 1000);
+        const { data: planejamentoData } = await supabase
+          .from("planejamento_ordens")
+          .select(`ordem_servico_id,ordem_na_rota,planejamentos:planejamento_id(data_planejamento,equipes:equipe_id(codigo,nome))`)
+          .in("ordem_servico_id", batchIds);
+        
+        if (planejamentoData) {
+          planejamentoData.forEach(p => planejamentoMap.set(p.ordem_servico_id, p));
+        }
+      }
+      
+      // Gerar CSV (muito mais leve que XLSX)
+      setExportProgress({ current: 0, total: allOrdens.length, fase: "Gerando CSV..." });
+      
       const formatarData = (data: string | null) => {
         if (!data) return "";
-        const d = new Date(data);
-        return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth()+1).toString().padStart(2, '0')}/${d.getFullYear().toString().slice(-2)}`;
+        return new Date(data).toLocaleString("pt-BR");
       };
       
-      // Criar array de arrays para melhor performance
+      // Headers completos
       const headers = [
-        "Código", "Número", "Tipo", "Status", "Prioridade",
-        "Cliente", "CPF", "Instalação", "Medidor",
-        "Endereço", "Bairro", "Município",
-        "Lat", "Lng",
-        "Prazo", "Conclusão",
-        "Valor", "Reg",
-        "Técnico", "Retorno", "Tipo Ret",
-        "CC", "Contrato",
-        "Territórios", "Obs"
+        "Codigo","Numero","Tipo","Nome_Tipo","Grupo_Servico","Status","Prioridade","Avulsa",
+        "Cliente_Nome","Cliente_CPF","Cliente_Telefone","Instalacao","Medidor","Tensao_Medicao",
+        "Endereco","Numero_End","Complemento","Bairro","Municipio","UF","CEP","Zona_Cadastral",
+        "Latitude","Longitude","Territorios",
+        "Prazo","Data_Geracao","Data_Criacao","Data_Inicio","Data_Conclusao","Data_Atualizacao",
+        "Tempo_Estimado_Min","Tempo_Total_Min","Valor_OS","Regulada",
+        "Contrato_Codigo","Contrato_Nome","CC_Codigo","CC_Nome",
+        "Tecnico_Codigo","Tecnico_Nome",
+        "Equipe_Plan_Codigo","Equipe_Plan_Nome","Data_Planejamento","Ordem_Rota",
+        "Equipe_Exec_Codigo","Equipe_Exec_Nome","Data_Execucao","Valor_Producao",
+        "Retorno_Codigo","Retorno_Descricao","Retorno_Tipo",
+        "Observacoes"
       ];
       
-      const dadosArray = allOrdens.map((os, index) => {
-        // Atualizar progresso a cada 1000 registros
-        if (index % 1000 === 0) {
+      // Função para escapar campos CSV
+      const escapeCsv = (val: any) => {
+        if (val === null || val === undefined) return "";
+        const str = String(val);
+        if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes(";")) {
+          return `"${str.replace(/"/g, '""')}"`;
+        }
+        return str;
+      };
+      
+      // Montar linhas CSV
+      const linhas: string[] = [headers.join(";")];
+      
+      allOrdens.forEach((os, index) => {
+        if (index % 2000 === 0) {
           setExportProgress({ 
             current: index, 
             total: allOrdens.length, 
@@ -1057,52 +1095,81 @@ const OrdensServico = () => {
           });
         }
         
-        return [
+        const producao = producaoMap.get(os.id);
+        const planejamento = planejamentoMap.get(os.id);
+        
+        const linha = [
           os.codigo || "",
           os.numero || "",
           os.tipo || "",
+          skillsMap[os.tipo?.toLowerCase()] || skillsMap[os.tipo?.toUpperCase()] || "",
+          os.grupo_servico || "",
           os.status || "",
           os.prioridade || "",
+          os.avulsa ? "Sim" : "Não",
           os.cliente_nome || "",
           os.cliente_cpf || "",
+          os.cliente_telefone || "",
           os.instalacao || "",
           os.medidor || "",
+          os.tensao_medicao || "",
           os.endereco || "",
+          os.numero_endereco || "",
+          os.complemento || "",
           os.bairro || "",
           os.municipio || "",
+          os.uf || "",
+          os.cep || "",
+          os.zona_cadastral || "",
           os.latitude || "",
           os.longitude || "",
+          os.territorios?.join(", ") || "",
           formatarData(os.prazo),
+          formatarData(os.data_geracao),
+          formatarData(os.created_at),
+          formatarData(os.iniciado_at),
           formatarData(os.concluido_at),
-          os.valor ? Number(os.valor) : "",
-          os.regulada ? "S" : "N",
-          os.tecnicos?.codigo || "",
-          os.retornos_campo?.codigo || "",
-          os.retornos_campo?.tipo || "",
-          os.centros_custo?.codigo || "",
+          formatarData(os.updated_at),
+          os.duracao_estimada || "",
+          os.tempo_total_minutos || "",
+          os.valor || "",
+          os.regulada ? "Sim" : "Não",
           os.contratos?.codigo || "",
-          os.territorios?.join(",") || "",
-          (os.observacoes || "").substring(0, 100) // Limitar observações
-        ];
+          os.contratos?.nome || "",
+          os.centros_custo?.codigo || "",
+          os.centros_custo?.nome || "",
+          os.tecnicos?.codigo || "",
+          os.tecnicos?.nome || "",
+          planejamento?.planejamentos?.equipes?.codigo || "",
+          planejamento?.planejamentos?.equipes?.nome || "",
+          planejamento?.planejamentos?.data_planejamento ? new Date(planejamento.planejamentos.data_planejamento).toLocaleDateString("pt-BR") : "",
+          planejamento?.ordem_na_rota || "",
+          producao?.equipes?.codigo || "",
+          producao?.equipes?.nome || "",
+          producao?.data_execucao ? new Date(producao.data_execucao).toLocaleDateString("pt-BR") : "",
+          producao?.valor_total || "",
+          os.retornos_campo?.codigo || "",
+          os.retornos_campo?.descricao || "",
+          os.retornos_campo?.tipo || "",
+          os.observacoes || ""
+        ].map(escapeCsv);
+        
+        linhas.push(linha.join(";"));
       });
       
-      setExportProgress({ current: allOrdens.length, total: allOrdens.length, fase: "Finalizando Excel..." });
+      setExportProgress({ current: allOrdens.length, total: allOrdens.length, fase: "Baixando arquivo..." });
       
-      // Criar workbook com array de arrays (mais eficiente)
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.aoa_to_sheet([headers, ...dadosArray]);
-      
-      // Larguras compactas
-      ws["!cols"] = headers.map(() => ({ wch: 12 }));
-      
-      XLSX.utils.book_append_sheet(wb, ws, "OSs");
-      
-      // Gerar nome do arquivo com data compacta
-      const agora = new Date();
-      const nomeArquivo = `OSs_${agora.toISOString().slice(0,10)}.xlsx`;
-      
-      // Baixar com compressão
-      XLSX.writeFile(wb, nomeArquivo, { compression: true });
+      // Criar e baixar CSV
+      const csvContent = "\uFEFF" + linhas.join("\n"); // BOM para UTF-8
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `ordens_servico_${new Date().toISOString().slice(0,10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
       
       toast.success(`${allOrdens.length.toLocaleString()} OSs exportadas!`);
       
