@@ -590,15 +590,14 @@ export default function CalendarioReguladasDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden z-[1000]">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Calendar className="h-5 w-5" />
+      <DialogContent className="max-w-[95vw] w-[95vw] max-h-[92vh] h-[92vh] overflow-hidden z-[1000] flex flex-col">
+        <DialogHeader className="pb-2">
+          <DialogTitle className="flex items-center gap-2 text-xl">
+            <Calendar className="h-6 w-6" />
             Calendário de Reguladas Vencendo
           </DialogTitle>
-          <DialogDescription>
-            Visualização das notas reguladas vencendo nos próximos 10 dias por
-            território e município.
+          <DialogDescription className="text-sm">
+            Visualização das notas reguladas vencendo nos próximos 10 dias por território e município.
           </DialogDescription>
         </DialogHeader>
 
@@ -606,12 +605,12 @@ export default function CalendarioReguladasDialog({
         <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-2">
-              <MapPin className="h-4 w-4 text-muted-foreground" />
+              <MapPin className="h-5 w-5 text-muted-foreground" />
               <Select
                 value={territorioSelecionado}
                 onValueChange={setTerritorioSelecionado}
               >
-                <SelectTrigger className="w-[200px]">
+                <SelectTrigger className="w-[220px] h-10">
                   <SelectValue placeholder="Território" />
                 </SelectTrigger>
                 <SelectContent>
@@ -622,7 +621,7 @@ export default function CalendarioReguladasDialog({
                       <SelectItem key={territorio.id} value={territorio.id}>
                         <div className="flex items-center gap-2">
                           <div
-                            className="w-3 h-3 rounded-full"
+                            className="w-4 h-4 rounded-full"
                             style={{ backgroundColor: territorio.cor }}
                           />
                           {territorio.nome}
@@ -634,12 +633,12 @@ export default function CalendarioReguladasDialog({
             </div>
 
             <div className="flex items-center gap-2">
-              <MapPin className="h-4 w-4 text-muted-foreground" />
+              <MapPin className="h-5 w-5 text-muted-foreground" />
               <Select
                 value={municipioSelecionado}
                 onValueChange={setMunicipioSelecionado}
               >
-                <SelectTrigger className="w-[200px]">
+                <SelectTrigger className="w-[220px] h-10">
                   <SelectValue placeholder="Município" />
                 </SelectTrigger>
                 <SelectContent>
@@ -658,64 +657,64 @@ export default function CalendarioReguladasDialog({
             onClick={handleExportar}
             disabled={ordensFiltradas.length === 0}
             variant="outline"
-            className="gap-2"
+            className="gap-2 h-10"
           >
-            <Download className="h-4 w-4" />
+            <Download className="h-5 w-5" />
             Exportar Excel
           </Button>
         </div>
 
-        {/* Resumo Compacto + Localização */}
-        <div className="flex items-center justify-between gap-4 mb-3 flex-wrap">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1 px-2 py-1 rounded bg-blue-50 border border-blue-200">
-              <span className="text-xs text-muted-foreground">Total:</span>
-              <span className="font-bold text-blue-700">{totalReguladas}</span>
+        {/* Resumo + Localização */}
+        <div className="flex items-center justify-between gap-6 mb-4 flex-wrap">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-50 border border-blue-200">
+              <span className="text-sm text-muted-foreground">Total:</span>
+              <span className="font-bold text-xl text-blue-700">{totalReguladas}</span>
             </div>
-            <div className="flex items-center gap-1 px-2 py-1 rounded bg-amber-50 border border-amber-200">
-              <span className="text-xs text-muted-foreground">Hoje:</span>
-              <span className="font-bold text-amber-700">{totalVencendoHoje}</span>
+            <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-50 border border-amber-200">
+              <span className="text-sm text-muted-foreground">Hoje:</span>
+              <span className="font-bold text-xl text-amber-700">{totalVencendoHoje}</span>
             </div>
             {totalVencidas > 0 && (
-              <div className="flex items-center gap-1 px-2 py-1 rounded bg-red-50 border border-red-200">
-                <AlertTriangle className="h-3 w-3 text-red-600" />
-                <span className="font-bold text-red-700">{totalVencidas} vencidas</span>
+              <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-50 border border-red-200">
+                <AlertTriangle className="h-5 w-5 text-red-600" />
+                <span className="font-bold text-xl text-red-700">{totalVencidas} vencidas</span>
               </div>
             )}
-            <div className="flex items-center gap-1 px-2 py-1 rounded bg-green-50 border border-green-200">
-              <span className="text-xs text-muted-foreground">10 dias:</span>
-              <span className="font-bold text-green-700">{totalProximos10Dias}</span>
+            <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-50 border border-green-200">
+              <span className="text-sm text-muted-foreground">10 dias:</span>
+              <span className="font-bold text-xl text-green-700">{totalProximos10Dias}</span>
             </div>
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Cloud className="h-3 w-3" />
-            <Badge variant="outline" className="text-xs py-0">
-              <MapPin className="h-2 w-2 mr-1" />
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Cloud className="h-5 w-5" />
+            <Badge variant="outline" className="text-sm py-1 px-3">
+              <MapPin className="h-4 w-4 mr-1" />
               {localizacaoPrevisao}
             </Badge>
           </div>
         </div>
 
-        {/* Calendário Compacto - 10 dias em linha */}
-        <div className="grid grid-cols-5 lg:grid-cols-10 gap-2">
+        {/* Calendário - 10 dias em linha, flexível */}
+        <div className="flex-1 grid grid-cols-5 lg:grid-cols-10 gap-3 min-h-0">
           {diasCalendario.map((dia) => (
             <div
               key={dia.dataStr}
               className={cn(
-                "rounded-lg border p-2 transition-all hover:shadow-md cursor-pointer min-h-[140px]",
+                "rounded-xl border-2 p-3 transition-all hover:shadow-lg cursor-pointer flex flex-col",
                 getStatusCor(dia),
                 dia.previsao && getCorClima(dia.previsao.codigoClima)
               )}
             >
               {/* Cabeçalho: Dia da Semana + Data */}
-              <div className="text-center mb-1">
-                <div className="text-[10px] text-muted-foreground capitalize truncate">
+              <div className="text-center mb-2">
+                <div className="text-xs text-muted-foreground capitalize">
                   {dia.diaSemana.substring(0, 3)}
                 </div>
-                <div className="font-bold text-sm">
+                <div className="font-bold text-lg flex items-center justify-center gap-1">
                   {dia.diaNumero}
                   {isToday(dia.data) && (
-                    <span className="ml-1 text-[9px] bg-primary text-primary-foreground px-1 rounded">
+                    <span className="text-[10px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded font-semibold">
                       HOJE
                     </span>
                   )}
@@ -723,52 +722,52 @@ export default function CalendarioReguladasDialog({
               </div>
 
               {/* Quantidade - DESTACADO */}
-              <div className="flex justify-center mb-1">
+              <div className="flex justify-center mb-2">
                 <div className={cn(
-                  "flex items-center justify-center gap-1 px-2 py-1 rounded-md font-bold text-base min-w-[40px]",
-                  dia.totalReguladas === 0 && "bg-gray-100 text-gray-400 text-sm",
+                  "flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg font-bold text-xl min-w-[60px]",
+                  dia.totalReguladas === 0 && "bg-gray-100 text-gray-400 text-lg",
                   dia.totalReguladas > 0 && dia.totalReguladas <= 5 && "bg-blue-200 text-blue-800",
                   dia.totalReguladas > 5 && dia.totalReguladas <= 10 && "bg-amber-200 text-amber-800",
                   dia.totalReguladas > 10 && "bg-red-200 text-red-800 animate-pulse"
                 )}>
-                  <Zap className="h-3 w-3" />
+                  <Zap className="h-5 w-5" />
                   {dia.totalReguladas}
                 </div>
               </div>
 
               {/* Vencidas */}
               {dia.vencidas > 0 && (
-                <div className="text-center mb-1">
-                  <span className="text-[9px] bg-red-600 text-white px-1 rounded font-bold">
-                    ⚠️{dia.vencidas}
+                <div className="text-center mb-2">
+                  <span className="text-xs bg-red-600 text-white px-2 py-1 rounded font-bold">
+                    ⚠️ {dia.vencidas} vencidas
                   </span>
                 </div>
               )}
 
-              {/* Previsão Compacta */}
+              {/* Previsão */}
               {dia.previsao && !carregandoPrevisao && (
-                <div className="text-center border-t border-gray-200 pt-1 mt-1">
-                  <div className="flex items-center justify-center gap-1">
-                    <span className="text-base">{dia.previsao.icone}</span>
-                    <div className="text-[10px]">
-                      <span className="text-red-600 font-medium">{dia.previsao.temperaturaMax}°</span>
-                      <span className="text-muted-foreground">/</span>
+                <div className="text-center border-t border-gray-300/50 pt-2 mt-auto">
+                  <div className="flex items-center justify-center gap-2">
+                    <span className="text-2xl">{dia.previsao.icone}</span>
+                    <div className="text-sm">
+                      <span className="text-red-600 font-semibold">{dia.previsao.temperaturaMax}°</span>
+                      <span className="text-muted-foreground mx-0.5">/</span>
                       <span className="text-blue-600">{dia.previsao.temperaturaMin}°</span>
                     </div>
                   </div>
                   {dia.previsao.probabilidadeChuva > 30 && (
-                    <div className="text-[9px] text-blue-600 flex items-center justify-center gap-0.5">
-                      <Droplets className="h-2 w-2" />
+                    <div className="text-xs text-blue-600 flex items-center justify-center gap-1 mt-1">
+                      <Droplets className="h-3 w-3" />
                       {dia.previsao.probabilidadeChuva}%
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Grupos Compacto */}
+              {/* Grupos */}
               {dia.totalReguladas > 0 && (
-                <div className="mt-1 pt-1 border-t border-gray-200">
-                  <div className="flex flex-wrap gap-0.5 justify-center">
+                <div className="mt-2 pt-2 border-t border-gray-300/50">
+                  <div className="flex flex-wrap gap-1 justify-center">
                     {Object.entries(
                       dia.reguladas.reduce((acc, os) => {
                         const grupo = getGrupoServico(os.tipo);
@@ -777,14 +776,14 @@ export default function CalendarioReguladasDialog({
                       }, {} as Record<string, number>)
                     )
                     .sort((a, b) => b[1] - a[1])
-                    .slice(0, 3) // Mostrar apenas top 3
+                    .slice(0, 3)
                     .map(([grupo, count]) => (
                       <span
                         key={grupo}
-                        className="text-[8px] bg-white/80 border rounded px-1 truncate max-w-[60px]"
+                        className="text-[10px] bg-white/90 border rounded px-1.5 py-0.5 truncate max-w-[80px]"
                         title={`${grupo}: ${count}`}
                       >
-                        {grupo.substring(0, 6)}: {count}
+                        {grupo.substring(0, 8)}: {count}
                       </span>
                     ))}
                   </div>
@@ -794,24 +793,24 @@ export default function CalendarioReguladasDialog({
           ))}
         </div>
 
-        {/* Legenda Compacta */}
-        <div className="mt-3 flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground">
-          <span className="font-medium">Legenda:</span>
-          <div className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded bg-blue-200" />
-            <span>1-5</span>
+        {/* Legenda */}
+        <div className="mt-4 pt-3 border-t flex flex-wrap items-center gap-6 text-sm text-muted-foreground">
+          <span className="font-semibold">Legenda:</span>
+          <div className="flex items-center gap-2">
+            <div className="w-5 h-5 rounded bg-blue-200 border border-blue-300" />
+            <span>1-5 reguladas</span>
           </div>
-          <div className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded bg-amber-200" />
-            <span>6-10</span>
+          <div className="flex items-center gap-2">
+            <div className="w-5 h-5 rounded bg-amber-200 border border-amber-300" />
+            <span>6-10 reguladas</span>
           </div>
-          <div className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded bg-red-200" />
-            <span>+10</span>
+          <div className="flex items-center gap-2">
+            <div className="w-5 h-5 rounded bg-red-200 border border-red-300" />
+            <span>+10 reguladas</span>
           </div>
-          <div className="flex items-center gap-1">
-            <Droplets className="h-3 w-3 text-blue-500" />
-            <span>Chuva</span>
+          <div className="flex items-center gap-2">
+            <Droplets className="h-5 w-5 text-blue-500" />
+            <span>Probabilidade de chuva</span>
           </div>
         </div>
       </DialogContent>
