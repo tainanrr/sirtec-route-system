@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Phone, MessageCircle, User, ChevronDown, ChevronUp, Copy, Check, Sparkles } from "lucide-react";
+import { Phone, MessageCircle, Copy, Check, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
@@ -25,18 +25,7 @@ interface ContatosExtraidosProps {
   className?: string;
 }
 
-interface ContatoItemProps {
-  contato: ContatoIA;
-  dadosOrdem: {
-    numero: string;
-    endereco: string;
-    tipoServico: string;
-  };
-  isExpanded: boolean;
-  onToggle: () => void;
-}
-
-function ContatoItem({ contato, dadosOrdem, isExpanded, onToggle }: ContatoItemProps) {
+function ContatoItem({ contato, dadosOrdem }: { contato: ContatoIA; dadosOrdem: { numero: string; endereco: string; tipoServico: string } }) {
   const [copiado, setCopiado] = useState(false);
 
   const handleCopiar = async (e: React.MouseEvent) => {
@@ -61,49 +50,22 @@ function ContatoItem({ contato, dadosOrdem, isExpanded, onToggle }: ContatoItemP
     window.open(gerarLinkWhatsApp(contato.telefoneLimpo, dadosOrdem), "_blank");
   };
 
-  // Definir o que mostrar como título do contato
-  const tituloContato = contato.nome || contato.relacao || null;
-  const temNomeOuRelacao = !!tituloContato;
-
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden transition-all duration-200">
-      {/* Header do contato */}
-      <div
-        className="p-3 cursor-pointer hover:bg-slate-50 transition-colors"
-        onClick={onToggle}
-      >
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="p-3">
         <div className="flex items-center gap-3">
-          {/* Avatar/Ícone */}
+          {/* Ícone do tipo */}
           <div className={`h-10 w-10 rounded-full flex items-center justify-center shrink-0 ${
             contato.tipo === "celular" 
               ? "bg-gradient-to-br from-green-400 to-emerald-500" 
               : "bg-gradient-to-br from-blue-400 to-indigo-500"
           }`}>
-            {temNomeOuRelacao ? (
-              <span className="text-white font-bold text-sm">
-                {tituloContato!.charAt(0).toUpperCase()}
-              </span>
-            ) : (
-              <Phone className="h-5 w-5 text-white" />
-            )}
+            <Phone className="h-5 w-5 text-white" />
           </div>
 
-          {/* Info */}
+          {/* Número e tipo */}
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              {temNomeOuRelacao && (
-                <span className="font-semibold text-slate-900 truncate">
-                  {contato.nome || contato.relacao}
-                </span>
-              )}
-              {contato.relacao && contato.nome && (
-                <Badge 
-                  variant="outline" 
-                  className="text-[10px] px-1.5 py-0 h-4 bg-slate-100 text-slate-600"
-                >
-                  {contato.relacao}
-                </Badge>
-              )}
+            <div className="flex items-center gap-2">
               <Badge 
                 variant="secondary" 
                 className={`text-[10px] px-1.5 py-0 h-4 ${
@@ -115,12 +77,12 @@ function ContatoItem({ contato, dadosOrdem, isExpanded, onToggle }: ContatoItemP
                 {contato.tipo === "celular" ? "Celular" : "Fixo"}
               </Badge>
             </div>
-            <p className="text-sm text-slate-600 font-mono">
+            <p className="text-sm text-slate-900 font-mono font-medium mt-0.5">
               {contato.telefone}
             </p>
           </div>
 
-          {/* Botões de ação rápida */}
+          {/* Botões de ação */}
           <div className="flex items-center gap-1">
             <Button
               size="icon"
@@ -157,40 +119,9 @@ function ContatoItem({ contato, dadosOrdem, isExpanded, onToggle }: ContatoItemP
                 <Copy className="h-4 w-4" />
               )}
             </Button>
-
-            {contato.observacao && (
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-8 w-8 rounded-full text-slate-400 hover:text-slate-600"
-                onClick={onToggle}
-                title="Ver observação"
-              >
-                {isExpanded ? (
-                  <ChevronUp className="h-4 w-4" />
-                ) : (
-                  <ChevronDown className="h-4 w-4" />
-                )}
-              </Button>
-            )}
           </div>
         </div>
       </div>
-
-      {/* Conteúdo expandido */}
-      {isExpanded && contato.observacao && (
-        <div className="px-3 pb-3 pt-0 border-t border-slate-100 bg-slate-50/50">
-          {/* Observação sobre o contato (se houver) */}
-          <div className="mt-2">
-            <p className="text-[10px] uppercase tracking-wide text-slate-400 font-medium mb-1">
-              Observação
-            </p>
-            <p className="text-xs text-slate-600 bg-white p-2 rounded-lg border border-slate-200 italic">
-              {contato.observacao}
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -201,8 +132,6 @@ export default function ContatosExtraidos({
   mostrarVazio = false,
   className = "",
 }: ContatosExtraidosProps) {
-  const [expandedIndex, setExpandedIndex] = useState<number | null>(0);
-
   // Usar contatos pré-processados e remover duplicatas
   const contatos = useMemo(() => {
     if (!contatosExtraidos || !Array.isArray(contatosExtraidos)) {
@@ -228,16 +157,10 @@ export default function ContatosExtraidos({
       }
     }
 
-    // Ordenar: celulares primeiro, depois com nome, depois sem nome
+    // Ordenar: celulares primeiro
     return contatosUnicos.sort((a, b) => {
-      // Celulares primeiro
       if (a.tipo === "celular" && b.tipo !== "celular") return -1;
       if (a.tipo !== "celular" && b.tipo === "celular") return 1;
-      
-      // Com nome antes de sem nome
-      if (a.nome && !b.nome) return -1;
-      if (!a.nome && b.nome) return 1;
-      
       return 0;
     });
   }, [contatosExtraidos]);
@@ -258,10 +181,6 @@ export default function ContatosExtraidos({
     );
   }
 
-  const handleToggle = (index: number) => {
-    setExpandedIndex(expandedIndex === index ? null : index);
-  };
-
   return (
     <div className={`space-y-2 ${className}`}>
       {/* Header */}
@@ -269,8 +188,8 @@ export default function ContatosExtraidos({
         <Sparkles className="h-4 w-4 text-amber-500" />
         <span className="text-xs font-medium text-slate-700">
           {contatos.length > 1 
-            ? `${contatos.length} possíveis contatos identificados nas Observações`
-            : "Possível contato identificado nas Observações"
+            ? `${contatos.length} possíveis telefones identificados nas Observações`
+            : "Possível telefone identificado nas Observações"
           }
         </span>
       </div>
@@ -282,8 +201,6 @@ export default function ContatosExtraidos({
             key={`${contato.telefoneLimpo}-${index}`}
             contato={contato}
             dadosOrdem={dadosOrdem}
-            isExpanded={expandedIndex === index}
-            onToggle={() => handleToggle(index)}
           />
         ))}
       </div>

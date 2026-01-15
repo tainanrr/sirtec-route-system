@@ -876,20 +876,21 @@ export function OrdemServicoDetalhesDialog({
                           <div className="space-y-2 pt-2 border-t border-blue-200">
                             <p className="text-xs font-medium text-blue-700 flex items-center gap-1">
                               <Phone className="h-3 w-3" />
-                              {contatosParaExibir.length} contato(s) identificado(s)
+                              {contatosParaExibir.length} telefone(s) identificado(s)
                             </p>
                             <div className="space-y-2">
                               {contatosParaExibir.map((contato: ContatoIA, idx: number) => (
                                 <div key={idx} className="bg-white rounded-lg border border-blue-200 p-2 text-xs">
                                   <div className="flex items-center justify-between">
-                                    <div>
-                                      {contato.nome && (
-                                        <span className="font-medium text-slate-900">{contato.nome}</span>
-                                      )}
-                                      {contato.relacao && (
-                                        <span className="text-muted-foreground ml-1">({contato.relacao})</span>
-                                      )}
-                                      <div className="font-mono text-slate-700">{contato.telefone}</div>
+                                    <div className="flex items-center gap-2">
+                                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                                        contato.tipo === "celular" 
+                                          ? "bg-green-100 text-green-700" 
+                                          : "bg-blue-100 text-blue-700"
+                                      }`}>
+                                        {contato.tipo === "celular" ? "Celular" : "Fixo"}
+                                      </span>
+                                      <span className="font-mono text-slate-900">{contato.telefone}</span>
                                     </div>
                                     <div className="flex gap-1">
                                       <Button

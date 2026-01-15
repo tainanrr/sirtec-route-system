@@ -4,18 +4,12 @@
  */
 
 export interface ContatoIA {
-  /** Nome do contato identificado */
-  nome: string | null;
   /** Número de telefone formatado */
   telefone: string;
   /** Número limpo (apenas dígitos com DDD) */
   telefoneLimpo: string;
   /** Tipo: celular ou fixo */
   tipo: "celular" | "fixo";
-  /** Relação do contato (cliente, vizinho, porteiro, etc.) */
-  relacao?: string;
-  /** Contexto/observação sobre o contato */
-  observacao?: string;
 }
 
 export interface ResultadoExtracaoIA {
@@ -39,48 +33,6 @@ const PADROES_TELEFONE = [
   /\b\d{10,11}\b/g,
 ];
 
-// Palavras que indicam relação com o contato
-const PALAVRAS_RELACAO: Record<string, string> = {
-  'cliente': 'cliente',
-  'proprietario': 'proprietário',
-  'proprietária': 'proprietária',
-  'morador': 'morador',
-  'moradora': 'moradora',
-  'vizinho': 'vizinho',
-  'vizinha': 'vizinha',
-  'porteiro': 'porteiro',
-  'porteira': 'porteira',
-  'sindico': 'síndico',
-  'sindica': 'síndica',
-  'zelador': 'zelador',
-  'zeladora': 'zeladora',
-  'responsavel': 'responsável',
-  'esposa': 'esposa',
-  'esposo': 'esposo',
-  'marido': 'marido',
-  'filho': 'filho',
-  'filha': 'filha',
-  'mae': 'mãe',
-  'pai': 'pai',
-  'irmao': 'irmão',
-  'irma': 'irmã',
-  'inquilino': 'inquilino',
-  'inquilina': 'inquilina',
-  'locatario': 'locatário',
-  'locataria': 'locatária',
-  'contato': 'contato',
-  'falar': 'contato',
-  'ligar': 'contato',
-  'celular': 'contato',
-  'telefone': 'contato',
-  'whatsapp': 'contato',
-  'whats': 'contato',
-  'zap': 'contato',
-};
-
-// Padrões de nomes (palavras capitalizadas ou em maiúsculo)
-const PADRAO_NOME = /\b([A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ][a-záàâãéèêíïóôõöúçñ]+(?:\s+(?:da|de|do|dos|das|e)?\s*[A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ][a-záàâãéèêíïóôõöúçñ]+)*)\b/g;
-const PADRAO_NOME_MAIUSCULO = /\b([A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ]{2,}(?:\s+(?:DA|DE|DO|DOS|DAS|E)?\s*[A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ]{2,})*)\b/g;
 
 /**
  * Normaliza um número de telefone
@@ -129,65 +81,6 @@ function normalizarTelefone(numero: string): { limpo: string; formatado: string;
   return { limpo, formatado, tipo };
 }
 
-/**
- * Encontra nomes próximos a um telefone no texto
- */
-function encontrarNomeProximo(texto: string, posicaoTelefone: number): string | null {
-  // Pegar contexto ao redor do telefone (100 chars antes e depois)
-  const inicio = Math.max(0, posicaoTelefone - 100);
-  const fim = Math.min(texto.length, posicaoTelefone + 50);
-  const contexto = texto.substring(inicio, fim);
-  
-  // Procurar nomes no contexto (priorizar antes do número)
-  const nomesMaiusculo = contexto.match(PADRAO_NOME_MAIUSCULO) || [];
-  const nomesNormais = contexto.match(PADRAO_NOME) || [];
-  
-  // Filtrar nomes muito curtos ou que são palavras comuns
-  const palavrasIgnorar = new Set([
-    'COELBA', 'BAHIA', 'SALVADOR', 'RUA', 'AV', 'AVENIDA', 'TRAVESSA', 
-    'CONTATO', 'TELEFONE', 'CELULAR', 'WHATSAPP', 'LIGAR', 'FALAR',
-    'CLIENTE', 'MORADOR', 'VIZINHO', 'OBS', 'OBSERVACAO', 'ORDEM',
-    'SERVICO', 'COM', 'PARA', 'QUE', 'NAO', 'SIM', 'OU', 'DE', 'DA', 'DO',
-    'Coelba', 'Bahia', 'Salvador', 'Rua', 'Av', 'Avenida', 'Travessa',
-    'Contato', 'Telefone', 'Celular', 'Whatsapp', 'Ligar', 'Falar',
-    'Cliente', 'Morador', 'Vizinho', 'Obs', 'Observacao', 'Ordem',
-    'Servico', 'Com', 'Para', 'Que', 'Nao', 'Sim', 'Ou', 'De', 'Da', 'Do',
-  ]);
-  
-  const todosNomes = [...nomesMaiusculo, ...nomesNormais];
-  
-  for (const nome of todosNomes) {
-    const nomeNormalizado = nome.trim();
-    if (nomeNormalizado.length >= 3 && !palavrasIgnorar.has(nomeNormalizado)) {
-      // Capitalizar corretamente
-      return nomeNormalizado.split(' ').map(p => 
-        p.length <= 3 ? p.toLowerCase() : p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()
-      ).join(' ');
-    }
-  }
-  
-  return null;
-}
-
-/**
- * Encontra relação do contato no contexto
- */
-function encontrarRelacao(texto: string, posicaoTelefone: number): string | undefined {
-  const inicio = Math.max(0, posicaoTelefone - 80);
-  const fim = Math.min(texto.length, posicaoTelefone + 30);
-  const contexto = texto.substring(inicio, fim).toLowerCase();
-  
-  // Normalizar acentos para comparação
-  const contextoNorm = contexto.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  
-  for (const [palavra, relacao] of Object.entries(PALAVRAS_RELACAO)) {
-    if (contextoNorm.includes(palavra)) {
-      return relacao;
-    }
-  }
-  
-  return undefined;
-}
 
 /**
  * Extrai contatos de uma observação usando REGEX (100% local)
@@ -220,29 +113,21 @@ export function extrairContatosComIA(observacao: string): ResultadoExtracaoIA {
     // Processar cada telefone encontrado
     const contatos: ContatoIA[] = [];
     
-    for (const [limpo, { posicao, original }] of telefonesEncontrados) {
+    for (const [limpo, { original }] of telefonesEncontrados) {
       const normalizado = normalizarTelefone(original);
       if (!normalizado) continue;
       
-      const nome = encontrarNomeProximo(observacao, posicao);
-      const relacao = encontrarRelacao(observacao, posicao);
-      
       contatos.push({
-        nome,
         telefone: normalizado.formatado,
         telefoneLimpo: normalizado.limpo,
         tipo: normalizado.tipo,
-        relacao,
-        observacao: undefined,
       });
     }
     
-    // Ordenar: celulares primeiro, depois com nome
+    // Ordenar: celulares primeiro
     contatos.sort((a, b) => {
       if (a.tipo === "celular" && b.tipo !== "celular") return -1;
       if (a.tipo !== "celular" && b.tipo === "celular") return 1;
-      if (a.nome && !b.nome) return -1;
-      if (!a.nome && b.nome) return 1;
       return 0;
     });
     
