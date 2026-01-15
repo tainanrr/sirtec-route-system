@@ -3217,76 +3217,102 @@ export async function otimizarRotas(
   console.log(`[ROUTING] Urgentes alocadas: ${osUrgentes.filter(os => osAlocadas.has(os.id)).length}/${osUrgentes.length}`);
 
   // ============================================================================
-  // FASE 6.5: ALOCAR OSs PRIORITÁRIAS (FOCO)
+  // FASE 6.5: ALOCAR OSs PRIORITÁRIAS (FOCO) - VERSÃO AGRESSIVA
   // V22: Tipos de serviço com prioridade após reguladas/emergências
+  // Estratégia: Múltiplas passadas com parâmetros cada vez mais flexíveis
   // ============================================================================
   
   if (osPrioritarias.length > 0) {
     console.log(`[ROUTING]`);
-    console.log(`[ROUTING] ══ FASE 6.5: OSs Prioritárias (FOCO) ══`);
+    console.log(`[ROUTING] ══ FASE 6.5: OSs Prioritárias (FOCO) - PRIORIDADE ELEVADA ══`);
+    console.log(`[ROUTING] 🎯 Total de OSs com FOCO: ${osPrioritarias.length}`);
     
     // Ordenar por prioridade (prazo mais próximo primeiro)
     osPrioritarias.sort((a, b) => calcularPrioridade(a) - calcularPrioridade(b));
     
-    for (const os of osPrioritarias) {
-      if (osAlocadas.has(os.id)) continue;
+    // V22: Múltiplas passadas com parâmetros cada vez mais flexíveis
+    const passadasPrioritarias = [
+      { distancia: getDistanciaMaximaTerritorio(), atrasoMax: 60, desc: "normal" },
+      { distancia: getDistanciaMaximaTerritorio() * 1.3, atrasoMax: 90, desc: "flexível" },
+      { distancia: getDistanciaMaximaTerritorio() * 1.5, atrasoMax: 120, desc: "máxima" },
+    ];
+    
+    for (let passadaIdx = 0; passadaIdx < passadasPrioritarias.length; passadaIdx++) {
+      const passada = passadasPrioritarias[passadaIdx];
+      const prioritariasPendentes = osPrioritarias.filter(os => !osAlocadas.has(os.id));
       
-      let melhorRota: RotaEquipe | null = null;
-      let melhorCalc: ReturnType<typeof calcularInsercao> | null = null;
+      if (prioritariasPendentes.length === 0) break;
       
-      // V22: Só tentar as equipes do território/zona
-      if (usarTerritorios && territoriosAtivos.length > 0) {
-        const territorioIdDaOS = osParaTerritorio.get(os.id);
-        if (territorioIdDaOS) {
-          // Tentar todas as equipes vinculadas ao território
-          const equipesDoTerritorio = equipesPorTerritorio.get(territorioIdDaOS) || [];
-          let rotasDoTerritorio = rotas.filter(r => equipesDoTerritorio.includes(r.equipe.id));
-          
-          // Se há múltiplas equipes e zonas foram criadas, filtrar apenas a rota da zona correta
-          if (equipesDoTerritorio.length > 1 && zonas.length > 0) {
-            const zonaOS = zonasPorOS.get(os.id);
-            if (zonaOS !== undefined) {
-              rotasDoTerritorio = rotasDoTerritorio.filter(r => r.zonaId === zonaOS);
+      console.log(`[ROUTING] 🎯 Passada ${passadaIdx + 1} (${passada.desc}): ${prioritariasPendentes.length} prioritárias pendentes`);
+      
+      for (const os of prioritariasPendentes) {
+        if (osAlocadas.has(os.id)) continue;
+        
+        let melhorRota: RotaEquipe | null = null;
+        let melhorCalc: ReturnType<typeof calcularInsercao> | null = null;
+        
+        // V22: Tentar todas as equipes do território/zona
+        if (usarTerritorios && territoriosAtivos.length > 0) {
+          const territorioIdDaOS = osParaTerritorio.get(os.id);
+          if (territorioIdDaOS) {
+            const equipesDoTerritorio = equipesPorTerritorio.get(territorioIdDaOS) || [];
+            let rotasDoTerritorio = rotas.filter(r => equipesDoTerritorio.includes(r.equipe.id));
+            
+            // Se há múltiplas equipes e zonas foram criadas, filtrar apenas a rota da zona correta
+            if (equipesDoTerritorio.length > 1 && zonas.length > 0) {
+              const zonaOS = zonasPorOS.get(os.id);
+              if (zonaOS !== undefined) {
+                rotasDoTerritorio = rotasDoTerritorio.filter(r => r.zonaId === zonaOS);
+              }
             }
-          }
-          
-          for (const rotaTerritorio of rotasDoTerritorio) {
-            const calc = calcularInsercao(rotaTerritorio, os, true, getDistanciaMaximaTerritorio(), false, 120);
-            if (calc.valido) {
-              if (!melhorRota || calc.distanciaKm < (melhorCalc?.distanciaKm || Infinity)) {
-                melhorRota = rotaTerritorio;
-                melhorCalc = calc;
+            
+            // Na última passada, tentar TODAS as equipes do território se a zona específica não conseguir
+            if (passadaIdx === passadasPrioritarias.length - 1 && rotasDoTerritorio.length === 0) {
+              rotasDoTerritorio = rotas.filter(r => equipesDoTerritorio.includes(r.equipe.id));
+            }
+            
+            for (const rotaTerritorio of rotasDoTerritorio) {
+              const calc = calcularInsercao(rotaTerritorio, os, true, passada.distancia, false, passada.atrasoMax);
+              if (calc.valido) {
+                if (!melhorRota || calc.distanciaKm < (melhorCalc?.distanciaKm || Infinity)) {
+                  melhorRota = rotaTerritorio;
+                  melhorCalc = calc;
+                }
               }
             }
           }
-        }
-      } else {
-        const zonaOS = zonasPorOS.get(os.id);
-        const rotaZona = rotas.find(r => r.zonaId === zonaOS);
-        if (rotaZona) {
-          const calc = calcularInsercao(rotaZona, os, true, getDistanciaMaximaZona(), false, 120);
-          if (calc.valido) {
-            melhorRota = rotaZona;
-            melhorCalc = calc;
+        } else {
+          const zonaOS = zonasPorOS.get(os.id);
+          const rotaZona = rotas.find(r => r.zonaId === zonaOS);
+          if (rotaZona) {
+            const calc = calcularInsercao(rotaZona, os, true, passada.distancia, false, passada.atrasoMax);
+            if (calc.valido) {
+              melhorRota = rotaZona;
+              melhorCalc = calc;
+            }
           }
         }
-      }
-      
-      if (melhorRota && melhorCalc) {
-        inserirOS(melhorRota, os, melhorCalc);
-        console.log(`[ROUTING] 🎯 ${os.numero} → ${melhorRota.equipe.codigo} (${melhorCalc.distanciaKm.toFixed(1)}km) [FOCO]`);
         
-        // Consolidar vizinhas (incluindo outras prioritárias)
-        const consolidadas = consolidarVizinhas(melhorRota, os, [...osPrioritarias, ...osProximoDia, ...osNormais]);
-        if (consolidadas > 0) {
-          console.log(`[ROUTING]   +${consolidadas} vizinhas consolidadas`);
-          totalConsolidadas += consolidadas;
+        if (melhorRota && melhorCalc) {
+          inserirOS(melhorRota, os, melhorCalc);
+          console.log(`[ROUTING] 🎯 ${os.numero} → ${melhorRota.equipe.codigo} (${melhorCalc.distanciaKm.toFixed(1)}km) [FOCO-${passada.desc}]`);
+          
+          // Consolidar vizinhas (PRIORIZAR outras prioritárias na consolidação)
+          const consolidadas = consolidarVizinhas(melhorRota, os, [...osPrioritarias, ...osProximoDia, ...osNormais]);
+          if (consolidadas > 0) {
+            console.log(`[ROUTING]   +${consolidadas} vizinhas consolidadas`);
+            totalConsolidadas += consolidadas;
+          }
         }
       }
     }
     
     const prioritariasAlocadas = osPrioritarias.filter(os => osAlocadas.has(os.id)).length;
-    console.log(`[ROUTING] 🎯 Prioritárias alocadas: ${prioritariasAlocadas}/${osPrioritarias.length}`);
+    const prioritariasPendentes = osPrioritarias.length - prioritariasAlocadas;
+    console.log(`[ROUTING] 🎯 Prioritárias alocadas na FASE 6.5: ${prioritariasAlocadas}/${osPrioritarias.length}`);
+    if (prioritariasPendentes > 0) {
+      console.log(`[ROUTING] ⚠️ ${prioritariasPendentes} prioritárias serão tentadas na FASE 7 com prioridade elevada`);
+    }
   }
 
   // ============================================================================
@@ -3470,35 +3496,59 @@ export async function otimizarRotas(
         });
       }
       
-      for (const os of ossDisponiveis) {
+      // V22: Verificar se há OSs prioritárias pendentes - elas devem ter preferência absoluta
+      const ehPrioritaria = (os: OrdemServico): boolean => {
+        const tipoNorm = os.tipo.toLowerCase().trim();
+        return tiposPrioritariosNormalizados.length > 0 && tiposPrioritariosNormalizados.includes(tipoNorm);
+      };
+      
+      // V22: Separar OSs disponíveis em prioritárias e normais
+      const ossPrioritariasDisponiveis = ossDisponiveis.filter(os => ehPrioritaria(os));
+      const ossNormaisDisponiveis = ossDisponiveis.filter(os => !ehPrioritaria(os));
+      
+      // V22: Se há prioritárias disponíveis, processar APENAS elas primeiro
+      const ossParaProcessar = ossPrioritariasDisponiveis.length > 0 ? ossPrioritariasDisponiveis : ossNormaisDisponiveis;
+      
+      for (const os of ossParaProcessar) {
         const osLocIdx = osIdx.get(os.id);
         if (osLocIdx === undefined) continue;
         
         const distancia = getDistanciaKm(ultimaLocIdx, osLocIdx);
-        const limiteDistancia = usarTerritorios ? getDistanciaMaximaTerritorio() : getDistanciaMaximaNormal();
+        // V22: Aumentar limite de distância para prioritárias
+        const limiteBase = usarTerritorios ? getDistanciaMaximaTerritorio() : getDistanciaMaximaNormal();
+        const limiteDistancia = ehPrioritaria(os) ? limiteBase * 1.3 : limiteBase;
         
         if (distancia <= limiteDistancia) {
           const calc = calcularInsercao(rota, os, true, limiteDistancia, false, 120);
       
       if (calc.valido) {
-            // V19.6: Calcular score baseado na estratégia de forma mais agressiva
+            // V22: Calcular score com BOOST para prioritárias
             let score: number;
             let melhorou = false;
+            
+            // V22: Boost de 10000 pontos para OSs prioritárias (garante preferência absoluta)
+            const boostPrioritaria = ehPrioritaria(os) ? 10000 : 0;
             
             if (estrategia === 'financeiro') {
               // Para financeiro: maior valor/hora é melhor
               const valorHora = (os.valor || 0) / Math.max(os.tempoExecucao || 15, 1);
-              score = valorHora * 100 + (os.valor || 0); // Combina valor/hora com valor absoluto
+              score = boostPrioritaria + valorHora * 100 + (os.valor || 0); // Combina valor/hora com valor absoluto
               melhorou = score > melhorScore;
             } else if (estrategia === 'quantidade') {
               // Para quantidade: menor tempo de execução é melhor (para caber mais OSs)
               // Penaliza OSs que demoram muito
-              score = 1000 - (os.tempoExecucao || 15) - (distancia * 2); // Menor tempo + menor deslocamento
+              score = boostPrioritaria + 1000 - (os.tempoExecucao || 15) - (distancia * 2); // Menor tempo + menor deslocamento
               melhorou = score > melhorScore;
             } else {
               // Para distancia ou undefined: menor distância é melhor (nearest neighbor)
-              score = -distancia;
-              melhorou = distancia < menorDistancia;
+              // V22: Para prioritárias, usar score positivo alto + penalidade por distância
+              if (ehPrioritaria(os)) {
+                score = boostPrioritaria - distancia * 10; // Prioritária com penalidade leve por distância
+                melhorou = score > melhorScore;
+              } else {
+                score = -distancia;
+                melhorou = distancia < menorDistancia;
+              }
             }
             
             if (melhorou) {
@@ -3515,6 +3565,11 @@ export async function otimizarRotas(
         inserirOS(rota, osProxima, calcProxima);
         alocadasNestaRota++;
         continuarAlocando = true;
+        
+        // V22: Log especial para prioritárias alocadas na FASE 7
+        if (ehPrioritaria(osProxima)) {
+          console.log(`[ROUTING] 🎯 ${osProxima.numero} → ${rota.equipe.codigo} [FOCO-fase7]`);
+        }
         
         const consolidadas = consolidarVizinhas(rota, osProxima, [...osPrioritarias, ...osProximoDia, ...osNormais, ...ossNormaisRemovidas]);
         alocadasNestaRota += consolidadas;
@@ -5344,6 +5399,23 @@ export async function otimizarRotas(
   }
   
   console.log(`[ROUTING] ════════════════════════════════════════════════════════`);
+  
+  // V22: Resumo final de OSs prioritárias (FOCO)
+  if (tiposPrioritariosNormalizados.length > 0) {
+    const prioritariasTotal = osPrioritarias.length;
+    const prioritariasAlocadasFinal = osPrioritarias.filter(os => osAlocadas.has(os.id)).length;
+    const prioritariasNaoAlocadas = prioritariasTotal - prioritariasAlocadasFinal;
+    
+    console.log(`[ROUTING]`);
+    console.log(`[ROUTING] ═══ RESUMO FOCO (TIPOS PRIORITÁRIOS) ═══`);
+    console.log(`[ROUTING] 🎯 Tipos com FOCO: ${tiposPrioritariosNormalizados.join(', ')}`);
+    console.log(`[ROUTING] 🎯 OSs prioritárias encontradas: ${prioritariasTotal}`);
+    console.log(`[ROUTING] ✅ Prioritárias alocadas: ${prioritariasAlocadasFinal} (${prioritariasTotal > 0 ? Math.round(prioritariasAlocadasFinal / prioritariasTotal * 100) : 0}%)`);
+    if (prioritariasNaoAlocadas > 0) {
+      console.log(`[ROUTING] ⚠️ Prioritárias NÃO alocadas: ${prioritariasNaoAlocadas}`);
+    }
+    console.log(`[ROUTING] ════════════════════════════════════════════════════════`);
+  }
 
   // V20: Gerar múltiplas opções de roteiros APENAS se estratégia não foi especificada
   // IMPORTANTE: Se estratégia foi especificada, NÃO gerar múltiplas opções para evitar recursão infinita
