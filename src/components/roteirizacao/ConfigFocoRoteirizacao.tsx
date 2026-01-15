@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Target, X, Check, ChevronDown, ChevronRight, Search, RotateCcw, FolderOpen } from "lucide-react";
+import { Target, X, Check, ChevronDown, ChevronRight, Search, RotateCcw, FolderOpen, CheckSquare, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -187,6 +187,51 @@ export function ConfigFocoRoteirizacao({
     onChange([]);
   };
 
+  // Marcar todos os tipos (visíveis no filtro atual)
+  const handleMarcarTodos = () => {
+    const tiposVisiveis = Array.from(tiposFiltradosPorGrupo.values())
+      .flat()
+      .map(t => t.codigo.toLowerCase());
+    
+    const novosSelecioandos = [...tiposSelecionados];
+    tiposVisiveis.forEach(c => {
+      if (!novosSelecioandos.includes(c)) {
+        novosSelecioandos.push(c);
+      }
+    });
+    onChange(novosSelecioandos);
+  };
+
+  // Desmarcar todos os tipos (visíveis no filtro atual)
+  const handleDesmarcarTodos = () => {
+    if (searchTerm) {
+      // Se há filtro, desmarcar apenas os tipos visíveis
+      const tiposVisiveis = Array.from(tiposFiltradosPorGrupo.values())
+        .flat()
+        .map(t => t.codigo.toLowerCase());
+      onChange(tiposSelecionados.filter(t => !tiposVisiveis.includes(t)));
+    } else {
+      // Se não há filtro, desmarcar tudo
+      onChange([]);
+    }
+  };
+
+  // Verificar se todos os tipos visíveis estão selecionados
+  const todosVisivelSelecionados = useMemo(() => {
+    const tiposVisiveis = Array.from(tiposFiltradosPorGrupo.values())
+      .flat()
+      .map(t => t.codigo.toLowerCase());
+    return tiposVisiveis.length > 0 && tiposVisiveis.every(t => tiposSelecionados.includes(t));
+  }, [tiposFiltradosPorGrupo, tiposSelecionados]);
+
+  // Verificar se algum tipo visível está selecionado
+  const algumVisivelSelecionado = useMemo(() => {
+    const tiposVisiveis = Array.from(tiposFiltradosPorGrupo.values())
+      .flat()
+      .map(t => t.codigo.toLowerCase());
+    return tiposVisiveis.some(t => tiposSelecionados.includes(t));
+  }, [tiposFiltradosPorGrupo, tiposSelecionados]);
+
   // Obter nome do tipo pelo código
   const getNomeTipo = (codigo: string): string => {
     const tipo = tiposDisponiveis.find(t => t.codigo.toLowerCase() === codigo.toLowerCase());
@@ -313,15 +358,41 @@ export function ConfigFocoRoteirizacao({
             </div>
           )}
 
-          {/* Busca */}
-          <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              placeholder="Buscar tipo ou grupo..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="h-8 text-sm pl-8"
-            />
+          {/* Busca e botões de seleção rápida */}
+          <div className="space-y-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                placeholder="Buscar tipo ou grupo..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="h-8 text-sm pl-8"
+              />
+            </div>
+            
+            {/* Botões de seleção rápida */}
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleMarcarTodos}
+                disabled={todosVisivelSelecionados}
+                className="gap-1.5 h-7 text-xs flex-1"
+              >
+                <CheckSquare className="h-3 w-3" />
+                Marcar {searchTerm ? "Filtrados" : "Todos"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDesmarcarTodos}
+                disabled={!algumVisivelSelecionado}
+                className="gap-1.5 h-7 text-xs flex-1"
+              >
+                <Square className="h-3 w-3" />
+                Desmarcar {searchTerm ? "Filtrados" : "Todos"}
+              </Button>
+            </div>
           </div>
           
           {/* Lista de grupos e tipos */}
