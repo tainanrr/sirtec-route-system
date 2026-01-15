@@ -52,6 +52,7 @@ import {
   PlusCircle,
   Edit,
   Users,
+  CheckSquare,
 } from "lucide-react";
 import * as XLSX from "xlsx-js-style";
 import { cn } from "@/lib/utils";
@@ -5478,6 +5479,13 @@ const Roteirizacao = () => {
                       <CommandList>
                         <CommandEmpty>Nenhum tipo encontrado.</CommandEmpty>
                         <CommandGroup>
+                          <CommandItem 
+                            onSelect={() => setTiposFilter([...tiposDisponiveis])} 
+                            className="text-primary font-medium"
+                          >
+                            <CheckSquare className="mr-2 h-4 w-4" />
+                            Marcar Todos ({tiposDisponiveis.length})
+                          </CommandItem>
                           {tiposFilter.length > 0 && (
                             <CommandItem onSelect={() => setTiposFilter([])} className="text-muted-foreground">
                               <X className="mr-2 h-4 w-4" />
@@ -5527,6 +5535,13 @@ const Roteirizacao = () => {
                       <CommandList>
                         <CommandEmpty>Nenhum contrato encontrado.</CommandEmpty>
                         <CommandGroup>
+                          <CommandItem 
+                            onSelect={() => setContratosFilter(contratosDisponiveis.map(c => c.codigo))} 
+                            className="text-primary font-medium"
+                          >
+                            <CheckSquare className="mr-2 h-4 w-4" />
+                            Marcar Todos ({contratosDisponiveis.length})
+                          </CommandItem>
                           {contratosFilter.length > 0 && (
                             <CommandItem onSelect={() => setContratosFilter([])} className="text-muted-foreground">
                               <X className="mr-2 h-4 w-4" />
@@ -5577,6 +5592,13 @@ const Roteirizacao = () => {
                       <CommandList>
                         <CommandEmpty>Nenhum centro encontrado.</CommandEmpty>
                         <CommandGroup>
+                          <CommandItem 
+                            onSelect={() => setCentrosCustoFilter(centrosCustoDisponiveis.map(c => c.codigo))} 
+                            className="text-primary font-medium"
+                          >
+                            <CheckSquare className="mr-2 h-4 w-4" />
+                            Marcar Todos ({centrosCustoDisponiveis.length})
+                          </CommandItem>
                           {centrosCustoFilter.length > 0 && (
                             <CommandItem onSelect={() => setCentrosCustoFilter([])} className="text-muted-foreground">
                               <X className="mr-2 h-4 w-4" />
@@ -5626,6 +5648,13 @@ const Roteirizacao = () => {
                       <CommandList>
                         <CommandEmpty>Nenhum município encontrado.</CommandEmpty>
                         <CommandGroup>
+                          <CommandItem 
+                            onSelect={() => setMunicipiosFilter([...municipiosDisponiveis])} 
+                            className="text-primary font-medium"
+                          >
+                            <CheckSquare className="mr-2 h-4 w-4" />
+                            Marcar Todos ({municipiosDisponiveis.length})
+                          </CommandItem>
                           {municipiosFilter.length > 0 && (
                             <CommandItem onSelect={() => setMunicipiosFilter([])} className="text-muted-foreground">
                               <X className="mr-2 h-4 w-4" />
@@ -5675,6 +5704,13 @@ const Roteirizacao = () => {
                       <CommandList>
                         <CommandEmpty>Nenhum bairro encontrado.</CommandEmpty>
                         <CommandGroup>
+                          <CommandItem 
+                            onSelect={() => setBairrosFilter([...bairrosDisponiveis])} 
+                            className="text-primary font-medium"
+                          >
+                            <CheckSquare className="mr-2 h-4 w-4" />
+                            Marcar Todos ({bairrosDisponiveis.length})
+                          </CommandItem>
                           {bairrosFilter.length > 0 && (
                             <CommandItem onSelect={() => setBairrosFilter([])} className="text-muted-foreground">
                               <X className="mr-2 h-4 w-4" />
@@ -5722,6 +5758,13 @@ const Roteirizacao = () => {
                     <Command>
                       <CommandList>
                         <CommandGroup>
+                          <CommandItem 
+                            onSelect={() => setStatusFilter([...statusDisponiveis])} 
+                            className="text-primary font-medium"
+                          >
+                            <CheckSquare className="mr-2 h-4 w-4" />
+                            Marcar Todos ({statusDisponiveis.length})
+                          </CommandItem>
                           {statusFilter.length > 0 && (
                             <CommandItem onSelect={() => setStatusFilter([])} className="text-muted-foreground">
                               <X className="mr-2 h-4 w-4" />
@@ -5774,8 +5817,16 @@ const Roteirizacao = () => {
                       <CommandList>
                         <CommandEmpty>Nenhum grupo encontrado.</CommandEmpty>
                         <CommandGroup>
+                          <CommandItem 
+                            onSelect={() => setGruposFilter([...gruposDisponiveis])} 
+                            className="text-primary font-medium"
+                          >
+                            <CheckSquare className="mr-2 h-4 w-4" />
+                            Marcar Todos ({gruposDisponiveis.length})
+                          </CommandItem>
                           {gruposFilter.length > 0 && (
                             <CommandItem onSelect={() => setGruposFilter([])} className="text-muted-foreground">
+                              <X className="mr-2 h-4 w-4" />
                               Limpar seleção
                             </CommandItem>
                           )}
@@ -5822,8 +5873,16 @@ const Roteirizacao = () => {
                       <CommandList>
                         <CommandEmpty>Nenhum território encontrado.</CommandEmpty>
                         <CommandGroup>
+                          <CommandItem 
+                            onSelect={() => setTerritoriosFilter(territoriosDisponiveis.map(t => t.id))} 
+                            className="text-primary font-medium"
+                          >
+                            <CheckSquare className="mr-2 h-4 w-4" />
+                            Marcar Todos ({territoriosDisponiveis.length})
+                          </CommandItem>
                           {territoriosFilter.length > 0 && (
                             <CommandItem onSelect={() => setTerritoriosFilter([])} className="text-muted-foreground">
+                              <X className="mr-2 h-4 w-4" />
                               Limpar seleção
                             </CommandItem>
                           )}
