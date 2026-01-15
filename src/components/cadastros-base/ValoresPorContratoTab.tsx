@@ -137,7 +137,9 @@ export default function ValoresPorContratoTab({ skillCodigo, skillNome }: Props)
       for (const contrato of (contratosData || [])) {
         // Encontrar centros de custo com OSs para este contrato
         const centrosComOS: ValorCentroCusto[] = [];
+        const centrosJaAdicionados = new Set<string>();
 
+        // Primeiro: adicionar centros que têm OSs
         osCountMap.forEach((counts, key) => {
           const [contratoId, centroCustoId] = key.split("_");
           if (contratoId === contrato.id) {
@@ -158,6 +160,30 @@ export default function ValoresPorContratoTab({ skillCodigo, skillNome }: Props)
                 qtd_amostras: valorExistente?.qtd_amostras || 0,
                 qtd_os_total: counts.total,
               });
+              centrosJaAdicionados.add(centroCustoId);
+            }
+          }
+        });
+
+        // Segundo: adicionar centros que têm valores configurados mas não têm OSs
+        valoresMap.forEach((valorConfig, key) => {
+          const [contratoId, centroCustoId] = key.split("_");
+          if (contratoId === contrato.id && !centrosJaAdicionados.has(centroCustoId)) {
+            const centroCusto = centrosCustoMap.get(centroCustoId);
+            if (centroCusto) {
+              centrosComOS.push({
+                id: valorConfig.id,
+                contrato_id: contrato.id,
+                centro_custo_id: centroCusto.id,
+                centro_custo_codigo: centroCusto.codigo,
+                centro_custo_nome: centroCusto.nome,
+                valor: valorConfig.valor || 0,
+                valor_automatico: valorConfig.valor_automatico ?? true,
+                ultima_atualizacao: valorConfig.ultima_atualizacao || null,
+                qtd_amostras: valorConfig.qtd_amostras || 0,
+                qtd_os_total: 0, // Sem OSs
+              });
+              centrosJaAdicionados.add(centroCustoId);
             }
           }
         });
