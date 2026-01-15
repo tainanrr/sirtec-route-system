@@ -744,21 +744,24 @@ export default function CalendarioReguladasDialog({
                 </div>
               )}
 
-              {/* Previsão */}
+              {/* Previsão do Tempo - AUMENTADA */}
               {dia.previsao && !carregandoPrevisao && (
-                <div className="text-center border-t border-gray-300/50 pt-2 mt-auto">
-                  <div className="flex items-center justify-center gap-2">
-                    <span className="text-2xl">{dia.previsao.icone}</span>
-                    <div className="text-sm">
-                      <span className="text-red-600 font-semibold">{dia.previsao.temperaturaMax}°</span>
-                      <span className="text-muted-foreground mx-0.5">/</span>
-                      <span className="text-blue-600">{dia.previsao.temperaturaMin}°</span>
-                    </div>
+                <div className="text-center border-t border-gray-300/50 pt-3 mt-auto">
+                  {/* Ícone grande */}
+                  <div className="text-5xl leading-none mb-2">{dia.previsao.icone}</div>
+                  
+                  {/* Temperaturas grandes */}
+                  <div className="flex items-center justify-center gap-1 text-lg font-bold">
+                    <span className="text-red-600">{dia.previsao.temperaturaMax}°</span>
+                    <span className="text-muted-foreground">/</span>
+                    <span className="text-blue-600">{dia.previsao.temperaturaMin}°</span>
                   </div>
-                  {dia.previsao.probabilidadeChuva > 30 && (
-                    <div className="text-xs text-blue-600 flex items-center justify-center gap-1 mt-1">
-                      <Droplets className="h-3 w-3" />
-                      {dia.previsao.probabilidadeChuva}%
+                  
+                  {/* Probabilidade de chuva */}
+                  {dia.previsao.probabilidadeChuva > 0 && (
+                    <div className="text-sm text-blue-600 flex items-center justify-center gap-1 mt-1.5">
+                      <Droplets className="h-4 w-4" />
+                      <span className="font-medium">{dia.previsao.probabilidadeChuva}%</span>
                     </div>
                   )}
                 </div>
