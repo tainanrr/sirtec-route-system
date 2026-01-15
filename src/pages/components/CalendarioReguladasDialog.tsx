@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -32,7 +33,10 @@ import {
   ThermometerSun,
   ThermometerSnowflake,
   Zap,
+  Download,
 } from "lucide-react";
+import * as XLSX from "xlsx-js-style";
+import { toast } from "sonner";
 import { format, addDays, isSameDay, startOfDay, isToday, isBefore, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
@@ -283,6 +287,233 @@ export default function CalendarioReguladasDialog({
     return "border-blue-200 bg-blue-50";
   };
 
+  // Função de exportação para Excel
+  const handleExportar = () => {
+    try {
+      const wb = XLSX.utils.book_new();
+
+      // Estilos
+      const headerStyle = {
+        font: { bold: true, color: { rgb: "FFFFFF" } },
+        fill: { fgColor: { rgb: "2563EB" } },
+        alignment: { horizontal: "center", vertical: "center" },
+        border: {
+          top: { style: "thin", color: { rgb: "000000" } },
+          bottom: { style: "thin", color: { rgb: "000000" } },
+          left: { style: "thin", color: { rgb: "000000" } },
+          right: { style: "thin", color: { rgb: "000000" } },
+        },
+      };
+
+      const cellStyle = {
+        alignment: { horizontal: "left", vertical: "center" },
+        border: {
+          top: { style: "thin", color: { rgb: "CCCCCC" } },
+          bottom: { style: "thin", color: { rgb: "CCCCCC" } },
+          left: { style: "thin", color: { rgb: "CCCCCC" } },
+          right: { style: "thin", color: { rgb: "CCCCCC" } },
+        },
+      };
+
+      const cellCenterStyle = {
+        ...cellStyle,
+        alignment: { horizontal: "center", vertical: "center" },
+      };
+
+      const alertStyle = {
+        ...cellCenterStyle,
+        fill: { fgColor: { rgb: "FEE2E2" } },
+        font: { bold: true, color: { rgb: "DC2626" } },
+      };
+
+      // ===== ABA 1: RESUMO =====
+      const territorioNome = territorioSelecionado !== "todos" 
+        ? territorios.find(t => t.id === territorioSelecionado)?.nome || "Todos"
+        : "Todos os Territórios";
+      const municipioNome = municipioSelecionado !== "todos" ? municipioSelecionado : "Todos os Municípios";
+
+      const resumoData: any[][] = [
+        [{ v: "CALENDÁRIO DE REGULADAS VENCENDO", s: { ...headerStyle, fill: { fgColor: { rgb: "1E40AF" } } } }],
+        [],
+        [{ v: "Filtros Aplicados:", s: { font: { bold: true } } }],
+        [{ v: "Território:", s: cellStyle }, { v: territorioNome, s: cellStyle }],
+        [{ v: "Município:", s: cellStyle }, { v: municipioNome, s: cellStyle }],
+        [{ v: "Localização Previsão:", s: cellStyle }, { v: localizacaoPrevisao, s: cellStyle }],
+        [],
+        [{ v: "Resumo Geral:", s: { font: { bold: true } } }],
+        [{ v: "Total de Reguladas:", s: cellStyle }, { v: totalReguladas, s: cellCenterStyle }],
+        [{ v: "Vencendo Hoje:", s: cellStyle }, { v: totalVencendoHoje, s: cellCenterStyle }],
+        [{ v: "Vencidas Hoje:", s: cellStyle }, { v: totalVencidas, s: totalVencidas > 0 ? alertStyle : cellCenterStyle }],
+        [{ v: "Próximos 10 Dias:", s: cellStyle }, { v: totalProximos10Dias, s: cellCenterStyle }],
+        [],
+        [{ v: "Detalhamento por Dia:", s: { font: { bold: true } } }],
+        [
+          { v: "Data", s: headerStyle },
+          { v: "Dia da Semana", s: headerStyle },
+          { v: "Reguladas", s: headerStyle },
+          { v: "Vencidas", s: headerStyle },
+          { v: "Clima", s: headerStyle },
+          { v: "Temp. Máx", s: headerStyle },
+          { v: "Temp. Mín", s: headerStyle },
+          { v: "Prob. Chuva", s: headerStyle },
+          { v: "Vento (km/h)", s: headerStyle },
+        ],
+      ];
+
+      // Adicionar linhas dos dias
+      diasCalendario.forEach((dia) => {
+        resumoData.push([
+          { v: format(dia.data, "dd/MM/yyyy"), s: cellCenterStyle },
+          { v: dia.diaSemana.charAt(0).toUpperCase() + dia.diaSemana.slice(1), s: cellStyle },
+          { v: dia.totalReguladas, s: dia.totalReguladas > 10 ? alertStyle : cellCenterStyle },
+          { v: dia.vencidas, s: dia.vencidas > 0 ? alertStyle : cellCenterStyle },
+          { v: dia.previsao?.descricaoClima || "-", s: cellStyle },
+          { v: dia.previsao ? `${dia.previsao.temperaturaMax}°C` : "-", s: cellCenterStyle },
+          { v: dia.previsao ? `${dia.previsao.temperaturaMin}°C` : "-", s: cellCenterStyle },
+          { v: dia.previsao ? `${dia.previsao.probabilidadeChuva}%` : "-", s: cellCenterStyle },
+          { v: dia.previsao?.velocidadeVento || "-", s: cellCenterStyle },
+        ]);
+      });
+
+      const wsResumo = XLSX.utils.aoa_to_sheet(resumoData);
+      wsResumo["!cols"] = [
+        { wch: 15 }, { wch: 18 }, { wch: 12 }, { wch: 10 }, 
+        { wch: 25 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 14 }
+      ];
+      wsResumo["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 8 } }];
+      XLSX.utils.book_append_sheet(wb, wsResumo, "Resumo");
+
+      // ===== ABA 2: DETALHAMENTO OS A OS =====
+      const detalheData: any[][] = [
+        [
+          { v: "Número OS", s: headerStyle },
+          { v: "Tipo", s: headerStyle },
+          { v: "Prazo", s: headerStyle },
+          { v: "Data Vencimento", s: headerStyle },
+          { v: "Hora Vencimento", s: headerStyle },
+          { v: "Status", s: headerStyle },
+          { v: "Município", s: headerStyle },
+          { v: "Bairro", s: headerStyle },
+          { v: "Endereço", s: headerStyle },
+          { v: "Contrato", s: headerStyle },
+          { v: "Valor", s: headerStyle },
+          { v: "Dias p/ Vencer", s: headerStyle },
+        ],
+      ];
+
+      // Ordenar reguladas por prazo
+      const reguladasOrdenadas = [...ordensFiltradas].sort((a, b) => {
+        if (!a.prazo) return 1;
+        if (!b.prazo) return -1;
+        return a.prazo.getTime() - b.prazo.getTime();
+      });
+
+      const hoje = startOfDay(new Date());
+
+      reguladasOrdenadas.forEach((os) => {
+        const prazoDate = os.prazo ? new Date(os.prazo) : null;
+        const diasParaVencer = prazoDate 
+          ? Math.ceil((startOfDay(prazoDate).getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24))
+          : null;
+        
+        const isVencida = diasParaVencer !== null && diasParaVencer < 0;
+        const isHoje = diasParaVencer === 0;
+        
+        let statusVencimento = "-";
+        let statusStyle = cellStyle;
+        
+        if (diasParaVencer !== null) {
+          if (isVencida) {
+            statusVencimento = "VENCIDA";
+            statusStyle = alertStyle;
+          } else if (isHoje) {
+            statusVencimento = "VENCE HOJE";
+            statusStyle = { ...cellCenterStyle, fill: { fgColor: { rgb: "FEF3C7" } }, font: { bold: true, color: { rgb: "D97706" } } };
+          } else if (diasParaVencer <= 3) {
+            statusVencimento = "PRÓXIMA";
+            statusStyle = { ...cellCenterStyle, fill: { fgColor: { rgb: "DBEAFE" } } };
+          } else {
+            statusVencimento = "NO PRAZO";
+          }
+        }
+
+        detalheData.push([
+          { v: os.numero, s: cellStyle },
+          { v: os.tipo, s: cellCenterStyle },
+          { v: prazoDate ? format(prazoDate, "dd/MM/yyyy HH:mm") : "-", s: cellCenterStyle },
+          { v: prazoDate ? format(prazoDate, "dd/MM/yyyy") : "-", s: cellCenterStyle },
+          { v: prazoDate ? format(prazoDate, "HH:mm") : "-", s: cellCenterStyle },
+          { v: statusVencimento, s: statusStyle },
+          { v: os.municipio || "-", s: cellStyle },
+          { v: os.bairro || "-", s: cellStyle },
+          { v: os.endereco || "-", s: cellStyle },
+          { v: os.contrato_codigo || "-", s: cellStyle },
+          { v: os.valor ? `R$ ${os.valor.toFixed(2)}` : "-", s: cellStyle },
+          { v: diasParaVencer !== null ? diasParaVencer : "-", s: isVencida ? alertStyle : cellCenterStyle },
+        ]);
+      });
+
+      const wsDetalhe = XLSX.utils.aoa_to_sheet(detalheData);
+      wsDetalhe["!cols"] = [
+        { wch: 15 }, { wch: 15 }, { wch: 18 }, { wch: 14 }, { wch: 14 },
+        { wch: 12 }, { wch: 20 }, { wch: 20 }, { wch: 40 }, { wch: 15 }, { wch: 12 }, { wch: 14 }
+      ];
+      XLSX.utils.book_append_sheet(wb, wsDetalhe, "Detalhamento OSs");
+
+      // ===== ABA 3: RESUMO POR DIA (detalhado) =====
+      const porDiaData: any[][] = [];
+
+      diasCalendario.forEach((dia, index) => {
+        if (index > 0) {
+          porDiaData.push([]); // linha vazia entre dias
+        }
+
+        const dataFormatada = format(dia.data, "dd/MM/yyyy (EEEE)", { locale: ptBR });
+        porDiaData.push([
+          { v: `📅 ${dataFormatada}`, s: { ...headerStyle, fill: { fgColor: { rgb: "059669" } } } },
+          { v: `${dia.totalReguladas} reguladas`, s: { ...headerStyle, fill: { fgColor: { rgb: "059669" } } } },
+          { v: dia.previsao ? `${dia.previsao.icone} ${dia.previsao.descricaoClima}` : "", s: { ...headerStyle, fill: { fgColor: { rgb: "059669" } } } },
+        ]);
+
+        if (dia.reguladas.length === 0) {
+          porDiaData.push([{ v: "Nenhuma regulada vencendo neste dia", s: { font: { italic: true, color: { rgb: "666666" } } } }]);
+        } else {
+          porDiaData.push([
+            { v: "Número", s: { font: { bold: true } } },
+            { v: "Tipo", s: { font: { bold: true } } },
+            { v: "Horário Limite", s: { font: { bold: true } } },
+            { v: "Município", s: { font: { bold: true } } },
+            { v: "Endereço", s: { font: { bold: true } } },
+          ]);
+
+          dia.reguladas.forEach((os) => {
+            porDiaData.push([
+              { v: os.numero, s: cellStyle },
+              { v: os.tipo, s: cellStyle },
+              { v: os.prazo ? format(os.prazo, "HH:mm") : "-", s: cellCenterStyle },
+              { v: os.municipio || "-", s: cellStyle },
+              { v: os.endereco || "-", s: cellStyle },
+            ]);
+          });
+        }
+      });
+
+      const wsPorDia = XLSX.utils.aoa_to_sheet(porDiaData);
+      wsPorDia["!cols"] = [{ wch: 35 }, { wch: 15 }, { wch: 35 }, { wch: 20 }, { wch: 50 }];
+      XLSX.utils.book_append_sheet(wb, wsPorDia, "Por Dia");
+
+      // Gerar arquivo
+      const dataAtual = format(new Date(), "yyyy-MM-dd_HH-mm");
+      const nomeArquivo = `calendario_reguladas_${dataAtual}.xlsx`;
+      XLSX.writeFile(wb, nomeArquivo);
+
+      toast.success(`Exportado com sucesso: ${nomeArquivo}`);
+    } catch (error) {
+      console.error("Erro ao exportar:", error);
+      toast.error("Erro ao exportar calendário");
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden z-[1000]">
@@ -297,55 +528,67 @@ export default function CalendarioReguladasDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {/* Filtros */}
-        <div className="flex flex-wrap gap-4 mb-4">
-          <div className="flex items-center gap-2">
-            <MapPin className="h-4 w-4 text-muted-foreground" />
-            <Select
-              value={territorioSelecionado}
-              onValueChange={setTerritorioSelecionado}
-            >
-              <SelectTrigger className="w-[200px]">
-                <SelectValue placeholder="Território" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todos os Territórios</SelectItem>
-                {territorios
-                  .filter((t) => t.ativo)
-                  .map((territorio) => (
-                    <SelectItem key={territorio.id} value={territorio.id}>
-                      <div className="flex items-center gap-2">
-                        <div
-                          className="w-3 h-3 rounded-full"
-                          style={{ backgroundColor: territorio.cor }}
-                        />
-                        {territorio.nome}
-                      </div>
+        {/* Filtros e Exportar */}
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-2">
+              <MapPin className="h-4 w-4 text-muted-foreground" />
+              <Select
+                value={territorioSelecionado}
+                onValueChange={setTerritorioSelecionado}
+              >
+                <SelectTrigger className="w-[200px]">
+                  <SelectValue placeholder="Território" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos os Territórios</SelectItem>
+                  {territorios
+                    .filter((t) => t.ativo)
+                    .map((territorio) => (
+                      <SelectItem key={territorio.id} value={territorio.id}>
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="w-3 h-3 rounded-full"
+                            style={{ backgroundColor: territorio.cor }}
+                          />
+                          {territorio.nome}
+                        </div>
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <MapPin className="h-4 w-4 text-muted-foreground" />
+              <Select
+                value={municipioSelecionado}
+                onValueChange={setMunicipioSelecionado}
+              >
+                <SelectTrigger className="w-[200px]">
+                  <SelectValue placeholder="Município" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos os Municípios</SelectItem>
+                  {municipios.map((municipio) => (
+                    <SelectItem key={municipio} value={municipio}>
+                      {municipio}
                     </SelectItem>
                   ))}
-              </SelectContent>
-            </Select>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <MapPin className="h-4 w-4 text-muted-foreground" />
-            <Select
-              value={municipioSelecionado}
-              onValueChange={setMunicipioSelecionado}
-            >
-              <SelectTrigger className="w-[200px]">
-                <SelectValue placeholder="Município" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todos os Municípios</SelectItem>
-                {municipios.map((municipio) => (
-                  <SelectItem key={municipio} value={municipio}>
-                    {municipio}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <Button
+            onClick={handleExportar}
+            disabled={ordensFiltradas.length === 0}
+            variant="outline"
+            className="gap-2"
+          >
+            <Download className="h-4 w-4" />
+            Exportar Excel
+          </Button>
         </div>
 
         {/* Resumo */}
