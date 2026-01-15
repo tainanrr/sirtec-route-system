@@ -2752,7 +2752,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
           
           const valor = projecao.equipesNecessarias.toFixed(1).replace('.', ',');
           const angulo = -60 + (index * 60); // Posicionar em arco
-          const raio = 52; // Distância do centro
+          const raio = 45; // Distância do centro
           const x = Math.cos((angulo * Math.PI) / 180) * raio;
           const y = Math.sin((angulo * Math.PI) / 180) * raio;
           
@@ -2764,8 +2764,8 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
               transform: translate(calc(-50% + ${x}px), calc(-50% + ${y}px));
               background-color: ${corFundo};
               color: white;
-              width: 34px;
-              height: 34px;
+              width: 30px;
+              height: 30px;
               border-radius: 50%;
               border: 2px solid white;
               box-shadow: 0 2px 6px rgba(0,0,0,0.3);
@@ -2773,12 +2773,12 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
               flex-direction: column;
               align-items: center;
               justify-content: center;
-              font-size: 11px;
+              font-size: 10px;
               font-weight: bold;
               line-height: 1;
               cursor: default;
             ">
-              <span style="font-size: 8px; opacity: 0.9;">${projecao.label}</span>
+              <span style="font-size: 7px; opacity: 0.9;">${projecao.label}</span>
               <span>${valor}</span>
             </div>
           `;
@@ -2794,8 +2794,8 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
         const markerHTML = `
           <div class="expectativa-container" style="
             position: relative;
-            width: 130px;
-            height: 130px;
+            width: 115px;
+            height: 115px;
           ">
             <!-- Marcador central principal - COR DO TERRITÓRIO -->
             <div style="
@@ -2805,8 +2805,8 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
               transform: translate(-50%, -50%);
               background: linear-gradient(135deg, ${corTerritorio} 0%, ${corTerritorio}dd 100%);
               color: white;
-              width: 68px;
-              height: 68px;
+              width: 60px;
+              height: 60px;
               border-radius: 50%;
               border: 3px solid white;
               box-shadow: 0 4px 12px rgba(0,0,0,0.35);
@@ -2814,13 +2814,13 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
               flex-direction: column;
               align-items: center;
               justify-content: center;
-              font-size: 20px;
+              font-size: 19px;
               font-weight: bold;
               text-align: center;
               line-height: 1;
               z-index: 10;
             ">
-              <span style="font-size: 9px; opacity: 0.85;">Até ${prazoFormatado}</span>
+              <span style="font-size: 8px; opacity: 0.85;">Até ${prazoFormatado}</span>
               <span>${valorFormatado}</span>
             </div>
             
@@ -2833,8 +2833,8 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
           icon: L.divIcon({
             className: "custom-marker-expectativa-projecao",
             html: markerHTML,
-            iconSize: [130, 130],
-            iconAnchor: [65, 65],
+            iconSize: [115, 115],
+            iconAnchor: [57, 57],
           }),
           zIndexOffset: 1000, // Garantir que fique acima dos outros marcadores
         });
