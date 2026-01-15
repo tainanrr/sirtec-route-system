@@ -421,6 +421,16 @@ export default function ChecklistsAvancado() {
   const [dialogGrupoOpen, setDialogGrupoOpen] = useState(false);
   const [dialogCondicaoOpen, setDialogCondicaoOpen] = useState(false);
   const [gerarIAOpen, setGerarIAOpen] = useState(false);
+  
+  // Estados para Dialog de adicionar múltiplos vínculos
+  const [dialogVinculosOpen, setDialogVinculosOpen] = useState(false);
+  const [vinculosSelecionados, setVinculosSelecionados] = useState<{
+    [skillId: string]: {
+      selecionado: boolean;
+      grupo_retorno: string;
+      obrigatorio: boolean;
+    };
+  }>({});
 
   // Carregar checklists
   const fetchChecklists = async () => {
@@ -545,16 +555,85 @@ export default function ChecklistsAvancado() {
       return;
     }
     
-    setVinculos(prev => [
-      ...prev,
-      {
-        skill_id: skills[0].id,
-        skill_nome: skills[0].nome,
+    // Inicializar seleções com skills que ainda não estão vinculados
+    const skillsJaVinculados = new Set(vinculos.map(v => v.skill_id));
+    const novasSeleções: typeof vinculosSelecionados = {};
+    
+    skills.forEach(skill => {
+      novasSeleções[skill.id] = {
+        selecionado: false,
         grupo_retorno: "todos",
         obrigatorio: true,
-        ordem: prev.length,
-      },
-    ]);
+      };
+    });
+    
+    setVinculosSelecionados(novasSeleções);
+    setDialogVinculosOpen(true);
+  };
+  
+  const confirmarVinculos = () => {
+    const novosVinculos: ChecklistVinculo[] = [];
+    let ordem = vinculos.length;
+    
+    Object.entries(vinculosSelecionados).forEach(([skillId, config]) => {
+      if (config.selecionado) {
+        const skill = skills.find(s => s.id === skillId);
+        novosVinculos.push({
+          skill_id: skillId,
+          skill_nome: skill?.nome || "",
+          grupo_retorno: config.grupo_retorno,
+          obrigatorio: config.obrigatorio,
+          ordem: ordem++,
+        });
+      }
+    });
+    
+    if (novosVinculos.length === 0) {
+      toast.error("Selecione pelo menos um tipo de serviço");
+      return;
+    }
+    
+    setVinculos(prev => [...prev, ...novosVinculos]);
+    setDialogVinculosOpen(false);
+    toast.success(`${novosVinculos.length} vínculo(s) adicionado(s)`);
+  };
+  
+  const marcarTodosVinculos = (marcar: boolean) => {
+    setVinculosSelecionados(prev => {
+      const novo = { ...prev };
+      Object.keys(novo).forEach(skillId => {
+        // Só permite marcar se não estiver já vinculado
+        const jaVinculado = vinculos.some(v => v.skill_id === skillId);
+        if (!jaVinculado) {
+          novo[skillId] = { ...novo[skillId], selecionado: marcar };
+        }
+      });
+      return novo;
+    });
+  };
+  
+  const atualizarTodosGrupoRetorno = (grupo: string) => {
+    setVinculosSelecionados(prev => {
+      const novo = { ...prev };
+      Object.keys(novo).forEach(skillId => {
+        if (novo[skillId].selecionado) {
+          novo[skillId] = { ...novo[skillId], grupo_retorno: grupo };
+        }
+      });
+      return novo;
+    });
+  };
+  
+  const atualizarTodosObrigatorio = (obrigatorio: boolean) => {
+    setVinculosSelecionados(prev => {
+      const novo = { ...prev };
+      Object.keys(novo).forEach(skillId => {
+        if (novo[skillId].selecionado) {
+          novo[skillId] = { ...novo[skillId], obrigatorio };
+        }
+      });
+      return novo;
+    });
   };
 
   const removerVinculo = (index: number) => {
@@ -1937,6 +2016,194 @@ export default function ChecklistsAvancado() {
         onSave={salvarPergunta}
         todasPerguntas={formData.grupos?.flatMap(g => g.perguntas) || []}
       />
+
+      {/* Dialog de Adicionar Múltiplos Vínculos */}
+      <Dialog open={dialogVinculosOpen} onOpenChange={setDialogVinculosOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Link2 className="h-5 w-5" />
+              Adicionar Vínculos
+            </DialogTitle>
+            <DialogDescription>
+              Selecione os tipos de serviço que deseja vincular a este checklist.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="flex-1 overflow-hidden flex flex-col gap-4">
+            {/* Ações em lote */}
+            <div className="flex flex-wrap items-center gap-4 p-3 bg-muted/50 rounded-lg border">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="marcar-todos"
+                  checked={
+                    Object.values(vinculosSelecionados).filter(v => {
+                      const skillId = Object.keys(vinculosSelecionados).find(k => vinculosSelecionados[k] === v);
+                      return skillId && !vinculos.some(vin => vin.skill_id === skillId);
+                    }).every(v => v.selecionado) &&
+                    Object.values(vinculosSelecionados).some(v => v.selecionado)
+                  }
+                  onCheckedChange={(checked) => marcarTodosVinculos(checked as boolean)}
+                />
+                <Label htmlFor="marcar-todos" className="font-medium">
+                  Marcar Todos
+                </Label>
+              </div>
+              
+              <Separator orientation="vertical" className="h-6" />
+              
+              <div className="flex items-center gap-2">
+                <Label className="text-sm text-muted-foreground">Grupo de Retorno:</Label>
+                <Select onValueChange={atualizarTodosGrupoRetorno}>
+                  <SelectTrigger className="w-[160px] h-8">
+                    <SelectValue placeholder="Aplicar a todos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {GRUPOS_RETORNO.map((grupo) => (
+                      <SelectItem key={grupo.value} value={grupo.value}>
+                        {grupo.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="todos-obrigatorio"
+                  onCheckedChange={(checked) => atualizarTodosObrigatorio(checked as boolean)}
+                />
+                <Label htmlFor="todos-obrigatorio" className="text-sm text-muted-foreground">
+                  Todos Obrigatórios
+                </Label>
+              </div>
+            </div>
+            
+            {/* Lista de Skills */}
+            <ScrollArea className="flex-1 border rounded-lg">
+              <div className="p-2 space-y-1">
+                {skills.map((skill) => {
+                  const jaVinculado = vinculos.some(v => v.skill_id === skill.id);
+                  const config = vinculosSelecionados[skill.id] || {
+                    selecionado: false,
+                    grupo_retorno: "todos",
+                    obrigatorio: true,
+                  };
+                  
+                  return (
+                    <div
+                      key={skill.id}
+                      className={cn(
+                        "flex items-center gap-3 p-3 rounded-lg border transition-colors",
+                        jaVinculado && "bg-muted/50 opacity-60",
+                        config.selecionado && !jaVinculado && "bg-primary/5 border-primary/30"
+                      )}
+                    >
+                      <Checkbox
+                        id={`skill-${skill.id}`}
+                        checked={config.selecionado}
+                        disabled={jaVinculado}
+                        onCheckedChange={(checked) => {
+                          setVinculosSelecionados(prev => ({
+                            ...prev,
+                            [skill.id]: { ...prev[skill.id], selecionado: checked as boolean },
+                          }));
+                        }}
+                      />
+                      
+                      <div className="flex-1 min-w-0">
+                        <Label
+                          htmlFor={`skill-${skill.id}`}
+                          className={cn(
+                            "font-medium cursor-pointer",
+                            jaVinculado && "cursor-not-allowed"
+                          )}
+                        >
+                          {skill.nome}
+                          {jaVinculado && (
+                            <Badge variant="secondary" className="ml-2 text-xs">
+                              Já vinculado
+                            </Badge>
+                          )}
+                        </Label>
+                        <p className="text-xs text-muted-foreground">
+                          Código: {skill.codigo}
+                        </p>
+                      </div>
+                      
+                      {!jaVinculado && (
+                        <>
+                          <div className="w-[140px]">
+                            <Select
+                              value={config.grupo_retorno}
+                              onValueChange={(value) => {
+                                setVinculosSelecionados(prev => ({
+                                  ...prev,
+                                  [skill.id]: { ...prev[skill.id], grupo_retorno: value },
+                                }));
+                              }}
+                              disabled={!config.selecionado}
+                            >
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {GRUPOS_RETORNO.map((grupo) => (
+                                  <SelectItem key={grupo.value} value={grupo.value}>
+                                    {grupo.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          
+                          <div className="flex items-center gap-2">
+                            <Checkbox
+                              id={`obrig-${skill.id}`}
+                              checked={config.obrigatorio}
+                              disabled={!config.selecionado}
+                              onCheckedChange={(checked) => {
+                                setVinculosSelecionados(prev => ({
+                                  ...prev,
+                                  [skill.id]: { ...prev[skill.id], obrigatorio: checked as boolean },
+                                }));
+                              }}
+                            />
+                            <Label
+                              htmlFor={`obrig-${skill.id}`}
+                              className={cn(
+                                "text-xs",
+                                !config.selecionado && "text-muted-foreground"
+                              )}
+                            >
+                              Obrigatório
+                            </Label>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </ScrollArea>
+            
+            {/* Resumo */}
+            <div className="text-sm text-muted-foreground">
+              {Object.values(vinculosSelecionados).filter(v => v.selecionado).length} tipo(s) de serviço selecionado(s)
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogVinculosOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={confirmarVinculos}>
+              <Plus className="h-4 w-4 mr-1" />
+              Adicionar Selecionados
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Dialog de Preview */}
       <PreviewDialog
