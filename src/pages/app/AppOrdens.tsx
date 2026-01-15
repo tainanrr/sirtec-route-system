@@ -703,7 +703,8 @@ export default function AppOrdens() {
 
       if (osParaCache.length > 0) {
         console.log(`[AppOrdens] 📸 Iniciando pré-carregamento de ${osParaCache.length} fachadas...`);
-        preloadImages(osParaCache, true).then(() => {
+        // showToast: false - baixa silenciosamente em background
+        preloadImages(osParaCache, false).then(() => {
           setStreetViewPreloaded(true);
         });
       } else {
