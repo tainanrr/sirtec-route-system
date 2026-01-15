@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
-import { Building2, MapPinOff, ExternalLink, Loader2, Eye, EyeOff } from "lucide-react";
+import { Building2, MapPinOff, ExternalLink, Loader2, Eye, EyeOff, WifiOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getStreetViewImageUrl, checkStreetViewAvailability, StreetViewOptions } from "@/lib/streetView";
+import { getStreetViewFromCache } from "@/lib/streetViewCache";
 import { Button } from "./button";
 import {
   Dialog,
@@ -65,6 +66,8 @@ export function StreetViewImage({
   const [isAvailable, setIsAvailable] = useState<boolean | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
+  const [cachedUrl, setCachedUrl] = useState<string | null>(null);
+  const [isFromCache, setIsFromCache] = useState(false);
   
   const { width, height, className: sizeClassName } = sizeConfig[size];
   
@@ -85,7 +88,23 @@ export function StreetViewImage({
       }
     : null;
   
-  const imageUrl = options ? getStreetViewImageUrl(options) : null;
+  const onlineImageUrl = options ? getStreetViewImageUrl(options) : null;
+  
+  // Verificar cache primeiro quando não está collapsed
+  useEffect(() => {
+    if (hasCoordinates && !isCollapsed && !cachedUrl) {
+      getStreetViewFromCache(latitude!, longitude!).then((cached) => {
+        if (cached) {
+          console.log("[StreetView] ✅ Imagem encontrada no cache");
+          setCachedUrl(cached);
+          setIsFromCache(true);
+        }
+      });
+    }
+  }, [latitude, longitude, hasCoordinates, isCollapsed, cachedUrl]);
+  
+  // A URL a ser usada: cache primeiro, depois online
+  const imageUrl = cachedUrl || onlineImageUrl;
   
   // Verificar disponibilidade se solicitado
   useEffect(() => {
@@ -200,6 +219,12 @@ export function StreetViewImage({
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Building2 className="h-3.5 w-3.5" />
             <span>{label}</span>
+            {isFromCache && !isLoading && !hasError && (
+              <span className="flex items-center gap-1 text-green-600 bg-green-50 px-1.5 py-0.5 rounded text-[10px]">
+                <WifiOff className="h-3 w-3" />
+                Offline
+              </span>
+            )}
           </div>
           {collapsible && (
             <button

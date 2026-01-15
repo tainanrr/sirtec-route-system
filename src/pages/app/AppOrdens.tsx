@@ -43,6 +43,7 @@ import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 import { getDadosSkills } from "@/lib/skillsUtils";
 import CriarOSAvulsaDialog from "@/components/app/CriarOSAvulsaDialog";
+import { useStreetViewPreload } from "@/hooks/useStreetViewPreload";
 
 // Função para formatar tempo em minutos para formato legível
 const formatarTempo = (minutos: number | null | undefined): string => {
@@ -670,6 +671,41 @@ export default function AppOrdens() {
     : ordensOfflineCache;
   
   console.log("[DEBUG AppOrdens] ordensParaUsar:", ordensParaUsar.length, "- origem:", (ordensPlanejadas && ordensPlanejadas.length > 0) ? "React Query" : "Cache Offline");
+
+  // Hook para pré-carregar imagens do Street View
+  const { preloadImages, progress: streetViewProgress } = useStreetViewPreload();
+  const [streetViewPreloaded, setStreetViewPreloaded] = useState(false);
+
+  // Pré-carregar imagens do Street View quando as OSs são carregadas (apenas online e no dia de hoje)
+  useEffect(() => {
+    const shouldPreload = 
+      isOnline && 
+      isToday(selectedDate) && 
+      ordensParaUsar.length > 0 && 
+      !streetViewPreloaded &&
+      !isLoadingOrdens;
+
+    if (shouldPreload) {
+      // Extrair OSs com coordenadas para pré-carregar
+      const osParaCache = ordensParaUsar
+        .filter(o => o.ordens_servico?.latitude && o.ordens_servico?.longitude)
+        .map(o => ({
+          id: o.ordens_servico!.id,
+          numero: o.ordens_servico!.numero,
+          latitude: o.ordens_servico!.latitude,
+          longitude: o.ordens_servico!.longitude,
+        }));
+
+      if (osParaCache.length > 0) {
+        console.log(`[AppOrdens] 📸 Iniciando pré-carregamento de ${osParaCache.length} fachadas...`);
+        preloadImages(osParaCache, true).then(() => {
+          setStreetViewPreloaded(true);
+        });
+      } else {
+        setStreetViewPreloaded(true);
+      }
+    }
+  }, [isOnline, selectedDate, ordensParaUsar, streetViewPreloaded, isLoadingOrdens, preloadImages]);
 
   // Filtrar ordens (usando status atualizado das operações pendentes)
   const filteredOrdens = ordensParaUsar?.filter((ordem) => {
