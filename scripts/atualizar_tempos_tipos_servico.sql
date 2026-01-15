@@ -89,7 +89,7 @@ FROM (
     ('VARREDURA -', 54),
     ('VERIFICACAO -', 16)
 ) AS dados(skill_codigo, tempo_minutos)
-CROSS JOIN (SELECT id FROM public.contratos WHERE numero = '4600079169') c
+CROSS JOIN (SELECT id FROM public.contratos WHERE codigo = '4600079169') c
 CROSS JOIN (SELECT id FROM public.centros_custo WHERE nome ILIKE '%Vitória da Conquista%' OR nome ILIKE '%Vitoria da Conquista%') cc
 ON CONFLICT (skill_codigo, contrato_id, centro_custo_id) 
 DO UPDATE SET 
