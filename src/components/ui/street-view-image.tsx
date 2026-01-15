@@ -311,16 +311,19 @@ export function StreetViewImage({
             <DialogTitle className="flex items-center gap-2">
               <Building2 className="h-5 w-5" />
               {label}
+              {isFromCache && (
+                <span className="flex items-center gap-1 text-green-600 bg-green-50 px-1.5 py-0.5 rounded text-xs">
+                  <WifiOff className="h-3 w-3" />
+                  Offline
+                </span>
+              )}
             </DialogTitle>
           </DialogHeader>
           <div className="relative aspect-video bg-slate-100">
-            {options && (
+            {/* Usar a mesma URL (cacheada ou online) para funcionar offline */}
+            {imageUrl && (
               <img
-                src={getStreetViewImageUrl({
-                  ...options,
-                  width: 1200,
-                  height: 800,
-                }) || ""}
+                src={imageUrl}
                 alt={`Vista da fachada - ${endereco || "Localização"}`}
                 className="w-full h-full object-contain"
               />
