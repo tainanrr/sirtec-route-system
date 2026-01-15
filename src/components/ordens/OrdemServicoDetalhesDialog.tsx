@@ -570,7 +570,7 @@ export function OrdemServicoDetalhesDialog({
                           <p className="text-sm text-muted-foreground">{ordem.cliente_telefone}</p>
                         )}
                       </div>
-                      {/* Imagem Street View da Fachada */}
+                      {/* Imagem Street View da Fachada - Sob Demanda */}
                       <div>
                         <StreetViewImage
                           latitude={ordem.latitude}
@@ -578,7 +578,8 @@ export function OrdemServicoDetalhesDialog({
                           endereco={ordem.endereco}
                           size="md"
                           showExpandButton={true}
-                          collapsible={false}
+                          collapsible={true}
+                          defaultCollapsed={true}
                           label="Vista da Fachada"
                         />
                       </div>

@@ -125,13 +125,21 @@ export function StreetViewImage({
     return (
       <button
         onClick={() => setIsCollapsed(false)}
+        disabled={!hasCoordinates}
         className={cn(
-          "w-full flex items-center gap-2 p-3 rounded-lg border bg-slate-50 hover:bg-slate-100 transition-colors text-sm text-muted-foreground",
+          "w-full flex items-center gap-2 p-3 rounded-lg border transition-colors text-sm",
+          hasCoordinates 
+            ? "bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-700" 
+            : "bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed",
           className
         )}
       >
-        <Eye className="h-4 w-4" />
-        <span>Carregar imagem da fachada</span>
+        <Building2 className="h-4 w-4" />
+        <span>
+          {hasCoordinates 
+            ? "🔍 Ver Fachada (Street View)" 
+            : "Sem coordenadas para Street View"}
+        </span>
       </button>
     );
   }
