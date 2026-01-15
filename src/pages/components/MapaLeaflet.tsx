@@ -107,6 +107,14 @@ interface StatusOSTempoReal {
   retorno_codigo: string | null;
 }
 
+// Interface para previsão de chuva por data
+interface PrevisaoChuvaData {
+  data: string; // formato yyyy-MM-dd
+  temChuva: boolean;
+  probabilidade: number;
+  icone: string;
+}
+
 interface MapaLeafletProps {
   rotas: RotaEquipe[];
   osPendentes: OrdemServico[];
@@ -142,6 +150,8 @@ interface MapaLeafletProps {
   prazoLimiteUrgente?: Date; // Se não fornecido, usa o padrão (fim do dia atual)
   // Versão do prazo (incrementa a cada alteração para forçar re-render do mapa)
   versaoPrazoUrgente?: number;
+  // Previsão de chuva para OSs reguladas
+  previsoesChuvaPorData?: Map<string, PrevisaoChuvaData>; // Mapa de data (yyyy-MM-dd) → previsão
 }
 
 interface RouteGeometryData {
@@ -179,7 +189,7 @@ function getLucideIconSVG(iconName: string | undefined, color: string, size: num
   `;
 }
 
-export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEquipes, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, focarOSNoMapa, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear, selecionandoCoordNoMapa, onMapClick, osCoordenadasSuspeitas = [], criandoPoligono, onPoligonoCriado, onCriacaoCancelada, onOsSelecionadasPorPoligono, ossSelecionadas, statusOSsTempoReal, mostrarEquipesTempoReal = true, equipesSelecionadasFiltro, onEquipeClick, prazoLimiteUrgente, versaoPrazoUrgente }: MapaLeafletProps) {
+export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEquipes, equipeHovered, equipeEditando, osSelecionada, osSelecionadaNoEditor, focarOSNoMapa, onOSSelecionada, onIncluirOSNaRota, territorios = [], onTerritorioEditado, osUrgenteDestaque, osUrgentesDestaque, onOsUrgenteDestaqueClear, selecionandoCoordNoMapa, onMapClick, osCoordenadasSuspeitas = [], criandoPoligono, onPoligonoCriado, onCriacaoCancelada, onOsSelecionadasPorPoligono, ossSelecionadas, statusOSsTempoReal, mostrarEquipesTempoReal = true, equipesSelecionadasFiltro, onEquipeClick, prazoLimiteUrgente, versaoPrazoUrgente, previsoesChuvaPorData }: MapaLeafletProps) {
   
   const mapRef = useRef<HTMLDivElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -1980,6 +1990,19 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
         const markerSize = isSelecionada ? 34 : 28;
         const fontSize = isSelecionada ? '13px' : '11px';
         
+        // Verificar se a OS regulada tem previsão de chuva no dia do vencimento
+        let temChuvaNoPrazo = false;
+        let iconeClimaOS = '';
+        if (isRegulada && os.prazo && previsoesChuvaPorData) {
+          const dataPrazo = new Date(os.prazo);
+          const dataKey = `${dataPrazo.getFullYear()}-${String(dataPrazo.getMonth() + 1).padStart(2, '0')}-${String(dataPrazo.getDate()).padStart(2, '0')}`;
+          const previsao = previsoesChuvaPorData.get(dataKey);
+          if (previsao && previsao.temChuva) {
+            temChuvaNoPrazo = true;
+            iconeClimaOS = previsao.icone || '🌧️';
+          }
+        }
+        
         // Criar ícone do marcador
         const markerIcon = L.divIcon({
           className: 'custom-marker-pendente-cluster',
@@ -1997,8 +2020,9 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
               color: white;
               font-size: ${fontSize};
               font-weight: bold;
+              position: relative;
               ${isSelecionada ? 'transform: scale(1.1);' : ''}
-            ">${sigla}${isSelecionada ? '<span style="position:absolute;top:-8px;right:-8px;font-size:14px;">✓</span>' : ''}</div>
+            ">${sigla}${isSelecionada ? '<span style="position:absolute;top:-8px;right:-8px;font-size:14px;">✓</span>' : ''}${temChuvaNoPrazo ? `<span style="position:absolute;top:-10px;left:-10px;font-size:16px;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.5));z-index:10;" title="Previsão de chuva no dia do vencimento">${iconeClimaOS}</span>` : ''}</div>
           `,
           iconSize: [markerSize, markerSize],
           iconAnchor: [markerSize/2, markerSize/2],
@@ -2024,6 +2048,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
             ${prazoTooltip ? `<div style="color: #fca5a5; font-size: 11px;">⏰ ${prazoTooltip}</div>` : ''}
             ${isReguladaUrgente ? '<div style="color: #fca5a5; font-weight: bold; font-size: 10px;">⚠️ REGULADA - URGENTE</div>' : ''}
             ${isReguladaVencida ? '<div style="color: #a1a1aa; font-weight: bold; font-size: 10px;">⚠️ REGULADA - VENCIDA</div>' : ''}
+            ${temChuvaNoPrazo ? `<div style="color: #93c5fd; font-weight: bold; font-size: 10px;">${iconeClimaOS} CHUVA NO DIA DO VENCIMENTO</div>` : ''}
             ${isCoordSuspeita ? `<div style="color: #c084fc; font-weight: bold; font-size: 10px; margin-top: 4px;">⚠️ COORD. SUSPEITA<br/>Bairro: ${os.bairro}<br/>Esperado: ${osSuspeita?.territorioEsperado}<br/>Atual: ${osSuspeita?.territorioReal}</div>` : ''}
           </div>
         `;

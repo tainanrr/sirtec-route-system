@@ -139,6 +139,16 @@ import SelecaoOpcoesRoteiroDialog from "./components/SelecaoOpcoesRoteiroDialog"
 import { OrdemServicoDetalhesDialog } from "@/components/ordens/OrdemServicoDetalhesDialog";
 import { ConfigPrazoUrgente } from "@/components/roteirizacao/ConfigPrazoUrgente";
 import { useConfigUrgencia } from "@/hooks/useConfigUrgencia";
+import { buscarPrevisaoTempoComCache, PrevisaoTempo } from "@/services/weatherService";
+import { format, addDays, startOfDay } from "date-fns";
+
+// Interface para previsão de chuva para o mapa
+interface PrevisaoChuvaData {
+  data: string;
+  temChuva: boolean;
+  probabilidade: number;
+  icone: string;
+}
 
 // Mapa dinâmico de tipo -> nome (preenchido com dados do banco)
 let skillsNomesMap: Map<string, string> = new Map();
@@ -346,6 +356,9 @@ const Roteirizacao = () => {
   const [expectativaDialogOpen, setExpectativaDialogOpen] = useState(false);
   const [calendarioReguladasDialogOpen, setCalendarioReguladasDialogOpen] = useState(false);
   const [expectativas, setExpectativas] = useState<ExpectativaTerritorio[]>([]);
+  
+  // Previsões de chuva para OSs reguladas no mapa
+  const [previsoesChuvaPorData, setPrevisoesChuvaPorData] = useState<Map<string, PrevisaoChuvaData>>(new Map());
   const [selecaoTerritoriosDialogOpen, setSelecaoTerritoriosDialogOpen] = useState(false);
   const [opcoesRoteiros, setOpcoesRoteiros] = useState<OpcaoRoteiro[]>([]);
   const [opcaoRoteiroSelecionada, setOpcaoRoteiroSelecionada] = useState<string | null>(null);
@@ -921,6 +934,56 @@ const Roteirizacao = () => {
     };
     loadTerritorios();
   }, []);
+
+  // Buscar previsões de chuva para OSs reguladas (para exibir ícone de chuva no mapa)
+  useEffect(() => {
+    const buscarPrevisoesParaReguladas = async () => {
+      // Filtrar OSs reguladas com prazo nos próximos 10 dias
+      const hoje = startOfDay(new Date());
+      const em10Dias = addDays(hoje, 10);
+      
+      const reguladasComPrazo = ordensServico.filter(os => 
+        os.regulada && 
+        os.prazo && 
+        os.latitude && 
+        os.longitude
+      );
+      
+      if (reguladasComPrazo.length === 0) return;
+      
+      // Calcular centro médio das coordenadas
+      const lats = reguladasComPrazo.map(os => os.latitude);
+      const lngs = reguladasComPrazo.map(os => os.longitude);
+      const centroLat = lats.reduce((a, b) => a + b, 0) / lats.length;
+      const centroLng = lngs.reduce((a, b) => a + b, 0) / lngs.length;
+      
+      try {
+        const previsoes = await buscarPrevisaoTempoComCache(centroLat, centroLng, 10);
+        
+        // Criar mapa de data → previsão de chuva
+        const mapaPrevisoes = new Map<string, PrevisaoChuvaData>();
+        previsoes.forEach(previsao => {
+          // Considera chuva se probabilidade >= 30%
+          const temChuva = previsao.probabilidadeChuva >= 30;
+          mapaPrevisoes.set(previsao.data, {
+            data: previsao.data,
+            temChuva,
+            probabilidade: previsao.probabilidadeChuva,
+            icone: previsao.icone
+          });
+        });
+        
+        setPrevisoesChuvaPorData(mapaPrevisoes);
+      } catch (error) {
+        console.error("[Roteirização] Erro ao buscar previsões de chuva:", error);
+      }
+    };
+    
+    // Só buscar se houver ordens de serviço carregadas
+    if (ordensServico.length > 0) {
+      buscarPrevisoesParaReguladas();
+    }
+  }, [ordensServico]);
 
   // Estado para progresso de carregamento
   const [loadingProgress, setLoadingProgress] = useState({ loaded: 0, total: 0 });
@@ -6482,6 +6545,7 @@ const Roteirizacao = () => {
                 }}
                 ossSelecionadas={ossSelecionadasParaRemocao}
                 equipesSelecionadasFiltro={equipesSelecionadas}
+                previsoesChuvaPorData={previsoesChuvaPorData}
               />
 
               {/* Botão Criar Polígono no mapa */}
