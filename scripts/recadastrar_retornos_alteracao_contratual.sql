@@ -36,26 +36,28 @@ WHERE skill_id = (SELECT id FROM public.skills WHERE codigo = 'ALTERACAO CONTRAT
 -- =====================================================
 
 -- 2.1 Inserir os retornos de campo que podem não existir
-INSERT INTO public.retornos_campo (codigo, descricao, tipo, gera_producao, finaliza_os, ativo)
+-- Cor verde (#22c55e) para Executado, vermelho (#ef4444) para Impedimento
+INSERT INTO public.retornos_campo (codigo, descricao, tipo, cor, gera_producao, finaliza_os, ativo)
 VALUES 
-  ('9506', 'POLI para POLI-Multiplas UCs', 'executado', true, true, true),
-  ('9507', 'POLI para POLI-Ramal', 'executado', true, true, true),
-  ('95034', 'MONO para POLI-Multiplas UCs', 'executado', true, true, true),
-  ('95035', 'POLI para MONO-Multiplas UCs', 'executado', true, true, true),
-  ('95036', 'MONO para POLI-Ramal', 'executado', true, true, true),
-  ('95037', 'POLI para MONO-Ramal', 'executado', true, true, true),
-  ('96004', 'Impedimento - Deficiencia Tecnica', 'impedimento', false, true, true),
-  ('96007', 'Impedimento - Local Fechado', 'impedimento', false, true, true),
-  ('96017', 'Impedimento - Nao Localizado', 'impedimento', false, true, true),
-  ('96018', 'Necessario Obra no Local', 'impedimento', false, true, true),
-  ('96021', 'Servico Ja Realizado (Coletar Dados)', 'executado', true, true, true),
-  ('96028', 'Cliente Ausente', 'impedimento', false, true, true),
-  ('96029', 'Cliente Desistiu do Servico', 'impedimento', false, true, true),
-  ('96030', 'Apresentar Projeto', 'impedimento', false, true, true),
-  ('96031', 'Cadastro Incorreto', 'impedimento', false, true, true)
+  ('9506', 'POLI para POLI-Multiplas UCs', 'executado', '#22c55e', true, true, true),
+  ('9507', 'POLI para POLI-Ramal', 'executado', '#22c55e', true, true, true),
+  ('95034', 'MONO para POLI-Multiplas UCs', 'executado', '#22c55e', true, true, true),
+  ('95035', 'POLI para MONO-Multiplas UCs', 'executado', '#22c55e', true, true, true),
+  ('95036', 'MONO para POLI-Ramal', 'executado', '#22c55e', true, true, true),
+  ('95037', 'POLI para MONO-Ramal', 'executado', '#22c55e', true, true, true),
+  ('96004', 'Impedimento - Deficiencia Tecnica', 'impedimento', '#ef4444', false, true, true),
+  ('96007', 'Impedimento - Local Fechado', 'impedimento', '#ef4444', false, true, true),
+  ('96017', 'Impedimento - Nao Localizado', 'impedimento', '#ef4444', false, true, true),
+  ('96018', 'Necessario Obra no Local', 'impedimento', '#ef4444', false, true, true),
+  ('96021', 'Servico Ja Realizado (Coletar Dados)', 'executado', '#22c55e', true, true, true),
+  ('96028', 'Cliente Ausente', 'impedimento', '#ef4444', false, true, true),
+  ('96029', 'Cliente Desistiu do Servico', 'impedimento', '#ef4444', false, true, true),
+  ('96030', 'Apresentar Projeto', 'impedimento', '#ef4444', false, true, true),
+  ('96031', 'Cadastro Incorreto', 'impedimento', '#ef4444', false, true, true)
 ON CONFLICT (codigo) DO UPDATE SET
   descricao = EXCLUDED.descricao,
-  tipo = EXCLUDED.tipo;
+  tipo = EXCLUDED.tipo,
+  cor = EXCLUDED.cor;
 
 -- 2.2 Atualizar o grupo_id dos retornos de campo com base no tipo
 UPDATE public.retornos_campo rc
