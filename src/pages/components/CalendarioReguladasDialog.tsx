@@ -34,6 +34,9 @@ import {
   ThermometerSnowflake,
   Zap,
   Download,
+  X,
+  Clock,
+  FileText,
 } from "lucide-react";
 import * as XLSX from "xlsx-js-style";
 import { toast } from "sonner";
@@ -90,6 +93,20 @@ export default function CalendarioReguladasDialog({
   const [carregandoPrevisao, setCarregandoPrevisao] = useState(false);
   const [localizacaoPrevisao, setLocalizacaoPrevisao] = useState<string>("Vitória da Conquista, BA");
   const [gruposServico, setGruposServico] = useState<GrupoServicoMap>({});
+  
+  // Estado para modal de OSs do grupo
+  const [modalOSs, setModalOSs] = useState<{
+    open: boolean;
+    grupo: string;
+    data: Date | null;
+    oss: OrdemServico[];
+  }>({ open: false, grupo: "", data: null, oss: [] });
+
+  // Função para abrir modal com OSs de um grupo específico
+  const abrirModalGrupo = (grupo: string, data: Date, reguladas: OrdemServico[]) => {
+    const ossFiltradas = reguladas.filter(os => getGrupoServico(os.tipo) === grupo);
+    setModalOSs({ open: true, grupo, data, oss: ossFiltradas });
+  };
 
   // Carregar mapeamento de tipo -> grupo de serviço
   useEffect(() => {
@@ -767,7 +784,7 @@ export default function CalendarioReguladasDialog({
                 </div>
               )}
 
-              {/* Grupos - INFERIOR */}
+              {/* Grupos - INFERIOR (clicável) */}
               {dia.totalReguladas > 0 && (
                 <div className="mt-auto pt-2 border-t border-gray-300/50">
                   <div className="flex flex-wrap gap-1 justify-center">
@@ -781,13 +798,17 @@ export default function CalendarioReguladasDialog({
                     .sort((a, b) => b[1] - a[1])
                     .slice(0, 3)
                     .map(([grupo, count]) => (
-                      <span
+                      <button
                         key={grupo}
-                        className="text-[10px] bg-white/90 border rounded px-1.5 py-0.5 truncate max-w-[80px]"
-                        title={`${grupo}: ${count}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          abrirModalGrupo(grupo, dia.data, dia.reguladas);
+                        }}
+                        className="text-[10px] bg-white/90 border rounded px-1.5 py-0.5 hover:bg-blue-100 hover:border-blue-400 transition-colors cursor-pointer"
+                        title={`Clique para ver OSs de ${grupo}`}
                       >
-                        {grupo.substring(0, 8)}: {count}
-                      </span>
+                        {grupo}: {count}
+                      </button>
                     ))}
                   </div>
                 </div>

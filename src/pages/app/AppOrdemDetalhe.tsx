@@ -14,6 +14,8 @@ import { useOfflineOperations } from "@/hooks/useOfflineOperations";
 import RetornoCampoSelector from "@/components/app/RetornoCampoSelector";
 import ChecklistServicoSheet from "@/components/app/ChecklistServicoSheet";
 import ContatosExtraidos from "@/components/app/ContatosExtraidos";
+import { getFromCache as getContatosFromCache } from "@/hooks/useContatosPreload";
+import type { ContatoIA } from "@/lib/contatoExtractorIA";
 import {
   Dialog,
   DialogContent,
@@ -213,6 +215,9 @@ export default function AppOrdemDetalhe() {
   // Estado local para ordem offline
   const [ordemOfflineCache, setOrdemOfflineCache] = useState<any>(null);
   
+  // Estado para contatos extraídos do cache local (IndexedDB)
+  const [contatosCache, setContatosCache] = useState<ContatoIA[] | null>(null);
+  
   // Buscar ordem - só executa quando online
   const { data: ordemOnline, isLoading: isLoadingOnline } = useQuery({
     queryKey: ["ordem-detalhe", id],
@@ -307,6 +312,42 @@ export default function AppOrdemDetalhe() {
   // Usar ordem do React Query ou do cache offline
   const ordem = isOnline ? ordemOnline : ordemOfflineCache;
   const isLoading = isOnline ? isLoadingOnline : (!ordemOfflineCache && !!id);
+
+  // Buscar contatos do cache local (IndexedDB) quando não vêm do banco
+  useEffect(() => {
+    const buscarContatosDoCache = async () => {
+      if (!id) return;
+      
+      // Se já tem contatos_extraidos do banco, não precisa buscar do cache
+      const contatosDoBanco = (ordem as any)?.contatos_extraidos;
+      if (contatosDoBanco && Array.isArray(contatosDoBanco) && contatosDoBanco.length > 0) {
+        setContatosCache(null); // Limpa cache local, usa do banco
+        return;
+      }
+      
+      // Buscar do cache local (IndexedDB)
+      try {
+        const contatosCached = await getContatosFromCache(id);
+        if (contatosCached && contatosCached.length > 0) {
+          console.log(`[AppOrdemDetalhe] 📞 Contatos do cache local: ${contatosCached.length}`);
+          setContatosCache(contatosCached);
+        }
+      } catch (error) {
+        console.error("[AppOrdemDetalhe] Erro ao buscar contatos do cache:", error);
+      }
+    };
+    
+    buscarContatosDoCache();
+  }, [id, ordem]);
+
+  // Determinar contatos a usar: prioriza banco, depois cache local
+  const contatosParaExibir = useMemo(() => {
+    const contatosDoBanco = (ordem as any)?.contatos_extraidos;
+    if (contatosDoBanco && Array.isArray(contatosDoBanco) && contatosDoBanco.length > 0) {
+      return contatosDoBanco;
+    }
+    return contatosCache;
+  }, [ordem, contatosCache]);
 
   // Buscar produção (valor produzido)
   const { data: producao } = useQuery({
@@ -1223,9 +1264,9 @@ export default function AppOrdemDetalhe() {
         </div>
 
         {/* Contatos Extraídos - Seção de Acesso Rápido */}
-        {(ordem as any).contatos_extraidos && Array.isArray((ordem as any).contatos_extraidos) && (ordem as any).contatos_extraidos.length > 0 && (
+        {contatosParaExibir && Array.isArray(contatosParaExibir) && contatosParaExibir.length > 0 && (
           <ContatosExtraidos
-            contatosExtraidos={(ordem as any).contatos_extraidos}
+            contatosExtraidos={contatosParaExibir}
             dadosOrdem={{
               numero: ordem.numero,
               endereco: ordem.endereco || "",

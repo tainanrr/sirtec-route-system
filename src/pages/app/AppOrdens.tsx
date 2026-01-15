@@ -44,6 +44,7 @@ import { toast } from "sonner";
 import { getDadosSkills } from "@/lib/skillsUtils";
 import CriarOSAvulsaDialog from "@/components/app/CriarOSAvulsaDialog";
 import { useStreetViewPreload } from "@/hooks/useStreetViewPreload";
+import { useContatosPreload } from "@/hooks/useContatosPreload";
 
 // Função para formatar tempo em minutos para formato legível
 const formatarTempo = (minutos: number | null | undefined): string => {
@@ -676,6 +677,10 @@ export default function AppOrdens() {
   const { preloadImages, progress: streetViewProgress } = useStreetViewPreload();
   const [streetViewPreloaded, setStreetViewPreloaded] = useState(false);
 
+  // Hook para pré-carregar contatos extraídos com IA
+  const { preloadContatos } = useContatosPreload();
+  const [contatosPreloaded, setContatosPreloaded] = useState(false);
+
   // Pré-carregar imagens do Street View quando as OSs são carregadas (apenas online e no dia de hoje)
   useEffect(() => {
     const shouldPreload = 
@@ -706,6 +711,37 @@ export default function AppOrdens() {
       }
     }
   }, [isOnline, selectedDate, ordensParaUsar, streetViewPreloaded, isLoadingOrdens, preloadImages]);
+
+  // Pré-carregar contatos extraídos com IA (em background, sem toast)
+  useEffect(() => {
+    const shouldPreload = 
+      isOnline && 
+      isToday(selectedDate) && 
+      ordensParaUsar.length > 0 && 
+      !contatosPreloaded &&
+      !isLoadingOrdens;
+
+    if (shouldPreload) {
+      // Extrair OSs com observações para processar
+      const osParaProcessar = ordensParaUsar
+        .filter(o => o.ordens_servico?.observacoes)
+        .map(o => ({
+          id: o.ordens_servico!.id,
+          numero: o.ordens_servico!.numero,
+          observacoes: o.ordens_servico!.observacoes,
+          contatos_extraidos: (o.ordens_servico as any)?.contatos_extraidos,
+        }));
+
+      if (osParaProcessar.length > 0) {
+        console.log(`[AppOrdens] 📞 Iniciando extração de contatos para ${osParaProcessar.length} OSs...`);
+        preloadContatos(osParaProcessar, false).then(() => {
+          setContatosPreloaded(true);
+        });
+      } else {
+        setContatosPreloaded(true);
+      }
+    }
+  }, [isOnline, selectedDate, ordensParaUsar, contatosPreloaded, isLoadingOrdens, preloadContatos]);
 
   // Filtrar ordens (usando status atualizado das operações pendentes)
   const filteredOrdens = ordensParaUsar?.filter((ordem) => {

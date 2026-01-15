@@ -1,6 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 import { obterNomesTerritorios } from "@/types/territorios";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -38,8 +39,14 @@ import {
   TrendingUp,
   Smartphone,
   Building2,
+  Sparkles,
+  Loader2,
+  Phone,
+  MessageCircle,
 } from "lucide-react";
 import { StreetViewImage } from "@/components/ui/street-view-image";
+import { Button } from "@/components/ui/button";
+import { extrairContatosComIA, gerarLinkTelefone, gerarLinkWhatsApp, type ContatoIA } from "@/lib/contatoExtractorIA";
 
 interface OrdemServicoDetalhesDialogProps {
   open: boolean;
@@ -109,6 +116,11 @@ export function OrdemServicoDetalhesDialog({
     }
     return map;
   }, [skillsData]);
+
+  // Estados para extração de contatos com IA
+  const [contatosExtraidos, setContatosExtraidos] = useState<ContatoIA[]>([]);
+  const [extraindoContatos, setExtraindoContatos] = useState(false);
+  const queryClient = useQueryClient();
 
   // Buscar detalhes da OS
   const { data: ordem, isLoading: loadingOrdem } = useQuery({
@@ -317,6 +329,59 @@ export function OrdemServicoDetalhesDialog({
     },
     enabled: !!ordemId && open && !!(ordem as any)?.territorios?.length,
   });
+
+  // Função para extrair contatos com IA
+  const handleExtrairContatos = async () => {
+    if (!ordem?.observacoes) {
+      toast.error("Esta OS não possui observações para analisar");
+      return;
+    }
+
+    setExtraindoContatos(true);
+    
+    try {
+      const resultado = await extrairContatosComIA(ordem.observacoes);
+      
+      if (resultado.sucesso) {
+        if (resultado.contatos.length > 0) {
+          setContatosExtraidos(resultado.contatos);
+          
+          // Salvar no banco para uso futuro (offline no app)
+          const { error } = await supabase
+            .from("ordens_servico")
+            .update({ contatos_extraidos: resultado.contatos })
+            .eq("id", ordemId);
+          
+          if (error) {
+            console.error("Erro ao salvar contatos:", error);
+            toast.warning(`${resultado.contatos.length} contato(s) identificado(s) (não salvos no banco)`);
+          } else {
+            toast.success(`${resultado.contatos.length} contato(s) identificado(s) e salvos!`);
+            // Invalidar query para atualizar dados
+            queryClient.invalidateQueries({ queryKey: ["ordem-detalhes", ordemId] });
+          }
+        } else {
+          toast.info("Nenhum contato identificado nas observações");
+        }
+      } else {
+        toast.error(resultado.erro || "Erro ao processar observações");
+      }
+    } catch (error: any) {
+      console.error("Erro ao extrair contatos:", error);
+      toast.error("Erro ao identificar contatos");
+    } finally {
+      setExtraindoContatos(false);
+    }
+  };
+
+  // Determinar contatos a exibir: do banco ou extraídos manualmente
+  const contatosParaExibir = useMemo(() => {
+    const contatosDoBanco = (ordem as any)?.contatos_extraidos;
+    if (contatosDoBanco && Array.isArray(contatosDoBanco) && contatosDoBanco.length > 0) {
+      return contatosDoBanco;
+    }
+    return contatosExtraidos;
+  }, [ordem, contatosExtraidos]);
 
   const statusInfo = ordem ? statusConfig[ordem.status] || statusConfig.em_aberto : null;
   const StatusIcon = statusInfo?.icon || Clock;
@@ -783,10 +848,81 @@ export function OrdemServicoDetalhesDialog({
                       <CardHeader className="pb-2">
                         <CardTitle className="text-sm text-blue-700">Observações Coelba</CardTitle>
                       </CardHeader>
-                      <CardContent>
+                      <CardContent className="space-y-3">
                         <p className="text-sm whitespace-pre-wrap">
                           {ordem.observacoes || <span className="text-muted-foreground italic">Sem observações</span>}
                         </p>
+                        
+                        {/* Botão para extrair contatos com IA */}
+                        {ordem.observacoes && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full gap-2 border-amber-300 text-amber-700 hover:bg-amber-50"
+                            onClick={handleExtrairContatos}
+                            disabled={extraindoContatos}
+                          >
+                            {extraindoContatos ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Sparkles className="h-4 w-4" />
+                            )}
+                            {extraindoContatos ? "Identificando..." : "Identificar contatos com IA"}
+                          </Button>
+                        )}
+                        
+                        {/* Contatos extraídos */}
+                        {contatosParaExibir && contatosParaExibir.length > 0 && (
+                          <div className="space-y-2 pt-2 border-t border-blue-200">
+                            <p className="text-xs font-medium text-blue-700 flex items-center gap-1">
+                              <Phone className="h-3 w-3" />
+                              {contatosParaExibir.length} contato(s) identificado(s)
+                            </p>
+                            <div className="space-y-2">
+                              {contatosParaExibir.map((contato: ContatoIA, idx: number) => (
+                                <div key={idx} className="bg-white rounded-lg border border-blue-200 p-2 text-xs">
+                                  <div className="flex items-center justify-between">
+                                    <div>
+                                      {contato.nome && (
+                                        <span className="font-medium text-slate-900">{contato.nome}</span>
+                                      )}
+                                      {contato.relacao && (
+                                        <span className="text-muted-foreground ml-1">({contato.relacao})</span>
+                                      )}
+                                      <div className="font-mono text-slate-700">{contato.telefone}</div>
+                                    </div>
+                                    <div className="flex gap-1">
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-7 w-7 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-600"
+                                        onClick={() => window.location.href = gerarLinkTelefone(contato.telefoneLimpo)}
+                                        title="Ligar"
+                                      >
+                                        <Phone className="h-3 w-3" />
+                                      </Button>
+                                      {contato.tipo === "celular" && (
+                                        <Button
+                                          size="icon"
+                                          variant="ghost"
+                                          className="h-7 w-7 rounded-full bg-green-50 hover:bg-green-100 text-green-600"
+                                          onClick={() => window.open(gerarLinkWhatsApp(contato.telefoneLimpo, {
+                                            numero: ordem.numero,
+                                            endereco: ordem.endereco || "",
+                                            tipoServico: skillsMap[ordem.tipo?.toLowerCase() || ""] || ordem.tipo || "serviço",
+                                          }), "_blank")}
+                                          title="WhatsApp"
+                                        >
+                                          <MessageCircle className="h-3 w-3" />
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
                     
