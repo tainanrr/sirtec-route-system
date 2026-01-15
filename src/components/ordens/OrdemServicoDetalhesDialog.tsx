@@ -37,7 +37,9 @@ import {
   Package,
   TrendingUp,
   Smartphone,
+  Building2,
 } from "lucide-react";
+import { StreetViewImage } from "@/components/ui/street-view-image";
 
 interface OrdemServicoDetalhesDialogProps {
   open: boolean;
@@ -523,10 +525,10 @@ export function OrdemServicoDetalhesDialog({
                   </Card>
                 </div>
 
-                {/* Endereço e Cliente */}
+                {/* Endereço, Cliente e Fachada */}
                 <Card>
                   <CardContent className="pt-4">
-                    <div className="grid md:grid-cols-2 gap-4">
+                    <div className="grid md:grid-cols-3 gap-4">
                       <div>
                         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
                           <MapPin className="h-4 w-4" />
@@ -567,6 +569,18 @@ export function OrdemServicoDetalhesDialog({
                         {ordem.cliente_telefone && (
                           <p className="text-sm text-muted-foreground">{ordem.cliente_telefone}</p>
                         )}
+                      </div>
+                      {/* Imagem Street View da Fachada */}
+                      <div>
+                        <StreetViewImage
+                          latitude={ordem.latitude}
+                          longitude={ordem.longitude}
+                          endereco={ordem.endereco}
+                          size="md"
+                          showExpandButton={true}
+                          collapsible={false}
+                          label="Vista da Fachada"
+                        />
                       </div>
                     </div>
                   </CardContent>

@@ -137,6 +137,21 @@ export default defineConfig(({ mode }) => ({
               },
             },
           },
+          // Google Street View - Cache First para imagens de fachadas
+          {
+            urlPattern: /^https:\/\/maps\.googleapis\.com\/maps\/api\/streetview.*/i,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "streetview-cache",
+              expiration: {
+                maxEntries: 200,
+                maxAgeSeconds: 60 * 60 * 24 * 30, // 30 dias
+              },
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+            },
+          },
         ],
       },
     }),

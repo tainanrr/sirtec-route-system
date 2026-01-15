@@ -19,7 +19,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { OrdemServico } from "@/data/mockData";
-import { Territorio } from "@/types/territorios";
+import { Territorio, pontoNoPoligono } from "@/types/territorios";
 import {
   Calendar,
   MapPin,
@@ -103,8 +103,6 @@ export default function CalendarioReguladasDialog({
     if (territorioSelecionado !== "todos") {
       const territorio = territorios.find((t) => t.id === territorioSelecionado);
       if (territorio) {
-        // Usar a função de verificação de ponto no polígono
-        const { pontoNoPoligono } = require("@/types/territorios");
         filtradas = filtradas.filter((os) => {
           if (os.latitude && os.longitude) {
             return pontoNoPoligono(
