@@ -46,6 +46,12 @@ import {
   climaFavoravel,
 } from "@/services/weatherService";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
+
+// Mapeamento de tipo para grupo de serviço (cache local)
+interface GrupoServicoMap {
+  [tipo: string]: string;
+}
 
 interface CalendarioReguladasDialogProps {
   open: boolean;
@@ -83,6 +89,52 @@ export default function CalendarioReguladasDialog({
   const [previsoes, setPrevisoes] = useState<PrevisaoTempo[]>([]);
   const [carregandoPrevisao, setCarregandoPrevisao] = useState(false);
   const [localizacaoPrevisao, setLocalizacaoPrevisao] = useState<string>("Vitória da Conquista, BA");
+  const [gruposServico, setGruposServico] = useState<GrupoServicoMap>({});
+
+  // Carregar mapeamento de tipo -> grupo de serviço
+  useEffect(() => {
+    const carregarGrupos = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("skills")
+          .select("codigo, grupo_servico")
+          .eq("ativo", true);
+
+        if (error) {
+          console.error("Erro ao carregar grupos de serviço:", error);
+          return;
+        }
+
+        const mapa: GrupoServicoMap = {};
+        (data || []).forEach((skill) => {
+          if (skill.codigo && skill.grupo_servico) {
+            // Mapear tanto código original quanto normalizado
+            mapa[skill.codigo] = skill.grupo_servico;
+            mapa[skill.codigo.toUpperCase()] = skill.grupo_servico;
+            // Também mapear sem sufixo " -" se existir
+            const codigoSemSufixo = skill.codigo.replace(/ -$/, "").trim();
+            mapa[codigoSemSufixo] = skill.grupo_servico;
+            mapa[codigoSemSufixo.toUpperCase()] = skill.grupo_servico;
+          }
+        });
+        setGruposServico(mapa);
+      } catch (err) {
+        console.error("Erro ao carregar grupos:", err);
+      }
+    };
+
+    carregarGrupos();
+  }, []);
+
+  // Função para obter grupo de serviço de um tipo
+  const getGrupoServico = (tipo: string): string => {
+    // Tentar encontrar o grupo de várias formas
+    const tipoUpper = tipo.toUpperCase();
+    return gruposServico[tipo] || 
+           gruposServico[tipoUpper] || 
+           gruposServico[`${tipoUpper} -`] ||
+           "Outros";
+  };
 
   // Filtrar apenas ordens reguladas
   const ordensReguladas = useMemo(() => {
@@ -387,6 +439,7 @@ export default function CalendarioReguladasDialog({
       const detalheData: any[][] = [
         [
           { v: "Número OS", s: headerStyle },
+          { v: "Grupo Serviço", s: headerStyle },
           { v: "Tipo", s: headerStyle },
           { v: "Prazo", s: headerStyle },
           { v: "Data Vencimento", s: headerStyle },
@@ -439,6 +492,7 @@ export default function CalendarioReguladasDialog({
 
         detalheData.push([
           { v: os.numero, s: cellStyle },
+          { v: getGrupoServico(os.tipo), s: cellStyle },
           { v: os.tipo, s: cellCenterStyle },
           { v: prazoDate ? format(prazoDate, "dd/MM/yyyy HH:mm") : "-", s: cellCenterStyle },
           { v: prazoDate ? format(prazoDate, "dd/MM/yyyy") : "-", s: cellCenterStyle },
@@ -455,7 +509,7 @@ export default function CalendarioReguladasDialog({
 
       const wsDetalhe = XLSX.utils.aoa_to_sheet(detalheData);
       wsDetalhe["!cols"] = [
-        { wch: 15 }, { wch: 15 }, { wch: 18 }, { wch: 14 }, { wch: 14 },
+        { wch: 15 }, { wch: 20 }, { wch: 18 }, { wch: 18 }, { wch: 14 }, { wch: 14 },
         { wch: 12 }, { wch: 20 }, { wch: 20 }, { wch: 40 }, { wch: 15 }, { wch: 12 }, { wch: 14 }
       ];
       XLSX.utils.book_append_sheet(wb, wsDetalhe, "Detalhamento OSs");
@@ -469,17 +523,36 @@ export default function CalendarioReguladasDialog({
         }
 
         const dataFormatada = format(dia.data, "dd/MM/yyyy (EEEE)", { locale: ptBR });
+        
+        // Agrupar por grupo de serviço
+        const porGrupo = dia.reguladas.reduce((acc, os) => {
+          const grupo = getGrupoServico(os.tipo);
+          acc[grupo] = (acc[grupo] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>);
+        const resumoGrupos = Object.entries(porGrupo)
+          .sort((a, b) => b[1] - a[1])
+          .map(([g, c]) => `${g}: ${c}`)
+          .join(" | ");
+
         porDiaData.push([
           { v: `📅 ${dataFormatada}`, s: { ...headerStyle, fill: { fgColor: { rgb: "059669" } } } },
-          { v: `${dia.totalReguladas} reguladas`, s: { ...headerStyle, fill: { fgColor: { rgb: "059669" } } } },
+          { v: `${dia.totalReguladas} reguladas`, s: { ...headerStyle, fill: { fgColor: { rgb: dia.totalReguladas > 10 ? "DC2626" : "059669" } } } },
           { v: dia.previsao ? `${dia.previsao.icone} ${dia.previsao.descricaoClima}` : "", s: { ...headerStyle, fill: { fgColor: { rgb: "059669" } } } },
         ]);
+
+        if (dia.reguladas.length > 0 && resumoGrupos) {
+          porDiaData.push([
+            { v: `Grupos: ${resumoGrupos}`, s: { font: { italic: true, color: { rgb: "666666" } } } },
+          ]);
+        }
 
         if (dia.reguladas.length === 0) {
           porDiaData.push([{ v: "Nenhuma regulada vencendo neste dia", s: { font: { italic: true, color: { rgb: "666666" } } } }]);
         } else {
           porDiaData.push([
             { v: "Número", s: { font: { bold: true } } },
+            { v: "Grupo Serviço", s: { font: { bold: true } } },
             { v: "Tipo", s: { font: { bold: true } } },
             { v: "Horário Limite", s: { font: { bold: true } } },
             { v: "Município", s: { font: { bold: true } } },
@@ -489,6 +562,7 @@ export default function CalendarioReguladasDialog({
           dia.reguladas.forEach((os) => {
             porDiaData.push([
               { v: os.numero, s: cellStyle },
+              { v: getGrupoServico(os.tipo), s: cellStyle },
               { v: os.tipo, s: cellStyle },
               { v: os.prazo ? format(os.prazo, "HH:mm") : "-", s: cellCenterStyle },
               { v: os.municipio || "-", s: cellStyle },
@@ -499,7 +573,7 @@ export default function CalendarioReguladasDialog({
       });
 
       const wsPorDia = XLSX.utils.aoa_to_sheet(porDiaData);
-      wsPorDia["!cols"] = [{ wch: 35 }, { wch: 15 }, { wch: 35 }, { wch: 20 }, { wch: 50 }];
+      wsPorDia["!cols"] = [{ wch: 20 }, { wch: 25 }, { wch: 25 }, { wch: 15 }, { wch: 20 }, { wch: 50 }];
       XLSX.utils.book_append_sheet(wb, wsPorDia, "Por Dia");
 
       // Gerar arquivo
@@ -680,20 +754,26 @@ export default function CalendarioReguladasDialog({
                   </div>
                 </CardHeader>
                 <CardContent className="p-3 pt-0">
-                  {/* Quantidade de Reguladas */}
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-1">
-                      <Zap className="h-4 w-4 text-amber-600" />
-                      <span className="text-sm font-medium">
-                        {dia.totalReguladas} reguladas
-                      </span>
+                  {/* Quantidade de Reguladas - DESTACADO */}
+                  <div className="flex items-center justify-center mb-3">
+                    <div className={cn(
+                      "flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-lg",
+                      dia.totalReguladas === 0 && "bg-gray-100 text-gray-500",
+                      dia.totalReguladas > 0 && dia.totalReguladas <= 5 && "bg-blue-100 text-blue-700",
+                      dia.totalReguladas > 5 && dia.totalReguladas <= 10 && "bg-amber-100 text-amber-700",
+                      dia.totalReguladas > 10 && "bg-red-100 text-red-700 animate-pulse"
+                    )}>
+                      <Zap className="h-5 w-5" />
+                      <span>{dia.totalReguladas}</span>
                     </div>
-                    {dia.vencidas > 0 && (
-                      <Badge variant="destructive" className="text-xs">
-                        {dia.vencidas} vencidas
-                      </Badge>
-                    )}
                   </div>
+                  {dia.vencidas > 0 && (
+                    <div className="flex justify-center mb-2">
+                      <Badge variant="destructive" className="text-xs font-bold">
+                        ⚠️ {dia.vencidas} vencidas
+                      </Badge>
+                    </div>
+                  )}
 
                   {/* Previsão do Tempo */}
                   {carregandoPrevisao ? (
@@ -745,25 +825,28 @@ export default function CalendarioReguladasDialog({
                     </div>
                   ) : null}
 
-                  {/* Detalhes das Reguladas */}
+                  {/* Detalhes por Grupo de Serviço */}
                   {dia.totalReguladas > 0 && (
                     <div className="mt-2 pt-2 border-t border-gray-200">
-                      <div className="text-xs text-muted-foreground">
-                        Por tipo de serviço:
+                      <div className="text-xs text-muted-foreground mb-1">
+                        Por grupo de serviço:
                       </div>
-                      <div className="flex flex-wrap gap-1 mt-1">
+                      <div className="flex flex-wrap gap-1">
                         {Object.entries(
                           dia.reguladas.reduce((acc, os) => {
-                            acc[os.tipo] = (acc[os.tipo] || 0) + 1;
+                            const grupo = getGrupoServico(os.tipo);
+                            acc[grupo] = (acc[grupo] || 0) + 1;
                             return acc;
                           }, {} as Record<string, number>)
-                        ).map(([tipo, count]) => (
+                        )
+                        .sort((a, b) => b[1] - a[1]) // Ordenar por quantidade (maior primeiro)
+                        .map(([grupo, count]) => (
                           <Badge
-                            key={tipo}
-                            variant="secondary"
-                            className="text-xs"
+                            key={grupo}
+                            variant="outline"
+                            className="text-xs bg-white"
                           >
-                            {tipo}: {count}
+                            {grupo}: {count}
                           </Badge>
                         ))}
                       </div>
