@@ -138,6 +138,7 @@ import SelecaoTerritoriosDialog from "./components/SelecaoTerritoriosDialog";
 import SelecaoOpcoesRoteiroDialog from "./components/SelecaoOpcoesRoteiroDialog";
 import { OrdemServicoDetalhesDialog } from "@/components/ordens/OrdemServicoDetalhesDialog";
 import { ConfigPrazoUrgente } from "@/components/roteirizacao/ConfigPrazoUrgente";
+import { ConfigFocoRoteirizacao } from "@/components/roteirizacao/ConfigFocoRoteirizacao";
 import { useConfigUrgencia } from "@/hooks/useConfigUrgencia";
 import { buscarPrevisaoTempoComCache, PrevisaoTempo } from "@/services/weatherService";
 import { format, addDays, startOfDay } from "date-fns";
@@ -392,6 +393,9 @@ const Roteirizacao = () => {
   }
   const [filtrosTiposServicos, setFiltrosTiposServicos] = useState<Map<string, FiltroTipoServico>>(new Map());
   const [selecaoServicosDialogOpen, setSelecaoServicosDialogOpen] = useState(false);
+  
+  // V22: Tipos de serviço com foco/prioridade na roteirização
+  const [tiposPrioritarios, setTiposPrioritarios] = useState<string[]>([]);
   
   // Estados para confirmação de planejamento
   const [confirmarPlanejamentoDialogOpen, setConfirmarPlanejamentoDialogOpen] = useState(false);
@@ -3268,7 +3272,8 @@ const Roteirizacao = () => {
         usarTerritorios ? territoriosSelecionados : undefined,
         undefined, // estrategia
         Object.keys(parametrosCustomizados).length > 0 ? parametrosCustomizados : undefined,
-        prazoLimiteDate // prazoLimiteUrgente - prazo limite configurável pelo usuário
+        prazoLimiteDate, // prazoLimiteUrgente - prazo limite configurável pelo usuário
+        tiposPrioritarios.length > 0 ? tiposPrioritarios : undefined // V22: tipos com foco/prioridade
       );
 
       // V20: Se há múltiplas opções de roteiros, mostrar dialog de seleção
@@ -3354,7 +3359,8 @@ const Roteirizacao = () => {
           undefined, // territoriosSelecionadosIds
           undefined, // estrategia
           undefined, // parametrosCustomizados
-          prazoLimiteDate // prazoLimiteUrgente
+          prazoLimiteDate, // prazoLimiteUrgente
+          tiposPrioritarios.length > 0 ? tiposPrioritarios : undefined // V22: tipos com foco/prioridade
         );
         setRotas(resultadoFallback.rotas);
         const mapaNaoAlocadas = resultadoFallback.naoAlocadas.reduce((acc, item) => {
@@ -5088,6 +5094,13 @@ const Roteirizacao = () => {
             </div>
             {/* Configuração do prazo limite para OSs urgentes */}
             <ConfigPrazoUrgente onPrazoChange={handlePrazoChange} />
+            {/* V22: Configuração de foco/prioridade por tipo de serviço */}
+            <ConfigFocoRoteirizacao
+              tiposDisponiveis={(tiposServicosCadastrados || []).map(s => ({ codigo: s.codigo, nome: s.nome }))}
+              tiposSelecionados={tiposPrioritarios}
+              onChange={setTiposPrioritarios}
+              disabled={isOtimizando}
+            />
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button

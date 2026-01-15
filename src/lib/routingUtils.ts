@@ -1220,13 +1220,14 @@ export async function otimizarRotas(
   territoriosSelecionadosIds?: string[],
   estrategia?: 'financeiro' | 'quantidade' | 'distancia',
   parametrosCustomizados?: Partial<ParametrosRoteirizacao>,
-  prazoLimiteUrgente?: Date // Prazo limite configurável pelo usuário para considerar OS como urgente
+  prazoLimiteUrgente?: Date, // Prazo limite configurável pelo usuário para considerar OS como urgente
+  tiposPrioritarios?: string[] // V22: Tipos de serviço com foco/prioridade adicional (após reguladas)
 ): Promise<ResultadoOtimizacao> {
   // Aplicar parâmetros customizados (se fornecidos) sobre os padrões
   PARAMS = { ...PARAMETROS_PADRAO, ...parametrosCustomizados };
   
   console.log(`[ROUTING] ════════════════════════════════════════════════════════`);
-  console.log(`[ROUTING] ═══ V17 - REGULADAS COM PRIORIDADE ABSOLUTA ═══`);
+  console.log(`[ROUTING] ═══ V22 - REGULADAS COM PRIORIDADE + FOCO TIPOS ═══`);
   console.log(`[ROUTING] ════════════════════════════════════════════════════════`);
   if (parametrosCustomizados && Object.keys(parametrosCustomizados).length > 0) {
     console.log(`[ROUTING] ⚙️ Parâmetros customizados:`, parametrosCustomizados);
@@ -1236,6 +1237,13 @@ export async function otimizarRotas(
   console.log(`[ROUTING] ⚡ V18: Emergências e Reguladas hoje têm PRIORIDADE ABSOLUTA`);
   console.log(`[ROUTING] 🚫 V18: Equipes NÃO invadem zonas/territórios de outras`);
   console.log(`[ROUTING] 🔥 V18: Emergências podem remover OSs normais para serem alocadas`);
+  
+  // V22: Log de tipos prioritários (foco)
+  const tiposPrioritariosNormalizados = (tiposPrioritarios || []).map(t => t.toLowerCase().trim());
+  if (tiposPrioritariosNormalizados.length > 0) {
+    console.log(`[ROUTING] 🎯 V22: FOCO em tipos prioritários: ${tiposPrioritariosNormalizados.join(', ')}`);
+    console.log(`[ROUTING]   OSs desses tipos terão prioridade após Reguladas/Emergências`);
+  }
 
   // ============================================================================
   // FASE 1: PREPARAÇÃO
@@ -1457,6 +1465,7 @@ export async function otimizarRotas(
   const osEmergencias: OrdemServico[] = [];
   const osReguladasHoje: OrdemServico[] = [];
   const osUrgentes: OrdemServico[] = [];
+  const osPrioritarias: OrdemServico[] = []; // V22: OSs dos tipos prioritários (foco)
   const osProximoDia: OrdemServico[] = [];
   const osNormais: OrdemServico[] = [];
   const osSemSkill: OrdemServico[] = [];
@@ -1518,9 +1527,21 @@ export async function otimizarRotas(
       // Outras OSs vencendo hoje/vencidas mas não reguladas
       osUrgentes.push(os);
     } else if (classificacao === 'amanha') {
-      osProximoDia.push(os);
+      // V22: Verificar se é um tipo prioritário (foco)
+      const tipoNorm = os.tipo.toLowerCase().trim();
+      if (tiposPrioritariosNormalizados.length > 0 && tiposPrioritariosNormalizados.includes(tipoNorm)) {
+        osPrioritarias.push(os);
+      } else {
+        osProximoDia.push(os);
+      }
     } else {
-      osNormais.push(os);
+      // V22: Verificar se é um tipo prioritário (foco)
+      const tipoNorm = os.tipo.toLowerCase().trim();
+      if (tiposPrioritariosNormalizados.length > 0 && tiposPrioritariosNormalizados.includes(tipoNorm)) {
+        osPrioritarias.push(os);
+      } else {
+        osNormais.push(os);
+      }
     }
   }
   
@@ -1596,6 +1617,9 @@ export async function otimizarRotas(
   console.log(`[ROUTING] EMERGÊNCIAS (RELIGA): ${osEmergencias.length}`);
   console.log(`[ROUTING] ⚡ REGULADAS URGENTES (PRIORIDADE ABSOLUTA): ${osReguladasHoje.length}`);
   console.log(`[ROUTING] Urgentes: ${osUrgentes.length}`);
+  if (osPrioritarias.length > 0) {
+    console.log(`[ROUTING] 🎯 PRIORITÁRIAS (FOCO): ${osPrioritarias.length}`);
+  }
   console.log(`[ROUTING] Próximo dia: ${osProximoDia.length}`);
   console.log(`[ROUTING] Normais: ${osNormais.length}`);
   console.log(`[ROUTING] Rurais: ${osRurais.length}`);
@@ -1615,6 +1639,7 @@ export async function otimizarRotas(
     const ossParaZonear = [
       ...osReguladasHoje,
       ...osUrgentes,
+      ...osPrioritarias, // V22: Incluir prioritárias no zonamento
       ...osProximoDia,
       ...osNormais
     ];
@@ -1684,6 +1709,7 @@ export async function otimizarRotas(
         const ossNoTerritorio = [
           ...osReguladasHoje,
           ...osUrgentes,
+          ...osPrioritarias, // V22: Incluir prioritárias
           ...osProximoDia,
           ...osNormais
         ].filter(os => osParaTerritorio.get(os.id) === territorio.id);
@@ -2100,7 +2126,7 @@ export async function otimizarRotas(
         
         // Buscar OSs curtas (≤30 min) disponíveis no território/zona
         // Nota: não usamos ossNormaisRemovidas aqui pois essa variável é declarada depois
-        const ossCurtasDisponiveis = [...osProximoDia, ...osNormais, ...osUrgentes].filter(osCurta => {
+        const ossCurtasDisponiveis = [...osPrioritarias, ...osProximoDia, ...osNormais, ...osUrgentes].filter(osCurta => {
           if (osAlocadas.has(osCurta.id)) return false;
           if (osCurta.id === os.id) return false; // Não é a OS que estamos inserindo
           if (!equipeTemSkill(rota.equipe, osCurta.tipo)) return false;
@@ -2824,7 +2850,7 @@ export async function otimizarRotas(
       osAlocadas.add(os.id);
       
       // Consolidar vizinhas
-      const consolidadas = consolidarVizinhas(melhorRota, os, [...osProximoDia, ...osNormais, ...osUrgentes, ...osReguladasHoje]);
+      const consolidadas = consolidarVizinhas(melhorRota, os, [...osPrioritarias, ...osProximoDia, ...osNormais, ...osUrgentes, ...osReguladasHoje]);
       if (consolidadas > 0) {
         console.log(`[ROUTING]   +${consolidadas} vizinhas consolidadas`);
         totalConsolidadas += consolidadas;
@@ -3087,7 +3113,7 @@ export async function otimizarRotas(
       }[passadaUsada] || `P${passadaUsada}`;
       console.log(`[ROUTING] ✓ ${os.numero} → ${melhorRota.equipe.codigo} (${melhorCalc.distanciaKm.toFixed(1)}km)${atrasoStr} [${passadaDescricao}]`);
       
-      const consolidadas = consolidarVizinhas(melhorRota, os, [...osProximoDia, ...osNormais, ...osUrgentes]);
+      const consolidadas = consolidarVizinhas(melhorRota, os, [...osPrioritarias, ...osProximoDia, ...osNormais, ...osUrgentes]);
       if (consolidadas > 0) {
         console.log(`[ROUTING]   +${consolidadas} vizinhas consolidadas`);
         totalConsolidadas += consolidadas;
@@ -3182,13 +3208,86 @@ export async function otimizarRotas(
     if (melhorRota && melhorCalc) {
       inserirOS(melhorRota, os, melhorCalc);
       
-      const consolidadas = consolidarVizinhas(melhorRota, os, [...osProximoDia, ...osNormais]);
+      const consolidadas = consolidarVizinhas(melhorRota, os, [...osPrioritarias, ...osProximoDia, ...osNormais]);
       totalConsolidadas += consolidadas;
     }
     // V17: Se não conseguiu, será marcada como não alocada no final
   }
   
   console.log(`[ROUTING] Urgentes alocadas: ${osUrgentes.filter(os => osAlocadas.has(os.id)).length}/${osUrgentes.length}`);
+
+  // ============================================================================
+  // FASE 6.5: ALOCAR OSs PRIORITÁRIAS (FOCO)
+  // V22: Tipos de serviço com prioridade após reguladas/emergências
+  // ============================================================================
+  
+  if (osPrioritarias.length > 0) {
+    console.log(`[ROUTING]`);
+    console.log(`[ROUTING] ══ FASE 6.5: OSs Prioritárias (FOCO) ══`);
+    
+    // Ordenar por prioridade (prazo mais próximo primeiro)
+    osPrioritarias.sort((a, b) => calcularPrioridade(a) - calcularPrioridade(b));
+    
+    for (const os of osPrioritarias) {
+      if (osAlocadas.has(os.id)) continue;
+      
+      let melhorRota: RotaEquipe | null = null;
+      let melhorCalc: ReturnType<typeof calcularInsercao> | null = null;
+      
+      // V22: Só tentar as equipes do território/zona
+      if (usarTerritorios && territoriosAtivos.length > 0) {
+        const territorioIdDaOS = osParaTerritorio.get(os.id);
+        if (territorioIdDaOS) {
+          // Tentar todas as equipes vinculadas ao território
+          const equipesDoTerritorio = equipesPorTerritorio.get(territorioIdDaOS) || [];
+          let rotasDoTerritorio = rotas.filter(r => equipesDoTerritorio.includes(r.equipe.id));
+          
+          // Se há múltiplas equipes e zonas foram criadas, filtrar apenas a rota da zona correta
+          if (equipesDoTerritorio.length > 1 && zonas.length > 0) {
+            const zonaOS = zonasPorOS.get(os.id);
+            if (zonaOS !== undefined) {
+              rotasDoTerritorio = rotasDoTerritorio.filter(r => r.zonaId === zonaOS);
+            }
+          }
+          
+          for (const rotaTerritorio of rotasDoTerritorio) {
+            const calc = calcularInsercao(rotaTerritorio, os, true, getDistanciaMaximaTerritorio(), false, 120);
+            if (calc.valido) {
+              if (!melhorRota || calc.distanciaKm < (melhorCalc?.distanciaKm || Infinity)) {
+                melhorRota = rotaTerritorio;
+                melhorCalc = calc;
+              }
+            }
+          }
+        }
+      } else {
+        const zonaOS = zonasPorOS.get(os.id);
+        const rotaZona = rotas.find(r => r.zonaId === zonaOS);
+        if (rotaZona) {
+          const calc = calcularInsercao(rotaZona, os, true, getDistanciaMaximaZona(), false, 120);
+          if (calc.valido) {
+            melhorRota = rotaZona;
+            melhorCalc = calc;
+          }
+        }
+      }
+      
+      if (melhorRota && melhorCalc) {
+        inserirOS(melhorRota, os, melhorCalc);
+        console.log(`[ROUTING] 🎯 ${os.numero} → ${melhorRota.equipe.codigo} (${melhorCalc.distanciaKm.toFixed(1)}km) [FOCO]`);
+        
+        // Consolidar vizinhas (incluindo outras prioritárias)
+        const consolidadas = consolidarVizinhas(melhorRota, os, [...osPrioritarias, ...osProximoDia, ...osNormais]);
+        if (consolidadas > 0) {
+          console.log(`[ROUTING]   +${consolidadas} vizinhas consolidadas`);
+          totalConsolidadas += consolidadas;
+        }
+      }
+    }
+    
+    const prioritariasAlocadas = osPrioritarias.filter(os => osAlocadas.has(os.id)).length;
+    console.log(`[ROUTING] 🎯 Prioritárias alocadas: ${prioritariasAlocadas}/${osPrioritarias.length}`);
+  }
 
   // ============================================================================
   // FASE 7: ALOCAÇÃO TERRITORIAL / NEAREST NEIGHBOR
@@ -3237,7 +3336,7 @@ export async function otimizarRotas(
           console.log(`[ROUTING] ${rota.equipe.codigo}: Tempo livre antes do almoço: ${tempoLivreAteAlmoco.toFixed(0)}min (atual: ${minutosParaHora(tempoAtual)}, janela: ${minutosParaHora(configAlmocoEquipe.inicio)}-${minutosParaHora(configAlmocoEquipe.fim)})`);
           
           // Buscar OSs curtas (≤30 min) disponíveis
-          const ossCurtas = [...osProximoDia, ...osNormais, ...ossNormaisRemovidas].filter(os => {
+          const ossCurtas = [...osPrioritarias, ...osProximoDia, ...osNormais, ...ossNormaisRemovidas].filter(os => {
             if (osAlocadas.has(os.id)) return false;
             if (!equipeTemSkill(rota.equipe, os.tipo)) return false;
             if (os.tempoExecucao > 30) return false; // Apenas OSs curtas
@@ -3338,7 +3437,7 @@ export async function otimizarRotas(
       let ossDisponiveis: OrdemServico[];
       
       if (usarTerritorios && territoriosAtivos.length > 0) {
-        ossDisponiveis = [...osProximoDia, ...osNormais, ...ossNormaisRemovidas].filter(os => {
+        ossDisponiveis = [...osPrioritarias, ...osProximoDia, ...osNormais, ...ossNormaisRemovidas].filter(os => {
           if (osAlocadas.has(os.id)) return false;
           if (!equipeTemSkill(rota.equipe, os.tipo)) return false;
           
@@ -3362,7 +3461,7 @@ export async function otimizarRotas(
           return true;
         });
       } else {
-        ossDisponiveis = [...osProximoDia, ...osNormais, ...ossNormaisRemovidas].filter(os => {
+        ossDisponiveis = [...osPrioritarias, ...osProximoDia, ...osNormais, ...ossNormaisRemovidas].filter(os => {
           if (osAlocadas.has(os.id)) return false;
           if (!equipeTemSkill(rota.equipe, os.tipo)) return false;
           
@@ -3417,7 +3516,7 @@ export async function otimizarRotas(
         alocadasNestaRota++;
         continuarAlocando = true;
         
-        const consolidadas = consolidarVizinhas(rota, osProxima, [...osProximoDia, ...osNormais, ...ossNormaisRemovidas]);
+        const consolidadas = consolidarVizinhas(rota, osProxima, [...osPrioritarias, ...osProximoDia, ...osNormais, ...ossNormaisRemovidas]);
         alocadasNestaRota += consolidadas;
         totalConsolidadas += consolidadas;
       }
