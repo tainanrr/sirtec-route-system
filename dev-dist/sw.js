@@ -82,7 +82,7 @@ define(['./workbox-800fb68e'], (function (workbox) { 'use strict';
     "revision": "3ca0b8505b4bec776b69afdba2768812"
   }, {
     "url": "/index.html",
-    "revision": "0.42befecrmec"
+    "revision": "0.erjq9rbra9o"
   }], {});
   workbox.cleanupOutdatedCaches();
   workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("/index.html"), {
@@ -130,6 +130,15 @@ define(['./workbox-800fb68e'], (function (workbox) { 'use strict';
     "cacheName": "map-tiles-cache",
     plugins: [new workbox.ExpirationPlugin({
       maxEntries: 500,
+      maxAgeSeconds: 2592000
+    }), new workbox.CacheableResponsePlugin({
+      statuses: [0, 200]
+    })]
+  }), 'GET');
+  workbox.registerRoute(/^https:\/\/maps\.googleapis\.com\/maps\/api\/streetview.*/i, new workbox.CacheFirst({
+    "cacheName": "streetview-cache",
+    plugins: [new workbox.ExpirationPlugin({
+      maxEntries: 200,
       maxAgeSeconds: 2592000
     }), new workbox.CacheableResponsePlugin({
       statuses: [0, 200]

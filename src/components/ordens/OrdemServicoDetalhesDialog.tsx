@@ -580,7 +580,7 @@ export function OrdemServicoDetalhesDialog({
                           showExpandButton={true}
                           collapsible={true}
                           defaultCollapsed={true}
-                          label="Vista da Fachada"
+                          label="Possível Fachada"
                         />
                       </div>
                     </div>

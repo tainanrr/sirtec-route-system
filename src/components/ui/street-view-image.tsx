@@ -55,7 +55,7 @@ export function StreetViewImage({
   heading,
   onImageLoad,
   onNoImage,
-  label = "Vista da Fachada",
+  label = "Possível Fachada",
   checkAvailability = false,
   collapsible = false,
   defaultCollapsed = true,
@@ -137,7 +137,7 @@ export function StreetViewImage({
         <Building2 className="h-4 w-4" />
         <span>
           {hasCoordinates 
-            ? "🔍 Ver Fachada (Street View)" 
+            ? "🔍 Ver possível fachada (Street View)" 
             : "Sem coordenadas para Street View"}
         </span>
       </button>
