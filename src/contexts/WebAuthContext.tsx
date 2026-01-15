@@ -229,7 +229,9 @@ export function WebAuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = async (email: string, password: string) => {
     try {
+      console.log("[WebAuth] ==========================================");
       console.log("[WebAuth] Tentando login com:", email);
+      console.log("[WebAuth] Email normalizado:", email.toLowerCase().trim());
       
       // Buscar usuário pelo email
       const { data: usuario, error: fetchError } = await supabase
@@ -246,20 +248,41 @@ export function WebAuthProvider({ children }: { children: ReactNode }) {
         .eq("email", email.toLowerCase().trim())
         .single();
 
+      console.log("[WebAuth] Resultado da busca - Usuario:", usuario ? "encontrado" : "NÃO ENCONTRADO");
+      console.log("[WebAuth] Resultado da busca - Erro:", fetchError);
+      
       if (fetchError || !usuario) {
-        console.log("[WebAuth] Usuário não encontrado:", fetchError);
+        console.log("[WebAuth] ERRO: Usuário não encontrado na tabela usuarios_web");
+        console.log("[WebAuth] Código do erro:", fetchError?.code);
+        console.log("[WebAuth] Mensagem:", fetchError?.message);
+        console.log("[WebAuth] Hint:", fetchError?.hint);
         return { error: new Error("Email ou senha incorretos") };
       }
 
+      console.log("[WebAuth] Usuário encontrado:", {
+        id: usuario.id,
+        email: usuario.email,
+        nome: usuario.nome,
+        ativo: usuario.ativo,
+        temSenha: !!usuario.senha_hash,
+        senhaTamanho: usuario.senha_hash?.length
+      });
+
       // Verificar se o usuário está ativo
       if (!usuario.ativo) {
-        console.log("[WebAuth] Usuário inativo");
+        console.log("[WebAuth] ERRO: Usuário inativo");
         return { error: new Error("Usuário inativo. Entre em contato com o administrador.") };
       }
 
       // Verificar senha (comparação simples - em produção usaria hash)
+      console.log("[WebAuth] Comparando senhas...");
+      console.log("[WebAuth] Senha digitada (tamanho):", password.length);
+      console.log("[WebAuth] Senha no banco (tamanho):", usuario.senha_hash?.length);
+      
       if (usuario.senha_hash !== password) {
-        console.log("[WebAuth] Senha incorreta");
+        console.log("[WebAuth] ERRO: Senha incorreta");
+        console.log("[WebAuth] Senha esperada:", usuario.senha_hash);
+        console.log("[WebAuth] Senha digitada:", password);
         return { error: new Error("Email ou senha incorretos") };
       }
 
