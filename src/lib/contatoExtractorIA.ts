@@ -125,9 +125,9 @@ export async function extrairContatosComIA(observacao: string, tentativa: number
   try {
     const prompt = criarPromptExtracao(observacao);
     
-    // Chamar API do Gemini
+    // Chamar API do Gemini (usando gemini-1.5-flash que é mais estável no tier gratuito)
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
       {
         method: "POST",
         headers: {
