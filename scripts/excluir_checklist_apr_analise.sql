@@ -4,7 +4,7 @@
 -- NÃO confundir com o checklist chamado apenas "APR"
 
 -- 1. Primeiro, verificar se o checklist existe e qual é o ID dele
-SELECT id, nome, tipo_servico, ativo, created_at 
+SELECT id, nome, ativo, created_at 
 FROM public.checklists 
 WHERE nome = 'APR - Análise Preliminar de Riscos';
 
@@ -34,6 +34,6 @@ SELECT
     END as resultado;
 
 -- 6. Listar checklists restantes para confirmar (opcional)
-SELECT id, nome, tipo_servico, ativo 
+SELECT id, nome, ativo 
 FROM public.checklists 
 ORDER BY nome;
