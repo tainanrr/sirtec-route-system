@@ -78,6 +78,7 @@ export default function CalendarioReguladasDialog({
   const [municipioSelecionado, setMunicipioSelecionado] = useState<string>("todos");
   const [previsoes, setPrevisoes] = useState<PrevisaoTempo[]>([]);
   const [carregandoPrevisao, setCarregandoPrevisao] = useState(false);
+  const [localizacaoPrevisao, setLocalizacaoPrevisao] = useState<string>("Vitória da Conquista, BA");
 
   // Filtrar apenas ordens reguladas
   const ordensReguladas = useMemo(() => {
@@ -169,33 +170,91 @@ export default function CalendarioReguladasDialog({
     return dias;
   }, [ordensFiltradas, previsoes]);
 
+  // Calcular localização para previsão do tempo e município predominante
+  const infoLocalizacaoPrevisao = useMemo(() => {
+    if (ordensFiltradas.length === 0) {
+      return {
+        lat: COORDENADAS_PADRAO.latitude,
+        lng: COORDENADAS_PADRAO.longitude,
+        descricao: "Vitória da Conquista, BA (padrão)",
+        municipioPredominante: null,
+      };
+    }
+
+    // Contar municípios para encontrar o predominante
+    const contagemMunicipios: Record<string, number> = {};
+    ordensFiltradas.forEach((os) => {
+      if (os.municipio) {
+        contagemMunicipios[os.municipio] = (contagemMunicipios[os.municipio] || 0) + 1;
+      }
+    });
+
+    // Encontrar o município com mais OSs
+    let municipioPredominante: string | null = null;
+    let maxCount = 0;
+    Object.entries(contagemMunicipios).forEach(([municipio, count]) => {
+      if (count > maxCount) {
+        maxCount = count;
+        municipioPredominante = municipio;
+      }
+    });
+
+    // Calcular centro das coordenadas
+    const ossComCoordenadas = ordensFiltradas.filter((os) => os.latitude && os.longitude);
+    
+    if (ossComCoordenadas.length === 0) {
+      return {
+        lat: COORDENADAS_PADRAO.latitude,
+        lng: COORDENADAS_PADRAO.longitude,
+        descricao: municipioPredominante 
+          ? `${municipioPredominante} (sem coordenadas, usando padrão)`
+          : "Vitória da Conquista, BA (padrão)",
+        municipioPredominante,
+      };
+    }
+
+    const lats = ossComCoordenadas.map((os) => os.latitude);
+    const lngs = ossComCoordenadas.map((os) => os.longitude);
+    const lat = lats.reduce((a, b) => a + b, 0) / lats.length;
+    const lng = lngs.reduce((a, b) => a + b, 0) / lngs.length;
+
+    // Gerar descrição baseada nos filtros e municípios
+    let descricao = "";
+    const totalMunicipios = Object.keys(contagemMunicipios).length;
+    
+    if (municipioSelecionado !== "todos") {
+      descricao = municipioSelecionado;
+    } else if (totalMunicipios === 1 && municipioPredominante) {
+      descricao = municipioPredominante;
+    } else if (municipioPredominante && totalMunicipios > 1) {
+      descricao = `${municipioPredominante} (principal de ${totalMunicipios} municípios)`;
+    } else {
+      const territorio = territorios.find((t) => t.id === territorioSelecionado);
+      descricao = territorio ? `Centro do território ${territorio.nome}` : "Centro das OSs";
+    }
+
+    return {
+      lat,
+      lng,
+      descricao,
+      municipioPredominante,
+    };
+  }, [ordensFiltradas, municipioSelecionado, territorioSelecionado, territorios]);
+
   // Buscar previsão do tempo
   useEffect(() => {
     if (!open) return;
 
     const buscarPrevisao = async () => {
       setCarregandoPrevisao(true);
-
-      // Calcular centro das OSs filtradas ou usar padrão
-      let lat = COORDENADAS_PADRAO.latitude;
-      let lng = COORDENADAS_PADRAO.longitude;
-
-      if (ordensFiltradas.length > 0) {
-        const lats = ordensFiltradas
-          .filter((os) => os.latitude)
-          .map((os) => os.latitude);
-        const lngs = ordensFiltradas
-          .filter((os) => os.longitude)
-          .map((os) => os.longitude);
-
-        if (lats.length > 0) {
-          lat = lats.reduce((a, b) => a + b, 0) / lats.length;
-          lng = lngs.reduce((a, b) => a + b, 0) / lngs.length;
-        }
-      }
+      setLocalizacaoPrevisao(infoLocalizacaoPrevisao.descricao);
 
       try {
-        const resultado = await buscarPrevisaoTempoComCache(lat, lng, 10);
+        const resultado = await buscarPrevisaoTempoComCache(
+          infoLocalizacaoPrevisao.lat, 
+          infoLocalizacaoPrevisao.lng, 
+          10
+        );
         setPrevisoes(resultado);
       } catch (error) {
         console.error("Erro ao buscar previsão:", error);
@@ -205,7 +264,7 @@ export default function CalendarioReguladasDialog({
     };
 
     buscarPrevisao();
-  }, [open, ordensFiltradas]);
+  }, [open, infoLocalizacaoPrevisao]);
 
   // Calcular totais
   const totalReguladas = ordensFiltradas.length;
@@ -328,8 +387,25 @@ export default function CalendarioReguladasDialog({
 
         <Separator />
 
+        {/* Indicador de Localização da Previsão */}
+        <div className="flex items-center justify-between mt-3 px-2">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Cloud className="h-4 w-4" />
+            <span>Previsão do tempo para:</span>
+            <Badge variant="outline" className="font-medium">
+              <MapPin className="h-3 w-3 mr-1" />
+              {localizacaoPrevisao}
+            </Badge>
+          </div>
+          {ordensFiltradas.length > 0 && (
+            <span className="text-xs text-muted-foreground">
+              {ordensFiltradas.length} OSs consideradas
+            </span>
+          )}
+        </div>
+
         {/* Calendário */}
-        <ScrollArea className="h-[50vh] mt-4">
+        <ScrollArea className="h-[48vh] mt-3">
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             {diasCalendario.map((dia) => (
               <Card
