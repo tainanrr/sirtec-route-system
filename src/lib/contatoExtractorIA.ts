@@ -153,7 +153,7 @@ export async function extrairContatosComIA(observacao: string): Promise<Resultad
               contents: [{ parts: [{ text: prompt }] }],
               generationConfig: {
                 temperature: 0.1,
-                maxOutputTokens: 1024,
+                maxOutputTokens: 4096, // Aumentado para evitar respostas truncadas
               },
             }),
           }
@@ -183,7 +183,7 @@ export async function extrairContatosComIA(observacao: string): Promise<Resultad
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
+                generationConfig: { temperature: 0.1, maxOutputTokens: 4096 },
               }),
             }
           );
@@ -229,6 +229,20 @@ export async function extrairContatosComIA(observacao: string): Promise<Resultad
         jsonStr = jsonStr.slice(0, -3);
       }
       jsonStr = jsonStr.trim();
+
+      // Tentar corrigir JSON truncado - fechar estruturas abertas
+      if (!jsonStr.endsWith("}")) {
+        // Encontrar última estrutura completa
+        const lastCompleteIndex = jsonStr.lastIndexOf("},");
+        if (lastCompleteIndex > 0) {
+          jsonStr = jsonStr.substring(0, lastCompleteIndex + 1) + "]}";
+          console.warn("[ContatoExtractorIA] JSON truncado - tentando recuperar contatos completos");
+        } else {
+          // Se não tem nenhum contato completo, retornar vazio
+          console.warn("[ContatoExtractorIA] JSON muito truncado, não foi possível recuperar");
+          return { contatos: [], sucesso: true };
+        }
+      }
 
       const resultado = JSON.parse(jsonStr);
       
