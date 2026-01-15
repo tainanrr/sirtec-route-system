@@ -2101,7 +2101,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
             ${prazoTooltip ? `<div style="color: #fca5a5; font-size: 11px;">⏰ ${prazoTooltip}</div>` : ''}
             ${isReguladaUrgente ? '<div style="color: #fca5a5; font-weight: bold; font-size: 10px;">⚠️ REGULADA - URGENTE</div>' : ''}
             ${isReguladaVencida ? '<div style="color: #a1a1aa; font-weight: bold; font-size: 10px;">⚠️ REGULADA - VENCIDA</div>' : ''}
-            ${temChuvaNoPrazo && previsaoOS ? `<div style="color: #93c5fd; font-weight: bold; font-size: 10px;">${iconeClimaOS} CHUVA ${previsaoOS.probabilidade}% NO VENCIMENTO</div>` : ''}
+            ${temChuvaNoPrazo && previsaoOS ? `<div style="color: #93c5fd; font-weight: bold; font-size: 10px;">${iconeClimaOS} CHUVA ${previsaoOS.probabilidade}% - ${os.municipio || 'Local'}</div>` : ''}
             ${isCoordSuspeita ? `<div style="color: #c084fc; font-weight: bold; font-size: 10px; margin-top: 4px;">⚠️ COORD. SUSPEITA<br/>Bairro: ${os.bairro}<br/>Esperado: ${osSuspeita?.territorioEsperado}<br/>Atual: ${osSuspeita?.territorioReal}</div>` : ''}
           </div>
         `;
