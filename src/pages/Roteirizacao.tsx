@@ -148,6 +148,9 @@ interface PrevisaoChuvaData {
   temChuva: boolean;
   probabilidade: number;
   icone: string;
+  temperaturaMax?: number;
+  temperaturaMin?: number;
+  descricao?: string;
 }
 
 // Mapa dinâmico de tipo -> nome (preenchido com dados do banco)
@@ -963,13 +966,16 @@ const Roteirizacao = () => {
         // Criar mapa de data → previsão de chuva
         const mapaPrevisoes = new Map<string, PrevisaoChuvaData>();
         previsoes.forEach(previsao => {
-          // Considera chuva se probabilidade >= 30%
-          const temChuva = previsao.probabilidadeChuva >= 30;
+          // Considera chuva se probabilidade >= 50%
+          const temChuva = previsao.probabilidadeChuva >= 50;
           mapaPrevisoes.set(previsao.data, {
             data: previsao.data,
             temChuva,
             probabilidade: previsao.probabilidadeChuva,
-            icone: previsao.icone
+            icone: previsao.icone,
+            temperaturaMax: previsao.temperaturaMax,
+            temperaturaMin: previsao.temperaturaMin,
+            descricao: previsao.descricaoClima
           });
         });
         

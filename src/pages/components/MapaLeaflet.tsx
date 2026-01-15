@@ -1806,6 +1806,14 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
       let contadorOSsCoordenadasInvalidas = 0;
       
       // Função para criar popup HTML
+      // Função auxiliar para obter previsão de uma OS
+      const obterPrevisaoOS = (os: OrdemServico): PrevisaoChuvaData | null => {
+        if (!os.regulada || !os.prazo || !previsoesChuvaPorData) return null;
+        const dataPrazo = new Date(os.prazo);
+        const dataKey = `${dataPrazo.getFullYear()}-${String(dataPrazo.getMonth() + 1).padStart(2, '0')}-${String(dataPrazo.getDate()).padStart(2, '0')}`;
+        return previsoesChuvaPorData.get(dataKey) || null;
+      };
+
       const criarPopupHTML = (os: OrdemServico) => {
         const currentIndex = osPendentesDebounced.findIndex(o => o.id === os.id);
         const temAnterior = currentIndex > 0;
@@ -1825,6 +1833,26 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
         
         // Montar localização: Bairro - Município
         const localizacao = [os.bairro, os.municipio].filter(Boolean).join(' - ') || '-';
+        
+        // Obter previsão do tempo para OS regulada
+        const previsaoPopup = os.regulada ? obterPrevisaoOS(os) : null;
+        
+        // HTML da previsão do tempo (apenas para reguladas com prazo)
+        const previsaoTempoHTML = previsaoPopup ? `
+          <div style="margin-top: 10px; padding: 8px; background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%); border-radius: 8px; border: 1px solid #7dd3fc;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+              <span style="font-size: 24px;">${previsaoPopup.icone}</span>
+              <div>
+                <div style="font-size: 11px; color: #0369a1; font-weight: 600;">Previsão no dia do vencimento</div>
+                <div style="font-size: 12px; color: #0c4a6e;">${previsaoPopup.descricao || 'Tempo variável'}</div>
+              </div>
+            </div>
+            <div style="display: flex; gap: 12px; font-size: 11px; color: #0369a1;">
+              ${previsaoPopup.temperaturaMax !== undefined ? `<span>🌡️ ${previsaoPopup.temperaturaMin}° / ${previsaoPopup.temperaturaMax}°</span>` : ''}
+              <span>💧 ${previsaoPopup.probabilidade}% chuva</span>
+            </div>
+          </div>
+        ` : '';
         
         return `
           <div style="min-width: 260px; font-family: system-ui, -apple-system, sans-serif;">
@@ -1870,6 +1898,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
               <span style="margin-left: 8px; color: #6b7280;">Não alocada</span>
             </div>
             ${os.regulada ? '<div style="margin-top: 8px; padding: 4px 8px; background-color: #fee2e2; border-radius: 4px; display: inline-block;"><span style="color: #dc2626; font-weight: bold; font-size: 12px;">REGULADA</span></div>' : ''}
+            ${previsaoTempoHTML}
             
             <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e5e7eb; display: flex; gap: 8px; justify-content: center;">
               <button 
