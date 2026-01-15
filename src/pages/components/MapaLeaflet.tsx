@@ -2730,10 +2730,26 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
         const tendencia = expectativa?.tendencia || 'estavel';
         const iconeTendencia = getIconeTendencia(tendencia);
         
-        // Criar indicadores de projeção
+        // Criar indicadores de projeção com cor baseada na qtd de equipes necessárias
         const criarIndicadorProjecao = (projecao: typeof projecoes[0], index: number) => {
           if (!projecao) return '';
-          const cor = getCorCriticidade(projecao.nivelCriticidade);
+          
+          // Cor baseada diretamente na quantidade de equipes necessárias
+          // >= 1.0 = vermelho (demanda alta)
+          // 0.7 - 0.99 = laranja (atenção)
+          // 0.3 - 0.69 = amarelo (moderado)
+          // < 0.3 = verde (baixa demanda)
+          let corFundo: string;
+          if (projecao.equipesNecessarias >= 1.0) {
+            corFundo = '#dc2626'; // Vermelho
+          } else if (projecao.equipesNecessarias >= 0.7) {
+            corFundo = '#f97316'; // Laranja
+          } else if (projecao.equipesNecessarias >= 0.3) {
+            corFundo = '#eab308'; // Amarelo
+          } else {
+            corFundo = '#22c55e'; // Verde
+          }
+          
           const valor = projecao.equipesNecessarias.toFixed(1).replace('.', ',');
           const angulo = -60 + (index * 60); // Posicionar em arco
           const raio = 38; // Distância do centro
@@ -2746,7 +2762,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
               left: 50%;
               top: 50%;
               transform: translate(calc(-50% + ${x}px), calc(-50% + ${y}px));
-              background-color: ${cor};
+              background-color: ${corFundo};
               color: white;
               width: 26px;
               height: 26px;
@@ -2805,11 +2821,6 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
             prazoLimiteUrgente.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
           : 'Hoje 23:59';
         
-        // Label curto para o balão (apenas dd/mm)
-        const prazoLabelCurto = prazoLimiteUrgente 
-          ? prazoLimiteUrgente.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
-          : 'Hoje';
-        
         // Criar marcador com design aprimorado - fundo SEMPRE da cor do território
         const markerHTML = `
           <div class="expectativa-container" style="
@@ -2840,9 +2851,8 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
               line-height: 1;
               z-index: 10;
             ">
-              <span style="font-size: 9px; opacity: 0.85;">Até ${prazoLabelCurto}</span>
+              <span style="font-size: 8px; opacity: 0.85;">Até ${prazoFormatado}</span>
               <span>${valorFormatado}</span>
-              ${tendencia !== 'estavel' ? `<span style="font-size: 12px; margin-top: -2px;">${iconeTendencia}</span>` : ''}
             </div>
             
             <!-- Indicadores de projeção D+1, D+2, D+3 -->
@@ -2876,7 +2886,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
                 <div style="font-size: 16px; font-weight: bold; color: #1f2937;">${equipesVinculadas}</div>
               </div>
               <div style="background: #fef3c7; padding: 6px 8px; border-radius: 6px;">
-                <div style="font-size: 10px; color: #92400e; text-transform: uppercase;">Urgentes até ${prazoLabelCurto}</div>
+                <div style="font-size: 10px; color: #92400e; text-transform: uppercase;">Urgentes até ${prazoFormatado}</div>
                 <div style="font-size: 16px; font-weight: bold; color: #b45309;">${totalUrgentes}</div>
               </div>
             </div>
