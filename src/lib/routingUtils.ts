@@ -625,18 +625,27 @@ export function calcularExpectativaEquipesComProjecao(
   // Descontar almoço (média de 60 min)
   const tempoUtilPorEquipeMin = jornadaMediaMin - 60;
 
-  // Datas de referência
+  // Datas de referência - início e fim de cada dia
   const hoje = new Date();
-  hoje.setHours(23, 59, 59, 999); // Final do dia atual
+  hoje.setHours(0, 0, 0, 0); // Início do dia atual
   
-  const d1 = new Date(hoje);
-  d1.setDate(d1.getDate() + 1);
+  // D+1: início e fim do dia seguinte
+  const d1Inicio = new Date(hoje);
+  d1Inicio.setDate(d1Inicio.getDate() + 1);
+  const d1Fim = new Date(d1Inicio);
+  d1Fim.setHours(23, 59, 59, 999);
   
-  const d2 = new Date(hoje);
-  d2.setDate(d2.getDate() + 2);
+  // D+2: início e fim de daqui 2 dias
+  const d2Inicio = new Date(hoje);
+  d2Inicio.setDate(d2Inicio.getDate() + 2);
+  const d2Fim = new Date(d2Inicio);
+  d2Fim.setHours(23, 59, 59, 999);
   
-  const d3 = new Date(hoje);
-  d3.setDate(d3.getDate() + 3);
+  // D+3: início e fim de daqui 3 dias
+  const d3Inicio = new Date(hoje);
+  d3Inicio.setDate(d3Inicio.getDate() + 3);
+  const d3Fim = new Date(d3Inicio);
+  d3Fim.setHours(23, 59, 59, 999);
 
   const expectativas: ExpectativaTerritorioComProjecao[] = [];
 
@@ -666,16 +675,16 @@ export function calcularExpectativaEquipesComProjecao(
       ? tempoTotalDemandaMin / tempoUtilPorEquipeMin
       : 0;
 
-    // Calcular projeções para D+1, D+2, D+3
-    const calcularProjecaoDia = (dataLimite: Date, label: string): ProjecaoDia => {
-      // Reguladas que vencem até esta data (acumulativo)
-      const reguladasAteData = reguladasComPrazo.filter(os => {
+    // Calcular projeções para D+1, D+2, D+3 (não acumulativo - apenas OSs que vencem NAQUELE DIA)
+    const calcularProjecaoDia = (dataInicio: Date, dataFim: Date, label: string): ProjecaoDia => {
+      // Reguladas que vencem NESTE DIA específico (não acumulativo)
+      const reguladasNoDia = reguladasComPrazo.filter(os => {
         const prazoDate = new Date(os.prazo!);
-        return prazoDate <= dataLimite;
+        return prazoDate >= dataInicio && prazoDate <= dataFim;
       });
 
       // Calcular tempo e equipes necessárias
-      const tempoTotalMin = reguladasAteData.reduce((acc, os) => {
+      const tempoTotalMin = reguladasNoDia.reduce((acc, os) => {
         return acc + os.tempoExecucao + getTempoMedioDeslocamento();
       }, 0);
 
@@ -700,10 +709,10 @@ export function calcularExpectativaEquipesComProjecao(
       }
 
       return {
-        data: dataLimite,
+        data: dataFim,
         label,
-        totalReguladas: reguladasAteData.length,
-        totalUrgentes: reguladasAteData.length, // Todas que vencem até a data são consideradas urgentes
+        totalReguladas: reguladasNoDia.length,
+        totalUrgentes: reguladasNoDia.length, // Todas que vencem neste dia
         equipesNecessarias: Math.max(0, equipesNecessarias),
         tempoTotalMin,
         nivelCriticidade
@@ -711,9 +720,9 @@ export function calcularExpectativaEquipesComProjecao(
     };
 
     const projecoes: ProjecaoDia[] = [
-      calcularProjecaoDia(d1, 'D+1'),
-      calcularProjecaoDia(d2, 'D+2'),
-      calcularProjecaoDia(d3, 'D+3')
+      calcularProjecaoDia(d1Inicio, d1Fim, 'D+1'),
+      calcularProjecaoDia(d2Inicio, d2Fim, 'D+2'),
+      calcularProjecaoDia(d3Inicio, d3Fim, 'D+3')
     ];
 
     // Determinar tendência
