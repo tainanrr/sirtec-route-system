@@ -107,9 +107,11 @@ interface StatusOSTempoReal {
   retorno_codigo: string | null;
 }
 
-// Interface para previsão de chuva por data
+// Interface para previsão de chuva por data e município
+// Chave do mapa: "municipio_data" (ex: "Vitória da Conquista_2026-01-20")
 interface PrevisaoChuvaData {
   data: string; // formato yyyy-MM-dd
+  municipio: string;
   temChuva: boolean;
   probabilidade: number;
   icone: string;
@@ -1806,12 +1808,13 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
       let contadorOSsCoordenadasInvalidas = 0;
       
       // Função para criar popup HTML
-      // Função auxiliar para obter previsão de uma OS
+      // Função auxiliar para obter previsão de uma OS (usa chave composta município_data)
       const obterPrevisaoOS = (os: OrdemServico): PrevisaoChuvaData | null => {
-        if (!os.regulada || !os.prazo || !previsoesChuvaPorData) return null;
+        if (!os.regulada || !os.prazo || !previsoesChuvaPorData || !os.municipio) return null;
         const dataPrazo = new Date(os.prazo);
         const dataKey = `${dataPrazo.getFullYear()}-${String(dataPrazo.getMonth() + 1).padStart(2, '0')}-${String(dataPrazo.getDate()).padStart(2, '0')}`;
-        return previsoesChuvaPorData.get(dataKey) || null;
+        const chaveCompleta = `${os.municipio}_${dataKey}`;
+        return previsoesChuvaPorData.get(chaveCompleta) || null;
       };
 
       const criarPopupHTML = (os: OrdemServico) => {
@@ -2033,13 +2036,16 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
         const fontSize = isSelecionada ? '13px' : '11px';
         
         // Verificar se a OS regulada tem previsão de chuva no dia do vencimento (50% ou mais)
+        // Usa chave composta: "municipio_data" para previsão específica por localização
         let temChuvaNoPrazo = false;
         let iconeClimaOS = '';
         let previsaoOS: PrevisaoChuvaData | null = null;
-        if (isRegulada && os.prazo && previsoesChuvaPorData) {
+        if (isRegulada && os.prazo && previsoesChuvaPorData && os.municipio) {
           const dataPrazo = new Date(os.prazo);
           const dataKey = `${dataPrazo.getFullYear()}-${String(dataPrazo.getMonth() + 1).padStart(2, '0')}-${String(dataPrazo.getDate()).padStart(2, '0')}`;
-          const previsao = previsoesChuvaPorData.get(dataKey);
+          // Chave composta: município_data
+          const chaveCompleta = `${os.municipio}_${dataKey}`;
+          const previsao = previsoesChuvaPorData.get(chaveCompleta);
           if (previsao) {
             previsaoOS = previsao;
             // Só considera chuva se probabilidade >= 50%

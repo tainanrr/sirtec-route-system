@@ -143,8 +143,10 @@ import { buscarPrevisaoTempoComCache, PrevisaoTempo } from "@/services/weatherSe
 import { format, addDays, startOfDay } from "date-fns";
 
 // Interface para previsão de chuva para o mapa
+// Chave do mapa agora é: "municipio_data" (ex: "Vitória da Conquista_2026-01-20")
 interface PrevisaoChuvaData {
   data: string;
+  municipio: string;
   temChuva: boolean;
   probabilidade: number;
   icone: string;
@@ -939,47 +941,71 @@ const Roteirizacao = () => {
   }, []);
 
   // Buscar previsões de chuva para OSs reguladas (para exibir ícone de chuva no mapa)
+  // Agora busca por MUNICÍPIO para ter previsões mais precisas por localização
   useEffect(() => {
     const buscarPrevisoesParaReguladas = async () => {
-      // Filtrar OSs reguladas com prazo nos próximos 10 dias
-      const hoje = startOfDay(new Date());
-      const em10Dias = addDays(hoje, 10);
-      
+      // Filtrar OSs reguladas com prazo e coordenadas
       const reguladasComPrazo = ordensServico.filter(os => 
         os.regulada && 
         os.prazo && 
         os.latitude && 
-        os.longitude
+        os.longitude &&
+        os.municipio // Precisa ter município
       );
       
       if (reguladasComPrazo.length === 0) return;
       
-      // Calcular centro médio das coordenadas
-      const lats = reguladasComPrazo.map(os => os.latitude);
-      const lngs = reguladasComPrazo.map(os => os.longitude);
-      const centroLat = lats.reduce((a, b) => a + b, 0) / lats.length;
-      const centroLng = lngs.reduce((a, b) => a + b, 0) / lngs.length;
+      // Agrupar OSs por município
+      const osPorMunicipio = new Map<string, { lats: number[]; lngs: number[] }>();
+      reguladasComPrazo.forEach(os => {
+        const municipio = os.municipio || 'Desconhecido';
+        if (!osPorMunicipio.has(municipio)) {
+          osPorMunicipio.set(municipio, { lats: [], lngs: [] });
+        }
+        const dados = osPorMunicipio.get(municipio)!;
+        dados.lats.push(os.latitude);
+        dados.lngs.push(os.longitude);
+      });
+      
+      console.log(`[Roteirização] Buscando previsões para ${osPorMunicipio.size} municípios...`);
+      
+      // Buscar previsão para cada município (limitado a 5 para não sobrecarregar)
+      const municipios = Array.from(osPorMunicipio.entries()).slice(0, 5);
+      const mapaPrevisoes = new Map<string, PrevisaoChuvaData>();
       
       try {
-        const previsoes = await buscarPrevisaoTempoComCache(centroLat, centroLng, 10);
-        
-        // Criar mapa de data → previsão de chuva
-        const mapaPrevisoes = new Map<string, PrevisaoChuvaData>();
-        previsoes.forEach(previsao => {
-          // Considera chuva se probabilidade >= 50%
-          const temChuva = previsao.probabilidadeChuva >= 50;
-          mapaPrevisoes.set(previsao.data, {
-            data: previsao.data,
-            temChuva,
-            probabilidade: previsao.probabilidadeChuva,
-            icone: previsao.icone,
-            temperaturaMax: previsao.temperaturaMax,
-            temperaturaMin: previsao.temperaturaMin,
-            descricao: previsao.descricaoClima
-          });
-        });
+        await Promise.all(municipios.map(async ([municipio, coords]) => {
+          // Calcular centro médio do município
+          const centroLat = coords.lats.reduce((a, b) => a + b, 0) / coords.lats.length;
+          const centroLng = coords.lngs.reduce((a, b) => a + b, 0) / coords.lngs.length;
+          
+          try {
+            const previsoes = await buscarPrevisaoTempoComCache(centroLat, centroLng, 10);
+            
+            // Adicionar previsões com chave "municipio_data"
+            previsoes.forEach(previsao => {
+              const temChuva = previsao.probabilidadeChuva >= 50;
+              const chave = `${municipio}_${previsao.data}`;
+              mapaPrevisoes.set(chave, {
+                data: previsao.data,
+                municipio,
+                temChuva,
+                probabilidade: previsao.probabilidadeChuva,
+                icone: previsao.icone,
+                temperaturaMax: previsao.temperaturaMax,
+                temperaturaMin: previsao.temperaturaMin,
+                descricao: previsao.descricaoClima
+              });
+            });
+            
+            console.log(`[Roteirização] Previsão carregada para ${municipio}`);
+          } catch (err) {
+            console.error(`[Roteirização] Erro ao buscar previsão para ${municipio}:`, err);
+          }
+        }));
         
         setPrevisoesChuvaPorData(mapaPrevisoes);
+        console.log(`[Roteirização] Total de ${mapaPrevisoes.size} previsões carregadas`);
       } catch (error) {
         console.error("[Roteirização] Erro ao buscar previsões de chuva:", error);
       }
