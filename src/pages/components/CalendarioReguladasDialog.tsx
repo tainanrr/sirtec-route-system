@@ -837,6 +837,98 @@ export default function CalendarioReguladasDialog({
             <span>Probabilidade de chuva</span>
           </div>
         </div>
+
+        {/* Modal de OSs do Grupo */}
+        {modalOSs.open && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[1100]" onClick={() => setModalOSs({ ...modalOSs, open: false })}>
+            <div 
+              className="bg-white rounded-xl shadow-2xl max-w-2xl w-full mx-4 max-h-[80vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between p-4 border-b bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-t-xl">
+                <div>
+                  <h3 className="font-bold text-lg flex items-center gap-2">
+                    <FileText className="h-5 w-5" />
+                    {modalOSs.grupo}
+                  </h3>
+                  <p className="text-sm text-blue-100">
+                    {modalOSs.data && format(modalOSs.data, "dd 'de' MMMM 'de' yyyy (EEEE)", { locale: ptBR })}
+                    {" • "}{modalOSs.oss.length} OS{modalOSs.oss.length !== 1 ? "s" : ""}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setModalOSs({ ...modalOSs, open: false })}
+                  className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Lista de OSs */}
+              <ScrollArea className="flex-1 p-4">
+                <div className="space-y-3">
+                  {modalOSs.oss.length === 0 ? (
+                    <p className="text-center text-muted-foreground py-8">Nenhuma OS encontrada</p>
+                  ) : (
+                    modalOSs.oss.map((os) => (
+                      <div
+                        key={os.numero}
+                        className="p-3 border rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-bold text-blue-700">{os.numero}</span>
+                              <Badge variant="outline" className="text-xs">
+                                {os.tipo}
+                              </Badge>
+                            </div>
+                            <p className="text-sm text-muted-foreground">
+                              {os.endereco}
+                            </p>
+                            {os.municipio && (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                <MapPin className="h-3 w-3 inline mr-1" />
+                                {os.municipio}{os.bairro ? ` - ${os.bairro}` : ""}
+                              </p>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            {os.prazo && (
+                              <div className="flex items-center gap-1 text-sm">
+                                <Clock className="h-4 w-4 text-amber-600" />
+                                <span className="font-medium text-amber-700">
+                                  {format(os.prazo, "HH:mm")}
+                                </span>
+                              </div>
+                            )}
+                            {os.contrato_codigo && (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {os.contrato_codigo}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </ScrollArea>
+
+              {/* Footer */}
+              <div className="p-4 border-t bg-gray-50 rounded-b-xl">
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => setModalOSs({ ...modalOSs, open: false })}
+                >
+                  Fechar
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
