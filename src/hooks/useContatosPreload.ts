@@ -214,15 +214,22 @@ export function useContatosPreload() {
 
     try {
       // Processar uma OS por vez para respeitar rate limits da API Gemini
-      // O tier gratuito tem limites muito baixos (15 req/min)
-      const DELAY_ENTRE_CHAMADAS = 5000; // 5 segundos entre cada chamada
+      // O tier gratuito tem limites muito baixos (~15 req/min)
+      const DELAY_ENTRE_CHAMADAS = 8000; // 8 segundos entre cada chamada (mais conservador)
+      const MAX_OS_POR_SESSAO = 10; // Limitar para não esgotar cota
       let rateLimitHit = false;
       
-      for (let i = 0; i < osParaProcessar.length; i++) {
+      // Limitar quantidade de OSs processadas por sessão
+      const osLimitadas = osParaProcessar.slice(0, MAX_OS_POR_SESSAO);
+      if (osParaProcessar.length > MAX_OS_POR_SESSAO) {
+        console.log(`[useContatosPreload] Limitando para ${MAX_OS_POR_SESSAO} OSs de ${osParaProcessar.length} (para economizar cota da API)`);
+      }
+      
+      for (let i = 0; i < osLimitadas.length; i++) {
         // Se atingiu rate limit, parar
         if (rateLimitHit) break;
         
-        const os = osParaProcessar[i];
+        const os = osLimitadas[i];
         
         try {
           const resultado = await extrairContatosComIA(os.observacoes!);
@@ -251,18 +258,18 @@ export function useContatosPreload() {
         setProgress({ 
           isLoading: true, 
           current: i + 1, 
-          total: osParaProcessar.length,
+          total: osLimitadas.length,
           currentOS: os.numero,
         });
 
         if (toastId) {
-          toast.loading(`Identificando contatos: ${i + 1}/${osParaProcessar.length}...`, {
+          toast.loading(`Identificando contatos: ${i + 1}/${osLimitadas.length}...`, {
             id: toastId,
           });
         }
 
         // Delay entre chamadas para respeitar rate limit
-        if (i + 1 < osParaProcessar.length && !rateLimitHit) {
+        if (i + 1 < osLimitadas.length && !rateLimitHit) {
           await new Promise(resolve => setTimeout(resolve, DELAY_ENTRE_CHAMADAS));
         }
       }

@@ -3,8 +3,23 @@
  * Processa observações da Coelba para identificar telefones e nomes de contato
  */
 
-// Chave API do Gemini
-const GEMINI_API_KEY = "AIzaSyD_rFWa0Yv9PzEPi4SEeL4GGkpu9iOhEWg";
+// Chave API padrão (fallback)
+const GEMINI_API_KEY_DEFAULT = "AIzaSyD_rFWa0Yv9PzEPi4SEeL4GGkpu9iOhEWg";
+
+/**
+ * Obtém a chave API do Gemini - prioriza a configurada pelo usuário nos Checklists
+ */
+function getGeminiApiKey(): string {
+  // Tentar buscar a chave configurada pelo usuário na tela de Checklists
+  if (typeof localStorage !== "undefined") {
+    const userKey = localStorage.getItem("gemini_api_key");
+    if (userKey && userKey.trim().length > 0) {
+      return userKey.trim();
+    }
+  }
+  // Se não tiver, usar a chave padrão
+  return GEMINI_API_KEY_DEFAULT;
+}
 
 export interface ContatoIA {
   /** Nome do contato identificado pela IA */
@@ -112,14 +127,14 @@ function delay(ms: number): Promise<void> {
 
 /**
  * Lista de modelos Gemini para tentar (mesma lista usada em GerarChecklistIA)
+ * Ordem de prioridade: modelos mais estáveis primeiro
  */
 const MODELOS_GEMINI = [
+  "gemini-1.5-flash-latest", // Mais estável e disponível no tier gratuito
+  "gemini-1.5-flash",        // Versão estável
   "gemini-2.0-flash",
-  "gemini-2.5-flash",
-  "gemini-2.5-pro",
   "gemini-2.0-flash-exp",
-  "gemini-2.0-flash-001",
-  "gemini-flash-latest",
+  "gemini-1.5-pro",          // Pro como fallback
 ];
 
 /**
@@ -138,12 +153,15 @@ export async function extrairContatosComIA(observacao: string): Promise<Resultad
     let response: Response | null = null;
     let ultimoErro = "";
 
+    const apiKey = getGeminiApiKey();
+    console.log(`[ContatoExtractorIA] Usando chave API: ${apiKey.substring(0, 10)}...`);
+
     for (const modelo of MODELOS_GEMINI) {
       try {
         console.log(`[ContatoExtractorIA] Tentando modelo: ${modelo}`);
         
         response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${GEMINI_API_KEY}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${apiKey}`,
           {
             method: "POST",
             headers: {
@@ -173,11 +191,11 @@ export async function extrairContatosComIA(observacao: string): Promise<Resultad
 
         // Se for 429 (rate limit), aguardar e tentar mesmo modelo novamente
         if (response.status === 429) {
-          console.warn(`[ContatoExtractorIA] Rate limit no modelo ${modelo}, aguardando 10s...`);
-          await delay(10000);
+          console.warn(`[ContatoExtractorIA] Rate limit no modelo ${modelo}, aguardando 15s...`);
+          await delay(15000);
           // Tentar mesmo modelo novamente
           response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${GEMINI_API_KEY}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${apiKey}`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
