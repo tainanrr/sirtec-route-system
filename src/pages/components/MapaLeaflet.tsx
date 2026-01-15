@@ -113,6 +113,9 @@ interface PrevisaoChuvaData {
   temChuva: boolean;
   probabilidade: number;
   icone: string;
+  temperaturaMax?: number;
+  temperaturaMin?: number;
+  descricao?: string;
 }
 
 interface MapaLeafletProps {
@@ -1990,16 +1993,21 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
         const markerSize = isSelecionada ? 34 : 28;
         const fontSize = isSelecionada ? '13px' : '11px';
         
-        // Verificar se a OS regulada tem previsão de chuva no dia do vencimento
+        // Verificar se a OS regulada tem previsão de chuva no dia do vencimento (50% ou mais)
         let temChuvaNoPrazo = false;
         let iconeClimaOS = '';
+        let previsaoOS: PrevisaoChuvaData | null = null;
         if (isRegulada && os.prazo && previsoesChuvaPorData) {
           const dataPrazo = new Date(os.prazo);
           const dataKey = `${dataPrazo.getFullYear()}-${String(dataPrazo.getMonth() + 1).padStart(2, '0')}-${String(dataPrazo.getDate()).padStart(2, '0')}`;
           const previsao = previsoesChuvaPorData.get(dataKey);
-          if (previsao && previsao.temChuva) {
-            temChuvaNoPrazo = true;
-            iconeClimaOS = previsao.icone || '🌧️';
+          if (previsao) {
+            previsaoOS = previsao;
+            // Só considera chuva se probabilidade >= 50%
+            if (previsao.temChuva && previsao.probabilidade >= 50) {
+              temChuvaNoPrazo = true;
+              iconeClimaOS = previsao.icone || '🌧️';
+            }
           }
         }
         
@@ -2048,7 +2056,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
             ${prazoTooltip ? `<div style="color: #fca5a5; font-size: 11px;">⏰ ${prazoTooltip}</div>` : ''}
             ${isReguladaUrgente ? '<div style="color: #fca5a5; font-weight: bold; font-size: 10px;">⚠️ REGULADA - URGENTE</div>' : ''}
             ${isReguladaVencida ? '<div style="color: #a1a1aa; font-weight: bold; font-size: 10px;">⚠️ REGULADA - VENCIDA</div>' : ''}
-            ${temChuvaNoPrazo ? `<div style="color: #93c5fd; font-weight: bold; font-size: 10px;">${iconeClimaOS} CHUVA NO DIA DO VENCIMENTO</div>` : ''}
+            ${temChuvaNoPrazo && previsaoOS ? `<div style="color: #93c5fd; font-weight: bold; font-size: 10px;">${iconeClimaOS} CHUVA ${previsaoOS.probabilidade}% NO VENCIMENTO</div>` : ''}
             ${isCoordSuspeita ? `<div style="color: #c084fc; font-weight: bold; font-size: 10px; margin-top: 4px;">⚠️ COORD. SUSPEITA<br/>Bairro: ${os.bairro}<br/>Esperado: ${osSuspeita?.territorioEsperado}<br/>Atual: ${osSuspeita?.territorioReal}</div>` : ''}
           </div>
         `;

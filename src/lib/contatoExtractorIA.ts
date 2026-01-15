@@ -4,7 +4,7 @@
  */
 
 // Chave API do Gemini
-const GEMINI_API_KEY = "AIzaSyDHeyuB7NLPra0BCvSTVa7VZmviCY06d5Y";
+const GEMINI_API_KEY = "AIzaSyD_rFWa0Yv9PzEPi4SEeL4GGkpu9iOhEWg";
 
 export interface ContatoIA {
   /** Nome do contato identificado pela IA */
