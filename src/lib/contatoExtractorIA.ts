@@ -3,8 +3,8 @@
  * Processa observações da Coelba para identificar telefones e nomes de contato
  */
 
-// Chave API do Gemini (hardcoded conforme solicitado)
-const GEMINI_API_KEY = "AIzaSyDHCDa9Mpav7h2ojU5bc3HpEGGjAo8RYK8";
+// Chave API do Gemini
+const GEMINI_API_KEY = "AIzaSyDHeyuB7NLPra0BCvSTVa7VZmviCY06d5Y";
 
 export interface ContatoIA {
   /** Nome do contato identificado pela IA */
