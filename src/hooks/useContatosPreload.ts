@@ -213,66 +213,57 @@ export function useContatosPreload() {
     let failed = 0;
 
     try {
-      // Processar em batches de 3 para não sobrecarregar a API
-      const BATCH_SIZE = 3;
+      // Processar uma OS por vez para respeitar rate limits da API Gemini
+      // O tier gratuito tem limites muito baixos (15 req/min)
+      const DELAY_ENTRE_CHAMADAS = 5000; // 5 segundos entre cada chamada
+      let rateLimitHit = false;
       
-      for (let i = 0; i < osParaProcessar.length; i += BATCH_SIZE) {
-        const batch = osParaProcessar.slice(i, i + BATCH_SIZE);
+      for (let i = 0; i < osParaProcessar.length; i++) {
+        // Se atingiu rate limit, parar
+        if (rateLimitHit) break;
         
-        const promises = batch.map(async (os) => {
-          try {
-            const resultado = await extrairContatosComIA(os.observacoes!);
-            
-            if (resultado.sucesso) {
-              // Salvar no cache local (IndexedDB)
-              await saveToCache(os.id, resultado.contatos);
-              
-              return {
-                osId: os.id,
-                osNumero: os.numero,
-                contatos: resultado.contatos,
-                sucesso: true,
-              };
-            } else {
-              return { osId: os.id, osNumero: os.numero, contatos: [], sucesso: false };
-            }
-          } catch (error) {
-            console.error(`[useContatosPreload] Erro OS ${os.numero}:`, error);
-            return { osId: os.id, osNumero: os.numero, contatos: [], sucesso: false };
-          }
-        });
-
-        const resultados = await Promise.all(promises);
-
-        for (const res of resultados) {
-          if (res.sucesso) {
+        const os = osParaProcessar[i];
+        
+        try {
+          const resultado = await extrairContatosComIA(os.observacoes!);
+          
+          if (resultado.sucesso) {
+            // Salvar no cache local (IndexedDB)
+            await saveToCache(os.id, resultado.contatos);
             processed++;
-            if (res.contatos.length > 0) {
+            if (resultado.contatos.length > 0) {
               withContacts++;
             }
           } else {
+            // Se foi erro de rate limit, parar o processamento
+            if (resultado.erro?.includes("Limite de requisições") || resultado.erro?.includes("429")) {
+              console.warn("[useContatosPreload] Rate limit atingido, pausando processamento");
+              rateLimitHit = true;
+            }
             failed++;
           }
+        } catch (error) {
+          console.error(`[useContatosPreload] Erro OS ${os.numero}:`, error);
+          failed++;
         }
 
         // Atualizar progresso
-        const progressAtual = i + batch.length;
         setProgress({ 
           isLoading: true, 
-          current: progressAtual, 
+          current: i + 1, 
           total: osParaProcessar.length,
-          currentOS: batch[batch.length - 1]?.numero,
+          currentOS: os.numero,
         });
 
         if (toastId) {
-          toast.loading(`Identificando contatos: ${progressAtual}/${osParaProcessar.length}...`, {
+          toast.loading(`Identificando contatos: ${i + 1}/${osParaProcessar.length}...`, {
             id: toastId,
           });
         }
 
-        // Pequena pausa entre batches para não sobrecarregar a API
-        if (i + BATCH_SIZE < osParaProcessar.length) {
-          await new Promise(resolve => setTimeout(resolve, 500));
+        // Delay entre chamadas para respeitar rate limit
+        if (i + 1 < osParaProcessar.length && !rateLimitHit) {
+          await new Promise(resolve => setTimeout(resolve, DELAY_ENTRE_CHAMADAS));
         }
       }
 

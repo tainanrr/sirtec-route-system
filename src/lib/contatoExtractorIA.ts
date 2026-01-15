@@ -104,12 +104,23 @@ function normalizarTelefone(numero: string): { limpo: string; formatado: string;
 }
 
 /**
- * Extrai contatos de uma observação usando IA (Gemini)
+ * Delay para aguardar antes de retry
  */
-export async function extrairContatosComIA(observacao: string): Promise<ResultadoExtracaoIA> {
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Extrai contatos de uma observação usando IA (Gemini)
+ * Implementa retry com backoff exponencial para erros 429
+ */
+export async function extrairContatosComIA(observacao: string, tentativa: number = 1): Promise<ResultadoExtracaoIA> {
   if (!observacao || observacao.trim().length < 5) {
     return { contatos: [], sucesso: true };
   }
+
+  const MAX_TENTATIVAS = 3;
+  const DELAY_BASE = 8000; // 8 segundos (Gemini pede ~7s no erro)
 
   try {
     const prompt = criarPromptExtracao(observacao);
@@ -131,6 +142,23 @@ export async function extrairContatosComIA(observacao: string): Promise<Resultad
         }),
       }
     );
+
+    // Se for erro 429 (rate limit), fazer retry com backoff
+    if (response.status === 429) {
+      if (tentativa < MAX_TENTATIVAS) {
+        const delayMs = DELAY_BASE * tentativa; // 8s, 16s, 24s
+        console.warn(`[ContatoExtractorIA] Rate limit (429) - aguardando ${delayMs/1000}s antes de retry ${tentativa + 1}/${MAX_TENTATIVAS}`);
+        await delay(delayMs);
+        return extrairContatosComIA(observacao, tentativa + 1);
+      } else {
+        console.error("[ContatoExtractorIA] Rate limit excedido após todas as tentativas");
+        return { 
+          contatos: [], 
+          sucesso: false, 
+          erro: "Limite de requisições da API excedido. Tente novamente em alguns minutos." 
+        };
+      }
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
