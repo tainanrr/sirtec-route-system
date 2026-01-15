@@ -2030,9 +2030,9 @@ export default function ChecklistsAvancado() {
             </DialogDescription>
           </DialogHeader>
           
-          <div className="flex-1 overflow-hidden flex flex-col gap-4">
+          <div className="flex-1 min-h-0 flex flex-col gap-4">
             {/* Ações em lote */}
-            <div className="flex flex-wrap items-center gap-4 p-3 bg-muted/50 rounded-lg border">
+            <div className="flex flex-wrap items-center gap-4 p-3 bg-muted/50 rounded-lg border shrink-0">
               <div className="flex items-center gap-2">
                 <Checkbox
                   id="marcar-todos"
@@ -2080,7 +2080,7 @@ export default function ChecklistsAvancado() {
             </div>
             
             {/* Lista de Skills */}
-            <ScrollArea className="flex-1 border rounded-lg">
+            <ScrollArea className="flex-1 min-h-0 border rounded-lg h-[400px]">
               <div className="p-2 space-y-1">
                 {skills.map((skill) => {
                   const jaVinculado = vinculos.some(v => v.skill_id === skill.id);
@@ -2188,7 +2188,7 @@ export default function ChecklistsAvancado() {
             </ScrollArea>
             
             {/* Resumo */}
-            <div className="text-sm text-muted-foreground">
+            <div className="text-sm text-muted-foreground shrink-0">
               {Object.values(vinculosSelecionados).filter(v => v.selecionado).length} tipo(s) de serviço selecionado(s)
             </div>
           </div>
