@@ -1239,9 +1239,23 @@ export async function otimizarRotas(
   console.log(`[ROUTING] 🔥 V18: Emergências podem remover OSs normais para serem alocadas`);
   
   // V22: Log de tipos prioritários (foco)
-  const tiposPrioritariosNormalizados = (tiposPrioritarios || []).map(t => t.toLowerCase().trim());
+  // Normalização mais robusta: remove acentos, caracteres especiais, sufixos " -"
+  const normalizarTipoPrioritario = (tipo: string): string => {
+    return tipo
+      .toLowerCase()
+      .trim()
+      .replace(/ -$/, '') // Remove sufixo " -"
+      .replace(/[-_\s]+/g, '') // Remove hífens, underscores, espaços
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, ''); // Remove acentos
+  };
+  
+  const tiposPrioritariosNormalizados = (tiposPrioritarios || []).map(normalizarTipoPrioritario);
+  
+  console.log(`[ROUTING] 🎯 Tipos prioritários recebidos: ${(tiposPrioritarios || []).join(', ') || 'NENHUM'}`);
+  console.log(`[ROUTING] 🎯 Tipos prioritários normalizados: ${tiposPrioritariosNormalizados.join(', ') || 'NENHUM'}`);
+  
   if (tiposPrioritariosNormalizados.length > 0) {
-    console.log(`[ROUTING] 🎯 V22: FOCO em tipos prioritários: ${tiposPrioritariosNormalizados.join(', ')}`);
+    console.log(`[ROUTING] 🎯 V22: FOCO ATIVO em ${tiposPrioritariosNormalizados.length} tipos prioritários!`);
     console.log(`[ROUTING]   OSs desses tipos terão prioridade após Reguladas/Emergências`);
   }
 
@@ -1528,16 +1542,20 @@ export async function otimizarRotas(
       osUrgentes.push(os);
     } else if (classificacao === 'amanha') {
       // V22: Verificar se é um tipo prioritário (foco)
-      const tipoNorm = os.tipo.toLowerCase().trim();
-      if (tiposPrioritariosNormalizados.length > 0 && tiposPrioritariosNormalizados.includes(tipoNorm)) {
+      const tipoNorm = normalizarTipoPrioritario(os.tipo);
+      const ehTipoPrioritario = tiposPrioritariosNormalizados.length > 0 && 
+        tiposPrioritariosNormalizados.some(tp => tipoNorm.includes(tp) || tp.includes(tipoNorm));
+      if (ehTipoPrioritario) {
         osPrioritarias.push(os);
       } else {
         osProximoDia.push(os);
       }
     } else {
       // V22: Verificar se é um tipo prioritário (foco)
-      const tipoNorm = os.tipo.toLowerCase().trim();
-      if (tiposPrioritariosNormalizados.length > 0 && tiposPrioritariosNormalizados.includes(tipoNorm)) {
+      const tipoNorm = normalizarTipoPrioritario(os.tipo);
+      const ehTipoPrioritario = tiposPrioritariosNormalizados.length > 0 && 
+        tiposPrioritariosNormalizados.some(tp => tipoNorm.includes(tp) || tp.includes(tipoNorm));
+      if (ehTipoPrioritario) {
         osPrioritarias.push(os);
       } else {
         osNormais.push(os);
@@ -1617,9 +1635,29 @@ export async function otimizarRotas(
   console.log(`[ROUTING] EMERGÊNCIAS (RELIGA): ${osEmergencias.length}`);
   console.log(`[ROUTING] ⚡ REGULADAS URGENTES (PRIORIDADE ABSOLUTA): ${osReguladasHoje.length}`);
   console.log(`[ROUTING] Urgentes: ${osUrgentes.length}`);
-  if (osPrioritarias.length > 0) {
+  
+  // V22: Log detalhado das prioritárias
+  if (tiposPrioritariosNormalizados.length > 0) {
     console.log(`[ROUTING] 🎯 PRIORITÁRIAS (FOCO): ${osPrioritarias.length}`);
+    if (osPrioritarias.length > 0) {
+      // Mostrar tipos encontrados
+      const tiposEncontrados = new Map<string, number>();
+      osPrioritarias.forEach(os => {
+        const tipo = os.tipo;
+        tiposEncontrados.set(tipo, (tiposEncontrados.get(tipo) || 0) + 1);
+      });
+      for (const [tipo, qtd] of tiposEncontrados) {
+        console.log(`[ROUTING]   🎯 ${tipo}: ${qtd} OSs`);
+      }
+    } else {
+      // Mostrar tipos disponíveis para debug
+      const tiposDisponiveis = [...new Set([...osProximoDia, ...osNormais].map(os => os.tipo))];
+      console.log(`[ROUTING] ⚠️ Nenhuma OS prioritária encontrada!`);
+      console.log(`[ROUTING]   Tipos disponíveis (amostra): ${tiposDisponiveis.slice(0, 10).join(', ')}`);
+      console.log(`[ROUTING]   Tipos buscados: ${tiposPrioritariosNormalizados.join(', ')}`);
+    }
   }
+  
   console.log(`[ROUTING] Próximo dia: ${osProximoDia.length}`);
   console.log(`[ROUTING] Normais: ${osNormais.length}`);
   console.log(`[ROUTING] Rurais: ${osRurais.length}`);
@@ -3498,8 +3536,9 @@ export async function otimizarRotas(
       
       // V22: Verificar se há OSs prioritárias pendentes - elas devem ter preferência absoluta
       const ehPrioritaria = (os: OrdemServico): boolean => {
-        const tipoNorm = os.tipo.toLowerCase().trim();
-        return tiposPrioritariosNormalizados.length > 0 && tiposPrioritariosNormalizados.includes(tipoNorm);
+        const tipoNorm = normalizarTipoPrioritario(os.tipo);
+        return tiposPrioritariosNormalizados.length > 0 && 
+          tiposPrioritariosNormalizados.some(tp => tipoNorm.includes(tp) || tp.includes(tipoNorm));
       };
       
       // V22: Separar OSs disponíveis em prioritárias e normais
