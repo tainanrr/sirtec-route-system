@@ -584,6 +584,76 @@ const Roteirizacao = () => {
     refetchOnWindowFocus: true, // Refetch ao voltar para a aba
   });
 
+  // METAS DAS EQUIPES: Buscar meta do dia para cada equipe
+  // Retorna um Map<equipeId, valorMeta>
+  const { data: metasEquipes } = useQuery({
+    queryKey: ["metas-equipes-roteirizacao", dataPlanejamento || format(new Date(), "yyyy-MM-dd"), rotas.map(r => r.equipe.id).join(",")],
+    queryFn: async () => {
+      const dataConsulta = dataPlanejamento || format(new Date(), "yyyy-MM-dd");
+      const equipeIds = rotas.map(r => r.equipe.id);
+      
+      if (equipeIds.length === 0) return new Map<string, number>();
+      
+      const { data, error } = await supabase
+        .from("metas")
+        .select("equipe_id, valor_meta")
+        .in("equipe_id", equipeIds)
+        .eq("data", dataConsulta);
+      
+      if (error) {
+        console.error("[Roteirização] Erro ao buscar metas:", error);
+        return new Map<string, number>();
+      }
+      
+      const metasMap = new Map<string, number>();
+      (data || []).forEach((meta: any) => {
+        metasMap.set(meta.equipe_id, meta.valor_meta || 0);
+      });
+      
+      console.log(`[Roteirização] Metas carregadas para ${metasMap.size} equipes (data: ${dataConsulta})`);
+      return metasMap;
+    },
+    enabled: rotas.length > 0,
+    staleTime: 60000, // Dados frescos por 60 segundos
+    refetchInterval: 120000, // Atualizar a cada 2 minutos
+  });
+
+  // PRODUÇÃO PARCIAL DAS EQUIPES: Buscar produção realizada até o momento
+  // Retorna um Map<equipeId, valorProduzido>
+  const { data: producaoEquipes } = useQuery({
+    queryKey: ["producao-equipes-roteirizacao", dataPlanejamento || format(new Date(), "yyyy-MM-dd"), rotas.map(r => r.equipe.id).join(",")],
+    queryFn: async () => {
+      const dataConsulta = dataPlanejamento || format(new Date(), "yyyy-MM-dd");
+      const equipeIds = rotas.map(r => r.equipe.id);
+      
+      if (equipeIds.length === 0) return new Map<string, number>();
+      
+      const { data, error } = await supabase
+        .from("producao_equipes")
+        .select("equipe_id, valor_total")
+        .in("equipe_id", equipeIds)
+        .gte("created_at", dataConsulta + "T00:00:00")
+        .lte("created_at", dataConsulta + "T23:59:59");
+      
+      if (error) {
+        console.error("[Roteirização] Erro ao buscar produção:", error);
+        return new Map<string, number>();
+      }
+      
+      const producaoMap = new Map<string, number>();
+      (data || []).forEach((prod: any) => {
+        const valorAtual = producaoMap.get(prod.equipe_id) || 0;
+        producaoMap.set(prod.equipe_id, valorAtual + (prod.valor_total || 0));
+      });
+      
+      console.log(`[Roteirização] Produção carregada para ${producaoMap.size} equipes (data: ${dataConsulta})`);
+      return producaoMap;
+    },
+    enabled: rotas.length > 0,
+    staleTime: 30000, // Dados frescos por 30 segundos
+    refetchInterval: 60000, // Atualizar a cada 1 minuto
+  });
+
   // STATUS DAS EQUIPES: Calcular se cada equipe está ociosa, trabalhando ou finalizou
   // Retorna um Map<equipeId, { status, osAtual, totalOSs, concluidas, emExecucao, tempoOciosidadeMin }>
   const statusEquipes = useMemo(() => {
@@ -6179,38 +6249,192 @@ const Roteirizacao = () => {
                 </div>
                 
                 {/* Métricas */}
-                <div className="flex-1 grid grid-cols-5 gap-4">
-                  <div className="text-center">
-                    <div className="text-xs text-muted-foreground">Distância</div>
-                    <div className="font-semibold text-sm">{rotaEditando.distanciaTotal.toFixed(1)} km</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-xs text-muted-foreground">Tempo</div>
-                    <div className="font-semibold text-sm">{formatarTempo(rotaEditando.tempoTotal)}</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-xs text-muted-foreground">Faturamento</div>
-                    <div className="font-semibold text-sm text-success">R$ {rotaEditando.faturamentoTotal.toFixed(2)}</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-xs text-muted-foreground">Urgentes</div>
-                    <div className="font-semibold text-sm text-danger">{urgentes}/{servicosValidos.length}</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-xs text-muted-foreground">Intervalo</div>
-                    <div className="font-semibold text-sm">
-                      {(() => {
-                        const primeiroServico = rotaEditando.servicos.find(s => s.tipo === 'SERVICO' && s.horaInicio);
-                        const ultimoServico = [...rotaEditando.servicos].reverse().find(s => s.tipo === 'SERVICO' && s.horaFim);
-                        if (primeiroServico && ultimoServico) {
-                          return `${primeiroServico.horaInicio} - ${ultimoServico.horaFim}`;
-                        }
-                        if (rotaEditando.equipe.horaInicio) {
-                          return `${rotaEditando.equipe.horaInicio} - ${rotaEditando.equipe.horaFim || '--:--'}`;
-                        }
-                        return '--:-- - --:--';
-                      })()}
+                <div className="flex-1">
+                  {/* Linha 1: Métricas básicas */}
+                  <div className="grid grid-cols-5 gap-4 mb-3">
+                    <div className="text-center">
+                      <div className="text-xs text-muted-foreground">Distância</div>
+                      <div className="font-semibold text-sm">{rotaEditando.distanciaTotal.toFixed(1)} km</div>
                     </div>
+                    <div className="text-center">
+                      <div className="text-xs text-muted-foreground">Tempo</div>
+                      <div className="font-semibold text-sm">{formatarTempo(rotaEditando.tempoTotal)}</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-xs text-muted-foreground">Urgentes</div>
+                      <div className="font-semibold text-sm text-danger">{urgentes}/{servicosValidos.length}</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-xs text-muted-foreground">Intervalo</div>
+                      <div className="font-semibold text-sm">
+                        {(() => {
+                          const primeiroServico = rotaEditando.servicos.find(s => s.tipo === 'SERVICO' && s.horaInicio);
+                          const ultimoServico = [...rotaEditando.servicos].reverse().find(s => s.tipo === 'SERVICO' && s.horaFim);
+                          if (primeiroServico && ultimoServico) {
+                            return `${primeiroServico.horaInicio} - ${ultimoServico.horaFim}`;
+                          }
+                          if (rotaEditando.equipe.horaInicio) {
+                            return `${rotaEditando.equipe.horaInicio} - ${rotaEditando.equipe.horaFim || '--:--'}`;
+                          }
+                          return '--:-- - --:--';
+                        })()}
+                      </div>
+                    </div>
+                    <div className="text-center">
+                      {/* Espaço para alinhamento */}
+                    </div>
+                  </div>
+                  
+                  {/* Linha 2: Produção e Metas */}
+                  <div className="grid grid-cols-5 gap-4 pt-3 border-t border-border/50">
+                    {(() => {
+                      const metaEquipe = metasEquipes?.get(rotaEditando.equipe.id) || 0;
+                      const producaoParcial = producaoEquipes?.get(rotaEditando.equipe.id) || 0;
+                      const prodPrevista = rotaEditando.faturamentoTotal;
+                      
+                      // Calcular percentuais
+                      const percentualPrevVsMeta = metaEquipe > 0 ? (prodPrevista / metaEquipe) * 100 : 0;
+                      const percentualParcialVsMeta = metaEquipe > 0 ? (producaoParcial / metaEquipe) * 100 : 0;
+                      
+                      // Calcular Meta Proporcional até o horário atual
+                      // Considera jornada de trabalho das 8h às 18h (10 horas)
+                      const agora = new Date();
+                      const horaAtual = agora.getHours() + agora.getMinutes() / 60;
+                      const inicioJornada = 8; // 8:00
+                      const fimJornada = 18; // 18:00
+                      const duracaoJornada = fimJornada - inicioJornada; // 10 horas
+                      
+                      // Verificar se é dia atual, passado ou futuro
+                      const dataConsulta = dataPlanejamento || format(new Date(), "yyyy-MM-dd");
+                      const hojeStr = format(new Date(), "yyyy-MM-dd");
+                      const ehHoje = dataConsulta === hojeStr;
+                      const ehPassado = dataConsulta < hojeStr;
+                      const ehFuturo = dataConsulta > hojeStr;
+                      
+                      let horasDecorridas = 0;
+                      let percentualJornada = 0;
+                      
+                      if (ehPassado) {
+                        // Dia já acabou: 100% da jornada
+                        horasDecorridas = duracaoJornada;
+                        percentualJornada = 1;
+                      } else if (ehFuturo) {
+                        // Dia ainda não começou: 0%
+                        horasDecorridas = 0;
+                        percentualJornada = 0;
+                      } else {
+                        // Hoje: calcula baseado na hora atual
+                        if (horaAtual >= inicioJornada && horaAtual <= fimJornada) {
+                          horasDecorridas = horaAtual - inicioJornada;
+                        } else if (horaAtual > fimJornada) {
+                          horasDecorridas = duracaoJornada;
+                        }
+                        percentualJornada = duracaoJornada > 0 ? (horasDecorridas / duracaoJornada) : 0;
+                      }
+                      
+                      const metaProporcional = metaEquipe * percentualJornada;
+                      const percentualParcialVsMetaProp = metaProporcional > 0 ? (producaoParcial / metaProporcional) * 100 : 0;
+                      
+                      return (
+                        <>
+                          {/* Prod. Prevista */}
+                          <div className="text-center">
+                            <div className="text-xs text-muted-foreground">Prod. Prevista</div>
+                            <div className="font-semibold text-sm text-success">R$ {prodPrevista.toFixed(2)}</div>
+                            {metaEquipe > 0 && (
+                              <div className={cn(
+                                "text-xs font-medium",
+                                percentualPrevVsMeta >= 100 ? "text-green-600" : percentualPrevVsMeta >= 80 ? "text-amber-600" : "text-red-600"
+                              )}>
+                                {percentualPrevVsMeta.toFixed(0)}% da meta
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* Meta */}
+                          <div className="text-center">
+                            <div className="text-xs text-muted-foreground">Meta</div>
+                            <div className="font-semibold text-sm">
+                              {metaEquipe > 0 ? `R$ ${metaEquipe.toFixed(2)}` : '-'}
+                            </div>
+                          </div>
+                          
+                          {/* Prod. Parcial - Só mostra se tiver execução */}
+                          <div className="text-center">
+                            <div className="text-xs text-muted-foreground">Prod. Parcial</div>
+                            <div className={cn(
+                              "font-semibold text-sm",
+                              producaoParcial > 0 ? "text-blue-600" : "text-muted-foreground"
+                            )}>
+                              {producaoParcial > 0 ? `R$ ${producaoParcial.toFixed(2)}` : '-'}
+                            </div>
+                            {producaoParcial > 0 && metaEquipe > 0 && (
+                              <div className={cn(
+                                "text-xs font-medium",
+                                percentualParcialVsMeta >= 100 ? "text-green-600" : percentualParcialVsMeta >= 80 ? "text-amber-600" : "text-red-600"
+                              )}>
+                                {percentualParcialVsMeta.toFixed(0)}% da meta total
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* Meta Proporcional até Horário Atual - Mostra se for hoje ou dia passado */}
+                          <div className="text-center">
+                            <div className="text-xs text-muted-foreground">Meta Proporcional até agora</div>
+                            {(ehHoje || ehPassado) && metaEquipe > 0 ? (
+                              <>
+                                <div className="font-semibold text-sm">
+                                  R$ {metaProporcional.toFixed(2)}
+                                  {ehPassado && <span className="text-xs text-muted-foreground ml-1">(100%)</span>}
+                                </div>
+                                {producaoParcial > 0 && (
+                                  <div className={cn(
+                                    "text-xs font-medium",
+                                    percentualParcialVsMetaProp >= 100 ? "text-green-600" : percentualParcialVsMetaProp >= 80 ? "text-amber-600" : "text-red-600"
+                                  )}>
+                                    {percentualParcialVsMetaProp.toFixed(0)}% ({producaoParcial >= metaProporcional ? '✓ No ritmo' : '⚠ Atrasado'})
+                                  </div>
+                                )}
+                              </>
+                            ) : ehFuturo ? (
+                              <div className="font-semibold text-sm text-muted-foreground">-</div>
+                            ) : (
+                              <div className="font-semibold text-sm text-muted-foreground">-</div>
+                            )}
+                          </div>
+                          
+                          {/* Status visual */}
+                          <div className="text-center">
+                            <div className="text-xs text-muted-foreground">Status Produção</div>
+                            {producaoParcial > 0 && metaEquipe > 0 && (ehHoje || ehPassado) ? (
+                              <div className={cn(
+                                "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium",
+                                percentualParcialVsMetaProp >= 100 
+                                  ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300" 
+                                  : percentualParcialVsMetaProp >= 80 
+                                    ? "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300" 
+                                    : "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"
+                              )}>
+                                {ehPassado 
+                                  ? (percentualParcialVsMetaProp >= 100 ? '✅ Atingiu' : percentualParcialVsMetaProp >= 80 ? '⚠️ Quase' : '❌ Não atingiu')
+                                  : (percentualParcialVsMetaProp >= 100 ? '🎯 Dentro' : percentualParcialVsMetaProp >= 80 ? '⚠️ Atenção' : '🔴 Fora')
+                                }
+                              </div>
+                            ) : producaoParcial === 0 && ehHoje ? (
+                              <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                                Aguardando
+                              </div>
+                            ) : producaoParcial === 0 && ehPassado && metaEquipe > 0 ? (
+                              <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                                Sem produção
+                              </div>
+                            ) : (
+                              <div className="font-semibold text-sm text-muted-foreground">-</div>
+                            )}
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
                 
