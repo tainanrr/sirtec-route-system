@@ -4,18 +4,21 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import {
-  extrairContatos,
   gerarLinkTelefone,
   gerarLinkWhatsApp,
-  type ContatoExtraido,
-  type DadosOrdemServico,
-} from "@/lib/contatoExtractor";
+  type ContatoIA,
+} from "@/lib/contatoExtractorIA";
 
 interface ContatosExtraidosProps {
-  /** Texto da observação Coelba para extrair contatos */
-  observacoes: string | null | undefined;
+  /** Contatos pré-processados (do banco) */
+  contatosExtraidos?: ContatoIA[] | null;
   /** Dados da ordem de serviço para mensagem do WhatsApp */
-  dadosOrdem: DadosOrdemServico;
+  dadosOrdem: {
+    numero: string;
+    endereco: string;
+    tipoServico: string;
+    clienteNome?: string;
+  };
   /** Se deve mostrar sempre ou apenas quando há contatos */
   mostrarVazio?: boolean;
   /** Classe CSS adicional */
@@ -23,8 +26,12 @@ interface ContatosExtraidosProps {
 }
 
 interface ContatoItemProps {
-  contato: ContatoExtraido;
-  dadosOrdem: DadosOrdemServico;
+  contato: ContatoIA;
+  dadosOrdem: {
+    numero: string;
+    endereco: string;
+    tipoServico: string;
+  };
   isExpanded: boolean;
   onToggle: () => void;
 }
@@ -35,7 +42,7 @@ function ContatoItem({ contato, dadosOrdem, isExpanded, onToggle }: ContatoItemP
   const handleCopiar = async (e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      await navigator.clipboard.writeText(contato.numeroFormatado);
+      await navigator.clipboard.writeText(contato.telefone);
       setCopiado(true);
       toast.success("Número copiado!");
       setTimeout(() => setCopiado(false), 2000);
@@ -46,13 +53,17 @@ function ContatoItem({ contato, dadosOrdem, isExpanded, onToggle }: ContatoItemP
 
   const handleLigar = (e: React.MouseEvent) => {
     e.stopPropagation();
-    window.location.href = gerarLinkTelefone(contato.numeroLimpo);
+    window.location.href = gerarLinkTelefone(contato.telefoneLimpo);
   };
 
   const handleWhatsApp = (e: React.MouseEvent) => {
     e.stopPropagation();
-    window.open(gerarLinkWhatsApp(contato.numeroLimpo, dadosOrdem), "_blank");
+    window.open(gerarLinkWhatsApp(contato.telefoneLimpo, dadosOrdem), "_blank");
   };
+
+  // Definir o que mostrar como título do contato
+  const tituloContato = contato.nome || contato.relacao || null;
+  const temNomeOuRelacao = !!tituloContato;
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden transition-all duration-200">
@@ -68,21 +79,31 @@ function ContatoItem({ contato, dadosOrdem, isExpanded, onToggle }: ContatoItemP
               ? "bg-gradient-to-br from-green-400 to-emerald-500" 
               : "bg-gradient-to-br from-blue-400 to-indigo-500"
           }`}>
-            {contato.nome ? (
+            {temNomeOuRelacao ? (
               <span className="text-white font-bold text-sm">
-                {contato.nome.charAt(0).toUpperCase()}
+                {tituloContato!.charAt(0).toUpperCase()}
               </span>
             ) : (
-              <User className="h-5 w-5 text-white" />
+              <Phone className="h-5 w-5 text-white" />
             )}
           </div>
 
           {/* Info */}
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-slate-900 truncate">
-                {contato.nome || "Contato"}
-              </span>
+            <div className="flex items-center gap-2 flex-wrap">
+              {temNomeOuRelacao && (
+                <span className="font-semibold text-slate-900 truncate">
+                  {contato.nome || contato.relacao}
+                </span>
+              )}
+              {contato.relacao && contato.nome && (
+                <Badge 
+                  variant="outline" 
+                  className="text-[10px] px-1.5 py-0 h-4 bg-slate-100 text-slate-600"
+                >
+                  {contato.relacao}
+                </Badge>
+              )}
               <Badge 
                 variant="secondary" 
                 className={`text-[10px] px-1.5 py-0 h-4 ${
@@ -95,7 +116,7 @@ function ContatoItem({ contato, dadosOrdem, isExpanded, onToggle }: ContatoItemP
               </Badge>
             </div>
             <p className="text-sm text-slate-600 font-mono">
-              {contato.numeroFormatado}
+              {contato.telefone}
             </p>
           </div>
 
@@ -142,14 +163,14 @@ function ContatoItem({ contato, dadosOrdem, isExpanded, onToggle }: ContatoItemP
       {/* Conteúdo expandido */}
       {isExpanded && (
         <div className="px-3 pb-3 pt-0 border-t border-slate-100 bg-slate-50/50">
-          {/* Contexto onde foi encontrado */}
-          {contato.contexto && (
+          {/* Observação sobre o contato (se houver) */}
+          {contato.observacao && (
             <div className="mt-2">
               <p className="text-[10px] uppercase tracking-wide text-slate-400 font-medium mb-1">
-                Trecho da observação
+                Observação
               </p>
               <p className="text-xs text-slate-600 bg-white p-2 rounded-lg border border-slate-200 italic">
-                "...{contato.contexto}..."
+                {contato.observacao}
               </p>
             </div>
           )}
@@ -193,17 +214,51 @@ function ContatoItem({ contato, dadosOrdem, isExpanded, onToggle }: ContatoItemP
 }
 
 export default function ContatosExtraidos({
-  observacoes,
+  contatosExtraidos,
   dadosOrdem,
   mostrarVazio = false,
   className = "",
 }: ContatosExtraidosProps) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(0);
 
-  // Extrai contatos da observação
+  // Usar contatos pré-processados e remover duplicatas
   const contatos = useMemo(() => {
-    return extrairContatos(observacoes);
-  }, [observacoes]);
+    if (!contatosExtraidos || !Array.isArray(contatosExtraidos)) {
+      return [];
+    }
+
+    // Remover duplicatas por telefoneLimpo
+    const telefonesVistos = new Set<string>();
+    const contatosUnicos: ContatoIA[] = [];
+
+    for (const contato of contatosExtraidos) {
+      // Garantir que o contato tem os campos necessários
+      if (!contato.telefoneLimpo && !contato.telefone) continue;
+      
+      const telefoneChave = contato.telefoneLimpo || contato.telefone.replace(/\D/g, "");
+      
+      if (!telefonesVistos.has(telefoneChave)) {
+        telefonesVistos.add(telefoneChave);
+        contatosUnicos.push({
+          ...contato,
+          telefoneLimpo: telefoneChave,
+        });
+      }
+    }
+
+    // Ordenar: celulares primeiro, depois com nome, depois sem nome
+    return contatosUnicos.sort((a, b) => {
+      // Celulares primeiro
+      if (a.tipo === "celular" && b.tipo !== "celular") return -1;
+      if (a.tipo !== "celular" && b.tipo === "celular") return 1;
+      
+      // Com nome antes de sem nome
+      if (a.nome && !b.nome) return -1;
+      if (!a.nome && b.nome) return 1;
+      
+      return 0;
+    });
+  }, [contatosExtraidos]);
 
   // Se não há contatos e não deve mostrar vazio, não renderiza nada
   if (contatos.length === 0 && !mostrarVazio) {
@@ -239,7 +294,7 @@ export default function ContatosExtraidos({
       <div className="space-y-2">
         {contatos.map((contato, index) => (
           <ContatoItem
-            key={`${contato.numeroLimpo}-${index}`}
+            key={`${contato.telefoneLimpo}-${index}`}
             contato={contato}
             dadosOrdem={dadosOrdem}
             isExpanded={expandedIndex === index}

@@ -1223,9 +1223,9 @@ export default function AppOrdemDetalhe() {
         </div>
 
         {/* Contatos Extraídos - Seção de Acesso Rápido */}
-        {ordem.observacoes && (
+        {(ordem as any).contatos_extraidos && Array.isArray((ordem as any).contatos_extraidos) && (ordem as any).contatos_extraidos.length > 0 && (
           <ContatosExtraidos
-            observacoes={ordem.observacoes}
+            contatosExtraidos={(ordem as any).contatos_extraidos}
             dadosOrdem={{
               numero: ordem.numero,
               endereco: ordem.endereco || "",
@@ -1468,22 +1468,9 @@ export default function AppOrdemDetalhe() {
                   </div>
                 )}
                 {ordem.observacoes && (
-                  <div className="pt-2 space-y-3">
-                    <div>
-                      <p className="text-xs text-blue-600 font-medium">Obs. Coelba:</p>
-                      <p className="text-xs bg-blue-50 p-2 rounded mt-1">{ordem.observacoes}</p>
-                    </div>
-                    
-                    {/* Contatos extraídos da observação */}
-                    <ContatosExtraidos
-                      observacoes={ordem.observacoes}
-                      dadosOrdem={{
-                        numero: ordem.numero,
-                        endereco: ordem.endereco || "",
-                        tipoServico: getTipoNome(ordem.tipo) || ordem.tipo || "serviço",
-                        clienteNome: ordem.cliente_nome,
-                      }}
-                    />
+                  <div className="pt-2">
+                    <p className="text-xs text-blue-600 font-medium">Obs. Coelba:</p>
+                    <p className="text-xs bg-blue-50 p-2 rounded mt-1">{ordem.observacoes}</p>
                   </div>
                 )}
                 {(ordem as any).observacoes_equipe && (

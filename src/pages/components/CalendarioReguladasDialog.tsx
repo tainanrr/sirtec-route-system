@@ -665,229 +665,153 @@ export default function CalendarioReguladasDialog({
           </Button>
         </div>
 
-        {/* Resumo */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-          <Card className="border-blue-200 bg-blue-50">
-            <CardContent className="p-3">
-              <div className="text-sm text-muted-foreground">Total Reguladas</div>
-              <div className="text-2xl font-bold text-blue-700">
-                {totalReguladas}
+        {/* Resumo Compacto + Localização */}
+        <div className="flex items-center justify-between gap-4 mb-3 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1 px-2 py-1 rounded bg-blue-50 border border-blue-200">
+              <span className="text-xs text-muted-foreground">Total:</span>
+              <span className="font-bold text-blue-700">{totalReguladas}</span>
+            </div>
+            <div className="flex items-center gap-1 px-2 py-1 rounded bg-amber-50 border border-amber-200">
+              <span className="text-xs text-muted-foreground">Hoje:</span>
+              <span className="font-bold text-amber-700">{totalVencendoHoje}</span>
+            </div>
+            {totalVencidas > 0 && (
+              <div className="flex items-center gap-1 px-2 py-1 rounded bg-red-50 border border-red-200">
+                <AlertTriangle className="h-3 w-3 text-red-600" />
+                <span className="font-bold text-red-700">{totalVencidas} vencidas</span>
               </div>
-            </CardContent>
-          </Card>
-          <Card className="border-amber-200 bg-amber-50">
-            <CardContent className="p-3">
-              <div className="text-sm text-muted-foreground">Vencendo Hoje</div>
-              <div className="text-2xl font-bold text-amber-700">
-                {totalVencendoHoje}
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="border-red-200 bg-red-50">
-            <CardContent className="p-3">
-              <div className="text-sm text-muted-foreground flex items-center gap-1">
-                <AlertTriangle className="h-4 w-4" />
-                Vencidas Hoje
-              </div>
-              <div className="text-2xl font-bold text-red-700">{totalVencidas}</div>
-            </CardContent>
-          </Card>
-          <Card className="border-green-200 bg-green-50">
-            <CardContent className="p-3">
-              <div className="text-sm text-muted-foreground">Próx. 10 Dias</div>
-              <div className="text-2xl font-bold text-green-700">
-                {totalProximos10Dias}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <Separator />
-
-        {/* Indicador de Localização da Previsão */}
-        <div className="flex items-center justify-between mt-3 px-2">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Cloud className="h-4 w-4" />
-            <span>Previsão do tempo para:</span>
-            <Badge variant="outline" className="font-medium">
-              <MapPin className="h-3 w-3 mr-1" />
+            )}
+            <div className="flex items-center gap-1 px-2 py-1 rounded bg-green-50 border border-green-200">
+              <span className="text-xs text-muted-foreground">10 dias:</span>
+              <span className="font-bold text-green-700">{totalProximos10Dias}</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Cloud className="h-3 w-3" />
+            <Badge variant="outline" className="text-xs py-0">
+              <MapPin className="h-2 w-2 mr-1" />
               {localizacaoPrevisao}
             </Badge>
           </div>
-          {ordensFiltradas.length > 0 && (
-            <span className="text-xs text-muted-foreground">
-              {ordensFiltradas.length} OSs consideradas
-            </span>
-          )}
         </div>
 
-        {/* Calendário */}
-        <ScrollArea className="h-[48vh] mt-3">
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            {diasCalendario.map((dia) => (
-              <Card
-                key={dia.dataStr}
-                className={cn(
-                  "transition-all hover:shadow-md cursor-pointer",
-                  getStatusCor(dia),
-                  dia.previsao && getCorClima(dia.previsao.codigoClima)
-                )}
-              >
-                <CardHeader className="p-3 pb-2">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-xs text-muted-foreground capitalize">
-                        {dia.diaSemana}
-                      </div>
-                      <CardTitle className="text-lg">
-                        {dia.diaNumero}
-                        <span className="text-xs ml-1 font-normal text-muted-foreground capitalize">
-                          {dia.mesNome}
-                        </span>
-                      </CardTitle>
+        {/* Calendário Compacto - 10 dias em linha */}
+        <div className="grid grid-cols-5 lg:grid-cols-10 gap-2">
+          {diasCalendario.map((dia) => (
+            <div
+              key={dia.dataStr}
+              className={cn(
+                "rounded-lg border p-2 transition-all hover:shadow-md cursor-pointer min-h-[140px]",
+                getStatusCor(dia),
+                dia.previsao && getCorClima(dia.previsao.codigoClima)
+              )}
+            >
+              {/* Cabeçalho: Dia da Semana + Data */}
+              <div className="text-center mb-1">
+                <div className="text-[10px] text-muted-foreground capitalize truncate">
+                  {dia.diaSemana.substring(0, 3)}
+                </div>
+                <div className="font-bold text-sm">
+                  {dia.diaNumero}
+                  {isToday(dia.data) && (
+                    <span className="ml-1 text-[9px] bg-primary text-primary-foreground px-1 rounded">
+                      HOJE
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Quantidade - DESTACADO */}
+              <div className="flex justify-center mb-1">
+                <div className={cn(
+                  "flex items-center justify-center gap-1 px-2 py-1 rounded-md font-bold text-base min-w-[40px]",
+                  dia.totalReguladas === 0 && "bg-gray-100 text-gray-400 text-sm",
+                  dia.totalReguladas > 0 && dia.totalReguladas <= 5 && "bg-blue-200 text-blue-800",
+                  dia.totalReguladas > 5 && dia.totalReguladas <= 10 && "bg-amber-200 text-amber-800",
+                  dia.totalReguladas > 10 && "bg-red-200 text-red-800 animate-pulse"
+                )}>
+                  <Zap className="h-3 w-3" />
+                  {dia.totalReguladas}
+                </div>
+              </div>
+
+              {/* Vencidas */}
+              {dia.vencidas > 0 && (
+                <div className="text-center mb-1">
+                  <span className="text-[9px] bg-red-600 text-white px-1 rounded font-bold">
+                    ⚠️{dia.vencidas}
+                  </span>
+                </div>
+              )}
+
+              {/* Previsão Compacta */}
+              {dia.previsao && !carregandoPrevisao && (
+                <div className="text-center border-t border-gray-200 pt-1 mt-1">
+                  <div className="flex items-center justify-center gap-1">
+                    <span className="text-base">{dia.previsao.icone}</span>
+                    <div className="text-[10px]">
+                      <span className="text-red-600 font-medium">{dia.previsao.temperaturaMax}°</span>
+                      <span className="text-muted-foreground">/</span>
+                      <span className="text-blue-600">{dia.previsao.temperaturaMin}°</span>
                     </div>
-                    {isToday(dia.data) && (
-                      <Badge variant="default" className="text-xs">
-                        Hoje
-                      </Badge>
-                    )}
                   </div>
-                </CardHeader>
-                <CardContent className="p-3 pt-0">
-                  {/* Quantidade de Reguladas - DESTACADO */}
-                  <div className="flex items-center justify-center mb-3">
-                    <div className={cn(
-                      "flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-lg",
-                      dia.totalReguladas === 0 && "bg-gray-100 text-gray-500",
-                      dia.totalReguladas > 0 && dia.totalReguladas <= 5 && "bg-blue-100 text-blue-700",
-                      dia.totalReguladas > 5 && dia.totalReguladas <= 10 && "bg-amber-100 text-amber-700",
-                      dia.totalReguladas > 10 && "bg-red-100 text-red-700 animate-pulse"
-                    )}>
-                      <Zap className="h-5 w-5" />
-                      <span>{dia.totalReguladas}</span>
-                    </div>
-                  </div>
-                  {dia.vencidas > 0 && (
-                    <div className="flex justify-center mb-2">
-                      <Badge variant="destructive" className="text-xs font-bold">
-                        ⚠️ {dia.vencidas} vencidas
-                      </Badge>
+                  {dia.previsao.probabilidadeChuva > 30 && (
+                    <div className="text-[9px] text-blue-600 flex items-center justify-center gap-0.5">
+                      <Droplets className="h-2 w-2" />
+                      {dia.previsao.probabilidadeChuva}%
                     </div>
                   )}
+                </div>
+              )}
 
-                  {/* Previsão do Tempo */}
-                  {carregandoPrevisao ? (
-                    <div className="space-y-1">
-                      <Skeleton className="h-4 w-full" />
-                      <Skeleton className="h-4 w-3/4" />
-                    </div>
-                  ) : dia.previsao ? (
-                    <div className="mt-2 pt-2 border-t border-gray-200">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-2xl">{dia.previsao.icone}</span>
-                        <div className="text-right">
-                          <div className="flex items-center gap-1">
-                            <ThermometerSun className="h-3 w-3 text-red-500" />
-                            <span className="text-red-600 font-medium">
-                              {dia.previsao.temperaturaMax}°
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <ThermometerSnowflake className="h-3 w-3 text-blue-500" />
-                            <span className="text-blue-600">
-                              {dia.previsao.temperaturaMin}°
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-1">
-                        {dia.previsao.descricaoClima}
-                      </div>
-                      <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                        <div className="flex items-center gap-1">
-                          <Droplets className="h-3 w-3" />
-                          {dia.previsao.probabilidadeChuva}%
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Wind className="h-3 w-3" />
-                          {dia.previsao.velocidadeVento} km/h
-                        </div>
-                      </div>
-                      {!climaFavoravel(
-                        dia.previsao.codigoClima,
-                        dia.previsao.precipitacao
-                      ) && (
-                        <div className="mt-2 flex items-center gap-1 text-xs text-red-600">
-                          <CloudRain className="h-3 w-3" />
-                          Clima desfavorável
-                        </div>
-                      )}
-                    </div>
-                  ) : null}
+              {/* Grupos Compacto */}
+              {dia.totalReguladas > 0 && (
+                <div className="mt-1 pt-1 border-t border-gray-200">
+                  <div className="flex flex-wrap gap-0.5 justify-center">
+                    {Object.entries(
+                      dia.reguladas.reduce((acc, os) => {
+                        const grupo = getGrupoServico(os.tipo);
+                        acc[grupo] = (acc[grupo] || 0) + 1;
+                        return acc;
+                      }, {} as Record<string, number>)
+                    )
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 3) // Mostrar apenas top 3
+                    .map(([grupo, count]) => (
+                      <span
+                        key={grupo}
+                        className="text-[8px] bg-white/80 border rounded px-1 truncate max-w-[60px]"
+                        title={`${grupo}: ${count}`}
+                      >
+                        {grupo.substring(0, 6)}: {count}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
 
-                  {/* Detalhes por Grupo de Serviço */}
-                  {dia.totalReguladas > 0 && (
-                    <div className="mt-2 pt-2 border-t border-gray-200">
-                      <div className="text-xs text-muted-foreground mb-1">
-                        Por grupo de serviço:
-                      </div>
-                      <div className="flex flex-wrap gap-1">
-                        {Object.entries(
-                          dia.reguladas.reduce((acc, os) => {
-                            const grupo = getGrupoServico(os.tipo);
-                            acc[grupo] = (acc[grupo] || 0) + 1;
-                            return acc;
-                          }, {} as Record<string, number>)
-                        )
-                        .sort((a, b) => b[1] - a[1]) // Ordenar por quantidade (maior primeiro)
-                        .map(([grupo, count]) => (
-                          <Badge
-                            key={grupo}
-                            variant="outline"
-                            className="text-xs bg-white"
-                          >
-                            {grupo}: {count}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
+        {/* Legenda Compacta */}
+        <div className="mt-3 flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground">
+          <span className="font-medium">Legenda:</span>
+          <div className="flex items-center gap-1">
+            <div className="w-3 h-3 rounded bg-blue-200" />
+            <span>1-5</span>
           </div>
-        </ScrollArea>
-
-        {/* Legenda */}
-        <div className="mt-4 p-3 rounded-lg border border-border bg-muted/30">
-          <div className="text-sm font-medium mb-2">Legenda:</div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-muted-foreground">
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded border-2 border-red-400 bg-red-50" />
-              <span>Com vencidas</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded border-2 border-amber-400 bg-amber-50" />
-              <span>Hoje (atenção)</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded border-2 border-orange-400 bg-orange-50" />
-              <span>Acima de 10</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded border-2 border-gray-200 bg-gray-50" />
-              <span>Sem reguladas</span>
-            </div>
+          <div className="flex items-center gap-1">
+            <div className="w-3 h-3 rounded bg-amber-200" />
+            <span>6-10</span>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs text-muted-foreground mt-2">
-            <div className="flex items-center gap-2">
-              <CloudRain className="h-4 w-4 text-red-500" />
-              <span>Clima desfavorável para trabalho externo</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Sun className="h-4 w-4 text-amber-500" />
-              <span>Clima favorável</span>
-            </div>
+          <div className="flex items-center gap-1">
+            <div className="w-3 h-3 rounded bg-red-200" />
+            <span>+10</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <Droplets className="h-3 w-3 text-blue-500" />
+            <span>Chuva</span>
           </div>
         </div>
       </DialogContent>

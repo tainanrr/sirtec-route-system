@@ -48,6 +48,7 @@ import {
   CheckSquare,
   Square,
   AlertTriangle,
+  Sparkles,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { supabase } from "@/integrations/supabase/client";
@@ -55,6 +56,7 @@ import { toast } from "sonner";
 import { OrdemServicoFormDialog } from "@/components/ordens/OrdemServicoFormDialog";
 import { OrdemServicoDetalhesDialog } from "@/components/ordens/OrdemServicoDetalhesDialog";
 import { ImportacaoOSDialog } from "@/components/ordens/ImportacaoOSDialog";
+import { ProcessarContatosIA } from "@/components/ordens/ProcessarContatosIA";
 import type { Tables } from "@/integrations/supabase/types";
 import * as XLSX from "xlsx";
 import { fetchSkills } from "@/lib/skillsUtils";
@@ -132,6 +134,7 @@ const OrdensServico = () => {
   const [ordemToDelete, setOrdemToDelete] = useState<Tables<"ordens_servico"> | null>(null);
   const [clearAllDialogOpen, setClearAllDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [processarContatosOpen, setProcessarContatosOpen] = useState(false);
   
   // Estados para seleção de OSs
   const [selectedOsIds, setSelectedOsIds] = useState<Set<string>>(new Set());
