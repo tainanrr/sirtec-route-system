@@ -2784,37 +2784,6 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
           `;
         };
         
-        // Cor de fundo do marcador central SEMPRE é a cor do território
-        // A intensidade da criticidade é mostrada apenas na BORDA
-        const totalUrgentesParaBorda = expectativa?.totalUrgentes || 0;
-        
-        // Definir cor e espessura da borda baseada na quantidade de urgentes
-        let corBorda = 'white';
-        let espessuraBorda = 3;
-        let boxShadowBorda = '0 4px 12px rgba(0,0,0,0.35)';
-        
-        if (totalUrgentesParaBorda >= 10) {
-          // Crítico - muitas urgentes (vermelho intenso, borda grossa)
-          corBorda = '#dc2626';
-          espessuraBorda = 5;
-          boxShadowBorda = '0 4px 12px rgba(0,0,0,0.35), 0 0 0 3px rgba(220, 38, 38, 0.4)';
-        } else if (totalUrgentesParaBorda >= 5) {
-          // Alto - borda laranja
-          corBorda = '#f97316';
-          espessuraBorda = 4;
-          boxShadowBorda = '0 4px 12px rgba(0,0,0,0.35), 0 0 0 2px rgba(249, 115, 22, 0.3)';
-        } else if (totalUrgentesParaBorda >= 3) {
-          // Atenção - borda amarela
-          corBorda = '#eab308';
-          espessuraBorda = 4;
-          boxShadowBorda = '0 4px 12px rgba(0,0,0,0.35), 0 0 0 2px rgba(234, 179, 8, 0.3)';
-        } else if (totalUrgentesParaBorda >= 1) {
-          // Alguma atenção - borda verde claro
-          corBorda = '#84cc16';
-          espessuraBorda = 3;
-        }
-        // Se 0 urgentes, mantém borda branca
-        
         // Formatar o prazo limite para exibição (dd/mm hh:mm)
         const prazoFormatado = prazoLimiteUrgente 
           ? prazoLimiteUrgente.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' + 
@@ -2839,8 +2808,8 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
               width: 52px;
               height: 52px;
               border-radius: 50%;
-              border: ${espessuraBorda}px solid ${corBorda};
-              box-shadow: ${boxShadowBorda};
+              border: 3px solid white;
+              box-shadow: 0 4px 12px rgba(0,0,0,0.35);
               display: flex;
               flex-direction: column;
               align-items: center;
@@ -2910,7 +2879,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
                   <td style="padding: 4px 6px; text-align: center;">${totalUrgentes}</td>
                   <td style="padding: 4px 6px; text-align: center; font-weight: bold;">${valorFormatado}</td>
                   <td style="padding: 4px 6px; text-align: center;">
-                    <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ${corBorda === 'white' ? corTerritorio : corBorda};"></span>
+                    <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ${corTerritorio};"></span>
                   </td>
                 </tr>
                 ${projecoes.map(p => `
