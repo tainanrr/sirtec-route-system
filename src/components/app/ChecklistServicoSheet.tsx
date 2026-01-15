@@ -722,6 +722,7 @@ export default function ChecklistServicoSheet({
       }
 
       switch (pergunta.tipo) {
+        case 'texto':
         case 'texto_curto':
           return (
             <Input
@@ -772,7 +773,26 @@ export default function ChecklistServicoSheet({
             </RadioGroup>
           );
 
+        case 'conforme_nao_conforme':
+          return (
+            <RadioGroup
+              value={resposta?.resposta as string || ''}
+              onValueChange={(value) => updateResposta(pergunta.id, value)}
+              className={`flex gap-4 ${isPendente ? "p-2 rounded-lg bg-red-50 border border-red-300" : ""}`}
+            >
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="conforme" id={`${pergunta.id}-conforme`} />
+                <Label htmlFor={`${pergunta.id}-conforme`} className="text-green-600 font-medium cursor-pointer">Conforme</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="nao_conforme" id={`${pergunta.id}-nao_conforme`} />
+                <Label htmlFor={`${pergunta.id}-nao_conforme`} className="text-red-600 font-medium cursor-pointer">Não Conforme</Label>
+              </div>
+            </RadioGroup>
+          );
+
         case 'selecao_unica':
+        case 'dropdown':
           const opcoesUnica = getOpcoes(pergunta);
           return (
             <RadioGroup
@@ -790,6 +810,7 @@ export default function ChecklistServicoSheet({
           );
 
         case 'selecao_multipla':
+        case 'multipla_escolha':
           const opcoesMultipla = getOpcoes(pergunta);
           const selecionados = (resposta?.resposta as string[]) || [];
           return (

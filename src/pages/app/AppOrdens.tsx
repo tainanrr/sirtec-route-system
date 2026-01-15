@@ -730,19 +730,8 @@ export default function AppOrdens() {
       !contatosPreloaded &&
       !isLoadingOrdens;
 
-    console.log(`[AppOrdens] 📞 Verificando preload de contatos: isOnline=${isOnline}, isToday=${isToday(selectedDate)}, ordens=${ordensParaUsar.length}, contatosPreloaded=${contatosPreloaded}, isLoading=${isLoadingOrdens}, shouldPreload=${shouldPreload}`);
-
     if (shouldPreload) {
-      // Debug: verificar quantas OSs têm observações
-      const osComObs = ordensParaUsar.filter(o => o.ordens_servico?.observacoes);
-      console.log(`[AppOrdens] 📞 OSs com observações: ${osComObs.length} de ${ordensParaUsar.length}`);
-      if (osComObs.length > 0 && osComObs.length <= 5) {
-        osComObs.forEach(o => {
-          console.log(`[AppOrdens]   - OS ${o.ordens_servico?.numero}: obs="${(o.ordens_servico?.observacoes || '').substring(0, 50)}..."`);
-        });
-      }
-
-      // Extrair OSs com observações para processar
+      // Extrair OSs com observações para processar (100% local, sem API)
       const osParaProcessar = ordensParaUsar
         .filter(o => o.ordens_servico?.observacoes)
         .map(o => ({
@@ -753,13 +742,11 @@ export default function AppOrdens() {
         }));
 
       if (osParaProcessar.length > 0) {
-        console.log(`[AppOrdens] 📞 Iniciando extração de contatos para ${osParaProcessar.length} OSs...`);
-        preloadContatos(osParaProcessar, false).then((result) => {
-          console.log(`[AppOrdens] 📞 Preload concluído:`, result);
+        console.log(`[AppOrdens] 📞 Extraindo contatos de ${osParaProcessar.length} OSs (local)...`);
+        preloadContatos(osParaProcessar, false).then(() => {
           setContatosPreloaded(true);
         });
       } else {
-        console.log(`[AppOrdens] 📞 Nenhuma OS com observações para processar`);
         setContatosPreloaded(true);
       }
     }

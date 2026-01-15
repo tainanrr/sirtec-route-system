@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Sparkles, Loader2, CheckCircle2, AlertCircle, Phone, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { extrairContatosComIA, type ContatoIA } from "@/lib/contatoExtractorIA";
+import { extrairContatosComIA, type ContatoIA } from "@/lib/contatoExtractorLocal";
 
 interface ProcessarContatosIAProps {
   open: boolean;

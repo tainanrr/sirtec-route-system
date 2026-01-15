@@ -7,7 +7,7 @@ import {
   gerarLinkTelefone,
   gerarLinkWhatsApp,
   type ContatoIA,
-} from "@/lib/contatoExtractorIA";
+} from "@/lib/contatoExtractorLocal";
 
 interface ContatosExtraidosProps {
   /** Contatos pré-processados (do banco) */

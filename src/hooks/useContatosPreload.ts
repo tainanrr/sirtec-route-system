@@ -6,7 +6,7 @@
  */
 
 import { useState, useCallback, useRef } from "react";
-import { extrairContatosComIA, type ContatoIA } from "@/lib/contatoExtractorIA";
+import { extrairContatosComIA, type ContatoIA } from "@/lib/contatoExtractorLocal";
 import { toast } from "sonner";
 
 // Nome do IndexedDB e store para cache de contatos
@@ -213,26 +213,13 @@ export function useContatosPreload() {
     let failed = 0;
 
     try {
-      // Processar uma OS por vez para respeitar rate limits da API Gemini
-      // O tier gratuito tem limites muito baixos (~15 req/min)
-      const DELAY_ENTRE_CHAMADAS = 8000; // 8 segundos entre cada chamada (mais conservador)
-      const MAX_OS_POR_SESSAO = 10; // Limitar para não esgotar cota
-      let rateLimitHit = false;
-      
-      // Limitar quantidade de OSs processadas por sessão
-      const osLimitadas = osParaProcessar.slice(0, MAX_OS_POR_SESSAO);
-      if (osParaProcessar.length > MAX_OS_POR_SESSAO) {
-        console.log(`[useContatosPreload] Limitando para ${MAX_OS_POR_SESSAO} OSs de ${osParaProcessar.length} (para economizar cota da API)`);
-      }
-      
-      for (let i = 0; i < osLimitadas.length; i++) {
-        // Se atingiu rate limit, parar
-        if (rateLimitHit) break;
-        
-        const os = osLimitadas[i];
+      // Processamento 100% local com regex - sem API, sem delay
+      for (let i = 0; i < osParaProcessar.length; i++) {
+        const os = osParaProcessar[i];
         
         try {
-          const resultado = await extrairContatosComIA(os.observacoes!);
+          // Extração local é síncrona e instantânea
+          const resultado = extrairContatosComIA(os.observacoes!);
           
           if (resultado.sucesso) {
             // Salvar no cache local (IndexedDB)
@@ -242,11 +229,6 @@ export function useContatosPreload() {
               withContacts++;
             }
           } else {
-            // Se foi erro de rate limit, parar o processamento
-            if (resultado.erro?.includes("Limite de requisições") || resultado.erro?.includes("429")) {
-              console.warn("[useContatosPreload] Rate limit atingido, pausando processamento");
-              rateLimitHit = true;
-            }
             failed++;
           }
         } catch (error) {
@@ -258,19 +240,14 @@ export function useContatosPreload() {
         setProgress({ 
           isLoading: true, 
           current: i + 1, 
-          total: osLimitadas.length,
+          total: osParaProcessar.length,
           currentOS: os.numero,
         });
 
         if (toastId) {
-          toast.loading(`Identificando contatos: ${i + 1}/${osLimitadas.length}...`, {
+          toast.loading(`Identificando contatos: ${i + 1}/${osParaProcessar.length}...`, {
             id: toastId,
           });
-        }
-
-        // Delay entre chamadas para respeitar rate limit
-        if (i + 1 < osLimitadas.length && !rateLimitHit) {
-          await new Promise(resolve => setTimeout(resolve, DELAY_ENTRE_CHAMADAS));
         }
       }
 

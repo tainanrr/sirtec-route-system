@@ -15,7 +15,7 @@ import RetornoCampoSelector from "@/components/app/RetornoCampoSelector";
 import ChecklistServicoSheet from "@/components/app/ChecklistServicoSheet";
 import ContatosExtraidos from "@/components/app/ContatosExtraidos";
 import { getFromCache as getContatosFromCache } from "@/hooks/useContatosPreload";
-import type { ContatoIA } from "@/lib/contatoExtractorIA";
+import type { ContatoIA } from "@/lib/contatoExtractorLocal";
 import {
   Dialog,
   DialogContent,

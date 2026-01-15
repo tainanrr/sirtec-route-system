@@ -46,7 +46,7 @@ import {
 } from "lucide-react";
 import { StreetViewImage } from "@/components/ui/street-view-image";
 import { Button } from "@/components/ui/button";
-import { extrairContatosComIA, gerarLinkTelefone, gerarLinkWhatsApp, type ContatoIA } from "@/lib/contatoExtractorIA";
+import { extrairContatosComIA, gerarLinkTelefone, gerarLinkWhatsApp, type ContatoIA } from "@/lib/contatoExtractorLocal";
 
 interface OrdemServicoDetalhesDialogProps {
   open: boolean;
