@@ -1752,7 +1752,7 @@ const Roteirizacao = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("skills")
-        .select("codigo, nome")
+        .select("codigo, nome, grupo_servico")
         .eq("ativo", true)
         .order("nome");
       
@@ -5096,7 +5096,11 @@ const Roteirizacao = () => {
             <ConfigPrazoUrgente onPrazoChange={handlePrazoChange} />
             {/* V22: Configuração de foco/prioridade por tipo de serviço */}
             <ConfigFocoRoteirizacao
-              tiposDisponiveis={(tiposServicosCadastrados || []).map(s => ({ codigo: s.codigo, nome: s.nome }))}
+              tiposDisponiveis={(tiposServicosCadastrados || []).map(s => ({ 
+                codigo: s.codigo, 
+                nome: s.nome,
+                grupo: s.grupo_servico || undefined
+              }))}
               tiposSelecionados={tiposPrioritarios}
               onChange={setTiposPrioritarios}
               disabled={isOtimizando}
