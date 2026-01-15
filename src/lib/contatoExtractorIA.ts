@@ -358,9 +358,15 @@ export function gerarLinkWhatsApp(
 ): string {
   const limpo = numero.replace(/\D/g, "");
   
-  const mensagem = `Olá! Estou a serviço da Coelba, no endereço *${dados.endereco}*, para atendimento da Ordem de Serviço *${dados.numero}*, aqui para realizar o seu serviço de *${dados.tipoServico}*.
+  const mensagem = `Bom dia! Meu nome é técnico da empresa *SIRTEC*, prestadora de serviços da *COELBA*.
 
-Está disponível no momento? Se não, pode me passar o contato de alguém que esteja?`;
+Estou entrando em contato referente à Ordem de Serviço nº *${dados.numero}*, agendada para o endereço *${dados.endereco}*.
+
+O serviço a ser realizado é: *${dados.tipoServico}*.
+
+Por gentileza, haverá alguém no local para nos receber? Caso não seja possível, poderia indicar um contato alternativo?
+
+Agradeço desde já pela atenção.`;
   
   const mensagemCodificada = encodeURIComponent(mensagem);
   return `https://wa.me/55${limpo}?text=${mensagemCodificada}`;

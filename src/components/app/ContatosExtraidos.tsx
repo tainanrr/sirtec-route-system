@@ -148,57 +148,8 @@ function ContatoItem({ contato, dadosOrdem, isExpanded, onToggle }: ContatoItemP
               size="icon"
               variant="ghost"
               className="h-8 w-8 rounded-full text-slate-400 hover:text-slate-600"
-              onClick={onToggle}
-            >
-              {isExpanded ? (
-                <ChevronUp className="h-4 w-4" />
-              ) : (
-                <ChevronDown className="h-4 w-4" />
-              )}
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      {/* Conteúdo expandido */}
-      {isExpanded && (
-        <div className="px-3 pb-3 pt-0 border-t border-slate-100 bg-slate-50/50">
-          {/* Observação sobre o contato (se houver) */}
-          {contato.observacao && (
-            <div className="mt-2">
-              <p className="text-[10px] uppercase tracking-wide text-slate-400 font-medium mb-1">
-                Observação
-              </p>
-              <p className="text-xs text-slate-600 bg-white p-2 rounded-lg border border-slate-200 italic">
-                {contato.observacao}
-              </p>
-            </div>
-          )}
-
-          {/* Botões de ação completos */}
-          <div className="flex gap-2 mt-3">
-            <Button
-              className="flex-1 h-10 bg-blue-600 hover:bg-blue-700 text-white font-medium"
-              onClick={handleLigar}
-            >
-              <Phone className="h-4 w-4 mr-2" />
-              Ligar
-            </Button>
-            
-            {contato.tipo === "celular" && (
-              <Button
-                className="flex-1 h-10 bg-green-600 hover:bg-green-700 text-white font-medium"
-                onClick={handleWhatsApp}
-              >
-                <MessageCircle className="h-4 w-4 mr-2" />
-                WhatsApp
-              </Button>
-            )}
-
-            <Button
-              variant="outline"
-              className="h-10 px-3"
               onClick={handleCopiar}
+              title="Copiar número"
             >
               {copiado ? (
                 <Check className="h-4 w-4 text-green-600" />
@@ -206,6 +157,37 @@ function ContatoItem({ contato, dadosOrdem, isExpanded, onToggle }: ContatoItemP
                 <Copy className="h-4 w-4" />
               )}
             </Button>
+
+            {contato.observacao && (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8 rounded-full text-slate-400 hover:text-slate-600"
+                onClick={onToggle}
+                title="Ver observação"
+              >
+                {isExpanded ? (
+                  <ChevronUp className="h-4 w-4" />
+                ) : (
+                  <ChevronDown className="h-4 w-4" />
+                )}
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Conteúdo expandido */}
+      {isExpanded && contato.observacao && (
+        <div className="px-3 pb-3 pt-0 border-t border-slate-100 bg-slate-50/50">
+          {/* Observação sobre o contato (se houver) */}
+          <div className="mt-2">
+            <p className="text-[10px] uppercase tracking-wide text-slate-400 font-medium mb-1">
+              Observação
+            </p>
+            <p className="text-xs text-slate-600 bg-white p-2 rounded-lg border border-slate-200 italic">
+              {contato.observacao}
+            </p>
           </div>
         </div>
       )}
@@ -286,7 +268,10 @@ export default function ContatosExtraidos({
       <div className="flex items-center gap-2 px-1">
         <Sparkles className="h-4 w-4 text-amber-500" />
         <span className="text-xs font-medium text-slate-700">
-          {contatos.length} contato{contatos.length > 1 ? "s" : ""} identificado{contatos.length > 1 ? "s" : ""}
+          {contatos.length > 1 
+            ? `${contatos.length} possíveis contatos identificados nas Observações`
+            : "Possível contato identificado nas Observações"
+          }
         </span>
       </div>
 

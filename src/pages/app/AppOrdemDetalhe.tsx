@@ -1263,19 +1263,6 @@ export default function AppOrdemDetalhe() {
           </Button>
         </div>
 
-        {/* Contatos Extraídos - Seção de Acesso Rápido */}
-        {contatosParaExibir && Array.isArray(contatosParaExibir) && contatosParaExibir.length > 0 && (
-          <ContatosExtraidos
-            contatosExtraidos={contatosParaExibir}
-            dadosOrdem={{
-              numero: ordem.numero,
-              endereco: ordem.endereco || "",
-              tipoServico: getTipoNome(ordem.tipo) || ordem.tipo || "serviço",
-              clienteNome: ordem.cliente_nome,
-            }}
-          />
-        )}
-
         {/* Botões de Ação Secundários */}
         {isActive && (
           <div className="flex gap-2">
@@ -1518,6 +1505,21 @@ export default function AppOrdemDetalhe() {
                   <div className="pt-2">
                     <p className="text-xs text-emerald-600 font-medium">Obs. Equipe:</p>
                     <p className="text-xs bg-emerald-50 p-2 rounded mt-1">{(ordem as any).observacoes_equipe}</p>
+                  </div>
+                )}
+
+                {/* Possíveis Contatos Identificados nas Observações */}
+                {contatosParaExibir && Array.isArray(contatosParaExibir) && contatosParaExibir.length > 0 && (
+                  <div className="pt-3 mt-2 border-t">
+                    <ContatosExtraidos
+                      contatosExtraidos={contatosParaExibir}
+                      dadosOrdem={{
+                        numero: ordem.numero,
+                        endereco: ordem.endereco || "",
+                        tipoServico: getTipoNome(ordem.tipo) || ordem.tipo || "serviço",
+                        clienteNome: ordem.cliente_nome,
+                      }}
+                    />
                   </div>
                 )}
               </div>

@@ -89,6 +89,7 @@ export default function CalendarioReguladasDialog({
 }: CalendarioReguladasDialogProps) {
   const [territorioSelecionado, setTerritorioSelecionado] = useState<string>("todos");
   const [municipioSelecionado, setMunicipioSelecionado] = useState<string>("todos");
+  const [centroCustoSelecionado, setCentroCustoSelecionado] = useState<string>("todos");
   const [previsoes, setPrevisoes] = useState<PrevisaoTempo[]>([]);
   const [carregandoPrevisao, setCarregandoPrevisao] = useState(false);
   const [localizacaoPrevisao, setLocalizacaoPrevisao] = useState<string>("Vitória da Conquista, BA");
@@ -169,7 +170,20 @@ export default function CalendarioReguladasDialog({
     return Array.from(municipioSet).sort();
   }, [ordensReguladas]);
 
-  // Filtrar ordens por território e município
+  // Lista única de centros de custo
+  const centrosCusto = useMemo(() => {
+    const ccSet = new Map<string, string>(); // codigo -> nome
+    ordensReguladas.forEach((os) => {
+      if (os.centro_custo_codigo) {
+        ccSet.set(os.centro_custo_codigo, os.centro_custo_nome || os.centro_custo_codigo);
+      }
+    });
+    return Array.from(ccSet.entries())
+      .map(([codigo, nome]) => ({ codigo, nome }))
+      .sort((a, b) => a.nome.localeCompare(b.nome));
+  }, [ordensReguladas]);
+
+  // Filtrar ordens por território, município e centro de custo
   const ordensFiltradas = useMemo(() => {
     let filtradas = ordensReguladas;
 
@@ -196,8 +210,15 @@ export default function CalendarioReguladasDialog({
       );
     }
 
+    // Filtro por centro de custo
+    if (centroCustoSelecionado !== "todos") {
+      filtradas = filtradas.filter(
+        (os) => os.centro_custo_codigo === centroCustoSelecionado
+      );
+    }
+
     return filtradas;
-  }, [ordensReguladas, territorioSelecionado, municipioSelecionado, territorios]);
+  }, [ordensReguladas, territorioSelecionado, municipioSelecionado, centroCustoSelecionado, territorios]);
 
   // Gerar dias do calendário (10 dias a partir de hoje)
   const diasCalendario = useMemo((): DiaCalendario[] => {
