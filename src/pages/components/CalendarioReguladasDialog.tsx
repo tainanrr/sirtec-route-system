@@ -744,9 +744,9 @@ export default function CalendarioReguladasDialog({
                 </div>
               )}
 
-              {/* Previsão do Tempo - AUMENTADA */}
+              {/* Previsão do Tempo - CENTRALIZADA */}
               {dia.previsao && !carregandoPrevisao && (
-                <div className="text-center border-t border-gray-300/50 pt-3 mt-auto">
+                <div className="flex-1 flex flex-col items-center justify-center text-center py-2">
                   {/* Ícone grande */}
                   <div className="text-5xl leading-none mb-2">{dia.previsao.icone}</div>
                   
@@ -767,9 +767,9 @@ export default function CalendarioReguladasDialog({
                 </div>
               )}
 
-              {/* Grupos */}
+              {/* Grupos - INFERIOR */}
               {dia.totalReguladas > 0 && (
-                <div className="mt-2 pt-2 border-t border-gray-300/50">
+                <div className="mt-auto pt-2 border-t border-gray-300/50">
                   <div className="flex flex-wrap gap-1 justify-center">
                     {Object.entries(
                       dia.reguladas.reduce((acc, os) => {
