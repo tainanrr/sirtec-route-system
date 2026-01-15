@@ -80,6 +80,8 @@ interface OrdemPlanejada {
     latitude: number | null;
     longitude: number | null;
     created_at: string;
+    observacoes?: string | null;
+    contatos_extraidos?: any[] | null;
   } | null;
   planejamentos: {
     id: string;
@@ -296,7 +298,9 @@ export default function AppOrdens() {
             avulsa,
             latitude,
             longitude,
-            created_at
+            created_at,
+            observacoes,
+            contatos_extraidos
           ),
           planejamentos!inner (
             id,
@@ -368,7 +372,9 @@ export default function AppOrdens() {
           latitude,
           longitude,
           created_at,
-          concluido_at
+          concluido_at,
+          observacoes,
+          contatos_extraidos
         `)
         .eq("tecnico_id", equipeIdParaUsar)
         .eq("avulsa", true)
@@ -396,7 +402,9 @@ export default function AppOrdens() {
           latitude,
           longitude,
           created_at,
-          concluido_at
+          concluido_at,
+          observacoes,
+          contatos_extraidos
         `)
         .eq("tecnico_id", equipeIdParaUsar)
         .eq("avulsa", true)
@@ -722,7 +730,18 @@ export default function AppOrdens() {
       !contatosPreloaded &&
       !isLoadingOrdens;
 
+    console.log(`[AppOrdens] 📞 Verificando preload de contatos: isOnline=${isOnline}, isToday=${isToday(selectedDate)}, ordens=${ordensParaUsar.length}, contatosPreloaded=${contatosPreloaded}, isLoading=${isLoadingOrdens}, shouldPreload=${shouldPreload}`);
+
     if (shouldPreload) {
+      // Debug: verificar quantas OSs têm observações
+      const osComObs = ordensParaUsar.filter(o => o.ordens_servico?.observacoes);
+      console.log(`[AppOrdens] 📞 OSs com observações: ${osComObs.length} de ${ordensParaUsar.length}`);
+      if (osComObs.length > 0 && osComObs.length <= 5) {
+        osComObs.forEach(o => {
+          console.log(`[AppOrdens]   - OS ${o.ordens_servico?.numero}: obs="${(o.ordens_servico?.observacoes || '').substring(0, 50)}..."`);
+        });
+      }
+
       // Extrair OSs com observações para processar
       const osParaProcessar = ordensParaUsar
         .filter(o => o.ordens_servico?.observacoes)
@@ -730,15 +749,17 @@ export default function AppOrdens() {
           id: o.ordens_servico!.id,
           numero: o.ordens_servico!.numero,
           observacoes: o.ordens_servico!.observacoes,
-          contatos_extraidos: (o.ordens_servico as any)?.contatos_extraidos,
+          contatos_extraidos: o.ordens_servico?.contatos_extraidos,
         }));
 
       if (osParaProcessar.length > 0) {
         console.log(`[AppOrdens] 📞 Iniciando extração de contatos para ${osParaProcessar.length} OSs...`);
-        preloadContatos(osParaProcessar, false).then(() => {
+        preloadContatos(osParaProcessar, false).then((result) => {
+          console.log(`[AppOrdens] 📞 Preload concluído:`, result);
           setContatosPreloaded(true);
         });
       } else {
+        console.log(`[AppOrdens] 📞 Nenhuma OS com observações para processar`);
         setContatosPreloaded(true);
       }
     }
