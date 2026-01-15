@@ -2799,6 +2799,17 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
         }
         // Se 0 urgentes, mantém borda branca
         
+        // Formatar o prazo limite para exibição (dd/mm hh:mm)
+        const prazoFormatado = prazoLimiteUrgente 
+          ? prazoLimiteUrgente.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' + 
+            prazoLimiteUrgente.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+          : 'Hoje 23:59';
+        
+        // Label curto para o balão (apenas dd/mm)
+        const prazoLabelCurto = prazoLimiteUrgente 
+          ? prazoLimiteUrgente.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+          : 'Hoje';
+        
         // Criar marcador com design aprimorado - fundo SEMPRE da cor do território
         const markerHTML = `
           <div class="expectativa-container" style="
@@ -2829,7 +2840,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
               line-height: 1;
               z-index: 10;
             ">
-              <span style="font-size: 10px; opacity: 0.85;">Hoje</span>
+              <span style="font-size: 9px; opacity: 0.85;">Até ${prazoLabelCurto}</span>
               <span>${valorFormatado}</span>
               ${tendencia !== 'estavel' ? `<span style="font-size: 12px; margin-top: -2px;">${iconeTendencia}</span>` : ''}
             </div>
@@ -2865,7 +2876,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
                 <div style="font-size: 16px; font-weight: bold; color: #1f2937;">${equipesVinculadas}</div>
               </div>
               <div style="background: #fef3c7; padding: 6px 8px; border-radius: 6px;">
-                <div style="font-size: 10px; color: #92400e; text-transform: uppercase;">Urgentes Hoje</div>
+                <div style="font-size: 10px; color: #92400e; text-transform: uppercase;">Urgentes até ${prazoLabelCurto}</div>
                 <div style="font-size: 16px; font-weight: bold; color: #b45309;">${totalUrgentes}</div>
               </div>
             </div>
@@ -2885,7 +2896,7 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
               </thead>
               <tbody>
                 <tr style="background: ${corTerritorio}15;">
-                  <td style="padding: 4px 6px; font-weight: 600;">Hoje (D+0)</td>
+                  <td style="padding: 4px 6px; font-weight: 600;">Urgentes até ${prazoFormatado}</td>
                   <td style="padding: 4px 6px; text-align: center;">${totalUrgentes}</td>
                   <td style="padding: 4px 6px; text-align: center; font-weight: bold;">${valorFormatado}</td>
                   <td style="padding: 4px 6px; text-align: center;">
