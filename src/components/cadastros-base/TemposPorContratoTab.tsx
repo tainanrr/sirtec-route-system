@@ -129,10 +129,17 @@ export default function TemposPorContratoTab({ skillCodigo, skillNome }: Props) 
       // Criar estrutura de contratos com centros de custo
       const contratosResultado: ContratoComCentros[] = [];
 
+      // Mapear contratos por ID para acesso rápido
+      const contratosMap = new Map(
+        (contratosData || []).map(c => [c.id, c])
+      );
+
       for (const contrato of (contratosData || [])) {
         // Encontrar centros de custo com OSs para este contrato
         const centrosComOS: TempoCentroCusto[] = [];
+        const centrosJaAdicionados = new Set<string>();
 
+        // Primeiro: adicionar centros que têm OSs
         osCountMap.forEach((counts, key) => {
           const [contratoId, centroCustoId] = key.split("_");
           if (contratoId === contrato.id) {
@@ -153,6 +160,30 @@ export default function TemposPorContratoTab({ skillCodigo, skillNome }: Props) 
                 qtd_amostras: tempoExistente?.qtd_amostras || 0,
                 qtd_os_total: counts.total,
               });
+              centrosJaAdicionados.add(centroCustoId);
+            }
+          }
+        });
+
+        // Segundo: adicionar centros que têm tempos configurados mas não têm OSs
+        temposMap.forEach((tempo, key) => {
+          const [contratoId, centroCustoId] = key.split("_");
+          if (contratoId === contrato.id && !centrosJaAdicionados.has(centroCustoId)) {
+            const centroCusto = centrosCustoMap.get(centroCustoId);
+            if (centroCusto) {
+              centrosComOS.push({
+                id: tempo.id,
+                contrato_id: contrato.id,
+                centro_custo_id: centroCusto.id,
+                centro_custo_codigo: centroCusto.codigo,
+                centro_custo_nome: centroCusto.nome,
+                tempo_minutos: tempo.tempo_minutos || 0,
+                tempo_automatico: tempo.tempo_automatico ?? true,
+                ultima_atualizacao: tempo.ultima_atualizacao || null,
+                qtd_amostras: tempo.qtd_amostras || 0,
+                qtd_os_total: 0, // Sem OSs
+              });
+              centrosJaAdicionados.add(centroCustoId);
             }
           }
         });
