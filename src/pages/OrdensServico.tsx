@@ -1773,6 +1773,17 @@ const OrdensServico = () => {
             <Upload className="h-3.5 w-3.5" />
             Importar
           </Button>
+          <Button 
+            variant="outline" 
+            size="sm"
+            className="gap-1.5" 
+            onClick={() => setProcessarContatosOpen(true)}
+            disabled={!podeEditar}
+            title="Extrair contatos das observações com IA"
+          >
+            <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+            Contatos IA
+          </Button>
           {ordensSemCoordenadas.length > 0 && (
             <Button 
               variant="outline" 
@@ -2802,6 +2813,12 @@ const OrdensServico = () => {
       <ImportacaoOSDialog
         open={importDialogOpen}
         onOpenChange={setImportDialogOpen}
+        onSuccess={fetchOrdens}
+      />
+
+      <ProcessarContatosIA
+        open={processarContatosOpen}
+        onOpenChange={setProcessarContatosOpen}
         onSuccess={fetchOrdens}
       />
 
