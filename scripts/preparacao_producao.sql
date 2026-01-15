@@ -14,87 +14,184 @@ SET session_replication_role = replica;
 -- =====================================================
 
 -- 1.1 Planejamento e Rotas
-TRUNCATE TABLE public.planejamento_logs CASCADE;
-TRUNCATE TABLE public.planejamento_ordens CASCADE;
-TRUNCATE TABLE public.planejamentos CASCADE;
-TRUNCATE TABLE public.rotas CASCADE;
+DELETE FROM public.planejamento_logs WHERE true;
+DELETE FROM public.planejamento_ordens WHERE true;
+DELETE FROM public.planejamentos WHERE true;
+DELETE FROM public.rotas WHERE true;
 
--- 1.2 Anexos e Materiais de OS
-TRUNCATE TABLE public.ordem_anexos CASCADE;
-TRUNCATE TABLE public.ordem_materiais CASCADE;
+-- 1.2 Anexos de OS (se existir)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ordem_anexos') THEN
+    DELETE FROM public.ordem_anexos WHERE true;
+  END IF;
+END $$;
 
--- 1.3 Materiais aplicados em OS
-TRUNCATE TABLE public.materiais_aplicados_os CASCADE;
+-- 1.3 Materiais de OS (se existir)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ordem_materiais') THEN
+    DELETE FROM public.ordem_materiais WHERE true;
+  END IF;
+END $$;
 
--- 1.4 Ordens de Serviço
-TRUNCATE TABLE public.ordens_servico CASCADE;
+-- 1.4 Materiais aplicados em OS (se existir)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'materiais_aplicados_os') THEN
+    DELETE FROM public.materiais_aplicados_os WHERE true;
+  END IF;
+END $$;
 
--- 1.5 Alertas
-TRUNCATE TABLE public.alertas CASCADE;
-TRUNCATE TABLE public.alertas_tratativas CASCADE;
+-- 1.5 Ordens de Serviço
+DELETE FROM public.ordens_servico WHERE true;
+
+-- 1.6 Alertas
+DELETE FROM public.alertas WHERE true;
+
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'alertas_tratativas') THEN
+    DELETE FROM public.alertas_tratativas WHERE true;
+  END IF;
+END $$;
 
 -- =====================================================
 -- PARTE 2: LIMPAR DADOS DE MATERIAIS
 -- =====================================================
 
 -- 2.1 Histórico e Rastreamento
-TRUNCATE TABLE public.materiais_serializados_historico CASCADE;
-TRUNCATE TABLE public.materiais_precos_historico CASCADE;
-TRUNCATE TABLE public.materiais_recebimentos_itens_rastros CASCADE;
-TRUNCATE TABLE public.materiais_devolucoes_itens_rastros CASCADE;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'materiais_serializados_historico') THEN
+    DELETE FROM public.materiais_serializados_historico WHERE true;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'materiais_precos_historico') THEN
+    DELETE FROM public.materiais_precos_historico WHERE true;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'materiais_recebimentos_itens_rastros') THEN
+    DELETE FROM public.materiais_recebimentos_itens_rastros WHERE true;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'materiais_devolucoes_itens_rastros') THEN
+    DELETE FROM public.materiais_devolucoes_itens_rastros WHERE true;
+  END IF;
+END $$;
 
 -- 2.2 Devoluções
-TRUNCATE TABLE public.materiais_devolucoes_anexos CASCADE;
-TRUNCATE TABLE public.materiais_devolucoes_itens CASCADE;
-TRUNCATE TABLE public.materiais_devolucoes CASCADE;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'materiais_devolucoes_anexos') THEN
+    DELETE FROM public.materiais_devolucoes_anexos WHERE true;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'materiais_devolucoes_itens') THEN
+    DELETE FROM public.materiais_devolucoes_itens WHERE true;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'materiais_devolucoes') THEN
+    DELETE FROM public.materiais_devolucoes WHERE true;
+  END IF;
+END $$;
 
 -- 2.3 Entregas
-TRUNCATE TABLE public.materiais_entregas_itens CASCADE;
-TRUNCATE TABLE public.materiais_entregas CASCADE;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'materiais_entregas_itens') THEN
+    DELETE FROM public.materiais_entregas_itens WHERE true;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'materiais_entregas') THEN
+    DELETE FROM public.materiais_entregas WHERE true;
+  END IF;
+END $$;
 
 -- 2.4 Recebimentos
-TRUNCATE TABLE public.materiais_recebimentos_anexos CASCADE;
-TRUNCATE TABLE public.materiais_recebimentos_itens CASCADE;
-TRUNCATE TABLE public.materiais_recebimentos CASCADE;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'materiais_recebimentos_anexos') THEN
+    DELETE FROM public.materiais_recebimentos_anexos WHERE true;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'materiais_recebimentos_itens') THEN
+    DELETE FROM public.materiais_recebimentos_itens WHERE true;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'materiais_recebimentos') THEN
+    DELETE FROM public.materiais_recebimentos WHERE true;
+  END IF;
+END $$;
 
 -- 2.5 Movimentações e Estoque (reset)
-TRUNCATE TABLE public.materiais_movimentacoes CASCADE;
-TRUNCATE TABLE public.materiais_estoque CASCADE;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'materiais_movimentacoes') THEN
+    DELETE FROM public.materiais_movimentacoes WHERE true;
+  END IF;
+END $$;
 
--- 2.6 Materiais Serializados (apenas se quiser zerar medidores/equipamentos)
--- TRUNCATE TABLE public.materiais_serializados CASCADE;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'materiais_estoque') THEN
+    DELETE FROM public.materiais_estoque WHERE true;
+  END IF;
+END $$;
+
+-- 2.6 Materiais Serializados (OPCIONAL - descomente se quiser zerar medidores/equipamentos)
+-- DO $$ BEGIN
+--   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'materiais_serializados') THEN
+--     DELETE FROM public.materiais_serializados WHERE true;
+--   END IF;
+-- END $$;
 
 -- =====================================================
 -- PARTE 3: LIMPAR DADOS DE CHECKLISTS
 -- =====================================================
 
-TRUNCATE TABLE public.checklist_respostas CASCADE;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'checklist_respostas') THEN
+    DELETE FROM public.checklist_respostas WHERE true;
+  END IF;
+END $$;
 
 -- =====================================================
 -- PARTE 4: LIMPAR OUTROS DADOS TRANSACIONAIS
 -- =====================================================
 
--- 4.1 Logs do sistema (opcional - pode querer manter para auditoria)
-TRUNCATE TABLE public.logs_sistema CASCADE;
+-- 4.1 Logs do sistema
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'logs_sistema') THEN
+    DELETE FROM public.logs_sistema WHERE true;
+  END IF;
+END $$;
 
 -- 4.2 Posições de técnicos (GPS)
-TRUNCATE TABLE public.tecnicos_posicoes CASCADE;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'tecnicos_posicoes') THEN
+    DELETE FROM public.tecnicos_posicoes WHERE true;
+  END IF;
+END $$;
 
 -- 4.3 Eventos de turno
-TRUNCATE TABLE public.turno_eventos CASCADE;
-TRUNCATE TABLE public.turno_paradas CASCADE;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'turno_eventos') THEN
+    DELETE FROM public.turno_eventos WHERE true;
+  END IF;
+END $$;
 
--- 4.4 Histórico de coordenadores em equipes
--- TRUNCATE TABLE public.equipe_coordenador_historico CASCADE;
-
--- 4.5 Histórico de veículos
--- TRUNCATE TABLE public.veiculo_uso_historico CASCADE;
-
--- =====================================================
--- PARTE 5: RESETAR SEQUÊNCIAS (se houver)
--- =====================================================
-
--- Não há sequences explícitas, UUIDs são gerados automaticamente
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'turno_paradas') THEN
+    DELETE FROM public.turno_paradas WHERE true;
+  END IF;
+END $$;
 
 -- Reabilitar triggers
 SET session_replication_role = DEFAULT;
@@ -106,14 +203,7 @@ SET session_replication_role = DEFAULT;
 SELECT 'ordens_servico' as tabela, COUNT(*) as registros FROM public.ordens_servico
 UNION ALL SELECT 'rotas', COUNT(*) FROM public.rotas
 UNION ALL SELECT 'planejamentos', COUNT(*) FROM public.planejamentos
-UNION ALL SELECT 'ordem_anexos', COUNT(*) FROM public.ordem_anexos
-UNION ALL SELECT 'checklist_respostas', COUNT(*) FROM public.checklist_respostas
-UNION ALL SELECT 'materiais_movimentacoes', COUNT(*) FROM public.materiais_movimentacoes
-UNION ALL SELECT 'materiais_recebimentos', COUNT(*) FROM public.materiais_recebimentos
-UNION ALL SELECT 'materiais_entregas', COUNT(*) FROM public.materiais_entregas
-UNION ALL SELECT 'materiais_devolucoes', COUNT(*) FROM public.materiais_devolucoes
 UNION ALL SELECT 'alertas', COUNT(*) FROM public.alertas
-UNION ALL SELECT 'logs_sistema', COUNT(*) FROM public.logs_sistema
 ORDER BY tabela;
 
 -- =====================================================
