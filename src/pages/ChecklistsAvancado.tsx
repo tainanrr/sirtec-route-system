@@ -2019,8 +2019,8 @@ export default function ChecklistsAvancado() {
 
       {/* Dialog de Adicionar Múltiplos Vínculos */}
       <Dialog open={dialogVinculosOpen} onOpenChange={setDialogVinculosOpen}>
-        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
-          <DialogHeader>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader className="shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <Link2 className="h-5 w-5" />
               Adicionar Vínculos
@@ -2030,7 +2030,7 @@ export default function ChecklistsAvancado() {
             </DialogDescription>
           </DialogHeader>
           
-          <div className="flex-1 min-h-0 flex flex-col gap-4">
+          <div className="flex-1 overflow-hidden flex flex-col gap-4">
             {/* Ações em lote */}
             <div className="flex flex-wrap items-center gap-4 p-3 bg-muted/50 rounded-lg border shrink-0">
               <div className="flex items-center gap-2">
@@ -2080,7 +2080,7 @@ export default function ChecklistsAvancado() {
             </div>
             
             {/* Lista de Skills */}
-            <ScrollArea className="flex-1 min-h-0 border rounded-lg h-[400px]">
+            <div className="flex-1 overflow-y-auto border rounded-lg min-h-[200px] max-h-[50vh]">
               <div className="p-2 space-y-1">
                 {skills.map((skill) => {
                   const jaVinculado = vinculos.some(v => v.skill_id === skill.id);
@@ -2185,7 +2185,7 @@ export default function ChecklistsAvancado() {
                   );
                 })}
               </div>
-            </ScrollArea>
+            </div>
             
             {/* Resumo */}
             <div className="text-sm text-muted-foreground shrink-0">
@@ -2193,7 +2193,7 @@ export default function ChecklistsAvancado() {
             </div>
           </div>
           
-          <DialogFooter>
+          <DialogFooter className="shrink-0">
             <Button variant="outline" onClick={() => setDialogVinculosOpen(false)}>
               Cancelar
             </Button>
