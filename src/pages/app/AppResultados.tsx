@@ -41,7 +41,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
-import { format, eachDayOfInterval, parseISO, subMonths, setDate, getDate, addMonths, isAfter, isBefore, isEqual } from "date-fns";
+import { format, eachDayOfInterval, parseISO, subMonths, setDate, getDate, addMonths, isAfter, isBefore } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -102,8 +102,9 @@ export default function AppResultados() {
   const { getMetasCicloFromCache, getProducoesCicloFromCache } = useOfflineData();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState("resumo");
-  const [filtroTipoServico, setFiltroTipoServico] = useState("todos");
+  const [filtroGrupoServico, setFiltroGrupoServico] = useState("todos");
   const [cicloOffset, setCicloOffset] = useState(0); // 0 = atual, -1 = anterior, etc.
+  const [mapaGrupoServico, setMapaGrupoServico] = useState<Map<string, string>>(new Map());
 
   // Períodos (com offset do ciclo)
   const periodoCiclo = calcularPeriodoCiclo(new Date(), cicloOffset);
@@ -186,22 +187,61 @@ export default function AppResultados() {
     enabled: !!equipe?.id,
   });
 
-  // Tipos de serviço únicos
-  const tiposServico = useMemo(() => {
-    const tipos = new Set<string>();
-    producoes?.forEach(p => {
-      if (p.ordens_servico?.tipo) {
-        tipos.add(p.ordens_servico.tipo);
+  // Buscar skills para mapa de grupo_servico
+  const { data: skills } = useQuery({
+    queryKey: ["skills-grupos"],
+    queryFn: async () => {
+      if (!isOnline) return [];
+      
+      const { data, error } = await supabase
+        .from("skills")
+        .select("codigo, grupo_servico");
+      
+      if (error) throw error;
+      return data || [];
+    },
+    staleTime: 1000 * 60 * 60, // 1 hora
+  });
+
+  // Atualizar mapa de grupo_servico quando skills mudar
+  useMemo(() => {
+    const novoMapa = new Map<string, string>();
+    (skills || []).forEach((skill: { codigo: string; grupo_servico: string | null }) => {
+      if (skill.grupo_servico) {
+        novoMapa.set(skill.codigo.toLowerCase(), skill.grupo_servico);
+        novoMapa.set(skill.codigo.toUpperCase(), skill.grupo_servico);
+        novoMapa.set(skill.codigo, skill.grupo_servico);
       }
     });
-    return Array.from(tipos).sort();
-  }, [producoes]);
+    setMapaGrupoServico(novoMapa);
+  }, [skills]);
 
-  // Produções filtradas por tipo
+  // Função helper para obter grupo de serviço
+  const obterGrupoServico = (tipo: string | undefined | null): string => {
+    if (!tipo) return "Outros";
+    return mapaGrupoServico.get(tipo) || mapaGrupoServico.get(tipo.toLowerCase()) || mapaGrupoServico.get(tipo.toUpperCase()) || "Outros";
+  };
+
+  // Grupos de serviço únicos
+  const gruposServico = useMemo(() => {
+    const grupos = new Set<string>();
+    producoes?.forEach(p => {
+      if (p.ordens_servico?.tipo) {
+        const grupo = obterGrupoServico(p.ordens_servico.tipo);
+        grupos.add(grupo);
+      }
+    });
+    return Array.from(grupos).sort();
+  }, [producoes, mapaGrupoServico]);
+
+  // Produções filtradas por grupo
   const producoesFiltradas = useMemo(() => {
-    if (filtroTipoServico === "todos") return producoes || [];
-    return (producoes || []).filter(p => p.ordens_servico?.tipo === filtroTipoServico);
-  }, [producoes, filtroTipoServico]);
+    if (filtroGrupoServico === "todos") return producoes || [];
+    return (producoes || []).filter(p => {
+      const grupo = obterGrupoServico(p.ordens_servico?.tipo);
+      return grupo === filtroGrupoServico;
+    });
+  }, [producoes, filtroGrupoServico, mapaGrupoServico]);
 
   // Calcular dados para um período específico
   const calcularDadosPeriodo = (inicio: string, fim: string) => {
@@ -253,20 +293,20 @@ export default function AppResultados() {
     const percentualExecutado = totalVisitas > 0 ? (executadas / totalVisitas) * 100 : 0;
     const percentualImpedimento = totalVisitas > 0 ? (impedimentos / totalVisitas) * 100 : 0;
     
-    // Por tipo de serviço
-    const porTipo: Record<string, { total: number; executadas: number; impedimentos: number }> = {};
+    // Por grupo de serviço
+    const porGrupo: Record<string, { total: number; executadas: number; impedimentos: number }> = {};
     producoesPeriodo.forEach(p => {
-      const tipo = p.ordens_servico?.tipo || "outros";
-      if (!porTipo[tipo]) {
-        porTipo[tipo] = { total: 0, executadas: 0, impedimentos: 0 };
+      const grupo = obterGrupoServico(p.ordens_servico?.tipo);
+      if (!porGrupo[grupo]) {
+        porGrupo[grupo] = { total: 0, executadas: 0, impedimentos: 0 };
       }
-      porTipo[tipo].total++;
-      if (p.retornos_campo?.tipo === "executado") porTipo[tipo].executadas++;
-      if (p.retornos_campo?.tipo === "impedimento") porTipo[tipo].impedimentos++;
+      porGrupo[grupo].total++;
+      if (p.retornos_campo?.tipo === "executado") porGrupo[grupo].executadas++;
+      if (p.retornos_campo?.tipo === "impedimento") porGrupo[grupo].impedimentos++;
     });
     
-    const assertividadePorTipo = Object.entries(porTipo).map(([tipo, dados]) => ({
-      tipo,
+    const assertividadePorGrupo = Object.entries(porGrupo).map(([grupo, dados]) => ({
+      grupo,
       ...dados,
       assertividade: dados.total > 0 ? (dados.executadas / dados.total) * 100 : 0,
     })).sort((a, b) => b.assertividade - a.assertividade);
@@ -279,9 +319,9 @@ export default function AppResultados() {
       percentualExecutado,
       percentualImpedimento,
       assertividade: percentualExecutado,
-      porTipo: assertividadePorTipo,
+      porGrupo: assertividadePorGrupo,
     };
-  }, [producoesFiltradas, periodoAteHoje]);
+  }, [producoesFiltradas, periodoAteHoje, mapaGrupoServico]);
 
   // Dados por dia (incluindo dias sem meta)
   const dadosDiarios = useMemo(() => {
@@ -594,17 +634,17 @@ export default function AppResultados() {
 
           {/* Tab Assertividade */}
           <TabsContent value="assertividade" className="mt-4 space-y-4">
-            {/* Filtro por tipo de serviço */}
+            {/* Filtro por grupo de serviço */}
             <div className="flex items-center gap-2">
               <Filter className="h-4 w-4 text-muted-foreground" />
-              <Select value={filtroTipoServico} onValueChange={setFiltroTipoServico}>
+              <Select value={filtroGrupoServico} onValueChange={setFiltroGrupoServico}>
                 <SelectTrigger className="flex-1 h-9">
-                  <SelectValue placeholder="Tipo de Serviço" />
+                  <SelectValue placeholder="Grupo de Serviço" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="todos">Todos os Tipos</SelectItem>
-                  {tiposServico.map(tipo => (
-                    <SelectItem key={tipo} value={tipo}>{tipo.toUpperCase()}</SelectItem>
+                  <SelectItem value="todos">Todos os Grupos</SelectItem>
+                  {gruposServico.map(grupo => (
+                    <SelectItem key={grupo} value={grupo}>{grupo}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -685,19 +725,19 @@ export default function AppResultados() {
               </div>
             </Card>
 
-            {/* Assertividade por Tipo de Serviço */}
-            {dadosAssertividade.porTipo.length > 0 && (
+            {/* Assertividade por Grupo de Serviço */}
+            {dadosAssertividade.porGrupo.length > 0 && (
               <Card className="p-4">
                 <h3 className="font-medium mb-4 flex items-center gap-2">
                   <PieChart className="h-4 w-4" />
-                  Por Tipo de Serviço
+                  Por Grupo de Serviço
                 </h3>
                 <div className="space-y-3">
-                  {dadosAssertividade.porTipo.map(item => (
-                    <div key={item.tipo} className="flex items-center justify-between">
+                  {dadosAssertividade.porGrupo.map(item => (
+                    <div key={item.grupo} className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Badge variant="outline" className="text-xs">
-                          {item.tipo.toUpperCase()}
+                          {item.grupo}
                         </Badge>
                         <span className="text-xs text-muted-foreground">
                           {item.executadas}/{item.total}

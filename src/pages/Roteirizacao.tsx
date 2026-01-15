@@ -133,6 +133,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import ExpectativaEquipesDialog from "./components/ExpectativaEquipesDialog";
+import CalendarioReguladasDialog from "./components/CalendarioReguladasDialog";
 import SelecaoTerritoriosDialog from "./components/SelecaoTerritoriosDialog";
 import SelecaoOpcoesRoteiroDialog from "./components/SelecaoOpcoesRoteiroDialog";
 import { OrdemServicoDetalhesDialog } from "@/components/ordens/OrdemServicoDetalhesDialog";
@@ -343,6 +344,7 @@ const Roteirizacao = () => {
   const [territoriosSelecionados, setTerritoriosSelecionados] = useState<string[]>([]);
   const [territoriosVisiveis, setTerritoriosVisiveis] = useState<string[]>([]); // Territórios visíveis no mapa (botão olho)
   const [expectativaDialogOpen, setExpectativaDialogOpen] = useState(false);
+  const [calendarioReguladasDialogOpen, setCalendarioReguladasDialogOpen] = useState(false);
   const [expectativas, setExpectativas] = useState<ExpectativaTerritorio[]>([]);
   const [selecaoTerritoriosDialogOpen, setSelecaoTerritoriosDialogOpen] = useState(false);
   const [opcoesRoteiros, setOpcoesRoteiros] = useState<OpcaoRoteiro[]>([]);
@@ -5011,6 +5013,16 @@ const Roteirizacao = () => {
               Expectativa de Equipes
             </Button>
             <Button
+              onClick={() => setCalendarioReguladasDialogOpen(true)}
+              disabled={osPendentes.length === 0}
+              variant="outline"
+              className="gap-2"
+              title="Visualizar calendário de reguladas vencendo nos próximos 10 dias"
+            >
+              <Calendar className="h-4 w-4" />
+              Calendário Reguladas
+            </Button>
+            <Button
               onClick={() => setParametrosModalOpen(true)}
               variant="outline"
               className="gap-2"
@@ -7760,6 +7772,14 @@ const Roteirizacao = () => {
         expectativas={expectativas}
         territorios={territorios}
         equipes={equipes}
+      />
+
+      {/* Dialog de Calendário de Reguladas */}
+      <CalendarioReguladasDialog
+        open={calendarioReguladasDialogOpen}
+        onOpenChange={setCalendarioReguladasDialogOpen}
+        ordens={osPendentesTodas}
+        territorios={territorios}
       />
 
       {/* Dialog de Seleção de Territórios */}

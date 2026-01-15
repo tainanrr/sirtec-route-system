@@ -13,6 +13,7 @@ import { useOfflineData, CACHE_KEYS } from "@/hooks/useOfflineData";
 import { useOfflineOperations } from "@/hooks/useOfflineOperations";
 import RetornoCampoSelector from "@/components/app/RetornoCampoSelector";
 import ChecklistServicoSheet from "@/components/app/ChecklistServicoSheet";
+import ContatosExtraidos from "@/components/app/ContatosExtraidos";
 import {
   Dialog,
   DialogContent,
@@ -71,6 +72,7 @@ import {
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { processImageWithStamp, getCurrentLocation } from "@/lib/imageUtils";
+import { StreetViewImage } from "@/components/ui/street-view-image";
 
 // Configuração de status simplificada
 const statusConfig: Record<string, { 
@@ -1199,11 +1201,39 @@ export default function AppOrdemDetalhe() {
               )}
             </div>
           </div>
+          
+          {/* Imagem Street View da Fachada */}
+          <div className="mt-3">
+            <StreetViewImage
+              latitude={ordem.latitude}
+              longitude={ordem.longitude}
+              endereco={ordem.endereco}
+              size="sm"
+              showExpandButton={true}
+              collapsible={true}
+              defaultCollapsed={true}
+              label="Vista da Fachada"
+            />
+          </div>
+          
           <Button className="w-full mt-3 h-11 bg-blue-600 hover:bg-blue-700 text-base font-medium" onClick={openNavigation}>
             <Navigation className="h-5 w-5 mr-2" />
             Navegar
           </Button>
         </div>
+
+        {/* Contatos Extraídos - Seção de Acesso Rápido */}
+        {ordem.observacoes && (
+          <ContatosExtraidos
+            observacoes={ordem.observacoes}
+            dadosOrdem={{
+              numero: ordem.numero,
+              endereco: ordem.endereco || "",
+              tipoServico: getTipoNome(ordem.tipo) || ordem.tipo || "serviço",
+              clienteNome: ordem.cliente_nome,
+            }}
+          />
+        )}
 
         {/* Botões de Ação Secundários */}
         {isActive && (
@@ -1438,9 +1468,22 @@ export default function AppOrdemDetalhe() {
                   </div>
                 )}
                 {ordem.observacoes && (
-                  <div className="pt-2">
-                    <p className="text-xs text-blue-600 font-medium">Obs. Coelba:</p>
-                    <p className="text-xs bg-blue-50 p-2 rounded mt-1">{ordem.observacoes}</p>
+                  <div className="pt-2 space-y-3">
+                    <div>
+                      <p className="text-xs text-blue-600 font-medium">Obs. Coelba:</p>
+                      <p className="text-xs bg-blue-50 p-2 rounded mt-1">{ordem.observacoes}</p>
+                    </div>
+                    
+                    {/* Contatos extraídos da observação */}
+                    <ContatosExtraidos
+                      observacoes={ordem.observacoes}
+                      dadosOrdem={{
+                        numero: ordem.numero,
+                        endereco: ordem.endereco || "",
+                        tipoServico: getTipoNome(ordem.tipo) || ordem.tipo || "serviço",
+                        clienteNome: ordem.cliente_nome,
+                      }}
+                    />
                   </div>
                 )}
                 {(ordem as any).observacoes_equipe && (

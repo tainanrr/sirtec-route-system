@@ -96,6 +96,11 @@ interface CentroCusto {
   nome: string;
 }
 
+interface Skill {
+  codigo: string;
+  grupo_servico: string | null;
+}
+
 const CORES = [
   "#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6",
   "#ec4899", "#06b6d4", "#84cc16", "#f97316", "#6366f1",
@@ -133,7 +138,8 @@ export default function DashboardAssertividade() {
   const [producoes, setProducoes] = useState<Producao[]>([]);
   const [equipes, setEquipes] = useState<Equipe[]>([]);
   const [centrosCusto, setCentrosCusto] = useState<CentroCusto[]>([]);
-  const [tiposServico, setTiposServico] = useState<string[]>([]);
+  const [gruposServico, setGruposServico] = useState<string[]>([]);
+  const [mapaGrupoServico, setMapaGrupoServico] = useState<Map<string, string>>(new Map());
 
   // Filtros
   const periodoPadrao = calcularPeriodoPadrao();
@@ -142,13 +148,13 @@ export default function DashboardAssertividade() {
   const [filtrosCentroCusto, setFiltrosCentroCusto] = useState<string[]>([]);
   const [filtrosTipoEquipe, setFiltrosTipoEquipe] = useState<string[]>([]);
   const [filtrosEquipe, setFiltrosEquipe] = useState<string[]>([]);
-  const [filtrosTipoServico, setFiltrosTipoServico] = useState<string[]>([]);
+  const [filtrosGrupoServico, setFiltrosGrupoServico] = useState<string[]>([]);
   
   // Busca nos filtros
   const [buscaCentroCusto, setBuscaCentroCusto] = useState("");
   const [buscaTipoEquipe, setBuscaTipoEquipe] = useState("");
   const [buscaEquipe, setBuscaEquipe] = useState("");
-  const [buscaTipoServico, setBuscaTipoServico] = useState("");
+  const [buscaGrupoServico, setBuscaGrupoServico] = useState("");
 
   // Tab ativa
   const [activeTab, setActiveTab] = useState("visao-geral");
@@ -157,30 +163,44 @@ export default function DashboardAssertividade() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [producaoRes, equipesRes, centrosRes] = await Promise.all([
+      const [producaoRes, equipesRes, centrosRes, skillsRes] = await Promise.all([
         supabase.from("producao_equipes")
           .select("*, retornos_campo:retorno_campo_id(id, codigo, descricao, tipo), ordens_servico:ordem_servico_id(tipo)")
           .gte("created_at", dataInicio + "T00:00:00")
           .lte("created_at", dataFim + "T23:59:59"),
         supabase.from("tecnicos").select("id, codigo, nome, centro_custo_id, tipo_equipe").neq("status", "offline").order("codigo"),
         supabase.from("centros_custo").select("id, codigo, nome").order("codigo"),
+        supabase.from("skills").select("codigo, grupo_servico"),
       ]);
 
       if (producaoRes.error) throw producaoRes.error;
       if (equipesRes.error) throw equipesRes.error;
 
-      // Extrair tipos de serviço únicos
-      const tipos = new Set<string>();
+      // Criar mapa de tipo -> grupo_servico
+      const novoMapaGrupo = new Map<string, string>();
+      (skillsRes.data || []).forEach((skill: Skill) => {
+        if (skill.grupo_servico) {
+          novoMapaGrupo.set(skill.codigo.toLowerCase(), skill.grupo_servico);
+          novoMapaGrupo.set(skill.codigo.toUpperCase(), skill.grupo_servico);
+          novoMapaGrupo.set(skill.codigo, skill.grupo_servico);
+        }
+      });
+      setMapaGrupoServico(novoMapaGrupo);
+
+      // Extrair grupos de serviço únicos
+      const grupos = new Set<string>();
       (producaoRes.data || []).forEach((p: any) => {
         if (p.ordens_servico?.tipo) {
-          tipos.add(p.ordens_servico.tipo);
+          const tipo = p.ordens_servico.tipo;
+          const grupo = novoMapaGrupo.get(tipo) || novoMapaGrupo.get(tipo.toLowerCase()) || novoMapaGrupo.get(tipo.toUpperCase()) || "Outros";
+          grupos.add(grupo);
         }
       });
 
       setProducoes(producaoRes.data || []);
       setEquipes(equipesRes.data || []);
       setCentrosCusto(centrosRes.data || []);
-      setTiposServico(Array.from(tipos).sort());
+      setGruposServico(Array.from(grupos).sort());
     } catch (error: any) {
       console.error("Erro ao carregar dados:", error);
       toast.error("Erro ao carregar dados do dashboard");
@@ -208,17 +228,26 @@ export default function DashboardAssertividade() {
     return filtered;
   }, [equipes, filtrosCentroCusto, filtrosTipoEquipe, filtrosEquipe]);
 
+  // Função helper para obter grupo de serviço
+  const obterGrupoServico = (tipo: string | undefined | null): string => {
+    if (!tipo) return "Outros";
+    return mapaGrupoServico.get(tipo) || mapaGrupoServico.get(tipo.toLowerCase()) || mapaGrupoServico.get(tipo.toUpperCase()) || "Outros";
+  };
+
   // Produções filtradas
   const producoesFiltradas = useMemo(() => {
     const equipeIds = new Set(equipesFiltradas.map(e => e.id));
     let filtered = producoes.filter(p => equipeIds.has(p.equipe_id));
     
-    if (filtrosTipoServico.length > 0) {
-      filtered = filtered.filter(p => p.ordens_servico?.tipo && filtrosTipoServico.includes(p.ordens_servico.tipo));
+    if (filtrosGrupoServico.length > 0) {
+      filtered = filtered.filter(p => {
+        const grupo = obterGrupoServico(p.ordens_servico?.tipo);
+        return filtrosGrupoServico.includes(grupo);
+      });
     }
     
     return filtered;
-  }, [producoes, equipesFiltradas, filtrosTipoServico]);
+  }, [producoes, equipesFiltradas, filtrosGrupoServico, mapaGrupoServico]);
 
   // Opções filtradas para cada dropdown
   const centrosCustoFiltrados = useMemo(() => {
@@ -246,11 +275,11 @@ export default function DashboardAssertividade() {
     );
   }, [equipes, buscaEquipe]);
 
-  const tiposServicoFiltrados = useMemo(() => {
-    if (!buscaTipoServico) return tiposServico;
-    const termo = buscaTipoServico.toLowerCase();
-    return tiposServico.filter(t => t.toLowerCase().includes(termo));
-  }, [tiposServico, buscaTipoServico]);
+  const gruposServicoFiltrados = useMemo(() => {
+    if (!buscaGrupoServico) return gruposServico;
+    const termo = buscaGrupoServico.toLowerCase();
+    return gruposServico.filter(g => g.toLowerCase().includes(termo));
+  }, [gruposServico, buscaGrupoServico]);
 
   // KPIs gerais de assertividade
   const kpis = useMemo(() => {
@@ -296,28 +325,28 @@ export default function DashboardAssertividade() {
     }).filter(e => e.totalVisitas > 0).sort((a, b) => b.assertividade - a.assertividade);
   }, [equipesFiltradas, producoesFiltradas]);
 
-  // Dados por tipo de serviço
-  const dadosPorTipoServico = useMemo(() => {
-    const porTipo: Record<string, { total: number; executadas: number; impedimentos: number; valor: number }> = {};
+  // Dados por grupo de serviço
+  const dadosPorGrupoServico = useMemo(() => {
+    const porGrupo: Record<string, { total: number; executadas: number; impedimentos: number; valor: number }> = {};
     
     producoesFiltradas.forEach(p => {
-      const tipo = p.ordens_servico?.tipo || "outros";
-      if (!porTipo[tipo]) {
-        porTipo[tipo] = { total: 0, executadas: 0, impedimentos: 0, valor: 0 };
+      const grupo = obterGrupoServico(p.ordens_servico?.tipo);
+      if (!porGrupo[grupo]) {
+        porGrupo[grupo] = { total: 0, executadas: 0, impedimentos: 0, valor: 0 };
       }
-      porTipo[tipo].total++;
-      porTipo[tipo].valor += p.valor_total || 0;
-      if (p.retornos_campo?.tipo === "executado") porTipo[tipo].executadas++;
-      if (p.retornos_campo?.tipo === "impedimento") porTipo[tipo].impedimentos++;
+      porGrupo[grupo].total++;
+      porGrupo[grupo].valor += p.valor_total || 0;
+      if (p.retornos_campo?.tipo === "executado") porGrupo[grupo].executadas++;
+      if (p.retornos_campo?.tipo === "impedimento") porGrupo[grupo].impedimentos++;
     });
     
-    return Object.entries(porTipo).map(([tipo, dados]) => ({
-      tipo,
-      tipoUpper: tipo.toUpperCase(),
+    return Object.entries(porGrupo).map(([grupo, dados]) => ({
+      grupo,
+      grupoUpper: grupo.toUpperCase(),
       ...dados,
       assertividade: dados.total > 0 ? (dados.executadas / dados.total) * 100 : 0,
     })).sort((a, b) => b.total - a.total);
-  }, [producoesFiltradas]);
+  }, [producoesFiltradas, mapaGrupoServico]);
 
   // Dados por tipo de equipe
   const dadosPorTipoEquipe = useMemo(() => {
@@ -373,11 +402,11 @@ export default function DashboardAssertividade() {
     setFiltrosCentroCusto([]);
     setFiltrosTipoEquipe([]);
     setFiltrosEquipe([]);
-    setFiltrosTipoServico([]);
+    setFiltrosGrupoServico([]);
   };
 
   const temFiltrosAtivos = filtrosCentroCusto.length > 0 || filtrosTipoEquipe.length > 0 || 
-                           filtrosEquipe.length > 0 || filtrosTipoServico.length > 0;
+                           filtrosEquipe.length > 0 || filtrosGrupoServico.length > 0;
 
   // Exportar dados
   const handleExportar = () => {
@@ -411,17 +440,17 @@ export default function DashboardAssertividade() {
       const wsEquipe = XLSX.utils.json_to_sheet(porEquipe);
       XLSX.utils.book_append_sheet(wb, wsEquipe, "Por Equipe");
 
-      // Aba 3: Por Tipo de Serviço
-      const porTipo = dadosPorTipoServico.map(d => ({
-        "Tipo de Serviço": d.tipoUpper,
+      // Aba 3: Por Grupo de Serviço
+      const porGrupo = dadosPorGrupoServico.map(d => ({
+        "Grupo de Serviço": d.grupoUpper,
         "Total Visitas": d.total,
         "Executadas": d.executadas,
         "Impedimentos": d.impedimentos,
         "Assertividade (%)": parseFloat(d.assertividade.toFixed(2)),
         "Valor Total (R$)": d.valor,
       }));
-      const wsTipo = XLSX.utils.json_to_sheet(porTipo);
-      XLSX.utils.book_append_sheet(wb, wsTipo, "Por Tipo Serviço");
+      const wsGrupo = XLSX.utils.json_to_sheet(porGrupo);
+      XLSX.utils.book_append_sheet(wb, wsGrupo, "Por Grupo Serviço");
 
       // Aba 4: Evolução Diária
       const evolucao = evolucaoDiaria.map(d => ({
@@ -588,15 +617,15 @@ export default function DashboardAssertividade() {
           </PopoverContent>
         </Popover>
 
-        {/* Tipo de Serviço */}
+        {/* Grupo de Serviço */}
         <Popover>
           <PopoverTrigger asChild>
             <Button variant="outline" size="sm" className="h-7 px-2 text-xs gap-1">
               <Zap className="h-3 w-3" />
-              Tipo Serviço
-              {filtrosTipoServico.length > 0 && (
+              Grupo Serviço
+              {filtrosGrupoServico.length > 0 && (
                 <Badge variant="secondary" className="h-4 w-4 p-0 flex items-center justify-center text-[10px]">
-                  {filtrosTipoServico.length}
+                  {filtrosGrupoServico.length}
                 </Badge>
               )}
               <ChevronDown className="h-3 w-3" />
@@ -604,18 +633,18 @@ export default function DashboardAssertividade() {
           </PopoverTrigger>
           <PopoverContent className="w-48 p-2">
             <div className="space-y-2">
-              <Input placeholder="Buscar..." value={buscaTipoServico} onChange={e => setBuscaTipoServico(e.target.value)} className="h-7 text-xs" />
+              <Input placeholder="Buscar..." value={buscaGrupoServico} onChange={e => setBuscaGrupoServico(e.target.value)} className="h-7 text-xs" />
               <ScrollArea className="h-40">
-                {tiposServicoFiltrados.map(tipo => (
-                  <div key={tipo} className="flex items-center gap-2 py-1">
+                {gruposServicoFiltrados.map(grupo => (
+                  <div key={grupo} className="flex items-center gap-2 py-1">
                     <Checkbox 
-                      checked={filtrosTipoServico.includes(tipo)}
+                      checked={filtrosGrupoServico.includes(grupo)}
                       onCheckedChange={(checked) => {
-                        if (checked) setFiltrosTipoServico([...filtrosTipoServico, tipo]);
-                        else setFiltrosTipoServico(filtrosTipoServico.filter(t => t !== tipo));
+                        if (checked) setFiltrosGrupoServico([...filtrosGrupoServico, grupo]);
+                        else setFiltrosGrupoServico(filtrosGrupoServico.filter(g => g !== grupo));
                       }}
                     />
-                    <span className="text-xs">{tipo.toUpperCase()}</span>
+                    <span className="text-xs">{grupo}</span>
                   </div>
                 ))}
               </ScrollArea>
@@ -649,8 +678,8 @@ export default function DashboardAssertividade() {
             <TabsTrigger value="visao-geral" className="text-xs">
               <BarChart3 className="h-4 w-4 mr-1" /> Visão Geral
             </TabsTrigger>
-            <TabsTrigger value="tipo-servico" className="text-xs">
-              <Zap className="h-4 w-4 mr-1" /> Por Tipo Serviço
+            <TabsTrigger value="grupo-servico" className="text-xs">
+              <Zap className="h-4 w-4 mr-1" /> Por Grupo Serviço
             </TabsTrigger>
             <TabsTrigger value="ranking" className="text-xs">
               <Award className="h-4 w-4 mr-1" /> Ranking
@@ -780,21 +809,21 @@ export default function DashboardAssertividade() {
             </div>
           </TabsContent>
 
-          {/* Tab Por Tipo de Serviço */}
-          <TabsContent value="tipo-servico" className="space-y-4">
+          {/* Tab Por Grupo de Serviço */}
+          <TabsContent value="grupo-servico" className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Gráfico de barras */}
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Assertividade por Tipo de Serviço</CardTitle>
+                  <CardTitle className="text-sm">Assertividade por Grupo de Serviço</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="h-[400px]">
                     <ResponsiveContainer width="100%" height="100%">
-                      <ComposedChart data={dadosPorTipoServico} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+                      <ComposedChart data={dadosPorGrupoServico} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
                         <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                         <XAxis 
-                          dataKey="tipoUpper" 
+                          dataKey="grupoUpper" 
                           tick={{ fontSize: 10 }}
                           angle={-45}
                           textAnchor="end"
@@ -816,14 +845,14 @@ export default function DashboardAssertividade() {
               {/* Tabela detalhada */}
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Detalhamento por Tipo</CardTitle>
+                  <CardTitle className="text-sm">Detalhamento por Grupo</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="max-h-[400px] overflow-auto">
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Tipo</TableHead>
+                          <TableHead>Grupo</TableHead>
                           <TableHead className="text-center">Total</TableHead>
                           <TableHead className="text-center">Exec.</TableHead>
                           <TableHead className="text-center">Imped.</TableHead>
@@ -831,10 +860,10 @@ export default function DashboardAssertividade() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {dadosPorTipoServico.map(d => (
-                          <TableRow key={d.tipo}>
+                        {dadosPorGrupoServico.map(d => (
+                          <TableRow key={d.grupo}>
                             <TableCell>
-                              <Badge variant="outline">{d.tipoUpper}</Badge>
+                              <Badge variant="outline">{d.grupoUpper}</Badge>
                             </TableCell>
                             <TableCell className="text-center">{d.total}</TableCell>
                             <TableCell className="text-center text-green-600 font-medium">{d.executadas}</TableCell>
