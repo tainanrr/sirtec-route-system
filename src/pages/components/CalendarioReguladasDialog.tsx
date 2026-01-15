@@ -37,6 +37,7 @@ import {
   X,
   Clock,
   FileText,
+  Building2,
 } from "lucide-react";
 import * as XLSX from "xlsx-js-style";
 import { toast } from "sonner";
@@ -421,6 +422,9 @@ export default function CalendarioReguladasDialog({
         ? territorios.find(t => t.id === territorioSelecionado)?.nome || "Todos"
         : "Todos os Territórios";
       const municipioNome = municipioSelecionado !== "todos" ? municipioSelecionado : "Todos os Municípios";
+      const centroCustoNome = centroCustoSelecionado !== "todos" 
+        ? centrosCusto.find(cc => cc.codigo === centroCustoSelecionado)?.nome || centroCustoSelecionado
+        : "Todos os Centros de Custo";
 
       const resumoData: any[][] = [
         [{ v: "CALENDÁRIO DE REGULADAS VENCENDO", s: { ...headerStyle, fill: { fgColor: { rgb: "1E40AF" } } } }],
@@ -428,6 +432,7 @@ export default function CalendarioReguladasDialog({
         [{ v: "Filtros Aplicados:", s: { font: { bold: true } } }],
         [{ v: "Território:", s: cellStyle }, { v: territorioNome, s: cellStyle }],
         [{ v: "Município:", s: cellStyle }, { v: municipioNome, s: cellStyle }],
+        [{ v: "Centro de Custo:", s: cellStyle }, { v: centroCustoNome, s: cellStyle }],
         [{ v: "Localização Previsão:", s: cellStyle }, { v: localizacaoPrevisao, s: cellStyle }],
         [],
         [{ v: "Resumo Geral:", s: { font: { bold: true } } }],
@@ -684,6 +689,26 @@ export default function CalendarioReguladasDialog({
                   {municipios.map((municipio) => (
                     <SelectItem key={municipio} value={municipio}>
                       {municipio}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Building2 className="h-5 w-5 text-muted-foreground" />
+              <Select
+                value={centroCustoSelecionado}
+                onValueChange={setCentroCustoSelecionado}
+              >
+                <SelectTrigger className="w-[220px] h-10">
+                  <SelectValue placeholder="Centro de Custo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos os Centros de Custo</SelectItem>
+                  {centrosCusto.map((cc) => (
+                    <SelectItem key={cc.codigo} value={cc.codigo}>
+                      {cc.nome}
                     </SelectItem>
                   ))}
                 </SelectContent>
