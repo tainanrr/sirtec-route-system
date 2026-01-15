@@ -193,6 +193,39 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+-- =====================================================
+-- PARTE 5: LIMPAR DADOS DE TURNOS
+-- =====================================================
+
+-- 5.1 Produção das equipes (se existir)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'producao_equipes') THEN
+    DELETE FROM public.producao_equipes WHERE true;
+  END IF;
+END $$;
+
+-- 5.2 Intervalos das equipes (se existir)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'intervalos_equipe') THEN
+    DELETE FROM public.intervalos_equipe WHERE true;
+  END IF;
+END $$;
+
+-- 5.3 Colaboradores do turno (filho de turnos)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'turno_colaboradores') THEN
+    -- Limpa apenas os colaboradores de turnos de teste, não o vínculo padrão
+    DELETE FROM public.turno_colaboradores WHERE turno_id IS NOT NULL;
+  END IF;
+END $$;
+
+-- 5.4 Turnos (dados transacionais)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'turnos') THEN
+    DELETE FROM public.turnos WHERE true;
+  END IF;
+END $$;
+
 -- Reabilitar triggers
 SET session_replication_role = DEFAULT;
 

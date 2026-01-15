@@ -127,6 +127,38 @@ DO $$ BEGIN
 END $$;
 
 -- =====================================================
+-- PARTE 5: BACKUP DE TURNOS
+-- =====================================================
+
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'turnos') THEN
+    DROP TABLE IF EXISTS bkp_turnos;
+    CREATE TABLE bkp_turnos AS SELECT * FROM turnos;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'turno_colaboradores') THEN
+    DROP TABLE IF EXISTS bkp_turno_colaboradores;
+    CREATE TABLE bkp_turno_colaboradores AS SELECT * FROM turno_colaboradores;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'producao_equipes') THEN
+    DROP TABLE IF EXISTS bkp_producao_equipes;
+    CREATE TABLE bkp_producao_equipes AS SELECT * FROM producao_equipes;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'intervalos_equipe') THEN
+    DROP TABLE IF EXISTS bkp_intervalos_equipe;
+    CREATE TABLE bkp_intervalos_equipe AS SELECT * FROM intervalos_equipe;
+  END IF;
+END $$;
+
+-- =====================================================
 -- VERIFICAÇÃO: Listar tabelas de backup criadas
 -- =====================================================
 
@@ -176,3 +208,7 @@ ORDER BY tabela;
 -- DROP TABLE IF EXISTS bkp_logs_sistema;
 -- DROP TABLE IF EXISTS bkp_tecnicos_posicoes;
 -- DROP TABLE IF EXISTS bkp_turno_eventos;
+-- DROP TABLE IF EXISTS bkp_turnos;
+-- DROP TABLE IF EXISTS bkp_turno_colaboradores;
+-- DROP TABLE IF EXISTS bkp_producao_equipes;
+-- DROP TABLE IF EXISTS bkp_intervalos_equipe;
