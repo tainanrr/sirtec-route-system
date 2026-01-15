@@ -111,62 +111,101 @@ function delay(ms: number): Promise<void> {
 }
 
 /**
- * Extrai contatos de uma observação usando IA (Gemini)
- * Implementa retry com backoff exponencial para erros 429
+ * Lista de modelos Gemini para tentar (mesma lista usada em GerarChecklistIA)
  */
-export async function extrairContatosComIA(observacao: string, tentativa: number = 1): Promise<ResultadoExtracaoIA> {
+const MODELOS_GEMINI = [
+  "gemini-2.0-flash",
+  "gemini-2.5-flash",
+  "gemini-2.5-pro",
+  "gemini-2.0-flash-exp",
+  "gemini-2.0-flash-001",
+  "gemini-flash-latest",
+];
+
+/**
+ * Extrai contatos de uma observação usando IA (Gemini)
+ * Tenta múltiplos modelos até encontrar um que funcione
+ */
+export async function extrairContatosComIA(observacao: string): Promise<ResultadoExtracaoIA> {
   if (!observacao || observacao.trim().length < 5) {
     return { contatos: [], sucesso: true };
   }
 
-  const MAX_TENTATIVAS = 3;
-  const DELAY_BASE = 8000; // 8 segundos (Gemini pede ~7s no erro)
-
   try {
     const prompt = criarPromptExtracao(observacao);
     
-    // Chamar API do Gemini (usando gemini-1.5-flash que é mais estável no tier gratuito)
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.1, // Baixa temperatura para respostas mais precisas
-            maxOutputTokens: 1024,
-          },
-        }),
-      }
-    );
+    // Tentar cada modelo até encontrar um que funcione
+    let response: Response | null = null;
+    let ultimoErro = "";
 
-    // Se for erro 429 (rate limit), fazer retry com backoff
-    if (response.status === 429) {
-      if (tentativa < MAX_TENTATIVAS) {
-        const delayMs = DELAY_BASE * tentativa; // 8s, 16s, 24s
-        console.warn(`[ContatoExtractorIA] Rate limit (429) - aguardando ${delayMs/1000}s antes de retry ${tentativa + 1}/${MAX_TENTATIVAS}`);
-        await delay(delayMs);
-        return extrairContatosComIA(observacao, tentativa + 1);
-      } else {
-        console.error("[ContatoExtractorIA] Rate limit excedido após todas as tentativas");
-        return { 
-          contatos: [], 
-          sucesso: false, 
-          erro: "Limite de requisições da API excedido. Tente novamente em alguns minutos." 
-        };
+    for (const modelo of MODELOS_GEMINI) {
+      try {
+        console.log(`[ContatoExtractorIA] Tentando modelo: ${modelo}`);
+        
+        response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${GEMINI_API_KEY}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: {
+                temperature: 0.1,
+                maxOutputTokens: 1024,
+              },
+            }),
+          }
+        );
+
+        // Se deu certo (200) ou erro de conteúdo (não 404/429), usar esta resposta
+        if (response.ok) {
+          console.log(`[ContatoExtractorIA] ✅ Modelo ${modelo} funcionou!`);
+          break;
+        }
+
+        // Se for 404 (modelo não encontrado), tentar próximo
+        if (response.status === 404) {
+          console.log(`[ContatoExtractorIA] Modelo ${modelo} não disponível, tentando próximo...`);
+          continue;
+        }
+
+        // Se for 429 (rate limit), aguardar e tentar mesmo modelo novamente
+        if (response.status === 429) {
+          console.warn(`[ContatoExtractorIA] Rate limit no modelo ${modelo}, aguardando 10s...`);
+          await delay(10000);
+          // Tentar mesmo modelo novamente
+          response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${GEMINI_API_KEY}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
+              }),
+            }
+          );
+          if (response.ok) {
+            console.log(`[ContatoExtractorIA] ✅ Modelo ${modelo} funcionou após retry!`);
+            break;
+          }
+        }
+
+        ultimoErro = `${modelo}: ${response.status}`;
+      } catch (fetchError: any) {
+        ultimoErro = `${modelo}: ${fetchError.message}`;
+        console.error(`[ContatoExtractorIA] Erro no modelo ${modelo}:`, fetchError);
       }
     }
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("[ContatoExtractorIA] Erro na API Gemini:", errorText);
+    if (!response || !response.ok) {
+      console.error("[ContatoExtractorIA] Nenhum modelo Gemini funcionou. Último erro:", ultimoErro);
       return { 
         contatos: [], 
         sucesso: false, 
-        erro: `Erro na API: ${response.status}` 
+        erro: `Nenhum modelo disponível. Último erro: ${ultimoErro}` 
       };
     }
 
