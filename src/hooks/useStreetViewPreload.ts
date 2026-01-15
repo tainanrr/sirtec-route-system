@@ -58,7 +58,7 @@ export function useStreetViewPreload() {
 
     if (ordens.length === 0) {
       if (showToast) {
-        toast.info("Nenhuma OS para cachear");
+        toast.info("Nenhuma OS para baixar fachadas");
       }
       return { cached: 0, failed: 0, skipped: 0 };
     }
@@ -70,7 +70,7 @@ export function useStreetViewPreload() {
 
     if (osComCoord.length === 0) {
       if (showToast) {
-        toast.info("Nenhuma OS com coordenadas para cachear fachadas");
+        toast.info("Nenhuma OS com coordenadas para baixar fachadas");
       }
       return { cached: 0, failed: 0, skipped: ordens.length };
     }
@@ -79,7 +79,7 @@ export function useStreetViewPreload() {
 
     let toastId: string | number | undefined;
     if (showToast) {
-      toastId = toast.loading(`Cacheando fachadas: 0/${osComCoord.length}...`, {
+      toastId = toast.loading(`Baixando fachadas: 0/${osComCoord.length}...`, {
         duration: Infinity,
       });
     }
@@ -96,7 +96,7 @@ export function useStreetViewPreload() {
           });
           
           if (toastId) {
-            toast.loading(`Cacheando fachadas: ${current}/${total}...`, {
+            toast.loading(`Baixando fachadas: ${current}/${total}...`, {
               id: toastId,
             });
           }
@@ -114,16 +114,16 @@ export function useStreetViewPreload() {
       if (showToast) {
         if (result.cached > 0) {
           toast.success(
-            `✅ ${result.cached} fachadas cacheadas para uso offline!`,
+            `✅ ${result.cached} fachadas baixadas para uso offline!`,
             { id: toastId, duration: 4000 }
           );
         } else if (result.failed > 0) {
           toast.warning(
-            `⚠️ ${result.failed} fachadas não puderam ser cacheadas`,
+            `⚠️ ${result.failed} fachadas não puderam ser baixadas`,
             { id: toastId, duration: 4000 }
           );
         } else {
-          toast.info("Nenhuma nova fachada para cachear", {
+          toast.info("Nenhuma nova fachada para baixar", {
             id: toastId,
             duration: 3000,
           });
@@ -134,7 +134,7 @@ export function useStreetViewPreload() {
     } catch (error) {
       console.error("[useStreetViewPreload] Erro:", error);
       if (showToast) {
-        toast.error("Erro ao cachear fachadas", { id: toastId });
+        toast.error("Erro ao baixar fachadas", { id: toastId });
       }
       return null;
     } finally {
