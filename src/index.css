@@ -376,3 +376,116 @@
     fill-opacity: 0.1;
   }
 }
+
+/* ============================================================================
+   BALÕES DE EXPECTATIVA DE EQUIPES COM PROJEÇÃO D+1, D+2, D+3
+   ============================================================================ */
+
+/* Container principal do marcador de expectativa */
+.custom-marker-expectativa-projecao {
+  pointer-events: auto !important;
+}
+
+/* Animação suave para hover no container principal */
+.expectativa-container {
+  transition: transform 0.2s ease-out;
+}
+
+.expectativa-container:hover {
+  transform: scale(1.08);
+}
+
+/* Indicadores de projeção com efeito hover */
+.expectativa-container > div:not(:first-child) {
+  transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
+  cursor: pointer;
+}
+
+.expectativa-container > div:not(:first-child):hover {
+  transform: translate(calc(-50% + var(--x, 0px)), calc(-50% + var(--y, 0px))) scale(1.2) !important;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4) !important;
+  z-index: 100;
+}
+
+/* Tooltip customizado para expectativas */
+.expectativa-tooltip-custom {
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.expectativa-tooltip-custom .leaflet-tooltip-content {
+  margin: 0;
+  padding: 0;
+}
+
+.leaflet-tooltip.expectativa-tooltip-custom {
+  background-color: white !important;
+  border: 1px solid #e5e7eb !important;
+  border-radius: 12px !important;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15), 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+  padding: 12px !important;
+  max-width: 320px !important;
+  white-space: normal !important;
+}
+
+.leaflet-tooltip.expectativa-tooltip-custom::before {
+  border-top-color: white !important;
+}
+
+/* Animação de entrada dos indicadores de projeção */
+@keyframes fadeInScale {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.5);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+.expectativa-container > div:not(:first-child) {
+  animation: fadeInScale 0.3s ease-out backwards;
+}
+
+.expectativa-container > div:nth-child(2) { animation-delay: 0.1s; }
+.expectativa-container > div:nth-child(3) { animation-delay: 0.2s; }
+.expectativa-container > div:nth-child(4) { animation-delay: 0.3s; }
+
+/* Pulse suave para indicadores críticos */
+@keyframes criticalPulse {
+  0%, 100% {
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3), 0 0 0 0 rgba(239, 68, 68, 0.4);
+  }
+  50% {
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3), 0 0 0 6px rgba(239, 68, 68, 0);
+  }
+}
+
+/* Aplicar animação de pulse quando hover no container mostra indicador crítico */
+.expectativa-container:has([style*="ef4444"]) > div:first-child {
+  animation: criticalPulse 2s ease-in-out infinite;
+}
+
+/* Estilos para tendências */
+.tendencia-critica {
+  animation: criticalPulse 1.5s ease-in-out infinite;
+}
+
+.tendencia-crescente {
+  border-color: #f97316 !important;
+}
+
+/* Responsividade para telas menores */
+@media (max-width: 768px) {
+  .expectativa-container {
+    transform: scale(0.85);
+  }
+  
+  .leaflet-tooltip.expectativa-tooltip-custom {
+    max-width: 280px !important;
+    font-size: 11px;
+  }
+}

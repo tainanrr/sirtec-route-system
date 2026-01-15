@@ -580,6 +580,210 @@ export function calcularExpectativaEquipesPorTerritorio(
 }
 
 // ============================================================================
+// PROJEÇÃO DE EXPECTATIVAS D+1, D+2, D+3
+// ============================================================================
+
+export interface ProjecaoDia {
+  data: Date;
+  label: string; // "D+1", "D+2", "D+3"
+  totalReguladas: number;
+  totalUrgentes: number; // Reguladas que vencem até esse dia
+  equipesNecessarias: number;
+  tempoTotalMin: number;
+  nivelCriticidade: 'baixo' | 'medio' | 'alto' | 'critico';
+}
+
+export interface ExpectativaTerritorioComProjecao extends ExpectativaTerritorio {
+  projecoes: ProjecaoDia[];
+  tendencia: 'estavel' | 'crescente' | 'decrescente' | 'critica';
+}
+
+/**
+ * Calcula a projeção de reguladas e equipes necessárias para os próximos dias (D+1, D+2, D+3)
+ * @param ordensServico - Lista de ordens de serviço
+ * @param equipes - Lista de equipes
+ * @param territorios - Lista de territórios
+ * @param prazoLimiteAtual - Prazo limite configurado pelo usuário para D+0 (hoje)
+ */
+export function calcularExpectativaEquipesComProjecao(
+  ordensServico: OrdemServico[],
+  equipes: Equipe[],
+  territorios: Territorio[],
+  prazoLimiteAtual?: Date
+): ExpectativaTerritorioComProjecao[] {
+  // Filtrar apenas territórios ativos (com ou sem equipes vinculadas)
+  const territoriosAtivos = territorios.filter(t => t.ativo && t.poligono.length >= 3);
+  
+  if (territoriosAtivos.length === 0) {
+    return [];
+  }
+
+  // Calcular jornada média em minutos
+  const jornadasMin = equipes.map(e => (e.maxHorasTrabalho || e.jornadaHoras || 8) * 60);
+  const jornadaMediaMin = jornadasMin.reduce((a, b) => a + b, 0) / jornadasMin.length || 480;
+  
+  // Descontar almoço (média de 60 min)
+  const tempoUtilPorEquipeMin = jornadaMediaMin - 60;
+
+  // Datas de referência
+  const hoje = new Date();
+  hoje.setHours(23, 59, 59, 999); // Final do dia atual
+  
+  const d1 = new Date(hoje);
+  d1.setDate(d1.getDate() + 1);
+  
+  const d2 = new Date(hoje);
+  d2.setDate(d2.getDate() + 2);
+  
+  const d3 = new Date(hoje);
+  d3.setDate(d3.getDate() + 3);
+
+  const expectativas: ExpectativaTerritorioComProjecao[] = [];
+
+  for (const territorio of territoriosAtivos) {
+    // Filtrar OSs que estão dentro deste território
+    const ossNoTerritorio = ordensServico.filter(os => 
+      pontoNoPoligono({ lat: os.latitude, lng: os.longitude }, territorio.poligono)
+    );
+
+    // Filtrar apenas reguladas com prazo
+    const reguladasComPrazo = ossNoTerritorio.filter(os => 
+      ehOSRegulada(os) && os.prazo
+    );
+
+    // Calcular expectativas atuais (D+0)
+    const ossUrgentesHoje = ossNoTerritorio.filter(os => ehReguladaUrgente(os, prazoLimiteAtual));
+    const tempoTotalUrgentesMin = ossUrgentesHoje.reduce((acc, os) => {
+      return acc + os.tempoExecucao + getTempoMedioDeslocamento();
+    }, 0);
+    const tempoTotalDemandaMin = ossNoTerritorio.reduce((acc, os) => {
+      return acc + os.tempoExecucao + getTempoMedioDeslocamento();
+    }, 0);
+    const equipesNecessariasUrgentes = tempoUtilPorEquipeMin > 0 
+      ? tempoTotalUrgentesMin / tempoUtilPorEquipeMin
+      : 0;
+    const equipesNecessariasTotal = tempoUtilPorEquipeMin > 0
+      ? tempoTotalDemandaMin / tempoUtilPorEquipeMin
+      : 0;
+
+    // Calcular projeções para D+1, D+2, D+3
+    const calcularProjecaoDia = (dataLimite: Date, label: string): ProjecaoDia => {
+      // Reguladas que vencem até esta data (acumulativo)
+      const reguladasAteData = reguladasComPrazo.filter(os => {
+        const prazoDate = new Date(os.prazo!);
+        return prazoDate <= dataLimite;
+      });
+
+      // Calcular tempo e equipes necessárias
+      const tempoTotalMin = reguladasAteData.reduce((acc, os) => {
+        return acc + os.tempoExecucao + getTempoMedioDeslocamento();
+      }, 0);
+
+      const equipesNecessarias = tempoUtilPorEquipeMin > 0
+        ? tempoTotalMin / tempoUtilPorEquipeMin
+        : 0;
+
+      // Determinar nível de criticidade
+      let nivelCriticidade: 'baixo' | 'medio' | 'alto' | 'critico';
+      const equipesVinculadas = (territorio.equipeIds || []).length;
+      const capacidadeBase = equipesVinculadas || 1;
+      const razaoCapacidade = equipesNecessarias / capacidadeBase;
+      
+      if (razaoCapacidade <= 0.7) {
+        nivelCriticidade = 'baixo';
+      } else if (razaoCapacidade <= 1.0) {
+        nivelCriticidade = 'medio';
+      } else if (razaoCapacidade <= 1.5) {
+        nivelCriticidade = 'alto';
+      } else {
+        nivelCriticidade = 'critico';
+      }
+
+      return {
+        data: dataLimite,
+        label,
+        totalReguladas: reguladasAteData.length,
+        totalUrgentes: reguladasAteData.length, // Todas que vencem até a data são consideradas urgentes
+        equipesNecessarias: Math.max(0, equipesNecessarias),
+        tempoTotalMin,
+        nivelCriticidade
+      };
+    };
+
+    const projecoes: ProjecaoDia[] = [
+      calcularProjecaoDia(d1, 'D+1'),
+      calcularProjecaoDia(d2, 'D+2'),
+      calcularProjecaoDia(d3, 'D+3')
+    ];
+
+    // Determinar tendência
+    const equipesD0 = equipesNecessariasUrgentes;
+    const equipesD3 = projecoes[2].equipesNecessarias;
+    const crescimento = equipesD3 - equipesD0;
+    
+    let tendencia: 'estavel' | 'crescente' | 'decrescente' | 'critica';
+    if (projecoes[2].nivelCriticidade === 'critico' || projecoes[1].nivelCriticidade === 'critico') {
+      tendencia = 'critica';
+    } else if (crescimento > 0.5) {
+      tendencia = 'crescente';
+    } else if (crescimento < -0.3) {
+      tendencia = 'decrescente';
+    } else {
+      tendencia = 'estavel';
+    }
+
+    // Encontrar equipes atribuídas ao território
+    const equipesVinculadas = (territorio.equipeIds || [])
+      .map(id => equipes.find(e => e.id === id))
+      .filter(e => e !== undefined);
+    const equipeCodigos = equipesVinculadas.map(e => e!.codigo);
+
+    expectativas.push({
+      territorioId: territorio.id,
+      territorioNome: territorio.nome,
+      equipeIds: territorio.equipeIds || [],
+      equipeCodigos: equipeCodigos,
+      totalOSs: ossNoTerritorio.length,
+      totalUrgentes: ossUrgentesHoje.length,
+      equipesNecessariasUrgentes: Math.max(0, equipesNecessariasUrgentes),
+      equipesNecessariasTotal: Math.max(0, equipesNecessariasTotal),
+      tempoTotalUrgentesMin,
+      tempoTotalDemandaMin,
+      projecoes,
+      tendencia
+    });
+  }
+
+  return expectativas.sort((a, b) => a.territorioNome.localeCompare(b.territorioNome));
+}
+
+/**
+ * Obtém a cor do indicador baseado no nível de criticidade
+ */
+export function getCorCriticidade(nivel: 'baixo' | 'medio' | 'alto' | 'critico'): string {
+  switch (nivel) {
+    case 'baixo': return '#22c55e'; // Verde
+    case 'medio': return '#eab308'; // Amarelo
+    case 'alto': return '#f97316'; // Laranja
+    case 'critico': return '#ef4444'; // Vermelho
+    default: return '#6b7280'; // Cinza
+  }
+}
+
+/**
+ * Obtém o ícone de tendência
+ */
+export function getIconeTendencia(tendencia: 'estavel' | 'crescente' | 'decrescente' | 'critica'): string {
+  switch (tendencia) {
+    case 'crescente': return '↗';
+    case 'decrescente': return '↘';
+    case 'critica': return '⚠';
+    case 'estavel': return '→';
+    default: return '→';
+  }
+}
+
+// ============================================================================
 // SUGESTÃO DE UNIÃO DE TERRITÓRIOS
 // ============================================================================
 

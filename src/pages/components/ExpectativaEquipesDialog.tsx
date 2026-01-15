@@ -14,8 +14,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { ExpectativaTerritorio, SugestaoUniaoTerritorio, sugerirUniaoTerritorios } from "@/lib/routingUtils";
-import { AlertCircle, Users, Zap, Clock, Merge, MapPin } from "lucide-react";
+import { ExpectativaTerritorioComProjecao, SugestaoUniaoTerritorio, sugerirUniaoTerritorios, getCorCriticidade, getIconeTendencia } from "@/lib/routingUtils";
+import { AlertCircle, Users, Zap, Merge, MapPin, TrendingUp, Calendar } from "lucide-react";
 import { formatarTempo } from "@/lib/routingUtils";
 import { Territorio } from "@/types/territorios";
 import { Equipe } from "@/data/mockData";
@@ -23,7 +23,7 @@ import { Equipe } from "@/data/mockData";
 interface ExpectativaEquipesDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  expectativas: ExpectativaTerritorio[];
+  expectativas: ExpectativaTerritorioComProjecao[];
   territorios?: Territorio[];
   equipes?: Equipe[];
 }
@@ -103,103 +103,155 @@ export default function ExpectativaEquipesDialog({
               </div>
             </div>
 
-            {/* Tabela de Expectativas */}
-            <div className="rounded-lg border border-border">
+            {/* Tabela de Expectativas com Projeções */}
+            <div className="rounded-lg border border-border overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[200px]">Território</TableHead>
-                    <TableHead className="text-center">Equipe Atribuída</TableHead>
-                    <TableHead className="text-center">Total OSs</TableHead>
+                    <TableHead className="w-[150px]">Território</TableHead>
+                    <TableHead className="text-center">Equipe</TableHead>
                     <TableHead className="text-center">
                       <div className="flex items-center justify-center gap-1">
                         <Zap className="h-4 w-4 text-danger" />
-                        <span>OSs Urgentes</span>
+                        <span>Urgentes</span>
                       </div>
                     </TableHead>
                     <TableHead className="text-center">
-                      <div className="flex flex-col items-center gap-1">
-                        <span className="text-xs text-muted-foreground">Equipes para</span>
-                        <span className="text-xs font-semibold text-danger">Urgentes</span>
+                      <div className="flex flex-col items-center gap-0">
+                        <span className="text-xs font-semibold">Hoje</span>
+                        <span className="text-[10px] text-muted-foreground">D+0</span>
                       </div>
                     </TableHead>
                     <TableHead className="text-center">
-                      <div className="flex flex-col items-center gap-1">
-                        <span className="text-xs text-muted-foreground">Equipes para</span>
-                        <span className="text-xs font-semibold">Toda Demanda</span>
+                      <div className="flex flex-col items-center gap-0">
+                        <span className="text-xs font-semibold">Amanhã</span>
+                        <span className="text-[10px] text-muted-foreground">D+1</span>
+                      </div>
+                    </TableHead>
+                    <TableHead className="text-center">
+                      <div className="flex flex-col items-center gap-0">
+                        <span className="text-xs font-semibold">+2 dias</span>
+                        <span className="text-[10px] text-muted-foreground">D+2</span>
+                      </div>
+                    </TableHead>
+                    <TableHead className="text-center">
+                      <div className="flex flex-col items-center gap-0">
+                        <span className="text-xs font-semibold">+3 dias</span>
+                        <span className="text-[10px] text-muted-foreground">D+3</span>
                       </div>
                     </TableHead>
                     <TableHead className="text-center">
                       <div className="flex items-center justify-center gap-1">
-                        <Clock className="h-4 w-4 text-muted-foreground" />
-                        <span>Tempo Total</span>
+                        <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                        <span>Tendência</span>
                       </div>
                     </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {expectativas.map((expectativa) => (
-                    <TableRow key={expectativa.territorioId}>
-                      <TableCell className="font-medium">
-                        {expectativa.territorioNome}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {expectativa.equipeCodigos && expectativa.equipeCodigos.length > 0 ? (
-                          <div className="flex flex-wrap gap-1 justify-center">
-                            {expectativa.equipeCodigos.map((codigo, idx) => (
-                              <Badge key={idx} variant="secondary">{codigo}</Badge>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground text-sm">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <span className="font-medium">{expectativa.totalOSs}</span>
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {expectativa.totalUrgentes > 0 ? (
-                          <Badge variant="regulada" className="font-semibold">
-                            {expectativa.totalUrgentes}
-                          </Badge>
-                        ) : (
-                          <span className="text-muted-foreground">0</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {expectativa.equipesNecessariasUrgentes > 0 ? (
-                          <Badge variant="destructive" className="font-bold">
-                            {formatarEquipes(expectativa.equipesNecessariasUrgentes)}
-                          </Badge>
-                        ) : (
-                          <span className="text-muted-foreground">0,0</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {expectativa.equipesNecessariasTotal > 0 ? (
-                          <Badge variant="default" className="font-semibold">
-                            {formatarEquipes(expectativa.equipesNecessariasTotal)}
-                          </Badge>
-                        ) : (
-                          <span className="text-muted-foreground">0,0</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <div className="flex flex-col gap-1">
-                          {expectativa.tempoTotalUrgentesMin > 0 && (
-                            <span className="text-xs text-danger font-medium">
-                              Urgentes: {formatarTempo(expectativa.tempoTotalUrgentesMin)}
-                            </span>
+                  {expectativas.map((expectativa) => {
+                    const tendenciaIcon = getIconeTendencia(expectativa.tendencia);
+                    const tendenciaLabel = 
+                      expectativa.tendencia === 'critica' ? 'Crítica' :
+                      expectativa.tendencia === 'crescente' ? 'Crescente' :
+                      expectativa.tendencia === 'decrescente' ? 'Decrescente' : 'Estável';
+                    const tendenciaCor = 
+                      expectativa.tendencia === 'critica' ? 'text-red-600' :
+                      expectativa.tendencia === 'crescente' ? 'text-orange-500' :
+                      expectativa.tendencia === 'decrescente' ? 'text-green-600' : 'text-blue-500';
+                    
+                    return (
+                      <TableRow key={expectativa.territorioId}>
+                        <TableCell className="font-medium">
+                          {expectativa.territorioNome}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {expectativa.equipeCodigos && expectativa.equipeCodigos.length > 0 ? (
+                            <div className="flex flex-wrap gap-1 justify-center">
+                              {expectativa.equipeCodigos.slice(0, 2).map((codigo, idx) => (
+                                <Badge key={idx} variant="secondary" className="text-[10px] px-1.5">{codigo}</Badge>
+                              ))}
+                              {expectativa.equipeCodigos.length > 2 && (
+                                <Badge variant="outline" className="text-[10px] px-1">+{expectativa.equipeCodigos.length - 2}</Badge>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">-</span>
                           )}
-                          <span className="text-xs text-muted-foreground">
-                            Total: {formatarTempo(expectativa.tempoTotalDemandaMin)}
-                          </span>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {expectativa.totalUrgentes > 0 ? (
+                            <Badge variant="regulada" className="font-semibold">
+                              {expectativa.totalUrgentes}
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground">0</span>
+                          )}
+                        </TableCell>
+                        {/* D+0 (Hoje) */}
+                        <TableCell className="text-center">
+                          <div className="flex flex-col items-center gap-0.5">
+                            <span 
+                              className="inline-flex items-center justify-center w-8 h-8 rounded-full text-white font-bold text-sm"
+                              style={{ backgroundColor: expectativa.equipesNecessariasUrgentes > 1 ? '#ef4444' : expectativa.equipesNecessariasUrgentes > 0.7 ? '#f97316' : '#22c55e' }}
+                            >
+                              {formatarEquipes(expectativa.equipesNecessariasUrgentes)}
+                            </span>
+                          </div>
+                        </TableCell>
+                        {/* D+1, D+2, D+3 */}
+                        {expectativa.projecoes.map((projecao, idx) => (
+                          <TableCell key={idx} className="text-center">
+                            <div className="flex flex-col items-center gap-0.5">
+                              <span 
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-full text-white font-bold text-sm"
+                                style={{ backgroundColor: getCorCriticidade(projecao.nivelCriticidade) }}
+                              >
+                                {formatarEquipes(projecao.equipesNecessarias)}
+                              </span>
+                              <span className="text-[10px] text-muted-foreground">
+                                {projecao.totalReguladas} reg.
+                              </span>
+                            </div>
+                          </TableCell>
+                        ))}
+                        <TableCell className="text-center">
+                          <div className={`flex items-center justify-center gap-1 font-medium ${tendenciaCor}`}>
+                            <span className="text-lg">{tendenciaIcon}</span>
+                            <span className="text-xs">{tendenciaLabel}</span>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
+            </div>
+
+            {/* Legenda de Cores */}
+            <div className="mt-4 p-3 rounded-lg border border-border bg-muted/30">
+              <div className="flex items-center gap-2 mb-2">
+                <Calendar className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">Legenda - Nível de Criticidade:</span>
+              </div>
+              <div className="flex flex-wrap gap-4 text-xs">
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-block w-4 h-4 rounded-full" style={{ backgroundColor: '#22c55e' }}></span>
+                  <span>Baixo (≤70% capacidade)</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-block w-4 h-4 rounded-full" style={{ backgroundColor: '#eab308' }}></span>
+                  <span>Médio (≤100% capacidade)</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-block w-4 h-4 rounded-full" style={{ backgroundColor: '#f97316' }}></span>
+                  <span>Alto (≤150% capacidade)</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-block w-4 h-4 rounded-full" style={{ backgroundColor: '#ef4444' }}></span>
+                  <span>Crítico (&gt;150% capacidade)</span>
+                </div>
+              </div>
             </div>
 
             {/* Sugestões de União */}
@@ -269,25 +321,25 @@ export default function ExpectativaEquipesDialog({
               </div>
             )}
 
-            {/* Legenda */}
+            {/* Legenda de Tendências */}
             <div className="mt-4 p-4 rounded-lg border border-border bg-muted/30">
-              <div className="text-sm font-medium text-foreground mb-2">Legenda:</div>
+              <div className="text-sm font-medium text-foreground mb-2">Entenda as Tendências:</div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-muted-foreground">
                 <div className="flex items-center gap-2">
-                  <Badge variant="regulada" className="h-4 w-4 p-0" />
-                  <span><strong>OSs Urgentes:</strong> Reguladas com prazo até o limite configurado</span>
+                  <span className="text-lg">↗</span>
+                  <span><strong>Crescente:</strong> Demanda aumentando nos próximos dias</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge variant="destructive" className="h-4 w-4 p-0" />
-                  <span><strong>Equipes para Urgentes:</strong> Quantidade mínima para atender apenas OSs urgentes</span>
+                  <span className="text-lg">↘</span>
+                  <span><strong>Decrescente:</strong> Demanda diminuindo nos próximos dias</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge variant="default" className="h-4 w-4 p-0" />
-                  <span><strong>Equipes para Toda Demanda:</strong> Quantidade necessária para atender todas as OSs do território</span>
+                  <span className="text-lg">→</span>
+                  <span><strong>Estável:</strong> Demanda mantendo-se constante</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4" />
-                  <span><strong>Tempo Total:</strong> Inclui tempo de execução + deslocamento médio</span>
+                  <span className="text-lg">⚠</span>
+                  <span><strong>Crítica:</strong> Atenção! Cenário crítico nos próximos dias</span>
                 </div>
               </div>
             </div>

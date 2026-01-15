@@ -28,7 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { OrdemServico, Equipe } from "@/data/mockData";
-import { RotaEquipe, calcularExpectativaEquipesPorTerritorio, ExpectativaTerritorio } from "@/lib/routingUtils";
+import { RotaEquipe, calcularExpectativaEquipesComProjecao, ExpectativaTerritorioComProjecao, getCorCriticidade, getIconeTendencia } from "@/lib/routingUtils";
 import { buscarRotaOSRM, RouteGeometry } from "@/services/osrm";
 import { getDadosSkills } from "@/lib/skillsUtils";
 import { pontoNoPoligono } from "@/types/territorios";
@@ -2652,10 +2652,10 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
     });
     expectativasMarkersRef.current = [];
 
-    // Calcular expectativas de equipes para os territórios
+    // Calcular expectativas de equipes COM PROJEÇÕES D+1, D+2, D+3 para os territórios
     const territoriosAtivos = territorios.filter((t) => t.ativo && t.poligono.length >= 3);
-    const expectativas = calcularExpectativaEquipesPorTerritorio(osPendentes, equipesMock, territoriosAtivos, prazoLimiteUrgente);
-    const expectativasMap = new Map<string, ExpectativaTerritorio>();
+    const expectativas = calcularExpectativaEquipesComProjecao(osPendentes, equipesMock, territoriosAtivos, prazoLimiteUrgente);
+    const expectativasMap = new Map<string, ExpectativaTerritorioComProjecao>();
     expectativas.forEach(exp => expectativasMap.set(exp.territorioId, exp));
 
     // Adicionar territórios ativos ao mapa
@@ -2722,46 +2722,209 @@ export default function MapaLeaflet({ rotas, osPendentes, equipesMock, todasEqui
           ? expectativa.equipesNecessariasUrgentes.toFixed(1).replace('.', ',')
           : '0,0';
         
-        // Usar a cor do território para o marcador
+        // Usar a cor do território para o marcador base
         const corTerritorio = territorio.cor || '#3b82f6';
         
-        // Criar marcador grande com o número
+        // Obter projeções D+1, D+2, D+3
+        const projecoes = expectativa?.projecoes || [];
+        const tendencia = expectativa?.tendencia || 'estavel';
+        const iconeTendencia = getIconeTendencia(tendencia);
+        
+        // Criar indicadores de projeção
+        const criarIndicadorProjecao = (projecao: typeof projecoes[0], index: number) => {
+          if (!projecao) return '';
+          const cor = getCorCriticidade(projecao.nivelCriticidade);
+          const valor = projecao.equipesNecessarias.toFixed(1).replace('.', ',');
+          const angulo = -60 + (index * 60); // Posicionar em arco
+          const raio = 38; // Distância do centro
+          const x = Math.cos((angulo * Math.PI) / 180) * raio;
+          const y = Math.sin((angulo * Math.PI) / 180) * raio;
+          
+          return `
+            <div style="
+              position: absolute;
+              left: 50%;
+              top: 50%;
+              transform: translate(calc(-50% + ${x}px), calc(-50% + ${y}px));
+              background-color: ${cor};
+              color: white;
+              width: 26px;
+              height: 26px;
+              border-radius: 50%;
+              border: 2px solid white;
+              box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              font-size: 9px;
+              font-weight: bold;
+              line-height: 1;
+              cursor: default;
+            ">
+              <span style="font-size: 7px; opacity: 0.9;">${projecao.label}</span>
+              <span>${valor}</span>
+            </div>
+          `;
+        };
+        
+        // Cor de fundo do marcador central SEMPRE é a cor do território
+        // A intensidade da criticidade é mostrada apenas na BORDA
+        const totalUrgentesParaBorda = expectativa?.totalUrgentes || 0;
+        
+        // Definir cor e espessura da borda baseada na quantidade de urgentes
+        let corBorda = 'white';
+        let espessuraBorda = 3;
+        let boxShadowBorda = '0 4px 12px rgba(0,0,0,0.35)';
+        
+        if (totalUrgentesParaBorda >= 10) {
+          // Crítico - muitas urgentes (vermelho intenso, borda grossa)
+          corBorda = '#dc2626';
+          espessuraBorda = 5;
+          boxShadowBorda = '0 4px 12px rgba(0,0,0,0.35), 0 0 0 3px rgba(220, 38, 38, 0.4)';
+        } else if (totalUrgentesParaBorda >= 5) {
+          // Alto - borda laranja
+          corBorda = '#f97316';
+          espessuraBorda = 4;
+          boxShadowBorda = '0 4px 12px rgba(0,0,0,0.35), 0 0 0 2px rgba(249, 115, 22, 0.3)';
+        } else if (totalUrgentesParaBorda >= 3) {
+          // Atenção - borda amarela
+          corBorda = '#eab308';
+          espessuraBorda = 4;
+          boxShadowBorda = '0 4px 12px rgba(0,0,0,0.35), 0 0 0 2px rgba(234, 179, 8, 0.3)';
+        } else if (totalUrgentesParaBorda >= 1) {
+          // Alguma atenção - borda verde claro
+          corBorda = '#84cc16';
+          espessuraBorda = 3;
+        }
+        // Se 0 urgentes, mantém borda branca
+        
+        // Criar marcador com design aprimorado - fundo SEMPRE da cor do território
         const markerHTML = `
-          <div style="
-            background-color: ${corTerritorio};
-            color: white;
-            width: 60px;
-            height: 60px;
-            border-radius: 50%;
-            border: 4px solid white;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-            font-weight: bold;
-            text-align: center;
-            line-height: 1;
+          <div class="expectativa-container" style="
+            position: relative;
+            width: 100px;
+            height: 100px;
           ">
-            ${valorFormatado}
+            <!-- Marcador central principal - COR DO TERRITÓRIO -->
+            <div style="
+              position: absolute;
+              left: 50%;
+              top: 50%;
+              transform: translate(-50%, -50%);
+              background: linear-gradient(135deg, ${corTerritorio} 0%, ${corTerritorio}dd 100%);
+              color: white;
+              width: 52px;
+              height: 52px;
+              border-radius: 50%;
+              border: ${espessuraBorda}px solid ${corBorda};
+              box-shadow: ${boxShadowBorda};
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              font-size: 18px;
+              font-weight: bold;
+              text-align: center;
+              line-height: 1;
+              z-index: 10;
+            ">
+              <span style="font-size: 10px; opacity: 0.85;">Hoje</span>
+              <span>${valorFormatado}</span>
+              ${tendencia !== 'estavel' ? `<span style="font-size: 12px; margin-top: -2px;">${iconeTendencia}</span>` : ''}
+            </div>
+            
+            <!-- Indicadores de projeção D+1, D+2, D+3 -->
+            ${projecoes.map((p, i) => criarIndicadorProjecao(p, i)).join('')}
           </div>
         `;
 
         const marker = L.marker([centroide.lat, centroide.lng], {
           icon: L.divIcon({
-            className: "custom-marker-expectativa",
+            className: "custom-marker-expectativa-projecao",
             html: markerHTML,
-            iconSize: [60, 60],
-            iconAnchor: [30, 30],
+            iconSize: [100, 100],
+            iconAnchor: [50, 50],
           }),
           zIndexOffset: 1000, // Garantir que fique acima dos outros marcadores
         });
 
+        // Tooltip detalhado com todas as informações
         const totalUrgentes = expectativa?.totalUrgentes || 0;
-        marker.bindTooltip(
-          `<strong>${territorio.nome}</strong><br>Equipes necessárias para urgentes: <strong>${valorFormatado}</strong><br>Total de urgentes: ${totalUrgentes}`,
-          { permanent: false, direction: 'top', offset: [0, -35] }
-        );
+        const equipesVinculadas = (territorio.equipeIds || []).length;
+        
+        const tooltipContent = `
+          <div style="min-width: 280px; font-family: system-ui, -apple-system, sans-serif;">
+            <div style="font-weight: bold; font-size: 14px; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #e5e7eb;">
+              ${territorio.nome}
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+              <div style="background: #f3f4f6; padding: 6px 8px; border-radius: 6px;">
+                <div style="font-size: 10px; color: #6b7280; text-transform: uppercase;">Equipes Vinc.</div>
+                <div style="font-size: 16px; font-weight: bold; color: #1f2937;">${equipesVinculadas}</div>
+              </div>
+              <div style="background: #fef3c7; padding: 6px 8px; border-radius: 6px;">
+                <div style="font-size: 10px; color: #92400e; text-transform: uppercase;">Urgentes Hoje</div>
+                <div style="font-size: 16px; font-weight: bold; color: #b45309;">${totalUrgentes}</div>
+              </div>
+            </div>
+            
+            <div style="font-weight: 600; font-size: 11px; color: #374151; margin-bottom: 6px; text-transform: uppercase;">
+              📊 Projeção de Demanda
+            </div>
+            
+            <table style="width: 100%; font-size: 11px; border-collapse: collapse;">
+              <thead>
+                <tr style="background: #f9fafb;">
+                  <th style="padding: 4px 6px; text-align: left; font-weight: 600;">Período</th>
+                  <th style="padding: 4px 6px; text-align: center; font-weight: 600;">Reguladas</th>
+                  <th style="padding: 4px 6px; text-align: center; font-weight: 600;">Equipes</th>
+                  <th style="padding: 4px 6px; text-align: center; font-weight: 600;">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style="background: ${corTerritorio}15;">
+                  <td style="padding: 4px 6px; font-weight: 600;">Hoje (D+0)</td>
+                  <td style="padding: 4px 6px; text-align: center;">${totalUrgentes}</td>
+                  <td style="padding: 4px 6px; text-align: center; font-weight: bold;">${valorFormatado}</td>
+                  <td style="padding: 4px 6px; text-align: center;">
+                    <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ${corBorda === 'white' ? corTerritorio : corBorda};"></span>
+                  </td>
+                </tr>
+                ${projecoes.map(p => `
+                  <tr>
+                    <td style="padding: 4px 6px;">${p.label} (${p.data.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit' })})</td>
+                    <td style="padding: 4px 6px; text-align: center;">${p.totalReguladas}</td>
+                    <td style="padding: 4px 6px; text-align: center; font-weight: bold;">${p.equipesNecessarias.toFixed(1).replace('.', ',')}</td>
+                    <td style="padding: 4px 6px; text-align: center;">
+                      <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: ${getCorCriticidade(p.nivelCriticidade)};"></span>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+            
+            <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #e5e7eb; font-size: 10px; color: #6b7280;">
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <span style="display: flex; align-items: center; gap: 2px;"><span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #22c55e;"></span> OK</span>
+                <span style="display: flex; align-items: center; gap: 2px;"><span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #eab308;"></span> Atenção</span>
+                <span style="display: flex; align-items: center; gap: 2px;"><span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #f97316;"></span> Alto</span>
+                <span style="display: flex; align-items: center; gap: 2px;"><span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #ef4444;"></span> Crítico</span>
+              </div>
+              <div style="margin-top: 4px;">
+                Tendência: <strong>${tendencia === 'critica' ? '⚠️ Crítica' : tendencia === 'crescente' ? '📈 Crescente' : tendencia === 'decrescente' ? '📉 Decrescente' : '➡️ Estável'}</strong>
+              </div>
+            </div>
+          </div>
+        `;
+        
+        marker.bindTooltip(tooltipContent, { 
+          permanent: false, 
+          direction: 'top', 
+          offset: [0, -55],
+          className: 'expectativa-tooltip-custom'
+        });
 
         marker.addTo(map);
         expectativasMarkersRef.current.push(marker);

@@ -68,8 +68,8 @@ import {
   formatarTempo,
   formatarData,
   recalcularRota,
-  calcularExpectativaEquipesPorTerritorio,
-  ExpectativaTerritorio,
+  calcularExpectativaEquipesComProjecao,
+  ExpectativaTerritorioComProjecao,
   type ResultadoRecalculo,
   type InconformidadeRota,
   ParametrosRoteirizacao,
@@ -360,7 +360,7 @@ const Roteirizacao = () => {
   const [territoriosVisiveis, setTerritoriosVisiveis] = useState<string[]>([]); // Territórios visíveis no mapa (botão olho)
   const [expectativaDialogOpen, setExpectativaDialogOpen] = useState(false);
   const [calendarioReguladasDialogOpen, setCalendarioReguladasDialogOpen] = useState(false);
-  const [expectativas, setExpectativas] = useState<ExpectativaTerritorio[]>([]);
+  const [expectativas, setExpectativas] = useState<ExpectativaTerritorioComProjecao[]>([]);
   
   // Previsões de chuva para OSs reguladas no mapa
   const [previsoesChuvaPorData, setPrevisoesChuvaPorData] = useState<Map<string, PrevisaoChuvaData>>(new Map());
@@ -4623,7 +4623,7 @@ const Roteirizacao = () => {
       ? territorios.filter(t => territoriosSelecionados.includes(t.id))
       : territorios;
     
-    const expectativasCalculadas = calcularExpectativaEquipesPorTerritorio(
+    const expectativasCalculadas = calcularExpectativaEquipesComProjecao(
       osPendentes,
       equipes,
       territoriosParaCalculo,
